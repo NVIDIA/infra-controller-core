@@ -35,8 +35,6 @@ use util::ssh_console_test_helper;
 use crate::util::ssh_client::PermissiveSshClient;
 use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 
-#[allow(dead_code)]
-static TENANT_SSH_KEY: &str = include_str!("fixtures/tenant_ssh_key");
 static TENANT_SSH_PUBKEY: &str = include_str!("fixtures/tenant_ssh_key.pub");
 
 lazy_static! {
@@ -250,7 +248,8 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
                         let prompt = format!("root@{} # ", env.mock_hosts[0].machine_id).into_bytes();
                         if buf.windows(prompt.len()).any(|w| w == prompt) {
                             buf.clear();
-                            prompt_seen_tx.send(()).await?;
+                            // Use try_send to avoid blocking this reader task
+                            prompt_seen_tx.try_send(())?;
                         }
                     }
                     Some(_) => {},
@@ -263,14 +262,20 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
         Ok::<(), eyre::Error>(())
     });
 
-    // Send ctrl+c (break) 10 times, waiting for reconnection after each time
+    // Send ctrl+c (break) multiple times, waiting for reconnection after each time
     for _ in 0..5 {
         let mut newline_interval = tokio::time::interval(Duration::from_secs(1));
+        let wait_for_prompt_timeout = Instant::now() + Duration::from_secs(10);
         // Send newlines to wait for prompt to appear
         'wait_for_prompt: loop {
             tokio::select! {
+                _ = tokio::time::sleep_until(wait_for_prompt_timeout) => {
+                    panic!("Timed out waiting for prompt during reconnect");
+                }
                 _ = newline_interval.tick() => {
-                    channel_tx.data(b"\n".as_slice()).await?;
+                    tokio::time::timeout(Duration::from_secs(10), channel_tx.data(b"\n".as_slice()))
+                        .await
+                        .expect("Timed out writing newline while waiting for reconnect")?;
                 }
                 res = prompt_seen_rx.recv() => match res {
                     Some(()) => break 'wait_for_prompt,
@@ -280,7 +285,9 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
         }
 
         // Send ctrl+C to cause a disconnect
-        channel_tx.data([3u8].as_slice()).await?;
+        tokio::time::timeout(Duration::from_secs(10), channel_tx.data([3u8].as_slice()))
+            .await
+            .expect("Timed out writing ctrl+C to trigger reconnect")?;
     }
 
     done_tx.send(()).ok();

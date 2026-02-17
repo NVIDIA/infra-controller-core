@@ -3097,7 +3097,7 @@ async fn check_fw_component_version(
         let inventory = match redfish_client.get_firmware(inventory_id).await {
             Ok(inventory) => inventory,
             Err(e) => {
-                tracing::error!("redfish command get_firmware error {}", e.to_string());
+                tracing::error!(machine_id=%dpu_snapshot.id, "redfish command get_firmware error {}", e.to_string());
                 return Err(StateHandlerError::RedfishError {
                     operation: "get_firmware",
                     error: e,
@@ -3107,7 +3107,7 @@ async fn check_fw_component_version(
 
         if inventory.version.is_none() {
             let msg = format!("Unknown {component_name:?} version");
-            tracing::error!(msg);
+            tracing::error!(machine_id=%dpu_snapshot.id, msg);
             return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
         };
 
@@ -3139,6 +3139,7 @@ async fn check_fw_component_version(
             {
                 // For this case need to run host power cycle
                 tracing::info!(
+                    machine_id=%dpu_snapshot.id,
                     "Need to launch host power cycle to update CEC FW from {} to {}",
                     cur_version,
                     expected_version
@@ -3147,6 +3148,7 @@ async fn check_fw_component_version(
             }
 
             tracing::warn!(
+                machine_id=%dpu_snapshot.id,
                 "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
                 component,
                 expected_version,
@@ -3163,8 +3165,8 @@ async fn check_fw_component_version(
         }
 
         tracing::info!(
-            "{}: {:#?} FW updated succesfully to {}",
-            dpu_snapshot.id,
+            machine_id=%dpu_snapshot.id,
+            "{:#?} FW updated succesfully to {}",
             component,
             expected_version,
         );
@@ -3178,14 +3180,16 @@ async fn check_fw_component_version(
                 .is_some_and(|v| v != cur_version)
             && dpu_snapshot.bmc_addr().is_some()
         {
-            let mut bios_version: Option<String> =
-                match redfish_client.get_firmware("DPU_UEFI").await {
-                    Ok(uefi) => uefi.version.clone(),
-                    Err(e) => {
-                        tracing::error!("redfish command get_firmware error {}", e.to_string());
-                        None
-                    }
-                };
+            let mut bios_version: Option<String> = match redfish_client
+                .get_firmware("DPU_UEFI")
+                .await
+            {
+                Ok(uefi) => uefi.version.clone(),
+                Err(e) => {
+                    tracing::error!(machine_id=%dpu_snapshot.id, "redfish command get_firmware error {}", e.to_string());
+                    None
+                }
+            };
 
             if bios_version.is_none() {
                 let hardware_info = dpu_snapshot.hardware_info.clone();
