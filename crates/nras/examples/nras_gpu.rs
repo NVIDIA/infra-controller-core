@@ -24,10 +24,13 @@ const DEFAULT_EVIDENCE: &str = "EeABGpR4QbD50HlMYaZVZl4sXy1iV0lG/omaPmg33F7DO4D3
 const DEFAULT_FIRMWARE_VERSION: &str = "97.10.52.00.17";
 const DEFAULT_ARCHITECTURE: &str = "blackwell";
 
-fn parse_architecture(s: &str) -> nras::MachineArchitecture {
+/// CLI names for nras::MachineArchitecture (lowercase). Update when adding new variants to the lib.
+const SUPPORTED_ARCHITECTURES: &[&str] = &["blackwell"];
+
+fn parse_architecture(s: &str) -> Option<nras::MachineArchitecture> {
     match s.to_lowercase().as_str() {
-        "blackwell" => nras::MachineArchitecture::Blackwell,
-        _ => nras::MachineArchitecture::Blackwell,
+        "blackwell" => Some(nras::MachineArchitecture::Blackwell),
+        _ => None,
     }
 }
 
@@ -95,7 +98,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let nras_verifier_client = nras::NrasVerifierClient::new_with_config(&config);
 
-    let architecture = parse_architecture(&args.architecture);
+    let supported = SUPPORTED_ARCHITECTURES.join(", ");
+    let architecture = parse_architecture(&args.architecture).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "Unsupported architecture '{}'. Supported values: {}",
+                args.architecture, supported
+            ),
+        )
+    })?;
 
     let verifier_response = nras_verifier_client
         .attest_gpu(&nras::DeviceAttestationInfo {
