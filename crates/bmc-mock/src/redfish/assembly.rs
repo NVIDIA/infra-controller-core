@@ -75,7 +75,8 @@ impl AssemblyBuilder {
             "Assemblies":
             self.assemblies.into_iter().map(|assembly| {
                 json!({
-                    "@odata.id": format!("{}#/Assemblies/{}", self.odata_id, assembly.member_id)
+                    "@odata.id": format!("{}#/Assemblies/{}", self.odata_id, assembly.member_id),
+                    "MemberId": assembly.member_id,
                 }).patch(assembly.value)
             }).collect::<Vec<_>>()
         })
