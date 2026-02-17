@@ -131,7 +131,6 @@ pub struct ProcessedAttestationOutcome {
     pub devices: stdcol::HashMap<String, stdcol::HashMap<String, String>>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
