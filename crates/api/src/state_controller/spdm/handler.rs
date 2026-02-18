@@ -788,10 +788,21 @@ async fn perform_attestation(
         });
     };
 
+    let firmware_version = device
+        .metadata
+        .as_ref()
+        .and_then(|m| m.firmware_version.clone())
+        .ok_or_else(|| SpdmHandlerError::MissingData {
+            field: "firmware_version".to_string(),
+            machine_id: device.machine_id,
+            device_id: device.device_id.clone(),
+        })?;
+
     let device_attestation_info = DeviceAttestationInfo {
         ec: vec![EvidenceCertificate {
             evidence: evidence.signed_measurements.clone(),
-            certificate: ca_certificate.certificate_string.clone(),
+            certificate: nras::certificate_to_base64(&ca_certificate.certificate_string),
+            firmware_version,
         }],
         architecture: nras::MachineArchitecture::Blackwell,
         nonce: device.nonce.to_string(),

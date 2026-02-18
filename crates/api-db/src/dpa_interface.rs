@@ -167,7 +167,7 @@ pub async fn find_by_ip(
 // Returns exactly one DpaInterface, or an error if none or multiple
 // are found, because multiple would not make sense.
 pub async fn get_for_pci_name(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: &MachineId,
     pci_name: &str,
 ) -> Result<DpaInterface, DatabaseError> {
@@ -176,7 +176,7 @@ pub async fn get_for_pci_name(
     let results: Vec<DpaInterface> = sqlx::query_as(query)
         .bind(machine_id)
         .bind(pci_name)
-        .fetch_all(&mut *txn)
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -230,14 +230,14 @@ pub async fn update_card_state(
 
 // Used by the machine statemachine controller to find all DPAs associated with a given machine
 pub async fn find_by_machine_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     mid: &MachineId,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = $1) m";
     let results: Vec<DpaInterface> = {
         sqlx::query_as(query)
             .bind(mid)
-            .fetch_all(&mut *txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?
     };
@@ -246,7 +246,7 @@ pub async fn find_by_machine_id(
 }
 
 pub async fn find_by_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     dpa_ids: &[DpaInterfaceId],
     include_history: bool,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
@@ -541,7 +541,7 @@ mod test {
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0], intf.id);
 
-        let db_intf = crate::dpa_interface::find_by_ids(&mut txn, &[ids[0]], false).await?;
+        let db_intf = crate::dpa_interface::find_by_ids(txn.as_mut(), &[ids[0]], false).await?;
 
         assert_eq!(db_intf.len(), 1);
         assert_eq!(db_intf[0].id, intf.id);

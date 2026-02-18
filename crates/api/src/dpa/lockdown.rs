@@ -16,7 +16,7 @@ use forge_secrets::credentials::{
 };
 use hkdf::Hkdf;
 use sha2::Sha256;
-use sqlx::PgConnection;
+use sqlx::PgPool;
 
 // LOCKDOWN_KEY_LENGTH is the max length of the supported
 // key by a Mellanox device. As of now it's a 64-bit key,
@@ -110,10 +110,10 @@ pub fn derive_candidate_keys(
 // from the database and builds a KdfContext from its hardware-
 // derived fields (MAC address and MachineId).
 async fn build_kdf_context(
-    txn: &mut PgConnection,
+    pg_pool: &PgPool,
     dpa_interface_id: DpaInterfaceId,
 ) -> Result<KdfContext, eyre::Report> {
-    let interfaces = db::dpa_interface::find_by_ids(txn, &[dpa_interface_id], false).await?;
+    let interfaces = db::dpa_interface::find_by_ids(pg_pool, &[dpa_interface_id], false).await?;
     let dpa_interface = interfaces
         .into_iter()
         .next()
@@ -144,13 +144,12 @@ async fn fetch_kdf_secret(
 
 // build_supernic_lockdown_key builds a single lockdown key using
 // the latest KdfContextVersion. Use this for locking a card.
-#[allow(txn_held_across_await)]
 pub async fn build_supernic_lockdown_key(
-    txn: &mut PgConnection,
+    db_reader: &PgPool,
     dpa_interface_id: DpaInterfaceId,
     credential_provider: &dyn CredentialProvider,
 ) -> Result<String, eyre::Report> {
-    let ctx = build_kdf_context(txn, dpa_interface_id).await?;
+    let ctx = build_kdf_context(db_reader, dpa_interface_id).await?;
     let secret = fetch_kdf_secret(credential_provider).await?;
     build_lockdown_key(secret.as_bytes(), &ctx, KdfContextVersion::V1)
 }

@@ -579,7 +579,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         CreateVolume(args) => {
             if let Some(jid) = redfish
-                .create_storage_volume(&args.controller_id, &args.volume_name, &args.raid_type)
+                .create_storage_volume(&args.controller_id, &args.volume_name)
                 .await?
             {
                 tracing::info!("JID: {}", jid);

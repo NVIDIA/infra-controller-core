@@ -319,8 +319,6 @@ pub struct CreateVolumeArgs {
     pub controller_id: String,
     #[clap(long, help = "volume_name")]
     pub volume_name: String,
-    #[clap(long, help = "raid_type")]
-    pub raid_type: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]

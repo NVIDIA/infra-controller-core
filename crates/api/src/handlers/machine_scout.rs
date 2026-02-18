@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 use ::rpc::forge as rpc;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -130,13 +129,16 @@ pub(crate) async fn forge_agent_control(
 
     // Respond based on machine current state
     let state = host_machine.current_state();
-    let (action, action_data) = if is_dpu {
-        get_action_for_dpu_state(state, &machine_id).map_err(CarbideError::from)?
+
+    let (action, action_data, maybe_pending_txn) = if is_dpu {
+        let (action, action_data) =
+            get_action_for_dpu_state(state, &machine_id).map_err(CarbideError::from)?;
+        (action, action_data, Some(txn))
     } else {
         match state {
             ManagedHostState::HostInit {
                 machine_state: MachineState::Init,
-            } => (Action::Retry, None),
+            } => (Action::Retry, None, Some(txn)),
             ManagedHostState::Validation {
                 validation_state:
                     ValidationState::MachineValidation {
@@ -196,11 +198,12 @@ pub(crate) async fn forge_agent_control(
                                 .to_vec(),
                             },
                         ),
+                        Some(txn),
                     )
                 } else {
                     // This avoids sending Machine validation command scout
                     tracing::info!("Skipped machine validation",);
-                    (Action::Noop, None)
+                    (Action::Noop, None, Some(txn))
                 }
             }
             ManagedHostState::HostInit {
@@ -213,7 +216,7 @@ pub(crate) async fn forge_agent_control(
                         ..
                     },
                 ..
-            } => (Action::Discovery, None),
+            } => (Action::Discovery, None, Some(txn)),
             // If the API is configured with attestation_enabled, and
             // the machine has been Discovered (and progressed on to the
             // point where it is WaitingForMeasurements), then let Scout (or
@@ -221,7 +224,7 @@ pub(crate) async fn forge_agent_control(
             // to be sent.
             ManagedHostState::Measuring {
                 measuring_state: MeasuringState::WaitingForMeasurements,
-            } => (Action::Measure, None),
+            } => (Action::Measure, None, Some(txn)),
             ManagedHostState::WaitingForCleanup {
                 cleanup_state: CleanupState::HostCleanup { .. },
             }
@@ -243,9 +246,9 @@ pub(crate) async fn forge_agent_control(
                 // Check scout has already cleaned up the machine
                 if last_cleanup_time.unwrap_or_default() > state_version.timestamp() {
                     tracing::info!("Cleanup is already done");
-                    (Action::Noop, None)
+                    (Action::Noop, None, Some(txn))
                 } else {
-                    (Action::Reset, None)
+                    (Action::Reset, None, Some(txn))
                 }
             }
             ManagedHostState::BomValidating {
@@ -259,20 +262,24 @@ pub(crate) async fn forge_agent_control(
                 if machine.last_discovery_time.unwrap_or_default()
                     < machine.current_version().timestamp()
                 {
-                    (Action::Discovery, None)
+                    (Action::Discovery, None, Some(txn))
                 } else {
-                    (Action::Noop, None)
+                    (Action::Noop, None, Some(txn))
                 }
             }
             ManagedHostState::Assigned {
                 instance_state: InstanceState::WaitingForDpaToBeReady,
-            } => match crate::handlers::dpa::process_scout_req(api, &mut txn, machine_id).await {
-                Ok((action, einfo)) => (action, einfo),
-                Err(e) => {
-                    tracing::error!("Error returned from process_scout_req: {e}");
-                    (Action::Noop, None)
+            } => {
+                // Commit the transaction now, to avoid holding across an unrelated await point
+                txn.commit().await?;
+                match crate::handlers::dpa::process_scout_req(api, machine_id).await {
+                    Ok((action, einfo)) => (action, einfo, None),
+                    Err(e) => {
+                        tracing::error!("Error returned from process_scout_req: {e}");
+                        (Action::Noop, None, None)
+                    }
                 }
-            },
+            }
 
             _ => {
                 // Later this might go to site admin dashboard for manual intervention
@@ -282,17 +289,20 @@ pub(crate) async fn forge_agent_control(
                     %state,
                     "forge agent control",
                 );
-                (Action::Noop, None)
+                (Action::Noop, None, Some(txn))
             }
         }
     };
+
     tracing::info!(
         machine_id = %machine.id,
         action = action.as_str_name(),
         "forge agent control",
     );
 
-    txn.commit().await?;
+    if let Some(txn) = maybe_pending_txn {
+        txn.commit().await?;
+    }
 
     Ok(Response::new(rpc::ForgeAgentControlResponse {
         action: action as i32,

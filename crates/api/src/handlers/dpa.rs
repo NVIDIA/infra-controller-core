@@ -28,7 +28,6 @@ use model::dpa_interface::{
 use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use rpc::protos::mlx_device::MlxDeviceInfo;
-use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
@@ -220,14 +219,13 @@ pub(crate) async fn set_dpa_network_observation_status(
 // mlx device to act on. And the value is a DpaCommand structure.
 pub(crate) async fn process_scout_req(
     api: &Api,
-    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> CarbideResult<(Action, Option<ForgeAgentControlExtraInfo>)> {
     if !api.runtime_config.is_dpa_enabled() {
         return Ok((Action::Noop, None));
     }
-
-    let dpa_snapshots = db::dpa_interface::find_by_machine_id(txn, &machine_id).await?;
+    let dpa_snapshots =
+        db::dpa_interface::find_by_machine_id(&api.database_connection, &machine_id).await?;
 
     if dpa_snapshots.is_empty() {
         tracing::error!(
@@ -252,7 +250,7 @@ pub(crate) async fn process_scout_req(
 
             DpaInterfaceControllerState::Unlocking => {
                 let key = crate::dpa::lockdown::build_supernic_lockdown_key(
-                    txn,
+                    &api.database_connection,
                     sn.id,
                     &*api.credential_provider,
                 )
@@ -281,7 +279,7 @@ pub(crate) async fn process_scout_req(
 
             DpaInterfaceControllerState::Locking => {
                 let key = crate::dpa::lockdown::build_supernic_lockdown_key(
-                    txn,
+                    &api.database_connection,
                     sn.id,
                     &*api.credential_provider,
                 )

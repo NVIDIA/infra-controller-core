@@ -104,6 +104,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut forge_client_config =
         ForgeClientConfig::new(forge_root_ca_path.clone(), Some(forge_client_cert));
     forge_client_config.socks_proxy(proxy);
+    forge_client_config.connect_retries_max = Some(60);
+    forge_client_config.connect_retries_interval = Some(Duration::from_secs(1));
 
     let bmc_registration_mode = if app_config.use_single_bmc_mock {
         // Machines will register their BMC's with the shared registry

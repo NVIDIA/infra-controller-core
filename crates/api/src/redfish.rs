@@ -467,12 +467,6 @@ pub async fn host_power_control_with_location(
 
     match machine.bmc_vendor() {
         bmc_vendor::BMCVendor::Lenovo => {
-            // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
-            redfish_client
-                .boot_once(libredfish::Boot::Pxe)
-                .await
-                .map_err(CarbideError::RedfishError)?;
-
             redfish_client
                 .power(action)
                 .await
@@ -1674,7 +1668,6 @@ pub mod test_support {
             &self,
             _controller_id: &str,
             _volume_name: &str,
-            _raid_type: &str,
         ) -> Result<Option<String>, RedfishError> {
             Ok(None)
         }
