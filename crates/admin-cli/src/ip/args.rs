@@ -26,5 +26,5 @@ pub enum Cmd {
 #[derive(Parser, Debug, Clone)]
 pub struct IpFind {
     /// The IP address we are looking to identify
-    pub ip: std::net::Ipv4Addr,
+    pub ip: std::net::IpAddr,
 }

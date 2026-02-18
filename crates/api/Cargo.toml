@@ -173,9 +173,7 @@ x509-parser = { features = ["verify"], workspace = true }
 
 [features]
 default = ["linux-build"]
-linux-build = [
-  "tss-esapi",
-]
+linux-build = ["tss-esapi"]
 
 [build-dependencies]
 carbide-version = { path = "../version" }

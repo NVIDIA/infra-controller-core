@@ -57,10 +57,14 @@ pub(crate) async fn get_cloud_init_instructions(
     let ip: IpAddr = ip_str
         .parse()
         .map_err(|e| Status::invalid_argument(format!("Failed parsing IP '{ip_str}': {e}")))?;
-    if ip.is_ipv6() {
-        return Err(CarbideError::internal("IPv6 not supported".to_string()).into());
-    }
 
+    // Note that this code path supports IPv6 at the *API layer*, but won't be
+    // able to be exercised until DHCPv6 is working, which is a whole other thing
+    // we need to work on: machines need an IPv6 address before they can request
+    // cloud-init instructions over IPv6, and while we've made changes to site
+    // prefix, network segment, and IP allocators behind the scenes for supporting
+    // dual stacking interfaces, none of that means much until DHCPv6 is working
+    // to actually hand those addresses out.
     let instructions = match db::instance_address::find_by_address(&mut txn, ip).await? {
         None => {
             // assume there is no instance associated with this IP and check if there is an interface associated with it

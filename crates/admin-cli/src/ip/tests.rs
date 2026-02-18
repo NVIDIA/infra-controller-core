@@ -43,7 +43,7 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_find_with_valid_ip ensures find parses valid
+// parse_find_with_valid_ip ensures find parses a valid
 // IPv4 address.
 #[test]
 fn parse_find_with_valid_ip() {
@@ -84,12 +84,13 @@ fn parse_find_invalid_ip_fails() {
     assert!(result.is_err(), "should fail with invalid IP");
 }
 
-// parse_find_ipv6_fails ensures find fails with IPv6
-// (expects IPv4).
+// parse_find_ipv6 ensures find parses a valid IPv6 address.
 #[test]
-fn parse_find_ipv6_fails() {
-    let result = Cmd::try_parse_from(["ip", "find", "::1"]);
-    assert!(result.is_err(), "should fail with IPv6 address");
+fn parse_find_ipv6() {
+    let cmd = Cmd::try_parse_from(["ip", "find", "::1"]).expect("should parse IPv6 address");
+    match cmd {
+        Cmd::Find(args) => assert_eq!(args.ip.to_string(), "::1"),
+    }
 }
 
 // parse_find_missing_ip_fails ensures find requires

@@ -27,6 +27,7 @@ use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
+use forge_network::ip::IdentifyAddressFamily;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
@@ -201,11 +202,6 @@ async fn search(
     ip: &str,
 ) -> Result<Option<rpc::IpAddressMatch>, CarbideError> {
     let addr: IpAddr = ip.parse()?;
-    if addr.is_ipv6() {
-        return Err(CarbideError::InvalidArgument(
-            "Ipv6 not yet supported".to_string(),
-        ));
-    }
 
     let mut txn = api.txn_begin().await?;
 
@@ -330,7 +326,10 @@ async fn search(
 
         // Network segment that contains this IP address
         NetworkSegment => {
-            let out = db::network_prefix::containing_prefix(&mut txn, &format!("{ip}/32")).await?;
+            let host_prefix = addr.address_family().interface_prefix_len();
+            let out =
+                db::network_prefix::containing_prefix(&mut txn, &format!("{ip}/{host_prefix}"))
+                    .await?;
             out.first().map(|prefix| {
                 let message = format!(
                     "{ip} is in prefix {} of segment {}, gateway {}",

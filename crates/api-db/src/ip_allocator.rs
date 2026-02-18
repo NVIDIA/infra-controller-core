@@ -20,6 +20,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::NetworkPrefixId;
+use forge_network::ip::IdentifyAddressFamily;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::network_prefix::NetworkPrefix;
@@ -349,7 +350,10 @@ fn build_allocated_networks(
     if let Some(gateway) = segment_prefix.gateway
         && segment_prefix.prefix.contains(gateway)
     {
-        allocated_ips.push(IpNetwork::new(gateway, max_prefix_len(gateway))?);
+        allocated_ips.push(IpNetwork::new(
+            gateway,
+            gateway.address_family().interface_prefix_len(),
+        )?);
     }
 
     // Next, exclude the first "N" number of addresses in the segment
@@ -363,7 +367,7 @@ fn build_allocated_networks(
         .iter()
         .take(segment_prefix.num_reserved as usize)
     {
-        let next_net = IpNetwork::new(next_ip, max_prefix_len(next_ip))?;
+        let next_net = IpNetwork::new(next_ip, next_ip.address_family().interface_prefix_len())?;
         allocated_ips.push(next_net);
     }
 
@@ -377,10 +381,13 @@ fn build_allocated_networks(
     if should_reserve_network_broadcast {
         let network_addr = segment_prefix.prefix.network();
         let broadcast_addr = segment_prefix.prefix.broadcast();
-        allocated_ips.push(IpNetwork::new(network_addr, max_prefix_len(network_addr))?);
+        allocated_ips.push(IpNetwork::new(
+            network_addr,
+            network_addr.address_family().interface_prefix_len(),
+        )?);
         allocated_ips.push(IpNetwork::new(
             broadcast_addr,
-            max_prefix_len(broadcast_addr),
+            broadcast_addr.address_family().interface_prefix_len(),
         )?);
     }
 
@@ -443,14 +450,6 @@ fn get_network_size(ip_network: &IpNetwork) -> u32 {
     match ip_network.size() {
         ipnetwork::NetworkSize::V4(total_ips) => total_ips,
         ipnetwork::NetworkSize::V6(total_ips) => u32::try_from(total_ips).unwrap_or(u32::MAX),
-    }
-}
-
-/// Returns the maximum prefix length for a single host address (32 for IPv4, 128 for IPv6).
-fn max_prefix_len(ip: IpAddr) -> u8 {
-    match ip {
-        IpAddr::V4(_) => 32,
-        IpAddr::V6(_) => 128,
     }
 }
 

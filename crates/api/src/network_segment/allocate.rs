@@ -18,6 +18,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use forge_network::ip::IdentifyAddressFamily;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NewNetworkPrefix;
@@ -42,12 +43,6 @@ fn u128_to_ip(val: u128, is_v6: bool) -> IpAddr {
     } else {
         IpAddr::V4(Ipv4Addr::from(val as u32))
     }
-}
-
-/// max_prefix_bits returns the maximum prefix length for the address
-/// family (32 for IPv4, 128 for IPv6).
-fn max_prefix_bits(prefix: &IpNetwork) -> u32 {
-    if prefix.is_ipv6() { 128 } else { 32 }
 }
 
 /// wrap_to_prefix_start returns `addr` if it falls within the VPC prefix,
@@ -131,7 +126,7 @@ impl PrefixAllocator {
         last_used_prefix: Option<IpNetwork>,
         prefix: u8,
     ) -> CarbideResult<PrefixAllocator> {
-        let max_bits = max_prefix_bits(&vpc_prefix) as u8;
+        let max_bits = vpc_prefix.address_family().interface_prefix_len();
         if prefix > max_bits {
             return Err(CarbideError::InvalidArgument(format!(
                 "prefix length {prefix} exceeds maximum for address family ({max_bits})"
@@ -253,7 +248,7 @@ impl Iterator for PrefixIterator {
             return Some(IpNetwork::new(ip, self.prefix).unwrap());
         }
 
-        let max_bits = max_prefix_bits(&self.vpc_prefix);
+        let max_bits = self.vpc_prefix.address_family().interface_prefix_len() as u32;
         // Number of host bits in the needed prefix.
         let host_bits: u32 = max_bits - self.prefix as u32;
         // Mask for the network portion of the address.
