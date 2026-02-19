@@ -38,6 +38,7 @@ pub struct Range {
 #[serde(rename_all = "lowercase")]
 pub enum ResourcePoolType {
     Ipv4,
+    Ipv6,
     Integer,
 }
 

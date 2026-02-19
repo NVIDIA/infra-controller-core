@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -389,27 +389,47 @@ async fn define_by_prefix(
     pool_type: ResourcePoolType,
     prefix: &str,
 ) -> Result<(), DefineResourcePoolError> {
-    if !matches!(pool_type, ResourcePoolType::Ipv4) {
-        return Err(DefineResourcePoolError::InvalidArgument(
-            "Only type 'ipv4' can take a prefix".to_string(),
-        ));
+    match pool_type {
+        ResourcePoolType::Ipv4 => {
+            let values = expand_ip_prefix(prefix)
+                .map_err(|e| DefineResourcePoolError::InvalidArgument(e.to_string()))?;
+            let num_values = values.len();
+            if num_values > MAX_POOL_SIZE {
+                return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
+            }
+            let pool = model::resource_pool::ResourcePool::new(
+                name.to_string(),
+                model::resource_pool::ValueType::Ipv4,
+            );
+            populate(&pool, txn, values, true).await?;
+            tracing::debug!(
+                pool_name = name,
+                prefix,
+                num_values,
+                "Populated IPv4 resource pool from prefix"
+            );
+        }
+        ResourcePoolType::Ipv6 => {
+            let values = expand_ipv6_prefix(prefix)?;
+            let num_values = values.len();
+            let pool = model::resource_pool::ResourcePool::new(
+                name.to_string(),
+                model::resource_pool::ValueType::Ipv6,
+            );
+            populate(&pool, txn, values, true).await?;
+            tracing::debug!(
+                pool_name = name,
+                prefix,
+                num_values,
+                "Populated IPv6 resource pool from prefix"
+            );
+        }
+        ResourcePoolType::Integer => {
+            return Err(DefineResourcePoolError::InvalidArgument(
+                "Pool type 'integer' cannot take a prefix".to_string(),
+            ));
+        }
     }
-    let values = expand_ip_prefix(prefix)
-        .map_err(|e| DefineResourcePoolError::InvalidArgument(e.to_string()))?;
-    let num_values = values.len();
-    if num_values > MAX_POOL_SIZE {
-        return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
-    }
-    let pool = model::resource_pool::ResourcePool::new(
-        name.to_string(),
-        model::resource_pool::ValueType::Ipv4,
-    );
-    populate(&pool, txn, values, true).await?;
-    tracing::debug!(
-        pool_name = name,
-        num_values,
-        "Populated IP resource pool from prefix"
-    );
 
     Ok(())
 }
@@ -437,8 +457,26 @@ async fn define_by_range(
             populate(&pool, txn, values, auto_assign).await?;
             tracing::debug!(
                 pool_name = name,
+                range_start,
+                range_end,
                 num_values,
-                "Populated IP resource pool from range"
+                "Populated IPv4 resource pool from range"
+            );
+        }
+        ResourcePoolType::Ipv6 => {
+            let values = expand_ipv6_range(range_start, range_end)?;
+            let num_values = values.len();
+            let pool = model::resource_pool::ResourcePool::new(
+                name.to_string(),
+                model::resource_pool::ValueType::Ipv6,
+            );
+            populate(&pool, txn, values, auto_assign).await?;
+            tracing::debug!(
+                pool_name = name,
+                range_start,
+                range_end,
+                num_values,
+                "Populated IPv6 resource pool from range"
             );
         }
         ResourcePoolType::Integer => {
@@ -480,6 +518,69 @@ fn expand_ip_range(start_s: &str, end_s: &str) -> Result<Vec<Ipv4Addr>, eyre::Re
     let start: u32 = start_addr.into();
     let end: u32 = end_addr.into();
     Ok((start..end).map(Ipv4Addr::from).collect())
+}
+
+// expand_ipv6_prefix is the IPv6 variant of the expand_ip_prefix
+// function, expanding an IPv6 prefix into all addresses it covers.
+fn expand_ipv6_prefix(network: &str) -> Result<Vec<Ipv6Addr>, DefineResourcePoolError> {
+    let n: ipnetwork::IpNetwork = network.parse().map_err(|e: ipnetwork::IpNetworkError| {
+        DefineResourcePoolError::InvalidArgument(e.to_string())
+    })?;
+    let (start_addr, end_addr, prefix_len) = match n {
+        ipnetwork::IpNetwork::V6(v6) => (v6.network(), v6.broadcast(), v6.prefix()),
+        _ => {
+            return Err(DefineResourcePoolError::InvalidArgument(format!(
+                "Invalid IPv6 network: {network}"
+            )));
+        }
+    };
+
+    // Compute the number of addresses this prefix would produce
+    // and reject if it exceeds MAX_POOL_SIZE -- there's no point
+    // in attempting otherwise. I guess in theory there might also
+    // be concerns for OOMing and such if a prefix was too small
+    // and we ranged out like 18.4 quintillion addresses, so doing
+    // a check against MAX_POOL_SIZE helps to keep that.. in check.
+    let host_bits = 128 - prefix_len as u32;
+    let num_addresses = 1u128.checked_shl(host_bits).unwrap_or(u128::MAX);
+    if num_addresses > MAX_POOL_SIZE as u128 {
+        return Err(DefineResourcePoolError::TooBig(
+            usize::try_from(num_addresses).unwrap_or(usize::MAX),
+            MAX_POOL_SIZE,
+        ));
+    }
+
+    let start: u128 = start_addr.into();
+    let end: u128 = end_addr.into();
+
+    // Unlike IPv4, IPv6 has no broadcast address, so we include
+    // all addresses in the prefix (inclusive range) -- this is
+    // different from expand_ip_prefix_above, so worth calling
+    // it out so someone doesn't think it's a bug.
+    Ok((start..=end).map(Ipv6Addr::from).collect())
+}
+
+// expand_ipv6_range is the IPv6 variant of expand_ip_range,
+// expanding the IPv6 addresses between start_s and end_s.
+fn expand_ipv6_range(start_s: &str, end_s: &str) -> Result<Vec<Ipv6Addr>, DefineResourcePoolError> {
+    let start_addr: Ipv6Addr = start_s.parse().map_err(|e: std::net::AddrParseError| {
+        DefineResourcePoolError::InvalidArgument(e.to_string())
+    })?;
+    let end_addr: Ipv6Addr = end_s.parse().map_err(|e: std::net::AddrParseError| {
+        DefineResourcePoolError::InvalidArgument(e.to_string())
+    })?;
+    let start: u128 = start_addr.into();
+    let end: u128 = end_addr.into();
+
+    let count = end.saturating_sub(start);
+    if count > MAX_POOL_SIZE as u128 {
+        return Err(DefineResourcePoolError::TooBig(
+            usize::try_from(count).unwrap_or(usize::MAX),
+            MAX_POOL_SIZE,
+        ));
+    }
+
+    Ok((start..end).map(Ipv6Addr::from).collect())
 }
 
 // All the numbers between start_s and end_s
@@ -618,4 +719,156 @@ pub async fn create_common_pools(
         pool_stats,
         _stop_sender: stop_sender,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[crate::sqlx_test]
+    async fn test_ipv6_pool_define_allocate_release(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+
+        // Define an IPv6 pool from a /120 prefix (256 addresses).
+        define(
+            &mut txn,
+            "test-ipv6-pool",
+            &ResourcePoolDef {
+                prefix: Some("fd00:abcd::/120".to_string()),
+                ranges: vec![],
+                pool_type: ResourcePoolType::Ipv6,
+            },
+        )
+        .await
+        .unwrap();
+
+        // Verify pool stats.
+        // /120 == 256 usable IPv6 addresses.
+        let pool_stats = stats(txn.as_mut(), "test-ipv6-pool").await?;
+        assert_eq!(pool_stats.free, 256);
+
+        // Allocate an address.
+        let pool_handle =
+            ResourcePool::<Ipv6Addr>::new("test-ipv6-pool".to_string(), ValueType::Ipv6);
+        let addr: Ipv6Addr = allocate(
+            &pool_handle,
+            &mut txn,
+            OwnerType::Machine,
+            "test-owner",
+            None,
+        )
+        .await?;
+        assert!(addr.to_string().starts_with("fd00:abcd::"));
+
+        // Stats should show 1 used.
+        let pool_stats = stats(txn.as_mut(), "test-ipv6-pool").await?;
+        assert_eq!(pool_stats.used, 1);
+        assert_eq!(pool_stats.free, 255);
+
+        // Release the address.
+        release(&pool_handle, &mut txn, addr).await?;
+        let pool_stats = stats(txn.as_mut(), "test-ipv6-pool").await?;
+        assert_eq!(pool_stats.used, 0);
+        assert_eq!(pool_stats.free, 256);
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_ipv6_pool_define_by_range(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+
+        // Define an IPv6 pool from a range.
+        define(
+            &mut txn,
+            "test-ipv6-range",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: "fd00::1".to_string(),
+                    end: "fd00::11".to_string(),
+                    auto_assign: true,
+                }],
+                pool_type: ResourcePoolType::Ipv6,
+            },
+        )
+        .await
+        .unwrap();
+
+        // Should have 16 addresses (fd00::1 through fd00::10).
+        let pool_stats = stats(txn.as_mut(), "test-ipv6-range").await?;
+        assert_eq!(pool_stats.free, 16);
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_120() {
+        // A /120 has 256 addresses, so make sure all 256 are included.
+        let addrs = expand_ipv6_prefix("fd00::/120").unwrap();
+        assert_eq!(addrs.len(), 256);
+        assert_eq!(addrs[0], "fd00::".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(addrs[255], "fd00::ff".parse::<Ipv6Addr>().unwrap());
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_rejects_large_prefix() {
+        // A /64 would produce 2^64 addresses, which, as of this
+        // writing, is beyond MAX_POOL_SIZE (and would cause us
+        // to OOM anyway).
+        let result = expand_ipv6_prefix("fd00::/64");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DefineResourcePoolError::TooBig(_, _)
+        ));
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_boundary() {
+        // A /111 == 2^17 = 131,072 addresses — under MAX_POOL_SIZE
+        // (which is currently 250k as of this writing).
+        let addrs = expand_ipv6_prefix("fd00::/111").unwrap();
+        assert_eq!(addrs.len(), 131_072);
+
+        // A /110 == 262,144 addresses — over MAX_POOL_SIZE, which
+        // is currently 250k as of this writing.
+        let result = expand_ipv6_prefix("fd00::/110");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DefineResourcePoolError::TooBig(_, _)
+        ));
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_rejects_ipv4() {
+        let result = expand_ipv6_prefix("192.168.1.0/24");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_expand_ipv6_range() {
+        let addrs = expand_ipv6_range("fd00::1", "fd00::4").unwrap();
+        assert_eq!(addrs.len(), 3);
+        assert_eq!(addrs[0], "fd00::1".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(addrs[1], "fd00::2".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(addrs[2], "fd00::3".parse::<Ipv6Addr>().unwrap());
+    }
+
+    #[test]
+    fn test_expand_ipv6_range_rejects_ipv4() {
+        let result = expand_ipv6_range("192.168.1.1", "192.168.1.5");
+        assert!(result.is_err());
+    }
 }

@@ -3098,7 +3098,7 @@ message ManagedHostNetworkConfigResponse {
   // Remote ID. Used by DPU to update host's DHCP request with option 82.
   string remote_id = 15;
 
-  // IPv4 prefixes to be denied in the DPU ACL rules.
+  // IP prefixes to be denied in the DPU ACL rules.
   // This is an old field that was hijacked to hold
   // a combination of site_fabric_prefixes _and_ the
   // actual deny_prefixes.  We need to keep populating it
@@ -3109,10 +3109,10 @@ message ManagedHostNetworkConfigResponse {
   // Network monitor pinger type
   optional string dpu_network_pinger_type = 17;
 
-  // IPv4 prefixes to be denied in the DPU ACL rules.
+  // IP prefixes to be denied in the DPU ACL rules.
   repeated string deny_prefixes = 18;
 
-  // List of IPv4 prefixes (in CIDR notation) that are assigned for tenant
+  // List of IP prefixes (in CIDR notation) that are assigned for tenant
   // use within this site.
   repeated string site_fabric_prefixes = 19;
 
@@ -3184,7 +3184,7 @@ message ManagedHostNetworkConfigResponse {
   //       imports
   optional RoutingProfile routing_profile = 114;
 
-  // List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned
+  // List of aggregate IP prefixes (in CIDR notation) that contain prefixes assigned
   // to tenants so that they themselves can announce to the DPU.  E.g., BYOIP
   repeated string  anycast_site_prefixes = 115;
 
@@ -3338,7 +3338,7 @@ message FlatInterfaceConfig {
   // then this value is set and specifies the virtual function ID that is configured
   // for this network interface.
   optional uint32 virtual_function_id = 6;
-  // A list of IPv4 prefixes that belong to this VPC. Note this may contain
+  // A list of IP prefixes that belong to this VPC. Note this may contain
   // the prefix from the network segment this interface is attached to (which
   // could be independently derived from the `gateway` field).
   repeated string vpc_prefixes = 7;
@@ -4131,6 +4131,7 @@ message Range {
 enum ResourcePoolType {
   Integer = 0;
   Ipv4 = 1;
+  Ipv6 = 2;
 }
 
 message MigrateVpcVniResponse {

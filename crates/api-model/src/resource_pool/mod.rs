@@ -147,6 +147,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolEntry {
 pub enum ValueType {
     Integer = 0,
     Ipv4,
+    Ipv6,
 }
 
 impl fmt::Display for ValueType {
@@ -154,6 +155,7 @@ impl fmt::Display for ValueType {
         match self {
             Self::Integer => write!(f, "Integer"),
             Self::Ipv4 => write!(f, "Ipv4"),
+            Self::Ipv6 => write!(f, "Ipv6"),
         }
     }
 }
