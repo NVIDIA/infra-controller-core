@@ -22,6 +22,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::RackId;
 use db::dhcp_entry::DhcpEntry;
 use db::{self, expected_machine, machine_interface};
+use forge_network::ip::{IdentifyAddressFamily, IpAddressFamily};
 use mac_address::MacAddress;
 use model::dpa_interface::DpaInterface;
 use model::expected_machine::ExpectedHostNic;
@@ -182,6 +183,7 @@ pub async fn discover_dhcp(
     let address_to_use_for_dhcp = link_address.as_ref().unwrap_or(&relay_address);
     let parsed_relay = address_to_use_for_dhcp.parse()?;
     let relay_ip = IpAddr::from_str(&relay_address)?;
+    let address_family = relay_ip.address_family();
     let mut host_nic: Option<ExpectedHostNic> = None;
 
     let parsed_mac: MacAddress = mac_address.parse()?;
@@ -215,14 +217,19 @@ pub async fn discover_dhcp(
                     .await?;
                     Some(expected_interface.machine_id)
                 } else {
-                    if let Some(resp) = handle_dhcp_from_dpa(
-                        api,
-                        &mut txn,
-                        parsed_mac,
-                        relay_address,
-                        desired_address_ip,
-                    )
-                    .await?
+                    // DPA allocation is currently IPv4-only. The overlay
+                    // uses u32 arithmetic (LSB toggle) and /31 linknets,
+                    // and the underlay parses relay_address as Ipv4Addr.
+                    // Skip the DPA path entirely for IPv6 relays.
+                    if address_family == IpAddressFamily::Ipv4
+                        && let Some(resp) = handle_dhcp_from_dpa(
+                            api,
+                            &mut txn,
+                            parsed_mac,
+                            relay_address,
+                            desired_address_ip,
+                        )
+                        .await?
                     {
                         txn.commit().await?;
                         return Ok(resp);
@@ -298,10 +305,14 @@ pub async fn discover_dhcp(
 
     let mut txn = api.txn_begin().await?;
 
-    let record: rpc::DhcpRecord =
-        db::dhcp_record::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)
-            .await?
-            .into();
+    let record: rpc::DhcpRecord = db::dhcp_record::find_by_mac_address(
+        &mut txn,
+        &parsed_mac,
+        &machine_interface.segment_id,
+        address_family,
+    )
+    .await?
+    .into();
 
     txn.commit().await?;
     Ok(Response::new(record))

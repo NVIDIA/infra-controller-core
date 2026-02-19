@@ -16,6 +16,7 @@
  */
 
 use carbide_uuid::network::NetworkSegmentId;
+use forge_network::ip::IpAddressFamily;
 use mac_address::MacAddress;
 use model::dhcp_record::DhcpRecord;
 use sqlx::PgConnection;
@@ -26,11 +27,13 @@ pub async fn find_by_mac_address(
     txn: &mut PgConnection,
     mac_address: &MacAddress,
     segment_id: &NetworkSegmentId,
+    address_family: IpAddressFamily,
 ) -> Result<DhcpRecord, DatabaseError> {
-    let query = "SELECT * FROM machine_dhcp_records WHERE mac_address = $1::macaddr AND segment_id = $2::uuid";
+    let query = "SELECT * FROM machine_dhcp_records WHERE mac_address = $1::macaddr AND segment_id = $2::uuid AND family(address) = $3";
     sqlx::query_as(query)
         .bind(mac_address)
         .bind(segment_id)
+        .bind(address_family.pg_family())
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))

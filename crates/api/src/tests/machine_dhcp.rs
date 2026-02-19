@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use carbide_uuid::machine::MachineInterfaceId;
@@ -22,6 +23,7 @@ use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
 };
 use db::{self, ObjectColumnFilter, dhcp_entry};
+use forge_network::ip::IpAddressFamily;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigRequest;
@@ -368,6 +370,100 @@ async fn test_dpu_machine_dhcp_for_existing_dpu(
         response.address.as_str(),
         machine.interfaces[0].address[0].as_str()
     );
+
+    Ok(())
+}
+
+// test_dhcp_record_address_family verifies that find_by_mac_address correctly
+// filters by address family. In a dual-stack environment, a machine interface
+// has both IPv4 and IPv6 addresses. The DHCPv4 server must receive only the
+// IPv4 record, and a future DHCPv6 server must receive only the IPv6 record.
+#[crate::sqlx_test]
+async fn test_dhcp_record_address_family(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    // Create a machine via DHCPv4 discovery — gives us an interface with an IPv4 address.
+    let mac_address = "AB:CD:EF:01:23:45";
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    let segment_id = response.segment_id.unwrap();
+    let ipv4_address = response.address.clone();
+
+    // Verify the IPv4 address is correct.
+    let parsed_v4: IpAddr = ipv4_address.parse().unwrap();
+    assert!(
+        parsed_v4.is_ipv4(),
+        "DHCPv4 discovery should return an IPv4 address"
+    );
+
+    // Insert an IPv6 address for the same interface, simulating dual-stack.
+    let mut txn = pool.begin().await?;
+    let parsed_mac: MacAddress = mac_address.parse().unwrap();
+    let interfaces = db::machine_interface::find_by_mac_address(&mut txn, parsed_mac).await?;
+    let interface = &interfaces[0];
+
+    let ipv6_addr: IpAddr = "fd00::42".parse().unwrap();
+    sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1, $2)")
+        .bind(interface.id)
+        .bind(ipv6_addr)
+        .execute(&mut *txn)
+        .await?;
+
+    // The machine_dhcp_records view requires the address is contained within
+    // the prefix, so we also need an IPv6 prefix on the same segment for the
+    // IPv6 address to appear.
+    sqlx::query(
+        "INSERT INTO network_prefixes (segment_id, prefix, num_reserved) VALUES ($1, $2::cidr, 0)",
+    )
+    .bind(segment_id)
+    .bind("fd00::/64")
+    .execute(&mut *txn)
+    .await?;
+
+    txn.commit().await?;
+
+    // Now test find_by_mac_address with IPv4 — should return only the IPv4 record.
+    let mut txn = pool.begin().await?;
+    let ipv4_record = db::dhcp_record::find_by_mac_address(
+        &mut txn,
+        &parsed_mac,
+        &segment_id,
+        IpAddressFamily::Ipv4,
+    )
+    .await?;
+    assert!(
+        ipv4_record.address.is_ipv4(),
+        "IPv4 query should return an IPv4 address, got: {}",
+        ipv4_record.address
+    );
+    assert_eq!(ipv4_record.address.to_string(), ipv4_address);
+    txn.rollback().await?;
+
+    // And with IPv6 — should return only the IPv6 record.
+    let mut txn = pool.begin().await?;
+    let ipv6_record = db::dhcp_record::find_by_mac_address(
+        &mut txn,
+        &parsed_mac,
+        &segment_id,
+        IpAddressFamily::Ipv6,
+    )
+    .await?;
+    assert!(
+        ipv6_record.address.is_ipv6(),
+        "IPv6 query should return an IPv6 address, got: {}",
+        ipv6_record.address
+    );
+    assert_eq!(ipv6_record.address, ipv6_addr);
+    txn.rollback().await?;
 
     Ok(())
 }

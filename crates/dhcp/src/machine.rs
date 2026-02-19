@@ -78,7 +78,9 @@ impl Machine {
     }
 }
 
-/// Get the router address
+/// Get the router address.
+/// This is, and will always be, specific to DHCPv4, as router addresses
+/// in DHCPv6 will come from RAs (Router Advertisements).
 ///
 /// # Safety
 ///
@@ -121,7 +123,10 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
     0
 }
 
-/// Invoke the discovery process
+/// Invoke the discovery process.
+/// This function will be specific to IPv4 interface addresses, as this
+/// returns a u32. DHCPv6 integration will need a separate function for
+/// stateful/managed allocations.
 ///
 /// # Safety
 /// This function dereferences a pointer to a Machine object which is an opaque pointer
@@ -308,6 +313,10 @@ pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
     uuid.into_raw()
 }
 
+/// Get the broadcast address.
+///
+/// This is, and will always be, specific to DHCPv4, as broadcast
+/// in DHCPv6 has been completely replaced by multicast.
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
@@ -397,6 +406,8 @@ pub extern "C" fn machine_free_ntpservers(ntpservers: *mut libc::c_char) {
 }
 
 /// Invoke the discovery process
+/// This is, and will always be, specific to DHCPv4, as the subnet
+/// mask in DHCPv6 is now learned via RAs as a prefix.
 ///
 /// # Safety
 ///
