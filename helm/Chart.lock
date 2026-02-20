@@ -1,0 +1,42 @@
+dependencies:
+- name: carbide-api
+  repository: ""
+  version: 0.1.0
+- name: carbide-dhcp
+  repository: ""
+  version: 0.1.0
+- name: carbide-dns
+  repository: ""
+  version: 0.1.0
+- name: carbide-dsx-exchange-consumer
+  repository: ""
+  version: 0.1.0
+- name: carbide-hardware-health
+  repository: ""
+  version: 0.1.0
+- name: carbide-nginx
+  repository: ""
+  version: 0.1.0
+- name: carbide-ntp
+  repository: ""
+  version: 0.1.0
+- name: carbide-nvpasswd-unexpirer
+  repository: ""
+  version: 0.1.0
+- name: carbide-pxe
+  repository: ""
+  version: 0.1.0
+- name: carbide-ssh-console-rs
+  repository: ""
+  version: 0.1.0
+- name: carbide-ufm
+  repository: ""
+  version: 0.1.0
+- name: frrouting
+  repository: ""
+  version: 0.1.0
+- name: unbound
+  repository: ""
+  version: 0.1.0
+digest: sha256:0b6b70c43c2fdfcc248fb8296a4e75317c62d8dc83250227592d379ef831ce51
+generated: "2026-02-20T15:29:10.307385-08:00"

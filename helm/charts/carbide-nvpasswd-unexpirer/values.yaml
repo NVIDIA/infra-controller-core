@@ -1,0 +1,21 @@
+## Global settings
+global:
+  namespace: default
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+image:
+  repository: ubuntu
+  tag: jammy
+
+env:
+  EGX_ADMIN_PASSWORD: ""
+  EGX_RCPROXY_PASSWORD: ""
+
+annotations:
+  configmap.reloader.stakater.com/reload: "nvpasswd-unexpirer-script"
+
+# Config files - can be overridden
+configFiles:
+  script: "" # If empty, uses the default from files/

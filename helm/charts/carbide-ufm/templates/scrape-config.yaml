@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: ufm-enterprise
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "carbide-ufm.labels" . | nindent 4 }}
+    app: ufm-enterprise
+    prometheus: forge-monitoring
+spec:
+  staticConfigs:
+    - labels:
+        job: prometheus
+      targets:
+        {{- toYaml .Values.scrapeConfig.targets | nindent 8 }}

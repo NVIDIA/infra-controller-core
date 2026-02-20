@@ -1,0 +1,32 @@
+{{- if .Values.externalService.enabled }}
+{{- $replicas := int .Values.replicas }}
+{{- range $i := until $replicas }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-ntp-external-{{ $i }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    app.kubernetes.io/part-of: carbide-ntp-instance-{{ $i }}
+  {{- $annotations := "" }}
+  {{- if and $.Values.externalService.perPodAnnotations (gt (len $.Values.externalService.perPodAnnotations) $i) }}
+  {{- $annotations = index $.Values.externalService.perPodAnnotations $i }}
+  {{- end }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $.Values.externalService.type | default "LoadBalancer" }}
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: carbide-ntp
+    statefulset.kubernetes.io/pod-name: carbide-ntp-{{ $i }}
+  ports:
+    - port: 123
+      targetPort: 123
+      name: ntp
+      protocol: UDP
+{{- end }}
+{{- end }}

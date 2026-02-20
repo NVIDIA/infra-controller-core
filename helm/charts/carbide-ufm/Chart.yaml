@@ -1,0 +1,10 @@
+apiVersion: v2
+name: carbide-ufm
+description: Helm chart for the Carbide UFM component
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - carbide
+  - ufm
+  - forge

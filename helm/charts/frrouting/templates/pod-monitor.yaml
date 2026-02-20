@@ -1,0 +1,21 @@
+{{- if .Values.podMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: frr-metrics
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "frrouting.labels" . | nindent 4 }}
+    {{- with .Values.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.global.namespace }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frrouting
+  podMetricsEndpoints:
+    - targetPort: metrics
+{{- end }}

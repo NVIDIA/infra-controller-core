@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "carbide-nginx.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.annotations | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "carbide-nginx.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-nginx.labels" . | nindent 8 }}
+      annotations:
+        kubectl.kubernetes.io/default-container: nginx
+    spec:
+      serviceAccountName: nginx
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nginx
+          image: "{{ include "carbide-nginx.image" . }}"
+          command: ["/bin/sh", "-c", "if ! [ -f /usr/sbin/nginx ] ; then echo nginx not found; while true; do sleep 1000d; done; else /usr/sbin/nginx; fi"]
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: spiffe
+              mountPath: /var/run/secrets/spiffe.io
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: nginx-certificate
+        - name: nginx-config
+          configMap:
+            name: nginx-config

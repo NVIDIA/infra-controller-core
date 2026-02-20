@@ -1,0 +1,39 @@
+## carbide-ntp — Chrony NTP server for bare metal time synchronization
+## Global settings (overridden by umbrella chart)
+global:
+  namespace: default
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+replicas: 3
+
+## Chrony NTP image (not shared with global.image)
+image:
+  repository: dockurr/chrony
+  tag: latest
+
+service:
+  port: 123
+  protocol: UDP
+  clusterIP: None
+
+env:
+  ## NTP_EXTERNAL_SERVERS: upstream NTP servers (peer FQDNs are auto-generated from global.namespace)
+  NTP_EXTERNAL_SERVERS: "time1.google.com,time2.google.com,time3.google.com,time4.google.com"
+  NTP_DIRECTIVES: "ratelimit"
+
+## External LoadBalancer Services (per-pod, for bare-metal / MetalLB)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  perPodAnnotations: []
+  # perPodAnnotations:
+  #   - metallb.universe.tf/loadBalancerIPs: "10.x.x.1"  # pod-0
+  #   - metallb.universe.tf/loadBalancerIPs: "10.x.x.2"  # pod-1
+  #   - metallb.universe.tf/loadBalancerIPs: "10.x.x.3"  # pod-2

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: carbide-ntp
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "carbide-ntp.labels" . | nindent 4 }}
+spec:
+  serviceName: carbide-ntp
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "carbide-ntp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-ntp.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - carbide-ntp
+                topologyKey: "kubernetes.io/hostname"
+      containers:
+        - name: chrony
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+              protocol: {{ .Values.service.protocol }}
+          env:
+            - name: NTP_SERVERS
+              value: {{ include "carbide-ntp.ntpServers" . | quote }}
+            - name: NTP_DIRECTIVES
+              value: {{ .Values.env.NTP_DIRECTIVES | quote }}

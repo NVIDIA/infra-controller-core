@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvpasswd-unexpirer
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "carbide-nvpasswd-unexpirer.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.annotations | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "carbide-nvpasswd-unexpirer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-nvpasswd-unexpirer.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 5
+      hostPID: true
+      hostNetwork: true
+      hostIPC: true
+      containers:
+        - name: nvpasswd-unexpirer
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["/bin/sh", "-c", "/host/nvpasswd-unexpirer.sh"]
+          env:
+            - name: EGX_ADMIN_PASSWORD
+              value: {{ .Values.env.EGX_ADMIN_PASSWORD | quote }}
+            - name: EGX_RCPROXY_PASSWORD
+              value: {{ .Values.env.EGX_RCPROXY_PASSWORD | quote }}
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /host/bootstrap
+            - name: ssh
+              mountPath: /host/etc/ssh
+            - name: nvssh
+              mountPath: /host/etc/nvssh
+            - name: sudoers
+              mountPath: /host/etc/sudoers.d
+            - name: pam
+              mountPath: /host/etc/pam.d
+            - name: libnssexec
+              mountPath: /host/etc/libnss_exec
+            - name: usrbin
+              mountPath: /host/usr/bin
+              readOnly: true
+            - name: default
+              mountPath: /host/etc/default
+            - name: nssconf
+              mountPath: /host/etc/nsswitch.conf
+              readOnly: false
+            - name: libuserconf
+              mountPath: /host/etc/libuser.conf
+              readOnly: false
+            - name: etc
+              mountPath: /host/etc
+            - name: nvpasswd-unexpirer-script
+              mountPath: /host
+      volumes:
+        - name: bootstrap
+          hostPath:
+            path: /bootstrap
+        - name: ssh
+          hostPath:
+            path: /etc/ssh
+        - name: nvssh
+          hostPath:
+            path: /etc/nvssh
+        - name: sudoers
+          hostPath:
+            path: /etc/sudoers.d
+        - name: pam
+          hostPath:
+            path: /etc/pam.d
+        - name: default
+          hostPath:
+            path: /etc/default
+        - name: libnssexec
+          hostPath:
+            path: /etc/libnss_exec
+        - name: usrbin
+          hostPath:
+            path: /usr/bin
+        - name: nssconf
+          hostPath:
+            path: /etc/nsswitch.conf
+            type: File
+        - name: libuserconf
+          hostPath:
+            path: /etc/libuser.conf
+            type: FileOrCreate
+        - name: etc
+          hostPath:
+            path: /etc
+        - name: nvpasswd-unexpirer-script
+          configMap:
+            name: nvpasswd-unexpirer-script
+            defaultMode: 0744

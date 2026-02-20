@@ -1,0 +1,86 @@
+global:
+  namespace: default
+
+replicas: 3
+
+## FRRouting image (not shared with global.image)
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+exporterImage:
+  repository: ghcr.io/tynany/frr_exporter
+  tag: ""
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  clusterIP: None
+  port: 179
+
+podMonitor:
+  enabled: true
+  labels:
+    prometheus: forge-monitoring
+
+# ConfigMap data for frrouting-config
+config:
+  vtysh.conf: |
+    ! Empty Config
+  daemons: |
+    FRR_NO_ROOT="yes"
+    MAX_FDS=65536
+    bgpd=yes
+    bgpd_options=" --no_kernel --skip_runas"
+    ospfd=no
+    ospf6d=no
+    ripd=no
+    ripngd=no
+    isisd=no
+    pimd=no
+    ldpd=no
+    nhrpd=no
+    eigrpd=no
+    babeld=no
+    sharpd=no
+    pbrd=no
+    bfdd=no
+    fabricd=no
+    staticd=no
+    vrrpd=no
+    vtysh_enable=no
+
+# ConfigMap data for frrouting-extra-init
+extraInit:
+  extra-init.sh: |
+    #!/usr/bin/env bash
+
+    export STATEFULSET_INDEX=$(echo $HOSTNAME | grep -o '\d*$')
+    EXTRA_INIT_PATH=${EXTRA_INIT_PATH:-/usr/local/bin/extra_init}
+
+    prog=$1
+    shift
+
+    mkdir -p /etc/frr
+    cp -L -R /etc/frr_pre/* /etc/frr/
+
+    if [[ -f "/etc/frr/frr.conf-${STATEFULSET_INDEX}" ]]; then
+      cp "/etc/frr/frr.conf-${STATEFULSET_INDEX}" /etc/frr/frr.conf
+    fi
+
+    if [[ -d "${EXTRA_INIT_PATH}" ]]; then
+      (cd "${EXTRA_INIT_PATH}"; for i in *;do if [[ -x "$i" ]]; then ./$i;fi;done;)
+    fi
+
+    exec $prog "$@"
+
+## External LoadBalancer Services (per-pod, for bare-metal / MetalLB)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  perPodAnnotations: []
+  # perPodAnnotations:
+  #   - metallb.universe.tf/loadBalancerIPs: "10.x.x.1"  # pod-0
+  #   - metallb.universe.tf/loadBalancerIPs: "10.x.x.2"  # pod-1
+  #   - metallb.universe.tf/loadBalancerIPs: "10.x.x.3"  # pod-2

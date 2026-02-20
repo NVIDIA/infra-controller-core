@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvpasswd-unexpirer-script
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "carbide-nvpasswd-unexpirer.labels" . | nindent 4 }}
+data:
+  nvpasswd-unexpirer.sh: |
+    {{- if .Values.configFiles.script }}
+    {{- .Values.configFiles.script | nindent 4 }}
+    {{- else }}
+    {{- .Files.Get "files/nvpasswd-unexpirer.sh" | nindent 4 }}
+    {{- end }}

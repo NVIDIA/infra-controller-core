@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frrouting-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "frrouting.labels" . | nindent 4 }}
+data:
+  vtysh.conf: |
+{{ index .Values.config "vtysh.conf" | indent 4 }}
+  daemons: |
+{{ .Values.config.daemons | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frrouting-extra-init
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "frrouting.labels" . | nindent 4 }}
+data:
+  extra-init.sh: |
+{{ index .Values.extraInit "extra-init.sh" | indent 4 }}

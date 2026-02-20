@@ -1,0 +1,33 @@
+{{- if .Values.externalService.enabled }}
+{{- $replicas := int .Values.replicas }}
+{{- range $i := until $replicas }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frrouting-{{ $i }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "frrouting.labels" $ | nindent 4 }}
+  {{- $annotations := "" }}
+  {{- if and $.Values.externalService.perPodAnnotations (gt (len $.Values.externalService.perPodAnnotations) $i) }}
+  {{- $annotations = index $.Values.externalService.perPodAnnotations $i }}
+  {{- end }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $.Values.externalService.type | default "LoadBalancer" }}
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: frrouting
+    app.kubernetes.io/component: frrouting
+    statefulset.kubernetes.io/pod-name: frrouting-{{ $i }}
+  ports:
+    - name: frrouting-{{ $i }}
+      protocol: TCP
+      port: 179
+      targetPort: 179
+{{- end }}
+{{- end }}

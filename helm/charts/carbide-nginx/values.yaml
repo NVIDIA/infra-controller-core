@@ -1,0 +1,60 @@
+## carbide-nginx — Nginx reverse proxy for boot artifacts and web UI
+## Global settings (overridden by umbrella chart)
+global:
+  namespace: default
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: forge.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+replicas: 1
+
+## Optional init containers (e.g. boot-artifacts)
+initContainers: []
+
+annotations:
+  configmap.reloader.stakater.com/reload: "nginx-config"
+
+service:
+  port: 80
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on global.namespace
+  serviceName: nginx
+  extraDnsNames: []
+  extraUris: []
+
+livenessProbe:
+  tcpSocket:
+    port: 80
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  failureThreshold: 3
+  successThreshold: 1
+
+# Config files - can be overridden
+configFiles:
+  nginxConf: "" # If empty, uses the default from files/
+
+## External LoadBalancer Service (for bare-metal / MetalLB)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  annotations: {}

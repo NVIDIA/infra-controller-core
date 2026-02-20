@@ -1,0 +1,10 @@
+apiVersion: v2
+name: carbide-nginx
+description: Helm chart for the Carbide Nginx component
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - carbide
+  - nginx
+  - forge

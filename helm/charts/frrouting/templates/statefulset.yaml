@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: frrouting
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "frrouting.labels" . | nindent 4 }}
+  annotations:
+    configmap.reloader.stakater.com/reload: "frrouting-config"
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "frrouting.selectorLabels" . | nindent 6 }}
+  serviceName: "frrouting"
+  template:
+    metadata:
+      labels:
+        {{- include "frrouting.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                {{- include "frrouting.selectorLabels" . | nindent 16 }}
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - name: frr
+        command: ["/sbin/tini", "--"]
+        args: ["/usr/local/bin/frr-extra-init/extra-init.sh", "/usr/lib/frr/docker-start"]
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: bgp
+          containerPort: 179
+          protocol: TCP
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: frr-config-volume
+          mountPath: /etc/frr_pre
+        - name: frr-extra-init-volume
+          mountPath: /usr/local/bin/frr-extra-init
+        - name: frr-sockets-volume
+          mountPath: /var/run/frr
+      - name: frr-exporter
+        image: "{{ .Values.exporterImage.repository }}{{ if .Values.exporterImage.tag }}:{{ .Values.exporterImage.tag }}{{ end }}"
+        args:
+        - --frr.socket.dir-path=/frr_sockets
+        - --log.format=json
+        - --no-collector.ospf
+        - --no-collector.bfd
+        - --collector.bgp6
+        ports:
+        - name: metrics
+          containerPort: 9342
+          protocol: TCP
+        volumeMounts:
+        - name: frr-sockets-volume
+          mountPath: /frr_sockets
+      volumes:
+      - name: frr-config-volume
+        configMap:
+          name: frrouting-config
+      - name: frr-extra-init-volume
+        configMap:
+          defaultMode: 0755
+          name: frrouting-extra-init
+      - name: frr-sockets-volume
+        emptyDir: {}

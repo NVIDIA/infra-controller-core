@@ -1,0 +1,10 @@
+apiVersion: v2
+name: carbide-nvpasswd-unexpirer
+description: Helm chart for the Carbide NVPasswd Unexpirer component
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - carbide
+  - nvpasswd-unexpirer
+  - forge

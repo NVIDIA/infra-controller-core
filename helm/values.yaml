@@ -1,0 +1,154 @@
+## =============================================================================
+## Carbide Bare Metal Manager — Umbrella Helm Chart
+## =============================================================================
+## This chart deploys all services for the Carbide (NVIDIA Bare Metal Manager)
+## platform. See README.md for full documentation and PREREQUISITES.md for
+## required infrastructure setup.
+##
+## IMPORTANT: You MUST set global.image.repository and global.image.tag before
+## installing. They default to empty strings and the chart will not render
+## valid manifests without them.
+##
+## Top-level `global:` values are automatically passed to ALL sub-charts.
+## Per-subchart overrides go under <chart-name>: key.
+## Each sub-chart can be disabled via <chart-name>.enabled: false.
+## =============================================================================
+
+## ---------------------------------------------------------------------------
+## Global settings (shared by all sub-charts)
+## ---------------------------------------------------------------------------
+global:
+  ## Target namespace for all resources
+  namespace: default
+
+  ## Container image for Carbide core services (REQUIRED -- must be set by user)
+  ## Services that share this image: carbide-api, carbide-dhcp, carbide-dns,
+  ## carbide-dsx-exchange-consumer, carbide-hardware-health, carbide-pxe,
+  ## carbide-ssh-console-rs.
+  ## NOTE: frrouting, unbound, and carbide-ntp use their own image settings.
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  ## Image pull secrets shared by all sub-charts that use global.imagePullSecrets
+  imagePullSecrets: []
+
+  ## cert-manager Certificate configuration (shared defaults for all services)
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+
+  ## SPIFFE trust domain for mTLS between services
+  spiffe:
+    trustDomain: forge.local
+
+  ## Common labels applied to all resources
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## ---------------------------------------------------------------------------
+## carbide-api — Core API server (gRPC + REST)
+## Manages machines, provisioning, networking, firmware updates, and web UI.
+## Requires PostgreSQL and Vault.
+## ---------------------------------------------------------------------------
+carbide-api:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-dhcp — DHCP server (Kea-based)
+## Provides DHCP for PXE boot and bare metal network assignment.
+## ---------------------------------------------------------------------------
+carbide-dhcp:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-dns — Authoritative DNS server
+## Serves DNS records for managed machines and VPCs.
+## ---------------------------------------------------------------------------
+carbide-dns:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-dsx-exchange-consumer — DSX Exchange message consumer
+## Consumes DSX exchange messages for machine telemetry and state updates.
+## ---------------------------------------------------------------------------
+carbide-dsx-exchange-consumer:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-hardware-health — Hardware health collector
+## Collects and reports hardware health metrics from managed machines.
+## ---------------------------------------------------------------------------
+carbide-hardware-health:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-nginx — Nginx reverse proxy
+## Serves boot artifacts and the Carbide web UI.
+## ---------------------------------------------------------------------------
+carbide-nginx:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-ntp — Chrony NTP server
+## Provides time synchronization to bare metal hosts.
+## NOTE: Uses its own image (dockurr/chrony), not global.image.
+## ---------------------------------------------------------------------------
+carbide-ntp:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-nvpasswd-unexpirer — Password unexpiry DaemonSet
+## Prevents password expiry on managed nodes.
+## ---------------------------------------------------------------------------
+carbide-nvpasswd-unexpirer:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-pxe — PXE boot server
+## HTTP-based PXE server for OS provisioning workflows.
+## ---------------------------------------------------------------------------
+carbide-pxe:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-ssh-console-rs — SSH console proxy
+## Provides remote SSH access to managed machine BMCs and consoles.
+## NOTE: This chart reads .Values.imagePullSecrets (not global).
+## ---------------------------------------------------------------------------
+carbide-ssh-console-rs:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## carbide-ufm — UFM scrape config
+## Configures Prometheus scrape targets for InfiniBand UFM monitoring.
+## ---------------------------------------------------------------------------
+carbide-ufm:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## frrouting — FRRouting BGP daemon
+## Runs BGP for network peering and route advertisement.
+## NOTE: Uses its own image.repository / image.tag (not global.image).
+##       Reads global.imagePullSecrets for pull secrets.
+## ---------------------------------------------------------------------------
+frrouting:
+  enabled: true
+
+## ---------------------------------------------------------------------------
+## unbound — Recursive DNS resolver
+## Forwards DNS queries for managed infrastructure.
+## NOTE: Uses its own image / exporterImage (not global.image).
+##       Reads .Values.imagePullSecrets (not global) for pull secrets.
+## ---------------------------------------------------------------------------
+unbound:
+  enabled: true

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "carbide-nginx.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "carbide-nginx.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.service.port }}
+      name: nginx
+      protocol: TCP
