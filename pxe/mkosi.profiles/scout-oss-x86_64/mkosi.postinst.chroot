@@ -81,6 +81,9 @@ do
   fi
 done
 
+# Ensure the dcgmi log dir is correctly owned
+chown nvidia-dcgm:nvidia-dcgm /var/log/nvidia-dcgm
+
 # Ensure we have header files for the installed kernel
 for kern_ver in $(ls -1 /usr/lib/modules)
 do
