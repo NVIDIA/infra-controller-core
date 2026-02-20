@@ -519,6 +519,7 @@ pub async fn initialize_and_start_controllers(
                     pool_type: model::resource_pool::define::ResourcePoolType::Integer,
                     ranges: x.pkeys.clone(),
                     prefix: None,
+                    delegate_prefix_len: None,
                 },
             )
             .await?;

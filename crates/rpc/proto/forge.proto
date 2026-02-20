@@ -4132,6 +4132,7 @@ enum ResourcePoolType {
   Integer = 0;
   Ipv4 = 1;
   Ipv6 = 2;
+  Ipv6Prefix = 3;
 }
 
 message MigrateVpcVniResponse {

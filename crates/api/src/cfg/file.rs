@@ -2886,7 +2886,8 @@ mod tests {
             &ResourcePoolDef {
                 ranges: Vec::new(),
                 prefix: Some("10.180.63.0/26".to_string()),
-                pool_type: resource_pool::ResourcePoolType::Ipv4
+                pool_type: resource_pool::ResourcePoolType::Ipv4,
+                delegate_prefix_len: None,
             }
         );
         assert!(pools.get("pkey").is_none());
@@ -3022,7 +3023,8 @@ mod tests {
             &ResourcePoolDef {
                 ranges: Vec::new(),
                 prefix: Some("10.180.62.1/26".to_string()),
-                pool_type: resource_pool::ResourcePoolType::Ipv4
+                pool_type: resource_pool::ResourcePoolType::Ipv4,
+                delegate_prefix_len: None,
             }
         );
         assert_eq!(
@@ -3034,7 +3036,8 @@ mod tests {
                     end: "501".to_string()
                 }],
                 prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer
+                pool_type: resource_pool::ResourcePoolType::Integer,
+                delegate_prefix_len: None,
             }
         );
         assert_eq!(
@@ -3291,7 +3294,8 @@ mod tests {
             &ResourcePoolDef {
                 ranges: Vec::new(),
                 prefix: Some("10.180.63.0/26".to_string()),
-                pool_type: resource_pool::ResourcePoolType::Ipv4
+                pool_type: resource_pool::ResourcePoolType::Ipv4,
+                delegate_prefix_len: None,
             }
         );
         assert_eq!(
@@ -3304,7 +3308,8 @@ mod tests {
                     end: "501".to_string()
                 }],
                 prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer
+                pool_type: resource_pool::ResourcePoolType::Integer,
+                delegate_prefix_len: None,
             }
         );
         assert_eq!(

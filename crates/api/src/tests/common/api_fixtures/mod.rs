@@ -1873,6 +1873,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 },
             ],
             prefix: None,
+            delegate_prefix_len: None,
         },
     );
     defs.insert(
@@ -1886,6 +1887,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 end: "10.255.255.127".to_string(),
                 auto_assign: true,
             }],
+            delegate_prefix_len: None,
         },
     );
     defs.insert(
@@ -1895,6 +1897,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             // Must match a network_prefix in fixtures/create_network_segment.sql
             prefix: Some("172.20.0.0/24".to_string()),
             ranges: vec![],
+            delegate_prefix_len: None,
         },
     );
     defs.insert(
@@ -1907,6 +1910,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 auto_assign: true,
             }],
             prefix: None,
+            delegate_prefix_len: None,
         },
     );
     defs.insert(
@@ -1919,6 +1923,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 auto_assign: true,
             }],
             prefix: None,
+            delegate_prefix_len: None,
         },
     );
     defs.insert(
@@ -1938,6 +1943,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 },
             ],
             prefix: None,
+            delegate_prefix_len: None,
         },
     );
 
@@ -1951,6 +1957,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 auto_assign: true,
             }],
             prefix: None,
+            delegate_prefix_len: None,
         },
     );
     defs.insert(
@@ -1963,6 +1970,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 auto_assign: true,
             }],
             prefix: None,
+            delegate_prefix_len: None,
         },
     );
     defs.insert(
@@ -1975,6 +1983,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 auto_assign: true,
             }],
             prefix: None,
+            delegate_prefix_len: None,
         },
     );
     defs.insert(
@@ -1983,6 +1992,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             pool_type: resource_pool::ResourcePoolType::Ipv4,
             prefix: Some("172.30.0.0/24".to_string()),
             ranges: vec![],
+            delegate_prefix_len: None,
         },
     );
     defs
