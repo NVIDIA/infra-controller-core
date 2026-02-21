@@ -613,6 +613,7 @@ service Forge {
   rpc FindDpaInterfacesByIds(DpaInterfacesByIdsRequest) returns (DpaInterfaceList);
   // XXX TODO XXX Remove the calls below, as they are only for debug testing
   rpc CreateDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
+  rpc EnsureDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc DeleteDpaInterface(DpaInterfaceDeletionRequest) returns (DpaInterfaceDeletionResult);
   rpc SetDpaNetworkObservationStatus(DpaNetworkObservationSetRequest) returns (DpaInterface);
 

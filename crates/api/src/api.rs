@@ -2419,6 +2419,13 @@ impl Forge for Api {
         crate::handlers::dpa::find_dpa_interfaces_by_ids(self, request).await
     }
 
+    async fn ensure_dpa_interface(
+        &self,
+        request: Request<rpc::DpaInterfaceCreationRequest>,
+    ) -> Result<Response<rpc::DpaInterface>, Status> {
+        crate::handlers::dpa::ensure(self, request).await
+    }
+
     // create_dpa_interface is mainly for debugging purposes. In practice,
     // when the scout reports its inventory, we will create DPA interfaces
     // for DPA NICs reported in the inventory.

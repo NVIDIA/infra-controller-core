@@ -81,6 +81,7 @@ impl InternalRBACRules {
         x.perm("GetAllDpaInterfaceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindDpaInterfacesByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateDpaInterface", vec![]);
+        x.perm("EnsureDpaInterface", vec![]);
         x.perm("DeleteDpaInterface", vec![]);
         x.perm("SetDpaNetworkObservationStatus", vec![]);
         x.perm(
