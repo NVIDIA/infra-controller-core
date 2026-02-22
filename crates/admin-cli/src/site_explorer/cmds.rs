@@ -269,26 +269,24 @@ pub async fn show_discovered_managed_host(
                 )
                 .await?;
 
+                let endpoint = exploration_report
+                    .endpoints
+                    .into_iter()
+                    .find(|x| x.address == address)
+                    .ok_or_else(|| {
+                        CarbideCliError::GenericError("Endpoint not found.".to_string())
+                    })?;
+
                 if output_format == OutputFormat::Json {
                     async_writeln!(
                         output_file,
                         "{}",
-                        serde_json::to_string_pretty(&exploration_report)?
+                        serde_json::to_string_pretty(&endpoint)?
                     )?;
                     return Ok(());
                 }
 
-                display_endpoint(
-                    output_file,
-                    exploration_report
-                        .endpoints
-                        .into_iter()
-                        .find(|x| x.address == address)
-                        .ok_or_else(|| {
-                            CarbideCliError::GenericError("Endpoint not found.".to_string())
-                        })?,
-                )
-                .await?;
+                display_endpoint(output_file, endpoint).await?;
             } else {
                 let exploration_report = api_client
                     .get_site_exploration_report(internal_page_size)
