@@ -2449,10 +2449,9 @@ fn default_mqtt_broker_port() -> u16 {
     1884
 }
 
-/// DPA (aka Cluster Ineteconnect Network) related configuration
-/// In addition to enabling DPA and specifying
-/// the mqtt endpoint, you need to specify the vni range to
-/// be used by DPA as pools.dpa-vni
+/// DPA (aka Cluster Interconnect Network) related configuration
+/// Enabled DPA, and specifies basic network settings.
+/// The VNI to be used by DPA will be the same as the parent VPC.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct DpaConfig {
     /// Global enable/disable of Cluster Interconnect Network

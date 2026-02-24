@@ -25,7 +25,6 @@ use db::dpa_interface::get_dpa_vni;
 use eyre::eyre;
 use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
-use model::resource_pool::ResourcePool;
 use mqttea::MqtteaClient;
 use sqlx::PgTransaction;
 
@@ -38,15 +37,11 @@ use crate::state_controller::state_handler::{
 
 /// The actual Dpa Interface State handler
 #[derive(Debug, Clone)]
-pub struct DpaInterfaceStateHandler {
-    _pool_vni: Arc<ResourcePool<i32>>,
-}
+pub struct DpaInterfaceStateHandler {}
 
 impl DpaInterfaceStateHandler {
-    pub fn new(pool_vni: Arc<ResourcePool<i32>>) -> Self {
-        Self {
-            _pool_vni: pool_vni,
-        }
+    pub fn new() -> Self {
+        Self {}
     }
 
     fn record_metrics(

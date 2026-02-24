@@ -1125,6 +1125,15 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
+// 
+message VpcStatus {
+  // The actual VNI allocated to the VPC. If a VNI had been
+  // explicitly requested, we'd expect this to match the VNI
+  // of the Vpc message. If not explicitly requested, we'd
+  // expect the VNI of the Vpc message to be unset.
+  optional uint32 vni = 1;
+}
+
 message Vpc {
   common.VpcId id = 1;
   string name = 2;
@@ -1138,19 +1147,30 @@ message Vpc {
   google.protobuf.Timestamp deleted = 6;
 
   optional string tenantKeysetId = 7; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
-  optional uint32 vni = 8;
+
+  // We'll keep populating this field but it will come from
+  // status.vni
+  // We'll be able to trim it out later after some deprecation window.
+  optional uint32 deprecated_vni = 8; // Deprecated
+
   optional VpcVirtualizationType network_virtualization_type = 9;
   Metadata metadata = 10;
 
   // Sets the desired NSG ID for a VPC
   optional string network_security_group_id  = 11;
 
-  optional uint32 dpa_vni = 12;
+  // dpa_vni
+  reserved 12;
 
   // The ID of the default NVLink Logical Partition for a VPC
   // This is the NVLink Logical Partition that will be used by default for all instances in the VPC.
   optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13;
 
+  optional VpcStatus status = 14;
+
+  // This will only be populated if the VNI was explicitly
+  // requested during creation of the VPC.
+  optional uint32 vni = 15;
 }
 
 message VpcCreationRequest {
@@ -1298,7 +1318,7 @@ message VpcPrefixStatus {
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
   uint64 total_linknet_segments = 3;
-  uint64 available_linknet_segments = 4;
+  uint64 available_linknet_segments = 4; 
 }
 
 message VpcPrefixCreationRequest {

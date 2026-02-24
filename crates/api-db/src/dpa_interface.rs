@@ -411,8 +411,8 @@ pub async fn delete(value: DpaInterface, txn: &mut PgConnection) -> Result<(), D
 // states.
 //
 // Given the DPA Interface, we know its associated machine ID. From that, we need
-// to find the VPC the machine belongs to. From the VPC, we can find the DPA VNI
-// allocated for that VPC.
+// to find the VPC the machine belongs to. From the VPC, we can find the DPA VNI,
+// which is just the VPC VNI.
 pub async fn get_dpa_vni<DB>(state: &mut DpaInterface, txn: &mut DB) -> Result<i32, eyre::Report>
 where
     for<'db> &'db mut DB: DbReader<'db>,
@@ -443,7 +443,7 @@ where
 
     let vpc = crate::vpc::find_by_segment(txn, network_segment_id).await?;
 
-    match vpc.dpa_vni {
+    match vpc.status.as_ref().and_then(|s| s.vni) {
         Some(vni) => {
             if vni == 0 {
                 tracing::warn!("Did not expect DPA VNI to be zero");
