@@ -2667,6 +2667,17 @@ impl Forge for Api {
         crate::handlers::attestation::list_machine_ids_under_attestation(self, request).await
     }
 
+    async fn sign_machine_identity(
+        &self,
+        _request: tonic::Request<rpc::MachineIdentityRequest>,
+    ) -> Result<Response<rpc::MachineIdentityResponse>, Status> {
+        // TODO: enable after implementing this function fully
+        //return crate::handlers::machine_identity::sign_machine_identity(self, request).await;
+        Err(tonic::Status::unimplemented(
+            "machine identity API is temporarily disabled",
+        ))
+    }
+
     async fn modify_dpf_state(
         &self,
         request: Request<rpc::ModifyDpfStateRequest>,
