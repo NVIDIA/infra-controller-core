@@ -221,25 +221,6 @@ carbide-hardware-health:
     scrapeTimeout: 25s
 
 ## ---------------------------------------------------------------------------
-## carbide-ntp — Chrony NTP server (disabled by default)
-## Enable if your environment does not provide external NTP.
-## ---------------------------------------------------------------------------
-carbide-ntp:
-  enabled: true
-
-  env:
-    NTP_EXTERNAL_SERVERS: "time1.google.com,time2.google.com,time3.google.com,time4.google.com"
-    NTP_DIRECTIVES: "ratelimit"
-
-  externalService:
-    enabled: true
-    type: LoadBalancer
-    perPodAnnotations:
-      - metallb.universe.tf/loadBalancerIPs: "10.0.0.30"   # pod-0
-      - metallb.universe.tf/loadBalancerIPs: "10.0.0.31"   # pod-1
-      - metallb.universe.tf/loadBalancerIPs: "10.0.0.32"   # pod-2
-
-## ---------------------------------------------------------------------------
 ## carbide-pxe — PXE boot server
 ## ---------------------------------------------------------------------------
 carbide-pxe:

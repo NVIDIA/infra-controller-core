@@ -22,7 +22,7 @@ global:
   ## Services that share this image: carbide-api, carbide-dhcp, carbide-dns,
   ## carbide-dsx-exchange-consumer, carbide-hardware-health, carbide-pxe,
   ## carbide-ssh-console-rs.
-  ## NOTE: unbound and carbide-ntp use their own image settings.
+  ## NOTE: unbound uses its own image settings.
   image:
     repository: ""
     tag: ""
@@ -89,15 +89,6 @@ carbide-hardware-health:
   enabled: true
 
 ## ---------------------------------------------------------------------------
-## carbide-ntp — Chrony NTP server
-## Provides time synchronization to bare metal hosts.
-## NOTE: Uses its own image (dockurr/chrony), not global.image.
-## Disabled by default — most environments provide NTP externally.
-## ---------------------------------------------------------------------------
-carbide-ntp:
-  enabled: false
-
-## ---------------------------------------------------------------------------
 ## carbide-pxe — PXE boot server
 ## HTTP-based PXE server for OS provisioning workflows.
 ## ---------------------------------------------------------------------------
@@ -113,10 +104,13 @@ carbide-ssh-console-rs:
   enabled: true
 
 ## ---------------------------------------------------------------------------
-## unbound — Recursive DNS resolver
-## Forwards DNS queries for managed infrastructure.
+## unbound — Recursive DNS resolver (disabled by default)
+## Provides layered DNS: forwards internal queries (*.forge.local) to
+## carbide-dns and external queries to upstream resolvers.
+## Enable if your environment does not already provide a recursive resolver
+## with the required forwarding rules for Carbide internal domains.
 ## NOTE: Uses its own image / exporterImage (not global.image).
 ##       Reads .Values.imagePullSecrets (not global) for pull secrets.
 ## ---------------------------------------------------------------------------
 unbound:
-  enabled: true
+  enabled: false

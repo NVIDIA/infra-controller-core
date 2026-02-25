@@ -4,9 +4,9 @@ NVIDIA Bare Metal Manager (Carbide) -- Kubernetes Deployment
 
 ## Overview
 
-Carbide (also known as NVIDIA Bare Metal Manager) is a platform for provisioning, managing, and monitoring bare metal GPU servers, including DGX and HGX systems. This Helm chart deploys Carbide services into a Kubernetes cluster as a single umbrella chart with 9 independently toggleable subcharts.
+Carbide (also known as NVIDIA Bare Metal Manager) is a platform for provisioning, managing, and monitoring bare metal GPU servers, including DGX and HGX systems. This Helm chart deploys Carbide services into a Kubernetes cluster as a single umbrella chart with independently toggleable subcharts.
 
-The chart is designed for production environments where Carbide manages the full lifecycle of bare metal infrastructure: DHCP/PXE-based OS provisioning, DNS resolution, hardware health monitoring, SSH console access, NTP time synchronization, and a unified REST/gRPC API.
+The chart is designed for production environments where Carbide manages the full lifecycle of bare metal infrastructure: DHCP/PXE-based OS provisioning, DNS resolution, hardware health monitoring, SSH console access, and a unified REST/gRPC API.
 
 ## Subcharts
 
@@ -17,10 +17,9 @@ The chart is designed for production environments where Carbide manages the full
 | 3 | **carbide-dns** | Authoritative DNS server for managed machines and VPCs. |
 | 4 | **carbide-dsx-exchange-consumer** | Consumes DSX exchange messages for machine telemetry and state updates. |
 | 5 | **carbide-hardware-health** | Collects and reports hardware health metrics from managed machines. |
-| 6 | **carbide-ntp** | Chrony NTP server providing time synchronization to bare metal hosts. |
-| 7 | **carbide-pxe** | PXE boot server (HTTP-based) for OS provisioning workflows. |
-| 8 | **carbide-ssh-console-rs** | SSH console proxy for remote access to managed machine BMCs and consoles. |
-| 9 | **unbound** | Recursive DNS resolver forwarding queries for managed infrastructure. |
+| 6 | **carbide-pxe** | PXE boot server (HTTP-based) for OS provisioning workflows. |
+| 7 | **carbide-ssh-console-rs** | SSH console proxy for remote access to managed machine BMCs and consoles. |
+| 8 | **unbound** | Recursive DNS resolver forwarding queries for managed infrastructure. Disabled by default. |
 
 ## Prerequisites
 
@@ -74,7 +73,7 @@ Top-level `global:` values are automatically passed to all subcharts.
 
 ### Subchart Enable/Disable Flags
 
-Each subchart can be independently enabled or disabled. All subcharts are enabled by default except `carbide-ntp` (most environments provide NTP externally).
+Each subchart can be independently enabled or disabled. All core Carbide services are enabled by default. Infrastructure services (`unbound`) that may already be provided by the environment are disabled by default.
 
 ```yaml
 carbide-api:
@@ -87,14 +86,12 @@ carbide-dsx-exchange-consumer:
   enabled: true        # DSX exchange telemetry consumer
 carbide-hardware-health:
   enabled: true        # Hardware health monitoring
-carbide-ntp:
-  enabled: false       # NTP time server (disabled by default)
 carbide-pxe:
   enabled: true        # PXE boot server
 carbide-ssh-console-rs:
   enabled: true        # SSH console proxy
 unbound:
-  enabled: true        # Recursive DNS resolver
+  enabled: false       # Recursive DNS resolver (disabled by default)
 ```
 
 ### Image Configuration
@@ -103,7 +100,6 @@ The `global.image.repository` and `global.image.tag` values **must** be set -- t
 
 | Subchart | Image Parameter | Default |
 |----------|----------------|---------|
-| `carbide-ntp` | `carbide-ntp.image.repository` / `.tag` | `""` (must be set) |
 | `carbide-ssh-console-rs` (log collector) | `carbide-ssh-console-rs.lokiLogCollector.image.repository` / `.tag` | `""` (must be set) |
 | `unbound` | `unbound.image.repository` / `.tag` | `""` (must be set) |
 | `unbound` (exporter) | `unbound.exporterImage.repository` / `.tag` | `""` (must be set) |
@@ -148,9 +144,9 @@ carbide-api:
       metallb.universe.tf/loadBalancerIPs: "10.x.x.x"
 ```
 
-Services with external LoadBalancer support: `carbide-api`, `carbide-dhcp`, `carbide-dns`, `carbide-ntp`, `carbide-pxe`, and `carbide-ssh-console-rs`.
+Services with external LoadBalancer support: `carbide-api`, `carbide-dhcp`, `carbide-dns`, `carbide-pxe`, and `carbide-ssh-console-rs`.
 
-For StatefulSet-based services (`carbide-dns`, `carbide-ntp`), per-pod LoadBalancer IPs can be assigned:
+For StatefulSet-based services (`carbide-dns`), per-pod LoadBalancer IPs can be assigned:
 
 ```yaml
 carbide-dns:
@@ -172,7 +168,6 @@ carbide-dns:
 | carbide-dns | StatefulSet | 53/TCP, 53/UDP | Yes | -- |
 | carbide-dsx-exchange-consumer | Deployment | 9009 | Yes | ServiceMonitor |
 | carbide-hardware-health | Deployment | 9009 | Yes | ServiceMonitor |
-| carbide-ntp | StatefulSet | 123/UDP | No | -- |
 | carbide-pxe | Deployment | 8080 | Yes | ServiceMonitor |
 | carbide-ssh-console-rs | Deployment | 22, 9009 (metrics) | Yes | ServiceMonitor |
 | unbound | Deployment | 53 | No | ServiceMonitor |
@@ -186,14 +181,11 @@ carbide-dns:
                                   |
           +-----------+-----------+-----------+-----------+
           |           |           |           |           |
-    carbide-dhcp  carbide-dns  carbide-pxe  carbide-ntp  carbide-ssh-console-rs
-          |                       |
-          v                       v
-     Bare Metal            Bare Metal
+    carbide-dhcp  carbide-dns  carbide-pxe  carbide-ssh-console-rs  unbound (optional)
+          |                       |                                      |
+          v                       v                                      v
+     Bare Metal            Bare Metal                              Upstream DNS
      (PXE boot)            (OS install)
-
-    carbide-ntp     <---> Bare Metal (time sync)
-    unbound         <---> Upstream DNS
 ```
 
 All services that communicate with `carbide-api` use mTLS via SPIFFE-based certificates issued by cert-manager and backed by Vault PKI.

@@ -15,7 +15,7 @@ global:
     tag: ""          # e.g. v2025.12.30
 
 ## ---------------------------------------------------------------------------
-## All services enabled by default (except carbide-ntp) — disable any you don't need
+## All core services enabled by default — disable any you don't need
 ## ---------------------------------------------------------------------------
 
 ## carbide-api: Core API requires site config at minimum
@@ -45,11 +45,6 @@ carbide-dsx-exchange-consumer:
 carbide-hardware-health:
   enabled: true
 
-## carbide-ntp: Time sync for bare metal hosts (disabled by default)
-## Enable if your environment does not provide external NTP.
-# carbide-ntp:
-#   enabled: true
-
 ## carbide-pxe: PXE boot server
 carbide-pxe:
   enabled: true
@@ -58,9 +53,11 @@ carbide-pxe:
 carbide-ssh-console-rs:
   enabled: true
 
-## unbound: Recursive DNS resolver — set your own images and forwarders
-unbound:
-  enabled: true
+## unbound: Recursive DNS resolver (disabled by default)
+## Enable if your environment does not already provide a recursive DNS
+## resolver with forwarding rules for Carbide internal domains.
+# unbound:
+#   enabled: true
   image:
     repository: ""   # e.g. your-registry.example.com/unbound
     tag: ""

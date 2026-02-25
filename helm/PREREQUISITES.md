@@ -223,7 +223,8 @@ Several Carbide services require direct network connectivity to bare metal hosts
 
 - **carbide-dhcp** and **carbide-pxe** need layer 2 network access to the bare metal hosts they manage. These services must be able to send and receive broadcast traffic on the provisioning network.
 - **carbide-dns** must be reachable by managed machines for DNS resolution. Configure your network so that provisioned hosts use the `carbide-dns` service as their DNS server.
-- **carbide-ntp** must be reachable by managed machines for time synchronization. Ensure NTP traffic (UDP port 123) is not blocked between managed hosts and the `carbide-ntp` service.
+- **NTP**: Managed machines require access to an NTP server for time synchronization. Provide NTP through your existing infrastructure (e.g., datacenter NTP servers, host-level `chronyd`, or a cloud time source). Configure the NTP server address in your DHCP settings (`carbide-ntpserver` in the Kea config).
+- **Recursive DNS**: Managed machines need a recursive DNS resolver that can forward internal queries (e.g., `*.forge.local`) to `carbide-dns` and external queries to upstream DNS. You can either configure your existing resolver with the appropriate forwarding rules, or enable the bundled `unbound` subchart (`unbound.enabled: true`) which comes pre-configured for this layered DNS architecture.
 - If you are using **MetalLB** or a similar load balancer for bare metal environments, configure `LoadBalancer` services via the `externalService` settings in each subchart's values. For example:
 
 ```yaml

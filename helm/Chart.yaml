@@ -26,9 +26,6 @@ dependencies:
   - name: carbide-hardware-health
     version: "0.1.0"
     condition: carbide-hardware-health.enabled
-  - name: carbide-ntp
-    version: "0.1.0"
-    condition: carbide-ntp.enabled
   - name: carbide-pxe
     version: "0.1.0"
     condition: carbide-pxe.enabled
