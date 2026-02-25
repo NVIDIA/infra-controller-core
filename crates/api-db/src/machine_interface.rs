@@ -16,7 +16,6 @@
  */
 
 use std::net::IpAddr;
-use std::ops::DerefMut;
 use std::str::FromStr;
 
 use carbide_uuid::domain::DomainId;
@@ -448,8 +447,14 @@ async fn create_fast_path(
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     for _ in 0..FAST_PATH_MAX_RETRIES {
         let mut fast_txn = Transaction::begin_inner(txn).await?;
+
+        // Make sure we're mutually exclusive with the slow path: a shared lock means many fast-path
+        // allocations can happen concurrently, but the slow path will hold this exclusively
+        // (waiting on any shared locks to complete)
+        lock_network_segment_shared(&mut fast_txn, segment).await?;
+
         match try_create_fast_path(
-            fast_txn.as_pgconn(),
+            &mut fast_txn,
             segment,
             macaddr,
             domain_id,
@@ -510,11 +515,7 @@ pub async fn create_slow_path(
 
     // If either requested addresses are auto-generated, we lock the entire table
     // by way of the inner_txn.
-    let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
-    sqlx::query(query)
-        .execute(inner_txn.as_pgconn())
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+    lock_network_segment_exclusive(&mut inner_txn, segment).await?;
 
     // Collect SVI IPs so the allocator knows they're already reserved.
     let mut reserved_ips = vec![];
@@ -569,7 +570,8 @@ pub async fn create_slow_path(
 /// This allocates a single candidate IP per prefix entirely in the database, without having to read
 /// all the used IP's.
 async fn try_create_fast_path(
-    txn: &mut PgConnection,
+    // Note: Must be a transaction since we're doing locks
+    txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
     macaddr: &MacAddress,
     domain_id: Option<DomainId>,
@@ -646,7 +648,8 @@ async fn create_inner(
 /// time simultaneously: By requesting a batch of free IP's at once and trying locks on each one, we
 /// can process roughly [`FAST_PATH_CANDIDATE_BATCH`] initial DHCP requests concurrently.
 async fn allocate_next_ip_with_retry(
-    txn: &mut PgConnection,
+    // Note: Must be a transaction since we're doing locks
+    txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
     prefix: &NetworkPrefix,
 ) -> DatabaseResult<IpAddr> {
@@ -681,7 +684,7 @@ LIMIT $6;
             .bind(prefix.gateway)
             .bind(prefix.svi_ip)
             .bind(FAST_PATH_CANDIDATE_BATCH)
-            .fetch_all(&mut *txn)
+            .fetch_all(txn.as_mut())
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -708,14 +711,41 @@ LIMIT $6;
 /// A successful lock means this transaction "owns" that candidate for the current attempt, which
 /// avoids same-IP races across concurrent allocations.
 async fn try_lock_ip_candidate(
-    txn: &mut PgConnection,
+    // Note: Must be a transaction since we're doing locks
+    txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
     ip: IpAddr,
 ) -> DatabaseResult<bool> {
     let query = "SELECT pg_try_advisory_xact_lock(hashtextextended($1::text, 0))";
     sqlx::query_scalar::<_, bool>(query)
         .bind(format!("{}:{}", segment.id, ip))
-        .fetch_one(txn)
+        .fetch_one(txn.as_mut())
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+async fn lock_network_segment_shared(
+    // Note: Must be a transaction since we're doing locks
+    txn: &mut PgTransaction<'_>,
+    segment: &NetworkSegment,
+) -> DatabaseResult<()> {
+    let query = "SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text, 0))";
+    sqlx::query_scalar(query)
+        .bind(format!("network_segment.{}", segment.id))
+        .fetch_one(txn.as_mut())
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+async fn lock_network_segment_exclusive(
+    // Note: Must be a transaction since we're doing locks
+    txn: &mut PgTransaction<'_>,
+    segment: &NetworkSegment,
+) -> DatabaseResult<()> {
+    let query = "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))";
+    sqlx::query_scalar(query)
+        .bind(format!("network_segment.{}", segment.id))
+        .fetch_one(txn.as_mut())
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }
@@ -730,12 +760,8 @@ pub async fn allocate_svi_ip(
             busy_ips: vec![],
         });
 
-    // If either requested addresses are auto-generated, we lock the entire table
-    let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
-    sqlx::query(query)
-        .execute(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+    // Prevent other allocations from happening concurrently in this network segment
+    lock_network_segment_exclusive(txn, segment).await?;
 
     let mut addresses_allocator = IpAllocator::new(
         txn.as_mut(),
