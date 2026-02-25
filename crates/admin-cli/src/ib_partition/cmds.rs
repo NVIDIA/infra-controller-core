@@ -104,6 +104,7 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
         "Name",
         "TenantOrg",
         "State",
+        "Requested Pkey",
         "Pkey",
         "Labels",
         "Description",
@@ -134,6 +135,12 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
             .map(|t| t.as_str_name())
             .unwrap_or_default(),
             ib_partition
+                .config
+                .as_ref()
+                .and_then(|s| s.pkey.as_deref())
+                .unwrap_or_default(),
+            labels.join(", "),
+            ib_partition
                 .status
                 .as_ref()
                 .and_then(|s| s.pkey.as_deref())
@@ -157,8 +164,9 @@ fn convert_ib_partition_to_nice_format(
 
     let tenant_organization_id = ib_partition
         .config
-        .unwrap_or_default()
-        .tenant_organization_id;
+        .as_ref()
+        .map(|c| c.tenant_organization_id.as_str())
+        .unwrap_or_default();
     let metadata = ib_partition.metadata;
     let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata.as_ref());
 
@@ -183,7 +191,7 @@ fn convert_ib_partition_to_nice_format(
                 .map(|m| m.name.as_str())
                 .unwrap_or_default(),
         ),
-        ("TENANT ORG", &tenant_organization_id),
+        ("TENANT ORG", tenant_organization_id),
         (
             "STATE",
             forgerpc::TenantState::try_from(status.state)
@@ -203,6 +211,14 @@ fn convert_ib_partition_to_nice_format(
                     state_reason.outcome_msg.as_deref().unwrap_or_default()
                 }
             },
+        ),
+        (
+            "REQUESTED PKEY",
+            ib_partition
+                .config
+                .as_ref()
+                .and_then(|c| c.pkey.as_deref())
+                .unwrap_or_default(),
         ),
         ("PKEY", status.pkey.as_deref().unwrap_or_default()),
         ("PARTITION", status.partition.as_deref().unwrap_or_default()),
