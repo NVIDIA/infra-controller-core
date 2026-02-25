@@ -93,7 +93,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
         x.perm("CreateNetworkSegment", vec![Machineatron, SiteAgent]);
-        x.perm("DeleteNetworkSegment", vec![Machineatron, SiteAgent]);
+        x.perm(
+            "DeleteNetworkSegment",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
         x.perm("NetworkSegmentsForVpc", vec![]);
         x.perm("FindIBPartitionIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindIBPartitionsByIds", vec![ForgeAdminCLI, SiteAgent]);
