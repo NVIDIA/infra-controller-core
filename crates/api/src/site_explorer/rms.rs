@@ -22,31 +22,15 @@ use mac_address::MacAddress;
 
 use crate::CarbideError;
 
-// Helper function to add a node to the Rack Manager
+const RMS_PORT: i32 = 443;
+
 pub async fn add_node_to_rms(
     rms_client: &dyn RmsApi,
-    rack_id: RackId,
-    node_id: String,
-    ip_address: String,
-    port: i32,
-    mac_address: MacAddress,
-    node_type: RmsNodeType,
+    new_node: NewNodeInfo,
 ) -> Result<(), CarbideError> {
-    let new_node_info = NewNodeInfo {
-        rack_id: rack_id.to_string(),
-        node_id,
-        mac_address: mac_address.to_string(),
-        ip_address,
-        port,
-        username: None,
-        password: None,
-        r#type: Some(node_type.into()),
-        vault_path: "".to_string(),
-    };
-
     let request = librms::protos::rack_manager::AddNodeRequest {
         metadata: None,
-        node_info: vec![new_node_info],
+        node_info: vec![new_node],
     };
     rms_client
         .add_node(request)
@@ -54,4 +38,67 @@ pub async fn add_node_to_rms(
         .map_err(CarbideError::RackManagerError)?;
 
     Ok(())
+}
+
+pub async fn add_switch_to_rms(
+    rms_client: &dyn RmsApi,
+    rack_id: RackId,
+    node_id: String,
+    ip_address: String,
+    mac_address: MacAddress,
+) -> Result<(), CarbideError> {
+    let new_node = NewNodeInfo {
+        rack_id: rack_id.to_string(),
+        node_id,
+        mac_address: mac_address.to_string(),
+        ip_address,
+        port: RMS_PORT,
+        username: None,
+        password: None,
+        r#type: Some(RmsNodeType::Switch.into()),
+        vault_path: format!("switch_nvos/{mac_address}/admin"),
+    };
+    add_node_to_rms(rms_client, new_node).await
+}
+
+pub async fn add_compute_tray_to_rms(
+    rms_client: &dyn RmsApi,
+    rack_id: RackId,
+    node_id: String,
+    ip_address: String,
+    mac_address: MacAddress,
+) -> Result<(), CarbideError> {
+    let new_node = NewNodeInfo {
+        rack_id: rack_id.to_string(),
+        node_id,
+        mac_address: mac_address.to_string(),
+        ip_address,
+        port: RMS_PORT,
+        username: None,
+        password: None,
+        r#type: Some(RmsNodeType::Compute.into()),
+        vault_path: String::new(),
+    };
+    add_node_to_rms(rms_client, new_node).await
+}
+
+pub async fn add_power_shelf_to_rms(
+    rms_client: &dyn RmsApi,
+    rack_id: RackId,
+    node_id: String,
+    ip_address: String,
+    mac_address: MacAddress,
+) -> Result<(), CarbideError> {
+    let new_node = NewNodeInfo {
+        rack_id: rack_id.to_string(),
+        node_id,
+        mac_address: mac_address.to_string(),
+        ip_address,
+        port: RMS_PORT,
+        username: None,
+        password: None,
+        r#type: Some(RmsNodeType::Powershelf.into()),
+        vault_path: String::new(),
+    };
+    add_node_to_rms(rms_client, new_node).await
 }

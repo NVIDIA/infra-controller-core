@@ -40,7 +40,6 @@ use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
-use librms::protos::rack_manager::NodeType as RmsNodeType;
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
@@ -772,14 +771,12 @@ impl SiteExplorer {
         // Register the power shelf with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
             if let Some(rack_id) = expected_shelf.rack_id {
-                if let Err(e) = rms::add_node_to_rms(
+                if let Err(e) = rms::add_power_shelf_to_rms(
                     rms_client.as_ref(),
                     rack_id,
                     power_shelf_id.to_string(),
                     explored_endpoint.address.to_string(),
-                    443,
                     expected_shelf.bmc_mac_address,
-                    RmsNodeType::Powershelf,
                 )
                 .await
                 {
@@ -895,14 +892,12 @@ impl SiteExplorer {
         // Register the switch with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
             if let Some(rack_id) = expected_switch.rack_id {
-                if let Err(e) = rms::add_node_to_rms(
+                if let Err(e) = rms::add_switch_to_rms(
                     rms_client.as_ref(),
                     rack_id,
                     switch_id.to_string(),
                     explored_endpoint.address.to_string(),
-                    443,
                     expected_switch.bmc_mac_address,
-                    RmsNodeType::Switch,
                 )
                 .await
                 {

@@ -45,7 +45,6 @@ use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
 use librms::RackManagerError;
-use librms::protos::rack_manager::NodeType as RmsNodeType;
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
@@ -852,14 +851,12 @@ impl MachineStateHandler {
                 // of an "already exists" error. However, the proto spec doesn't
                 // seem to define this, so once that's sorted, make sure to
                 // integrate that here.
-                match rms::add_node_to_rms(
+                match rms::add_compute_tray_to_rms(
                     rms_client.as_ref(),
                     rack_id,
                     host_machine_id.to_string(),
                     bmc_ip,
-                    443,
                     bmc_mac.unwrap_or_default(),
-                    RmsNodeType::Compute,
                 )
                 .await
                 {
