@@ -253,7 +253,7 @@ jobs:
           set -euo pipefail
 
           REQUIRED_BINARIES=(
-            "pxe/.scout-extras/bin/mnv_cli"
+            "pxe/.scout-extras/opt/forge/bin/mnv_cli"
           )
 
           MISSING=0
