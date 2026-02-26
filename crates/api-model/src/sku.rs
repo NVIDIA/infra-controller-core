@@ -16,7 +16,9 @@
  */
 use std::collections::HashMap;
 use std::fmt::{Display, Write};
+use std::str::FromStr;
 
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
@@ -32,6 +34,7 @@ pub struct Sku {
     pub created: DateTime<Utc>,
     pub components: SkuComponents,
     pub device_type: Option<String>,
+    pub associated_machine_ids: Option<Vec<MachineId>>,
 }
 
 impl<'r> FromRow<'r, PgRow> for Sku {
@@ -44,6 +47,24 @@ impl<'r> FromRow<'r, PgRow> for Sku {
             .try_get::<sqlx::types::Json<SkuComponents>, _>("components")?
             .0;
         let device_type = row.try_get("device_type")?;
+        let associated_machine_ids = row
+            .try_get::<sqlx::types::Json<Vec<String>>, _>("associated_machine_ids")
+            .map(|mid_strs| {
+                mid_strs
+                    .0
+                    .into_iter()
+                    .filter_map(|mid_str| {
+                        MachineId::from_str(&mid_str)
+                            .inspect_err(|e| {
+                                tracing::warn!(
+                                    "Invalid machine_id in sku associated_machine_ids: {e}"
+                                )
+                            })
+                            .ok()
+                    })
+                    .collect()
+            })
+            .ok();
         Ok(Sku {
             schema_version,
             id,
@@ -51,6 +72,7 @@ impl<'r> FromRow<'r, PgRow> for Sku {
             created,
             components,
             device_type,
+            associated_machine_ids,
         })
     }
 }
@@ -63,8 +85,7 @@ impl From<Sku> for rpc::forge::Sku {
             description: Some(value.description),
             created: Some(value.created.into()),
             components: Some(value.components.into()),
-            // filled in afterwards
-            associated_machine_ids: Vec::default(),
+            associated_machine_ids: value.associated_machine_ids.unwrap_or_default(),
             device_type: value.device_type,
         }
     }
@@ -83,6 +104,7 @@ impl From<rpc::forge::Sku> for Sku {
                 .unwrap_or_else(Utc::now),
             components: value.components.unwrap_or_default().into(),
             device_type: value.device_type,
+            associated_machine_ids: Some(value.associated_machine_ids),
         }
     }
 }

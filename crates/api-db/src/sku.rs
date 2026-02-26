@@ -146,14 +146,26 @@ pub async fn get_sku_ids(txn: impl DbReader<'_>) -> Result<Vec<String>, Database
 }
 
 pub async fn find(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     sku_ids: &[impl AsRef<str>],
+    include_machine_ids: bool,
 ) -> Result<Vec<Sku>, DatabaseError> {
     if sku_ids.is_empty() {
         return Ok(Vec::new());
     }
 
-    let query = "SELECT * FROM machine_skus WHERE id=ANY($1)";
+    let query = if include_machine_ids {
+        r#"SELECT skus.*, COALESCE(m.machine_ids, '[]'::jsonb) as associated_machine_ids
+  FROM machine_skus AS skus
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(m.id) AS machine_ids
+    FROM machines AS m
+    WHERE m.hw_sku = skus.id
+  ) AS m ON TRUE
+  WHERE skus.id=ANY($1)"#
+    } else {
+        "SELECT * FROM machine_skus WHERE id=ANY($1)"
+    };
 
     let skus: Vec<Sku> = sqlx::query_as(query)
         .bind(sku_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>())
@@ -245,7 +257,7 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
 
     inner_txn.commit().await?;
 
-    find(txn, std::slice::from_ref(&sku.id))
+    find(txn, std::slice::from_ref(&sku.id), false)
         .await?
         .pop()
         .ok_or_else(|| DatabaseError::NotFoundError {
@@ -420,6 +432,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
             tpm: None,
         },
         device_type: None,
+        associated_machine_ids: None,
     })
 }
 
@@ -531,6 +544,7 @@ pub fn generate_base_sku_from_hardware(
             tpm: None,
         },
         device_type: None,
+        associated_machine_ids: None,
     }
 }
 

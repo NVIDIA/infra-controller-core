@@ -1429,7 +1429,7 @@ impl SiteExplorer {
             .iter()
             .filter_map(|em| em.data.sku_id.as_deref())
             .collect();
-        let skus = db::sku::find(&mut txn, &sku_ids).await?;
+        let skus = db::sku::find(&mut txn, &sku_ids, false).await?;
 
         txn.commit().await?;
 

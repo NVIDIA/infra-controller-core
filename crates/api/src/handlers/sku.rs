@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use carbide_uuid::machine::MachineId;
-use db::machine::find_machine_ids_by_sku_id;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;
@@ -53,7 +52,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
     let mut txn = api.txn_begin().await?;
 
     let sku_id_list = request.into_inner().ids;
-    let mut skus = db::sku::find(&mut txn, &sku_id_list).await?;
+    let mut skus = db::sku::find(&mut txn, &sku_id_list, false).await?;
 
     let Some(sku) = skus.pop() else {
         return Err(CarbideError::InvalidArgument(format!(
@@ -143,7 +142,12 @@ pub(crate) async fn assign_to_machine(
         }
     }
 
-    let mut skus = db::sku::find(&mut txn, std::slice::from_ref(&sku_machine_pair.sku_id)).await?;
+    let mut skus = db::sku::find(
+        &mut txn,
+        std::slice::from_ref(&sku_machine_pair.sku_id),
+        false,
+    )
+    .await?;
 
     let sku = skus.pop().ok_or(CarbideError::NotFoundError {
         kind: "SKU ID",
@@ -276,23 +280,12 @@ pub(crate) async fn find_skus_by_ids(
         );
     }
 
-    let mut txn = api.txn_begin().await?;
-
-    let skus = db::sku::find(&mut txn, &sku_ids).await?;
-
-    let mut rpc_skus: Vec<rpc::forge::Sku> =
-        skus.into_iter().map(std::convert::Into::into).collect();
-
-    for rpc_sku in rpc_skus.iter_mut() {
-        rpc_sku.associated_machine_ids = find_machine_ids_by_sku_id(&mut txn, &rpc_sku.id)
-            .await?
-            .into_iter()
-            .collect();
-    }
-
-    txn.commit().await?;
-
-    Ok(Response::new(rpc::forge::SkuList { skus: rpc_skus }))
+    let skus = db::sku::find(&api.database_connection, &sku_ids, true)
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    Ok(Response::new(rpc::forge::SkuList { skus }))
 }
 
 pub(crate) async fn update_sku_metadata(

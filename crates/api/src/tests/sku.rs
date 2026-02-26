@@ -291,7 +291,7 @@ pub mod tests {
         machine_id: &MachineId,
         current_sku_id: &str,
     ) -> Result<String, eyre::Error> {
-        let correct_sku = db::sku::find(txn, &[current_sku_id.to_string()])
+        let correct_sku = db::sku::find(&mut *txn, &[current_sku_id.to_string()], false)
             .await?
             .pop()
             .unwrap();
@@ -361,7 +361,7 @@ pub mod tests {
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
         assert!(machine.hw_sku.is_some());
 
-        let new_sku = db::sku::find(&mut txn, &[machine.hw_sku.unwrap()])
+        let new_sku = db::sku::find(txn.as_mut(), &[machine.hw_sku.unwrap()], false)
             .await?
             .pop()
             .unwrap();
@@ -401,9 +401,10 @@ pub mod tests {
 
         db::sku::create(&mut txn, &expected_sku).await?;
 
-        let mut actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
-            .await?
-            .remove(0);
+        let mut actual_sku =
+            db::sku::find(txn.as_mut(), std::slice::from_ref(&expected_sku.id), false)
+                .await?
+                .remove(0);
         // cheat the created timestamp
         actual_sku.created = expected_sku.created;
 
@@ -432,13 +433,13 @@ pub mod tests {
         let expected_sku: Sku = rpc_sku.into();
 
         db::sku::create(&mut txn, &expected_sku).await?;
-        let actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
+        let actual_sku = db::sku::find(txn.as_mut(), std::slice::from_ref(&expected_sku.id), false)
             .await?
             .remove(0);
 
         db::sku::delete(&mut txn, &actual_sku.id).await?;
 
-        match db::sku::find(&mut txn, &[expected_sku.id]).await {
+        match db::sku::find(txn.as_mut(), &[expected_sku.id], false).await {
             Ok(sku) => {
                 if !sku.is_empty() {
                     let sku_name = sku[0].id.clone();
@@ -481,7 +482,9 @@ pub mod tests {
 
         let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
         db::sku::create(&mut txn, &actual_sku).await?;
-        let actual_sku = db::sku::find(&mut txn, &[actual_sku.id]).await?.remove(0);
+        let actual_sku = db::sku::find(txn.as_mut(), &[actual_sku.id], false)
+            .await?
+            .remove(0);
 
         db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
@@ -494,6 +497,18 @@ pub mod tests {
         .pop()
         .unwrap();
         assert_eq!(machine.hw_sku.unwrap(), actual_sku.id);
+
+        let found_sku = db::sku::find(txn.as_mut(), std::slice::from_ref(&actual_sku.id), true)
+            .await?
+            .into_iter()
+            .next()
+            .expect("sku not found after machine was assigned");
+
+        assert_eq!(
+            found_sku.associated_machine_ids.expect("sku associated_machine_ids was not assigned, even though include_machine_ids=true")
+                .as_slice(),
+            &[machine.id],
+        );
 
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
@@ -511,7 +526,7 @@ pub mod tests {
         let sku_id = actual_sku.id.clone();
         db::sku::delete(&mut txn, &actual_sku.id).await?;
 
-        match db::sku::find(&mut txn, &[sku_id]).await {
+        match db::sku::find(txn.as_mut(), &[sku_id], false).await {
             // We expect an okay result, but that it should be an empty list.
             Ok(sku) => {
                 if !sku.is_empty() {
@@ -1229,7 +1244,7 @@ pub mod tests {
         let machine = mh.host().db_machine(&mut txn).await;
         let machine_id = mh.host().id;
 
-        let original_sku = db::sku::find(&mut txn, &[machine.hw_sku.clone().unwrap()])
+        let original_sku = db::sku::find(txn.as_mut(), &[machine.hw_sku.clone().unwrap()], false)
             .await?
             .pop()
             .unwrap();
@@ -1563,7 +1578,7 @@ pub mod tests {
             .hw_sku
             .clone()
             .expect("SKU should have been assigned");
-        let mut actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
+        let mut actual_sku = db::sku::find(txn.as_mut(), std::slice::from_ref(&sku_id), false)
             .await?
             .pop()
             .expect("SKU should exist");
@@ -1650,10 +1665,11 @@ pub mod tests {
             .hw_sku
             .clone()
             .expect("SKU should have been assigned");
-        let expected_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku_id))
-            .await?
-            .pop()
-            .expect("SKU should exist");
+        let expected_sku =
+            db::sku::find(txn.as_mut(), std::slice::from_ref(&expected_sku_id), false)
+                .await?
+                .pop()
+                .expect("SKU should exist");
 
         txn.commit().await?;
 
@@ -1776,7 +1792,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = db::sku::find(txn.as_mut(), &["sku1".to_string()], false)
             .await?
             .pop()
             .unwrap();
@@ -1801,7 +1817,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = db::sku::find(txn.as_mut(), &["sku1".to_string()], false)
             .await?
             .pop()
             .unwrap();
@@ -1825,7 +1841,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = db::sku::find(txn.as_mut(), &["sku1".to_string()], false)
             .await?
             .pop()
             .unwrap();
@@ -1850,7 +1866,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = db::sku::find(txn.as_mut(), &["sku1".to_string()], false)
             .await?
             .pop()
             .unwrap();
@@ -1877,7 +1893,7 @@ pub mod tests {
     pub fn test_sku_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let sku_id = "sku1".to_string();
-        let original_sku = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
+        let original_sku = db::sku::find(txn.as_mut(), std::slice::from_ref(&sku_id), false)
             .await?
             .remove(0);
         let original_sku_json = serde_json::ser::to_string_pretty(&original_sku)?;
@@ -1899,7 +1915,9 @@ pub mod tests {
 
         let returned_sku_json = serde_json::ser::to_string_pretty(&returned_sku)?;
 
-        let mut actual_sku = db::sku::find(&mut txn, &[sku_id]).await?.remove(0);
+        let mut actual_sku = db::sku::find(txn.as_mut(), &[sku_id], false)
+            .await?
+            .remove(0);
 
         // cheat the created timestamp
         actual_sku.created = expected_sku.created;
