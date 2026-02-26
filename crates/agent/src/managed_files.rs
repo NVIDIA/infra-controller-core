@@ -14,20 +14,110 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::borrow::Cow;
+use core::str::FromStr;
 use std::collections::HashMap;
+use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
+use backon::{ExponentialBuilder, Retryable};
 
-use carbide_uuid::machine::MachineId;
+use std::time::Duration;
 
-use crate::duppet::{self, FileEnsure, SyncOptions};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use forge_dpu_agent_utils::utils::create_forge_client;
+use rpc::forge::InterfaceList;
+use rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT};
+
+use crate::duppet::{self, FileEnsure, PendingSync, SyncOptions, SyncStatus};
 use crate::periodic_config_fetcher::PeriodicConfigFetcher;
+
+async fn get_interface(
+    client: &mut ForgeClientT,
+    interface: MachineInterfaceId,
+) -> Result<InterfaceList, eyre::Error> {
+    let request = tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        id: Some(interface),
+        ip: None,
+    });
+
+    let resp = match client.find_interfaces(request).await {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Error while executing the FindInterfaces gRPC call: {}",
+                err.to_string()
+            ));
+        }
+    };
+
+    Ok(resp.into_inner())
+}
+
+fn take_single<T>(mut items: Vec<T>) -> Result<T, eyre::Error> {
+    let len = items.len();
+    if len != 1 {
+        return Err(eyre::eyre!("expected exactly 1 element, found {len}"));
+    }
+    Ok(items.remove(0))
+}
+
+async fn get_host_machine_id(
+    fetcher: Arc<PeriodicConfigFetcher>,
+    forge_client_config: Arc<ForgeClientConfig>,
+    forge_api: &str,
+) -> Result<Option<String>, eyre::Error> {
+    if let Some(interface_id) = fetcher.get_host_machine_interface_id() {
+        let mut client = create_forge_client(forge_api, &forge_client_config).await?;
+        let interface_list = get_interface(&mut client, MachineInterfaceId::from_str(&interface_id)?)
+            .await
+            .map_err(|e| {
+                tracing::error!("get_interface({}) failed: {:?}", interface_id, e);
+                e
+            })?;
+        let interface = take_single(interface_list.interfaces)?;
+        if let Some(id) = interface.machine_id {
+            return Ok(Some(id.to_string()));
+        }
+    }
+
+    Ok(None)
+}
+
+async fn get_host_machine_id_retry(
+    fetcher: Arc<PeriodicConfigFetcher>,
+    forge_client_config: Arc<ForgeClientConfig>,
+    forge_api: &str,
+) -> Result<String, eyre::Report> {
+    let retry_policy = ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(100))
+        .with_max_delay(Duration::from_secs(5 * 60))
+        .with_factor(2.0)
+        .without_max_times();
+
+    (|| async {
+        get_host_machine_id(
+            fetcher.clone(),
+            forge_client_config.clone(),
+            forge_api,
+        )
+        .await
+        .map_err(|e| {
+            tracing::warn!("get_host_machine_id() attempt failed: {:?}", e);
+            e
+        })?
+        .ok_or(eyre::eyre!("host_machine_id unavailable, will retry"))
+    })
+    .retry(retry_policy)
+    .await
+}
 
 pub fn main_sync(
     sync_options: SyncOptions,
     machine_id: &MachineId,
-    periodic_config_fetcher: &PeriodicConfigFetcher,
-) {
+    periodic_config_fetcher: Arc<PeriodicConfigFetcher>,
+    forge_client_config: Arc<ForgeClientConfig>,
+    forge_api: String,
+) -> io::Result<(HashMap<PathBuf, SyncStatus>, Vec<PendingSync>)> {
     // Sync out all duppet-managed config files. This can be called as part of
     // main_loop running if we want (and can also be called willy nilly with
     // ad-hoc sets of files, including whenever the nvue config changes if we
@@ -66,16 +156,19 @@ pub fn main_sync(
         ),
         (
             "/run/otelcol-contrib/machine-id".into(),
-            duppet::FileSpec::new().with_content(build_otel_machine_id_file(machine_id)),
+            duppet::FileSpec::new().with_content(build_otel_machine_id_file_content(machine_id)),
         ),
         (
             "/run/otelcol-contrib/host-machine-id".into(),
-            duppet::FileSpec::new().with_content(build_otel_host_machine_id_file(
-                periodic_config_fetcher
-                    .get_host_machine_id()
-                    .map(|id| Cow::Owned(id.to_string()))
-                    .unwrap_or(Cow::Borrowed("")),
-            )),
+            duppet::FileSpec::new().with_content(|| async move {
+                let id = get_host_machine_id_retry(
+                    periodic_config_fetcher.clone(),
+                    forge_client_config.clone(),
+                    &forge_api,
+                )
+                .await;
+                build_otel_host_machine_id_file_content(id.ok().as_deref().unwrap_or(""))
+            }),
         ),
         // September 30, 2025.
         //
@@ -96,19 +189,18 @@ pub fn main_sync(
             duppet::FileSpec::new().with_ensure(FileEnsure::Absent),
         ),
     ]);
-    if let Err(e) = duppet::sync(duppet_files, sync_options) {
-        tracing::error!("error during duppet run: {}", e)
-    }
+
+    duppet::sync(duppet_files, sync_options)
 }
 
 // Write "machine.id=<value>" to a file so the OpenTelemetry collector can apply it as a resource
 // attribute.
-pub fn build_otel_machine_id_file(machine_id: &MachineId) -> String {
+pub fn build_otel_machine_id_file_content(machine_id: &MachineId) -> String {
     format!("machine.id={machine_id}\n")
 }
 
 // Write "host.machine.id=<value>" to a file so the OpenTelemetry collector can apply it as a
 // resource attribute.
-pub fn build_otel_host_machine_id_file(host_machine_id: Cow<str>) -> String {
+pub fn build_otel_host_machine_id_file_content(host_machine_id: &str) -> String {
     format!("host.machine.id={host_machine_id}\n")
 }

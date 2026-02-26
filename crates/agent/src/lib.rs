@@ -219,26 +219,43 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 summary_format: parsed_format,
             };
 
-            // Since the duppet sync also syncs out the otel machine_id
-            // file, we need to make a registration call to get the machine_id,
-            // and a single fetch to get the host_machine_id.
+            // Since the duppet sync also syncs out the otel machine_id and
+            // host_machine_id files, we need to make a registration call to
+            // get the machine_id, and a carbide api request to get the
+            // host_machine_id.
             let Registration { machine_id, .. } =
                 register(&agent).await.wrap_err("registration error")?;
 
             let forge_api_server = agent.forge_system.api_server.clone();
-            let periodic_config_fetcher = periodic_config_fetcher::PeriodicConfigFetcher::new(
-                periodic_config_fetcher::PeriodicConfigFetcherConfig {
-                    config_fetch_interval: Duration::from_secs(
-                        agent.period.network_config_fetch_secs,
-                    ),
-                    machine_id,
-                    forge_api: forge_api_server.clone(),
-                    forge_client_config: Arc::clone(&forge_client_config),
-                },
-            )
-            .await;
+            let periodic_config_fetcher = Arc::new(
+                periodic_config_fetcher::PeriodicConfigFetcher::new(
+                    periodic_config_fetcher::PeriodicConfigFetcherConfig {
+                        config_fetch_interval: Duration::from_secs(
+                            agent.period.network_config_fetch_secs,
+                        ),
+                        machine_id,
+                        forge_api: forge_api_server.clone(),
+                        forge_client_config: forge_client_config.clone(),
+                    },
+                )
+                .await,
+            );
 
-            managed_files::main_sync(sync_options, &machine_id, &periodic_config_fetcher);
+            match managed_files::main_sync(
+                sync_options.clone(),
+                &machine_id,
+                periodic_config_fetcher,
+                forge_client_config.clone(),
+                forge_api_server.clone(),
+            ) {
+                Ok((_, pending)) => {
+                    duppet::print_pending_syncs(pending, sync_options).await?;
+                    // print_pending_syncs already logged any errors
+                }
+                Err(e) => {
+                    tracing::error!("error during duppet run: {}", e)
+                }
+            }
         }
 
         // Output a templated file

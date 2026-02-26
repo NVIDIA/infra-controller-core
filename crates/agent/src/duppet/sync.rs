@@ -24,20 +24,28 @@ use std::path::{Path, PathBuf};
 use colored::Colorize;
 use nix::unistd::{Gid, Uid, chown};
 use sha2::{Digest, Sha256};
+use tokio::task::{JoinError, JoinSet};
 use uzers::{get_group_by_name, get_user_by_name};
 
 use super::log::{build_diff, maybe_colorize};
-use super::{FileEnsure, FileSpec, SummaryFormat, SyncOptions, SyncStatus};
+use super::{
+    FileEnsure, FileSpec, PendingSync, SummaryFormat, SyncOptions, SyncOutcome, SyncStatus,
+};
 
-/// sync is the main entrypoint into duppet doing a sync. It
-/// takes the hashmap of file output path and content, as well
-/// as various sync options to use for the run.
-pub fn sync(
-    files: HashMap<PathBuf, FileSpec>,
-    options: SyncOptions,
-) -> io::Result<HashMap<PathBuf, SyncStatus>> {
-    let summary = sync_files(files, &options)?;
+fn print_status(path: &Path, status: &SyncStatus, options: &SyncOptions) {
+    let label = match status {
+        SyncStatus::Created => maybe_colorize("Created", |s| s.green().bold(), options),
+        SyncStatus::Updated => maybe_colorize("Updated", |s| s.yellow().bold(), options),
+        SyncStatus::Unchanged => maybe_colorize("Unchanged", |s| s.blue(), options),
+    };
+    tracing::info!("  {:<10} {}", label, path.display());
+}
 
+fn print_summary(
+    summary: &HashMap<PathBuf, SyncStatus>,
+    pending: &Vec<PendingSync>,
+    options: &SyncOptions,
+) {
     // Note that currently, a summary is ALWAYS printed, even if
     // --quiet is set (since --quiet is meant for silencing the
     // per-file logging). We might want to make this included in
@@ -46,32 +54,51 @@ pub fn sync(
         // Don't use tracing::info for JSON or YAML, otherwise it'd
         // prefix it with whatever tracing formatting is configured,
         // which is probably undesired in this case.
-        SummaryFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&summary).unwrap());
-        }
-        SummaryFormat::Yaml => {
-            println!("{}", serde_yaml::to_string(&summary).unwrap());
+        SummaryFormat::Json | SummaryFormat::Yaml => {
+            let summary_data = if pending.is_empty() {
+                serde_json::json!(summary)
+            } else {
+                serde_json::json!({
+                    "summary": summary,
+                    "pending": pending.iter().map(|p| &p.path).collect::<Vec<_>>(),
+                })
+            };
+            match options.summary_format {
+                SummaryFormat::Json => serde_json::to_string_pretty(&summary_data)
+                    .expect("Failed to serialize JSON summary"),
+                SummaryFormat::Yaml => {
+                    serde_yaml::to_string(&summary_data).expect("Failed to serialize YAML summary")
+                }
+                _ => unreachable!(),
+            };
         }
         // Don't leverage the logln! macro for any of this, since
         // --quiet would mean this doesn't get printed at all.
         SummaryFormat::PlainText => {
             tracing::info!("Duppet Sync Summary:");
-            for (path, status) in &summary {
-                let label = match status {
-                    SyncStatus::Created => {
-                        maybe_colorize("Created", |s| s.green().bold(), &options)
-                    }
-                    SyncStatus::Updated => {
-                        maybe_colorize("Updated", |s| s.yellow().bold(), &options)
-                    }
-                    SyncStatus::Unchanged => maybe_colorize("Unchanged", |s| s.blue(), &options),
-                };
-                tracing::info!("  {:<10} {}", label, path.display());
+            for (path, status) in summary {
+                print_status(path, status, options);
+            }
+            for p in pending {
+                let label = maybe_colorize("Pending", |s| s.magenta().bold(), options);
+                tracing::info!("  {:<10} {}", label, p.path.display());
             }
         }
     }
+}
 
-    Ok(summary)
+/// sync is the main entrypoint into duppet doing a sync. It
+/// takes the hashmap of file output path and content, as well
+/// as various sync options to use for the run, and returns a
+/// map of completed sync statuses, as well as a list of syncs
+/// pending content generation.
+pub fn sync(
+    files: HashMap<PathBuf, FileSpec>,
+    options: SyncOptions,
+) -> io::Result<(HashMap<PathBuf, SyncStatus>, Vec<PendingSync>)> {
+    let (summary, pending) = sync_files(files, options.clone())?;
+    print_summary(&summary, &pending, &options);
+    Ok((summary, pending))
 }
 
 /// sync_files takes all of the files to sync, along with
@@ -80,16 +107,52 @@ pub fn sync(
 /// done, it returns the results for each path!
 pub fn sync_files(
     files: HashMap<PathBuf, FileSpec>,
-    options: &SyncOptions,
-) -> io::Result<HashMap<PathBuf, SyncStatus>> {
+    options: SyncOptions,
+) -> io::Result<(HashMap<PathBuf, SyncStatus>, Vec<PendingSync>)> {
     let mut results = HashMap::new();
+    let mut pending = Vec::new();
 
     for (dest_path, source_content) in files {
-        let status = sync_file(&dest_path, &source_content, options)?;
-        results.insert(dest_path, status);
+        let outcome = sync_file_now_or_later(&dest_path, source_content, options.clone())?;
+        match outcome {
+            SyncOutcome::Status(status) => {
+                results.insert(dest_path, status);
+            }
+            SyncOutcome::Pending(future) => {
+                pending.push(future);
+            }
+        }
     }
 
-    Ok(results)
+    Ok((results, pending))
+}
+
+pub fn sync_file_now_or_later(
+    path: &Path,
+    mut spec: FileSpec,
+    options: SyncOptions,
+) -> io::Result<SyncOutcome> {
+    let content = spec.content.take(); // avoid partial moves and borrow/move conflicts
+    match content {
+        Some(content) if !content.is_ready() => {
+            let synced_path = path.to_path_buf();
+            let handle = tokio::spawn(async move {
+                let _ = content.get_async().await;
+                spec.content = Some(content); // restore after take()
+                sync_file(&synced_path, &spec, &options)
+            });
+            Ok(SyncOutcome::Pending(PendingSync {
+                path: path.to_path_buf(),
+                handle,
+            }))
+        }
+        other => {
+            // Immediate: content is ready or None, restore it
+            spec.content = other;
+            let status = sync_file(path, &spec, &options)?;
+            Ok(SyncOutcome::Status(status))
+        }
+    }
 }
 
 /// sync_file syncs a single file, ensuring it has
@@ -160,7 +223,7 @@ pub fn maybe_update_file(
     let mut existing = String::new();
     File::open(dest_path)?.read_to_string(&mut existing)?;
 
-    let src_hash = Sha256::digest(file_spec.content.as_bytes());
+    let src_hash = Sha256::digest(file_spec.get_content()?.as_bytes());
     let dst_hash = Sha256::digest(existing.as_bytes());
 
     // If the observed data isn't the expected
@@ -168,7 +231,7 @@ pub fn maybe_update_file(
     if src_hash != dst_hash {
         update_file(
             dest_path,
-            &file_spec.content,
+            file_spec.get_content()?,
             &existing,
             src_hash,
             dst_hash,
@@ -219,7 +282,7 @@ pub fn create_file(
     file_spec: &FileSpec,
     options: &SyncOptions,
 ) -> io::Result<()> {
-    let hash = Sha256::digest(file_spec.content.as_bytes());
+    let hash = Sha256::digest(file_spec.get_content()?.as_bytes());
 
     logln!(
         options,
@@ -237,7 +300,7 @@ pub fn create_file(
         fs::create_dir_all(parent)?;
     }
 
-    write_file_content(dest_path, &file_spec.content, options)?;
+    write_file_content(dest_path, file_spec.get_content()?, options)?;
 
     // There's no point in calling these if it's a dry run
     // for creating a new file, because the file won't exist
@@ -411,4 +474,68 @@ pub fn maybe_update_file_ownership(
     }
 
     Ok(true)
+}
+
+/// print_pending_syncs takes from sync() the list of syncs
+/// that are pending content generation and returns a map of
+/// their completion statuses after they all complete. If
+/// summary_format in options is plain text, the status of
+/// each pending sync is printed as it completes, in the
+/// same format that sync() used to print its summary of
+/// immediate syncs. Otherwise, for json and yaml formats,
+/// an unordered summary is printed after all pending syncs
+/// complete.
+pub async fn print_pending_syncs(
+    pending: Vec<PendingSync>,
+    options: SyncOptions,
+) -> io::Result<HashMap<PathBuf, SyncStatus>> {
+    let mut set = JoinSet::new();
+    let mut map = HashMap::new();
+
+    for PendingSync { path, handle } in pending {
+        set.spawn(async move {
+            let res: Result<io::Result<SyncStatus>, JoinError> = handle.await;
+            (path, res)
+        });
+    }
+
+    while let Some(joined) = set.join_next().await {
+        // joined: Result<(PathBuf, Result<io::Result<SyncStatus>, JoinError>), JoinError>
+        let (path, completion) = match joined {
+            Err(join_err) => {
+                tracing::error!("pending sync join task failed: {join_err}");
+                return Err(io::Error::other(join_err.to_string()));
+            }
+            Ok(pair) => pair,
+        };
+
+        match completion {
+            Err(join_err) => {
+                tracing::error!("pending sync task for {path:?} panicked/aborted: {join_err}");
+                return Err(io::Error::other(join_err.to_string()));
+            }
+            Ok(path_result) => match path_result {
+                Err(e) => {
+                    tracing::error!("pending sync failed for {path:?}: {e}");
+                    return Err(e);
+                }
+                Ok(status) => {
+                    if let SummaryFormat::PlainText = options.summary_format {
+                        print_status(&path, &status, &options);
+                    }
+                    map.insert(path, status);
+                }
+            },
+        }
+    }
+
+    match options.summary_format {
+        SummaryFormat::Json | SummaryFormat::Yaml => {
+            let v: Vec<PendingSync> = Vec::new();
+            print_summary(&map, &v, &options);
+        }
+        _ => {} // already printed in completion order
+    }
+
+    Ok(map)
 }

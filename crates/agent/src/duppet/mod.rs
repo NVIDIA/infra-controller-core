@@ -25,6 +25,6 @@ pub mod options;
 mod status;
 mod sync;
 
-pub use options::{FileEnsure, FileSpec, SummaryFormat, SyncOptions};
-pub use status::SyncStatus;
-pub use sync::{sync, sync_file};
+pub use options::{FileContent, FileEnsure, FileSpec, SummaryFormat, SyncOptions};
+pub use status::{PendingSync, SyncOutcome, SyncStatus};
+pub use sync::{print_pending_syncs, sync, sync_file};

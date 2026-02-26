@@ -147,13 +147,12 @@ impl PeriodicConfigFetcher {
         })
     }
 
-    pub fn get_host_machine_id(&self) -> Option<MachineId> {
+    pub fn get_host_machine_interface_id(&self) -> Option<String> {
         self.state
             .netconf
             .load()
             .as_ref()
-            .and_then(|netconf| netconf.instance.as_ref())
-            .and_then(|instance| instance.machine_id)
+            .and_then(|netconf| netconf.host_interface_id.clone())
     }
 }
 

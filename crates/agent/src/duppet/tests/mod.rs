@@ -98,7 +98,7 @@ fn test_update_file_content() {
         .unwrap()
         .read_to_string(&mut observed_content)
         .unwrap();
-    assert_eq!(observed_content, updated_spec.content);
+    assert_eq!(observed_content, updated_spec.get_content().unwrap());
 }
 
 #[test]
@@ -161,9 +161,10 @@ fn test_sync() {
     let result = sync(files, default_test_options());
     assert!(result.is_ok());
 
-    let summary = result.unwrap();
+    let (summary, pending) = result.unwrap();
     assert_eq!(summary.len(), 1);
     assert_eq!(summary.get(&path), Some(&SyncStatus::Created));
+    assert!(pending.is_empty(), "no syncs pending");
 
     let mut observed = String::new();
     File::open(&path)
@@ -264,4 +265,58 @@ fn test_dry_run_delete() {
 
     // But the file should still exist.
     assert!(path.exists());
+}
+
+#[tokio::test]
+// test_pending_sync ensures that syncs pending content generation
+// work as expected and report their status upon completion.
+async fn test_pending_sync() {
+    let dir = tempdir().unwrap();
+    let path_cat = dir.path().join("cat.txt");
+    let path_dog = dir.path().join("dog.txt");
+    let path_mouse = dir.path().join("mouse.txt");
+
+    // Create two files with immediate content, one with pending content.
+    let spec_cat = FileSpec::new().with_content("cat");
+    let spec_dog = FileSpec::new().with_content("dog");
+    let spec_mouse: FileSpec = FileSpec::new().with_content(|| async move {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        String::from("mouse")
+    });
+
+    // Sync all three files.
+    let mut files = HashMap::new();
+    files.insert(path_cat.clone(), spec_cat);
+    files.insert(path_dog.clone(), spec_dog);
+    files.insert(path_mouse.clone(), spec_mouse);
+    let result = sync(files, default_test_options());
+    assert!(result.is_ok());
+
+    // Verify expected immediate and pending results.
+    let (summary, mut pending) = result.unwrap();
+    assert_eq!(summary.len(), 2);
+    assert_eq!(summary.get(&path_cat), Some(&SyncStatus::Created));
+    assert_eq!(summary.get(&path_dog), Some(&SyncStatus::Created));
+    assert_eq!(pending.len(), 1);
+
+    // Await completion of the pending sync and verify its success.
+    let pending_sync = pending.remove(0);
+    assert_eq!(pending_sync.path, path_mouse);
+    let pending_status = pending_sync.handle.await.unwrap();
+    assert!(pending_status.is_ok());
+    assert_eq!(pending_status.unwrap(), SyncStatus::Created);
+
+    // Verify the expected contents of all three files.
+    for (path, expected) in [
+        (&path_cat, "cat"),
+        (&path_dog, "dog"),
+        (&path_mouse, "mouse"),
+    ] {
+        let mut observed = String::new();
+        File::open(path)
+            .unwrap()
+            .read_to_string(&mut observed)
+            .unwrap();
+        assert_eq!(observed, expected);
+    }
 }

@@ -15,7 +15,10 @@
  * limitations under the License.
  */
 
+use std::path::PathBuf;
+
 use serde::Serialize;
+use tokio::task::JoinHandle;
 
 /// SyncStatus is a simple enum that stores whether
 /// the target file was created, updated, or already
@@ -29,4 +32,14 @@ pub enum SyncStatus {
     Updated,
     // The file contents and permissions were in sync.
     Unchanged,
+}
+
+pub struct PendingSync {
+    pub path: PathBuf,
+    pub handle: JoinHandle<std::io::Result<SyncStatus>>,
+}
+
+pub enum SyncOutcome {
+    Status(SyncStatus),
+    Pending(PendingSync),
 }
