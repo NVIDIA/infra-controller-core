@@ -32,6 +32,7 @@ use rpc::forge::{
 
 use super::filters;
 use crate::api::Api;
+use crate::auth::AuthContext;
 
 #[derive(Template)]
 #[template(path = "machine_health.html")]
@@ -291,6 +292,7 @@ pub struct RemoveOverride {
 pub async fn add_override(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
+    axum::Extension(auth_context): axum::Extension<AuthContext>,
     extract::Json(payload): extract::Json<HealthReportOverride>,
 ) -> impl IntoResponse {
     let report_override = match ::rpc::forge::HealthReportOverride::try_from(payload) {
@@ -303,10 +305,11 @@ pub async fn add_override(
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()),
     };
 
-    let request = tonic::Request::new(InsertHealthReportOverrideRequest {
+    let mut request = tonic::Request::new(InsertHealthReportOverrideRequest {
         machine_id: Some(machine_id),
         r#override: Some(report_override),
     });
+    request.extensions_mut().insert(auth_context);
     match state
         .insert_health_report_override(request)
         .await

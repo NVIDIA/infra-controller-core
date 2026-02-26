@@ -2088,6 +2088,7 @@ pub async fn network_configured_with_health(
 
     let dpu_health = dpu_health.unwrap_or_else(|| rpc::health::HealthReport {
         source: "forge-dpu-agent".to_string(),
+        triggered_by: None,
         observed_at: None,
         successes: vec![],
         alerts: vec![],

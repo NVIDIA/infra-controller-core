@@ -5837,6 +5837,7 @@ impl StateHandler for InstanceStateHandler {
                             // IB Monitor will unbind before clearing
                             let health_report = HealthReport {
                                 source: "ib-cleanup-validation".to_string(),
+                                triggered_by: None,
                                 observed_at: Some(chrono::Utc::now()),
                                 alerts: vec![HealthProbeAlert {
                                     id: HealthProbeId::from_str("IbCleanupPending")
