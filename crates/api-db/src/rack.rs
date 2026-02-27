@@ -87,6 +87,7 @@ pub async fn create(
         expected_switches: expected_nvlink_switches,
         expected_power_shelves,
         rack_type: None,
+        current_run_id: None,
     };
     let controller_state = String::from("{\"state\":\"expected\"}");
     let controller_state_outcome = String::from("{}");
