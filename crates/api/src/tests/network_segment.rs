@@ -1155,6 +1155,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         .api
         .create_vpc(
             VpcCreationRequest::builder("dual-stack vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
                 .tonic_request(),
         )
         .await?
@@ -1238,6 +1239,7 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
                 "uncontained-ipv6-vpc",
                 "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
             )
+            .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
             .tonic_request(),
         )
         .await?
