@@ -139,8 +139,8 @@ CreateTenantRequest (called by admin)
 │(e.g LL)│       │   (REST)      │       │   (gRPC)    │       │(Postgres)│      
 └───┬────┘       └──────┬────────┘       └──────┬──────┘       └────┬─────┘      
     │                   │                       │                   │                    
-    │ GET /v2/{site-id}/│                       │                   │                    
-    │ org-id}/.well-known/                      │                   │                    
+    │ GET /v2/{org-id}/ │                       │                   │
+    │ {site-id}/.well-known/                    │                   │
     │ openid-configuration│                     │                   │                    
     │──────────────────>│                       │                   │                    
     │                   │                       │                   │                    
@@ -293,10 +293,12 @@ A new table will be created to store tenant signing key pairs. The private key w
 
 The JWT spec and vault related configs are passed to the Carbide API server during startup through `site_config.toml` config file. 
 
-```shell
+```bash
 # In site config file (e.g., site_config.toml)
 [machine-identity]
-iss = "carbide.nvidia.com"
+spiffe_domain = "spiffe://carbide-domain" // prefix appear in jwt-svid 'sub'
+site_id = "carbide site UUID"
+iss = "https://carbide.nvidia.com" // issuer uri, appended by org_id and site_id in runtime
 algorithm = "ES256"
 default_aud = "carbide"
 token_ttl_seconds = 300
@@ -310,10 +312,9 @@ The subject format complies with the SPIFFE ID specification.
 **Carbide JWT-SPIFFE (passed to Tenant Layer):**
 
 ```json
-
 {
-  "sub": "spiffe://tenant-1.carbide.nvidia.com/node/machine-121",
-  "iss": "https://<carbide-rest>/v2/org/org-id/carbide/site/site-id",
+  "sub": "spiffe://{carbide-domain}/{org-id}/machine-121",
+  "iss": "https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}",
   "aud": [
     "tenant-layer-exchange-token-service"
   ],
@@ -339,8 +340,8 @@ This is a sample JWT-SVID issued by the tenant's token endpoint.
 
 ```json
 {
-  "sub": "spiffe://<tenant-domain>/machine/{instance-uuid}",
-  "iss": "https://<tenant-domain>/v1/org/{org-id}/site/{site-id}",
+  "sub": "spiffe://{tenant-domain}/machine/{instance-uuid}",
+  "iss": "https://{tenant-domain}",
   "aud": [
     "openbao-service"
   ],
@@ -359,7 +360,7 @@ Both json and plaintext responses are supported depending on the Accept header. 
 
 Request:
 
-```
+```bash
 GET http://169.254.169.254:80/v1/meta-data/identity?aud=urlencode(spiffe://your.target.service.com)&aud=urlencode(spiffe://extra.audience.com)
 Accept: application/json (or omitted)
 Metadata: true
@@ -367,7 +368,7 @@ Metadata: true
 
 Response:
 
-```
+```bash
 200 OK
 Content-Type: application/json
 Content-Length: ...
@@ -382,7 +383,7 @@ Content-Length: ...
 
 Request:
 
-```
+```bash
 GET http://169.254.169.254:80/v1/meta-data/identity?aud=urlencode(spiffe://your.target.service.com)&aud=urlencode(spiffe://extra.audience.com)
 Accept: text/plain
 Metadata: true
@@ -390,7 +391,7 @@ Metadata: true
 
 Response:
 
-```
+```bash
 200 OK
 Content-Type: text/plain
 Content-Length: ...
@@ -401,7 +402,7 @@ eyJhbGciOiJSUzI1NiIs...
 
 These APIs allow Carbide tenants to register their Token Exchange server endpoints. Delegation gives tenants control over token structure, lifecycle, and management—for example, when tenants have richer context than Carbide about the requesting workload (e.g., VM identity, application role) and need to issue tenant-specific JWT-SVIDs.
 
-```
+```bash
 PUT /token-delegation
 GET /token-delegation
 DELETE /token-delegation
@@ -411,8 +412,8 @@ Tenant Layer calls this Carbide API to register the token exchange callback API.
 
 Request:
 
-```
-PUT https://<carbide-rest>/v2/org/{org-id}/carbide/site/{site-id}/token-delegation
+```bash
+PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/token-delegation
 {
   "token_endpoint": "https://auth.acme.com/oauth2/token",
   "auth_method": "client_secret_basic",
@@ -424,14 +425,14 @@ PUT https://<carbide-rest>/v2/org/{org-id}/carbide/site/{site-id}/token-delegati
 
 Response:
 
-```
+```json
 {
-  “siteId”: “uuid”,
+  "siteId": "uuid",
   "token_endpoint": "https://tenant.example.com/oauth2/token",
   "auth_method": "client_secret_basic",
   "client_id": "abc123",
-  "client_secret": "super-secret"
-  “subject_token_audience”: “value”, // to include in carbide-jwt-svid 
+  "client_secret": "super-secret",
+  "subject_token_audience": "value"
 }
 ```
 
@@ -449,7 +450,7 @@ Make a request to the `token_endpoint` passed in `/token/delegation` API.
 
 **Request**:
 
-```
+```bash
 POST https://tenant.example.com/oauth2/token
 Content-Type: application/x-www-form-urlencoded
 
@@ -460,7 +461,7 @@ grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange
 
 **Response**:
 
-```
+```bash
 200 OK
 Content-Type: application/json
 Content-Length: ...
@@ -477,9 +478,9 @@ The exchange service serves an [RFC 8693](https://datatracker.ietf.org/doc/html/
 
 #### **3.5.1.4 SPIFFE JWKS Endpoint**
 
-```
+```bash
 GET
-https://<carbide-rest>/v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json
+https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json
 
 {
   "keys": [{
@@ -496,13 +497,13 @@ https://<carbide-rest>/v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.j
 
 #### **3.5.1.5 OIDC Discovery URL**
 
-```
+```bash
 GET
-https://<carbide-rest>/v2/org/{org-id}/carbide/site/{site-id}/.well-known/openid-configuration
+https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/openid-configuration
 
 {
-  "issuer": "https://<carbide-rest>/v2/org/org-id/carbide/site/site-id",
-  "jwks_uri": "https://<carbide-rest>/v2/org/org-id/carbide/site/site-id/.well-known/jwks.json",
+  "issuer": "https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}",
+  "jwks_uri": "https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json",
   "response_types_supported": [
     "id_token"
   ],
@@ -575,33 +576,30 @@ syntax = "proto3";
 // Token Delegation config message
 message TokenDelegation {
   string org_id = 1;
-  string site_id = 2;
-  string token_endpoint = 3;
-  string auth_method = 4;
-  string client_id = 5;
-  string client_secret = 6; // write-only, never returned in responses
-  string subject_token_audience = 7; // audience to include in Carbide JWT-SVID
-  bool enabled = 8;
-  google.protobuf.Timestamp created_at = 9;
-  google.protobuf.Timestamp updated_at = 10;
+  string token_endpoint = 2;
+  string auth_method = 3;
+  string client_id = 4;
+  string client_secret = 5; // write-only, never returned in responses
+  string subject_token_audience = 6; // audience to include in Carbide JWT-SVID
+  bool enabled = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
 }
 
 // Request for GET / DELETE (identifies org and site)
 message GetTokenDelegationRequest {
   string org_id = 1;
-  string site_id = 2;
 }
 
 // Request for PUT (includes delegation config)
 message PutTokenDelegationRequest {
   string org_id = 1;
-  string site_id = 2;
-  string token_endpoint = 3;
-  string auth_method = 4;
-  string client_id = 5;
-  string client_secret = 6;
-  string subject_token_audience = 7;
-  bool enabled = 8;
+  string token_endpoint = 2;
+  string auth_method = 3;
+  string client_id = 4;
+  string client_secret = 5;
+  string subject_token_audience = 6;
+  bool enabled = 7;
 }
 
 // Response for GET / PUT
@@ -654,6 +652,11 @@ message OpenIDConfiguration {
   uint32 version = 6; // Optional config version
 }
 
+// Request message
+message GetOpenIDConfigRequest {
+  string org_id = 1;    // org-id
+}
+
 // gRPC service
 service Forge {
   // OIDC .well-known Endpoints
@@ -666,11 +669,11 @@ service Forge {
 
 | REST Method & Endpoint | gRPC Method | Description |
 | ----- | ----- | ----- |
-| `GET /v2/org/{org_id}/carbide/site/{site_id}/.well-known/jwks.json` | `Forge.GetJWKS` | Fetch JSON Web Key Set |
-| `GET /v2/org/{org_id}/carbide/site/{site_id}/.well-known/openid-configuration` | `Forge.GetOpenIDConfiguration` | Fetch OpenID Connect config |
-| `GET /v2/org/{org_id}/carbide/site/{site_id}/token-delegation` | `Forge.GetTokenDelegation` | Retrieve token delegation config |
-| `PUT /v2/org/{org_id}/carbide/site/{site_id}/token-delegation` | `Forge.PutTokenDelegation` | Create or replace token delegation |
-| `DELETE /v2/org/{org_id}/carbide/site/{site_id}/token-delegation` | `Forge.DeleteTokenDelegation` | Delete token delegation |
+| `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json` | `Forge.GetJWKS` | Fetch JSON Web Key Set |
+| `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/openid-configuration` | `Forge.GetOpenIDConfiguration` | Fetch OpenID Connect config |
+| `GET /v2/org/{org-id}/carbide/site/{site-id}/token-delegation` | `Forge.GetTokenDelegation` | Retrieve token delegation config |
+| `PUT /v2/org/{org-id}/carbide/site/{site-id}/token-delegation` | `Forge.PutTokenDelegation` | Create or replace token delegation |
+| `DELETE /v2/org/{org-id}/carbide/site/{site-id}/token-delegation` | `Forge.DeleteTokenDelegation` | Delete token delegation |
 
 ### **3.5.2.2 Error Handling**
 
