@@ -292,7 +292,7 @@ pub struct RemoveOverride {
 pub async fn add_override(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
-    axum::Extension(auth_context): axum::Extension<AuthContext>,
+    auth_context: Option<axum::Extension<AuthContext>>,
     extract::Json(payload): extract::Json<HealthReportOverride>,
 ) -> impl IntoResponse {
     let report_override = match ::rpc::forge::HealthReportOverride::try_from(payload) {
@@ -309,7 +309,9 @@ pub async fn add_override(
         machine_id: Some(machine_id),
         r#override: Some(report_override),
     });
-    request.extensions_mut().insert(auth_context);
+    if let Some(axum::Extension(auth_context)) = auth_context {
+        request.extensions_mut().insert(auth_context);
+    }
     match state
         .insert_health_report_override(request)
         .await
