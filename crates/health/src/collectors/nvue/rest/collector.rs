@@ -29,30 +29,37 @@ use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 const COLLECTOR_NAME: &str = "nvue_rest";
 
-fn health_status_to_f64(status: Option<&str>) -> f64 {
+fn system_health_to_f64(status: Option<&str>) -> f64 {
+    match status {
+        Some("OK") => 1.0,
+        Some("Not OK") => 2.0,
+        _ => 0.0,
+    }
+}
+
+fn partition_health_to_f64(status: Option<&str>) -> f64 {
     match status {
         Some("healthy") => 1.0,
-        Some("degraded") => 2.0,
-        Some("unhealthy") => 3.0,
+        Some("degraded_bandwidth") => 2.0,
+        Some("degraded") => 3.0,
+        Some("unhealthy") => 4.0,
         _ => 0.0,
     }
 }
 
 fn app_status_to_f64(status: Option<&str>) -> f64 {
     match status {
-        Some("running") => 1.0,
-        Some("stopped") => 2.0,
-        Some("error") => 3.0,
+        Some("ok") => 1.0,
+        Some("not ok") => 2.0,
         _ => 0.0,
     }
 }
 
-fn diagnostic_status_to_f64(status: &str) -> f64 {
-    match status {
-        "ok" => 0.0,
-        "warning" => 1.0,
-        "error" => 2.0,
-        _ => 0.0,
+/// code "0" means no issue; any other opcode indicates a problem
+fn diagnostic_opcode_to_f64(code: &str) -> f64 {
+    match code {
+        "0" => 0.0,
+        _ => 1.0,
     }
 }
 
@@ -109,7 +116,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
 
         match self.client.get_system_health().await {
             Ok(Some(health)) => {
-                let value = health_status_to_f64(health.status.as_deref());
+                let value = system_health_to_f64(health.status.as_deref());
                 self.emit_metric("system_health", None, value, "state", vec![]);
                 entity_count += 1;
             }
@@ -145,24 +152,10 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
 
         match self.client.get_sdn_partitions().await {
             Ok(Some(partitions)) => {
-                for (part_id, summary) in &partitions {
-                    let detail = match self.client.get_partition_detail(part_id).await {
-                        Ok(Some(d)) => d,
-                        Ok(None) => summary.clone(),
-                        Err(e) => {
-                            tracing::warn!(
-                                error = ?e,
-                                switch_id = %self.switch_id,
-                                partition_id = %part_id,
-                                "nvue_rest: failed to fetch partition detail, using summary"
-                            );
-                            summary.clone()
-                        }
-                    };
-
-                    let part_name = detail.name.as_deref().unwrap_or(part_id);
-                    let health_value = health_status_to_f64(detail.health.as_deref());
-                    let gpu_count = detail.gpu.as_ref().map_or(0, |g| g.len()) as f64;
+                for (part_id, partition) in &partitions {
+                    let part_name = partition.name.as_deref().unwrap_or(part_id);
+                    let health_value = partition_health_to_f64(partition.health.as_deref());
+                    let gpu_count = partition.num_gpus.unwrap_or(0) as f64;
 
                     let partition_labels = vec![
                         (Cow::Borrowed("partition_id"), part_id.clone()),
@@ -196,7 +189,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
         match self.client.get_link_diagnostics().await {
             Ok(diagnostics) => {
                 for diag in &diagnostics {
-                    let value = diagnostic_status_to_f64(&diag.status);
+                    let value = diagnostic_opcode_to_f64(&diag.code);
                     self.emit_metric(
                         "link_diagnostic",
                         Some(&format!("{}:{}", diag.interface, diag.code)),
@@ -204,7 +197,8 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
                         "state",
                         vec![
                             (Cow::Borrowed("interface_name"), diag.interface.clone()),
-                            (Cow::Borrowed("diagnostic_code"), diag.code.clone()),
+                            (Cow::Borrowed("opcode"), diag.code.clone()),
+                            (Cow::Borrowed("diagnostic_status"), diag.status.clone()),
                         ],
                     );
                     entity_count += 1;
@@ -278,28 +272,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_health_status_mapping() {
-        assert_eq!(health_status_to_f64(Some("healthy")), 1.0);
-        assert_eq!(health_status_to_f64(Some("degraded")), 2.0);
-        assert_eq!(health_status_to_f64(Some("unhealthy")), 3.0);
-        assert_eq!(health_status_to_f64(None), 0.0);
-        assert_eq!(health_status_to_f64(Some("unknown_value")), 0.0);
+    fn test_system_health_mapping() {
+        assert_eq!(system_health_to_f64(Some("OK")), 1.0);
+        assert_eq!(system_health_to_f64(Some("Not OK")), 2.0);
+        assert_eq!(system_health_to_f64(None), 0.0);
+        assert_eq!(system_health_to_f64(Some("unknown_value")), 0.0);
+    }
+
+    #[test]
+    fn test_partition_health_mapping() {
+        assert_eq!(partition_health_to_f64(Some("unknown")), 0.0);
+        assert_eq!(partition_health_to_f64(Some("healthy")), 1.0);
+        assert_eq!(partition_health_to_f64(Some("degraded_bandwidth")), 2.0);
+        assert_eq!(partition_health_to_f64(Some("degraded")), 3.0);
+        assert_eq!(partition_health_to_f64(Some("unhealthy")), 4.0);
+        assert_eq!(partition_health_to_f64(None), 0.0);
     }
 
     #[test]
     fn test_app_status_mapping() {
-        assert_eq!(app_status_to_f64(Some("running")), 1.0);
-        assert_eq!(app_status_to_f64(Some("stopped")), 2.0);
-        assert_eq!(app_status_to_f64(Some("error")), 3.0);
+        assert_eq!(app_status_to_f64(Some("ok")), 1.0);
+        assert_eq!(app_status_to_f64(Some("not ok")), 2.0);
         assert_eq!(app_status_to_f64(None), 0.0);
         assert_eq!(app_status_to_f64(Some("other")), 0.0);
     }
 
     #[test]
-    fn test_diagnostic_status_mapping() {
-        assert_eq!(diagnostic_status_to_f64("ok"), 0.0);
-        assert_eq!(diagnostic_status_to_f64("warning"), 1.0);
-        assert_eq!(diagnostic_status_to_f64("error"), 2.0);
-        assert_eq!(diagnostic_status_to_f64("other"), 0.0);
+    fn test_diagnostic_opcode_mapping() {
+        assert_eq!(diagnostic_opcode_to_f64("0"), 0.0);
+        assert_eq!(diagnostic_opcode_to_f64("2"), 1.0);
+        assert_eq!(diagnostic_opcode_to_f64("1024"), 1.0);
+        assert_eq!(diagnostic_opcode_to_f64("57"), 1.0);
     }
 }

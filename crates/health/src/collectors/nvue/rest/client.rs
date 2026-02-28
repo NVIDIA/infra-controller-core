@@ -50,10 +50,9 @@ impl RestClient {
         self_signed_tls: bool,
         paths: NvueRestPaths,
     ) -> Result<Self, HealthError> {
-        let base_url =
-            Url::parse(&format!("https://{host}")).map_err(|e| {
-                HealthError::HttpError(format!("https://{host}: invalid base URL: {e}"))
-            })?;
+        let base_url = Url::parse(&format!("https://{host}")).map_err(|e| {
+            HealthError::HttpError(format!("https://{host}: invalid base URL: {e}"))
+        })?;
 
         let mut builder = Client::builder().timeout(request_timeout);
 
@@ -100,17 +99,6 @@ impl RestClient {
         self.do_get(url, &[]).await.map(Some)
     }
 
-    pub async fn get_partition_detail(
-        &self,
-        partition_id: &str,
-    ) -> Result<Option<SdnPartition>, HealthError> {
-        if !self.paths.sdn_partitions_enabled {
-            return Ok(None);
-        }
-        let url = self.join_path(&format!("{NVUE_SDN_PARTITIONS}/{partition_id}"))?;
-        self.do_get(url, &[]).await.map(Some)
-    }
-
     pub async fn get_interfaces(&self) -> Result<Option<InterfacesResponse>, HealthError> {
         if !self.paths.interfaces_enabled {
             return Ok(None);
@@ -149,14 +137,12 @@ impl RestClient {
     }
 
     fn join_path(&self, path: &str) -> Result<Url, HealthError> {
-        self.base_url
-            .join(path)
-            .map_err(|e| {
-                HealthError::HttpError(format!(
-                    "{}: failed to join path {path}: {e}",
-                    self.base_url
-                ))
-            })
+        self.base_url.join(path).map_err(|e| {
+            HealthError::HttpError(format!(
+                "{}: failed to join path {path}: {e}",
+                self.base_url
+            ))
+        })
     }
 
     async fn do_get<T: for<'de> Deserialize<'de>>(
@@ -219,8 +205,7 @@ pub struct SystemHealthResponse {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IssueInfo {
-    pub severity: Option<String>,
-    pub message: Option<String>,
+    pub issue: Option<String>,
 }
 
 pub type ClusterAppsResponse = HashMap<String, ClusterApp>;
@@ -245,40 +230,9 @@ pub type SdnPartitionsResponse = HashMap<String, SdnPartition>;
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct SdnPartition {
     pub name: Option<String>,
-    pub state: Option<String>,
-    pub gpu: Option<HashMap<String, GpuInfo>>,
     pub health: Option<String>,
-    #[serde(rename = "health-led")]
-    pub health_led: Option<String>,
-    pub issues: Option<HashMap<String, IssueInfo>>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct GpuInfo {
-    pub guid: Option<String>,
-    #[serde(rename = "pcie-addr")]
-    pub pcie_addr: Option<String>,
-    pub state: Option<String>,
-    pub nvlink: Option<HashMap<String, NvLinkInfo>>,
-    pub interface: Option<HashMap<String, serde_json::Value>>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct NvLinkInfo {
-    #[serde(rename = "remote-gpu")]
-    pub remote_gpu: Option<String>,
-    #[serde(rename = "remote-link")]
-    pub remote_link: Option<String>,
-    pub state: Option<String>,
-    pub interface: Option<String>,
-    #[serde(rename = "switch-id")]
-    pub switch_id: Option<String>,
-    #[serde(rename = "switch-port")]
-    pub switch_port: Option<String>,
-    #[serde(rename = "switch-lid")]
-    pub switch_lid: Option<String>,
-    #[serde(rename = "switch-guid")]
-    pub switch_guid: Option<String>,
+    #[serde(rename = "num-gpus")]
+    pub num_gpus: Option<u32>,
 }
 
 pub type InterfacesResponse = HashMap<String, InterfaceData>;
@@ -318,152 +272,168 @@ mod tests {
     #[test]
     fn test_parse_system_health() {
         let json = r#"{
-            "status": "healthy",
-            "status-led": "green",
+            "status": "Not OK",
+            "status-led": "amber",
             "issues": {
-                "1": {"severity": "warning", "message": "high temperature"}
+                "Containers": {"issue": "Not OK"},
+                "PSU1": {"issue": "not OK"},
+                "FAN2/1": {"issue": "out of range"},
+                "PSU1/FAN": {"issue": "missing"},
+                "Disk space log": {"issue": "not OK"}
             }
         }"#;
 
         let resp: SystemHealthResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.status.as_deref(), Some("healthy"));
-        assert_eq!(resp.status_led.as_deref(), Some("green"));
+        assert_eq!(resp.status.as_deref(), Some("Not OK"));
+        assert_eq!(resp.status_led.as_deref(), Some("amber"));
         let issues = resp.issues.unwrap();
-        assert_eq!(issues.len(), 1);
-        assert_eq!(issues["1"].message.as_deref(), Some("high temperature"));
+        assert_eq!(issues.len(), 5);
+        assert_eq!(issues["FAN2/1"].issue.as_deref(), Some("out of range"));
+        assert_eq!(issues["PSU1/FAN"].issue.as_deref(), Some("missing"));
     }
 
     #[test]
-    fn test_parse_system_health_minimal() {
-        let json = r#"{"status": "unhealthy"}"#;
+    fn test_parse_system_health_ok() {
+        let json = r#"{"issues": {}, "status": "OK", "status-led": "green"}"#;
         let resp: SystemHealthResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.status.as_deref(), Some("unhealthy"));
-        assert!(resp.status_led.is_none());
-        assert!(resp.issues.is_none());
+        assert_eq!(resp.status.as_deref(), Some("OK"));
+        assert_eq!(resp.status_led.as_deref(), Some("green"));
+        assert!(resp.issues.unwrap().is_empty());
     }
 
     #[test]
     fn test_parse_cluster_apps() {
         let json = r#"{
-            "nmx-m": {
-                "status": "running",
-                "reason": null,
-                "addition-info": null,
-                "app-id": "nmx-m",
-                "app-ver": "1.2.3",
-                "capabilities": "telemetry",
-                "components-ver": "1.2.3"
+            "nmx-controller": {
+                "app-id": "nmx-c-nvos",
+                "app-ver": "0.3",
+                "components-ver": "sm:1.2.3, gfm:4.5.6, fib-fe:8.9.10",
+                "capabilities": "sm, gfm, fib, gw-api",
+                "addition-info": "Chassis mapping is missing",
+                "status": "ok",
+                "reason": ""
             },
-            "nmx-t": {
-                "status": "running",
-                "reason": null,
-                "addition-info": null,
-                "app-id": "nmx-t",
-                "app-ver": "2.0.0",
-                "capabilities": null,
-                "components-ver": null
+            "nmx-telemetry": {
+                "app-id": "nmx-telemetry",
+                "app-ver": "0.3",
+                "components-ver": "nmx-telemetry:0.3, nmx-connector:0.3",
+                "capabilities": "ib-telemetry",
+                "addition-info": "",
+                "status": "not ok",
+                "reason": "some reason here"
             }
         }"#;
 
         let resp: ClusterAppsResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.len(), 2);
-        assert_eq!(resp["nmx-m"].status.as_deref(), Some("running"));
-        assert_eq!(resp["nmx-t"].app_ver.as_deref(), Some("2.0.0"));
+        assert_eq!(resp["nmx-controller"].status.as_deref(), Some("ok"));
+        assert_eq!(resp["nmx-telemetry"].status.as_deref(), Some("not ok"));
+        assert_eq!(
+            resp["nmx-telemetry"].reason.as_deref(),
+            Some("some reason here")
+        );
     }
 
     #[test]
     fn test_parse_sdn_partition() {
         let json = r#"{
-            "name": "partition-1",
-            "state": "active",
+            "name": "Partition1",
+            "num-gpus": 8,
             "health": "healthy",
-            "health-led": "green",
-            "gpu": {
-                "gpu-0": {
-                    "guid": "0xabc",
-                    "pcie-addr": "0000:07:00.0",
-                    "state": "active",
-                    "nvlink": {
-                        "link-0": {
-                            "remote-gpu": "gpu-1",
-                            "remote-link": "link-0",
-                            "state": "up",
-                            "interface": "nvl0",
-                            "switch-id": "switch-0",
-                            "switch-port": "port-1",
-                            "switch-lid": "10",
-                            "switch-guid": "0xdef"
-                        }
-                    },
-                    "interface": {}
-                }
-            },
-            "issues": {}
+            "resiliency-mode": "full_bandwidth",
+            "mcast-limit": 1024,
+            "partition-type": "location_based"
         }"#;
 
         let resp: SdnPartition = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.name.as_deref(), Some("partition-1"));
-        assert_eq!(resp.state.as_deref(), Some("active"));
+        assert_eq!(resp.name.as_deref(), Some("Partition1"));
         assert_eq!(resp.health.as_deref(), Some("healthy"));
-
-        let gpus = resp.gpu.unwrap();
-        assert_eq!(gpus.len(), 1);
-        let gpu = &gpus["gpu-0"];
-        assert_eq!(gpu.pcie_addr.as_deref(), Some("0000:07:00.0"));
-
-        let nvlinks = gpu.nvlink.as_ref().unwrap();
-        assert_eq!(nvlinks["link-0"].state.as_deref(), Some("up"));
-        assert_eq!(nvlinks["link-0"].remote_gpu.as_deref(), Some("gpu-1"));
+        assert_eq!(resp.num_gpus, Some(8));
     }
 
     #[test]
     fn test_parse_sdn_partitions_map() {
         let json = r#"{
-            "part-1": {"name": "partition-1", "state": "active"},
-            "part-2": {"name": "partition-2", "state": "inactive"}
+            "1": {
+                "name": "Partition1",
+                "num-gpus": 8,
+                "health": "healthy",
+                "resiliency-mode": "full_bandwidth",
+                "mcast-limit": 1024,
+                "partition-type": "location_based"
+            },
+            "2": {
+                "name": "Partition2",
+                "num-gpus": 4,
+                "health": "degraded",
+                "resiliency-mode": "adaptive_bandwidth",
+                "mcast-limit": 1024,
+                "partition-type": "gpuuid_based"
+            },
+            "3": {
+                "name": "Partition3",
+                "num-gpus": 4,
+                "health": "unhealthy",
+                "resiliency-mode": "user_action_required",
+                "mcast-limit": 1024,
+                "partition-type": "gpuuid_based"
+            }
         }"#;
 
         let resp: SdnPartitionsResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.len(), 2);
-        assert_eq!(resp["part-1"].state.as_deref(), Some("active"));
-        assert_eq!(resp["part-2"].state.as_deref(), Some("inactive"));
+        assert_eq!(resp.len(), 3);
+        assert_eq!(resp["1"].health.as_deref(), Some("healthy"));
+        assert_eq!(resp["2"].health.as_deref(), Some("degraded"));
+        assert_eq!(resp["3"].health.as_deref(), Some("unhealthy"));
+        assert_eq!(resp["1"].num_gpus, Some(8));
+        assert_eq!(resp["2"].num_gpus, Some(4));
     }
 
     #[test]
     fn test_parse_interfaces_with_diagnostics() {
         let json = r#"{
-            "nvl0": {
-                "type": "nvlink",
+            "sw1p1s1": {
+                "type": "nvl",
                 "link": {
-                    "speed": "400G",
-                    "state": {"up": {}},
                     "diagnostics": {
-                        "0": {"status": "ok"},
-                        "1": {"status": "warning"}
+                        "0": {"status": "No issue observed"}
                     }
                 }
             },
-            "nvl1": {
-                "type": "nvlink",
+            "sw1p1s2": {
+                "type": "nvl",
                 "link": {
-                    "speed": "400G",
-                    "diagnostics": {}
+                    "diagnostics": {
+                        "1024": {"status": "Cable is unplugged"}
+                    }
+                }
+            },
+            "acp1": {
+                "type": "nvl",
+                "link": {
+                    "diagnostics": {
+                        "2": {"status": "Negotiation failure"}
+                    }
                 }
             }
         }"#;
 
         let resp: InterfacesResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.len(), 2);
+        assert_eq!(resp.len(), 3);
 
-        let nvl0 = &resp["nvl0"];
-        assert_eq!(nvl0.iface_type.as_deref(), Some("nvlink"));
-        assert_eq!(nvl0.link.speed.as_deref(), Some("400G"));
-        assert_eq!(nvl0.link.diagnostics.len(), 2);
-        assert_eq!(nvl0.link.diagnostics["0"].status, "ok");
-        assert_eq!(nvl0.link.diagnostics["1"].status, "warning");
-
-        let nvl1 = &resp["nvl1"];
-        assert!(nvl1.link.diagnostics.is_empty());
+        assert_eq!(resp["sw1p1s1"].iface_type.as_deref(), Some("nvl"));
+        assert_eq!(
+            resp["sw1p1s1"].link.diagnostics["0"].status,
+            "No issue observed"
+        );
+        assert_eq!(
+            resp["sw1p1s2"].link.diagnostics["1024"].status,
+            "Cable is unplugged"
+        );
+        assert_eq!(
+            resp["acp1"].link.diagnostics["2"].status,
+            "Negotiation failure"
+        );
     }
 
     #[test]

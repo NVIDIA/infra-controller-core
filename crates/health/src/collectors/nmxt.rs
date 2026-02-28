@@ -204,8 +204,7 @@ impl NmxtCollector {
         let switch_ip = self.endpoint.addr.ip.to_string();
 
         let metrics =
-            scrape_switch_nmxt_metrics(&self.http_client, &switch_ip, self.request_timeout)
-                .await?;
+            scrape_switch_nmxt_metrics(&self.http_client, &switch_ip, self.request_timeout).await?;
 
         self.emit_event(CollectorEvent::MetricCollectionStart);
 
