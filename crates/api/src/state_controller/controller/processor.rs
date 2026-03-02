@@ -543,10 +543,9 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         .await?;
         txn.commit().await?;
 
-        debug_assert_eq!(
-            object_ids.len(),
-            num_deleted,
-            "Not all objects have been deleted from the database"
+        test_assert!(
+            object_ids.len() == num_deleted,
+            "BUG: Not all objects have been deleted from the database after cleanup"
         );
 
         self.stats_since_last_log.num_deleted_queued_objects += num_deleted;
