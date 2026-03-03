@@ -5528,8 +5528,8 @@ dependencies = [
 
 [[package]]
 name = "librms"
-version = "0.0.4"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.4#67853d59a60bd05ad4f51a69aeb6590e16772fbe"
+version = "0.0.5"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.5#d516c7838fa4185ee6e7de426f3c759081624b0a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -10033,7 +10033,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.4#67853d59a60bd05ad4f51a69aeb6590e16772fbe"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.5#d516c7838fa4185ee6e7de426f3c759081624b0a"
 dependencies = [
  "async-trait",
  "heck 0.5.0",

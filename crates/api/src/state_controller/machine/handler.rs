@@ -45,7 +45,7 @@ use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
 use librms::RackManagerError;
-use librms::protos::rack_manager::NodeType as RmsNodeType;
+use librms::protos::rack_manager::{NewNodeInfo, NodeType as RmsNodeType};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
@@ -852,17 +852,20 @@ impl MachineStateHandler {
                 // of an "already exists" error. However, the proto spec doesn't
                 // seem to define this, so once that's sorted, make sure to
                 // integrate that here.
-                match rms::add_node_to_rms(
-                    rms_client.as_ref(),
-                    rack_id,
-                    host_machine_id.to_string(),
-                    bmc_ip,
-                    443,
-                    bmc_mac.unwrap_or_default(),
-                    RmsNodeType::Compute,
-                )
-                .await
-                {
+                let new_node_info = NewNodeInfo {
+                    rack_id: rack_id.to_string(),
+                    node_id: host_machine_id.to_string(),
+                    mac_address: bmc_mac.unwrap_or_default().to_string(),
+                    ip_address: bmc_ip,
+                    port: 443,
+                    username: None,
+                    password: None,
+                    r#type: Some(RmsNodeType::Compute.into()),
+                    vault_path: String::new(),
+                    host_ip_addresses: vec![],
+                    host_mac_addresses: vec![],
+                };
+                match rms::add_node_to_rms(rms_client.as_ref(), new_node_info).await {
                     Ok(()) => {
                         tracing::info!(
                             machine_id = %host_machine_id,
