@@ -6,6 +6,9 @@
 #
 # Stage 2: Assemble the runtime image with the binary, wrapper scripts, and
 # default configuration.
+#
+# NOTE: This image uses debian:12-slim instead of NVIDIA distroless because the
+# otelcol-wrapper entrypoint is a bash script that requires a full shell.
 
 ARG GO_VERSION=1.22.0
 ARG OTELCOL_VERSION=0.101.0
