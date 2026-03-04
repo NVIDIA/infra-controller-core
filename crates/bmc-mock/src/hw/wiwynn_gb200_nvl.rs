@@ -30,6 +30,16 @@ pub struct WiwynnGB200Nvl<'a> {
 }
 
 impl WiwynnGB200Nvl<'_> {
+    fn sensor_layout() -> redfish::sensor::Layout {
+        redfish::sensor::Layout {
+            temperature: 40,
+            fan: 10,
+            power: 10,
+            current: 10,
+            leak: 4,
+        }
+    }
+
     pub fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![
@@ -183,7 +193,10 @@ impl WiwynnGB200Nvl<'_> {
                     serial_number: None,
                     network_adapters: None,
                     pcie_devices: None,
-                    sensors: None,
+                    sensors: Some(redfish::sensor::generate_chassis_sensors(
+                        "Chassis_0".into(),
+                        Self::sensor_layout(),
+                    )),
                     assembly: Some(
                         redfish::assembly::builder(&redfish::assembly::chassis_resource(
                             "Chassis_0",
