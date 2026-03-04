@@ -735,7 +735,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             SensorHealthData::from_metric_fields(
                 sensor.odata_id().to_string(),
                 "hw_sensor".to_string(),
-                metric_type.clone(),
+                metric_type,
                 metric_unit,
                 reading,
                 attributes,

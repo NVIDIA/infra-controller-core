@@ -194,7 +194,7 @@ impl WiwynnGB200Nvl<'_> {
                     network_adapters: None,
                     pcie_devices: None,
                     sensors: Some(redfish::sensor::generate_chassis_sensors(
-                        "Chassis_0".into(),
+                        "Chassis_0",
                         Self::sensor_layout(),
                     )),
                     assembly: Some(

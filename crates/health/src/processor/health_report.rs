@@ -55,6 +55,7 @@ struct HealthReportWindow {
     alerts: Vec<HealthReportAlert>,
 }
 
+#[derive(Default)]
 pub struct HealthReportProcessor {
     windows: DashMap<String, HealthReportWindow>,
 }
