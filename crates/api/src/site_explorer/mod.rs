@@ -60,6 +60,7 @@ use tracing::Instrument;
 use version_compare::Cmp;
 
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
+use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
 
 mod endpoint_explorer;
@@ -191,7 +192,9 @@ impl SiteExplorer {
     }
 
     async fn run(&mut self, mut stop_receiver: oneshot::Receiver<i32>) {
+        let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
+            let tick = timer.tick();
             match self.run_single_iteration().await {
                 Ok(identified_hosts) => self
                     .boot_order_tracker
@@ -202,7 +205,7 @@ impl SiteExplorer {
             }
 
             tokio::select! {
-                _ = tokio::time::sleep(self.config.run_interval) => {},
+                _ = tick.sleep() => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("SiteExplorer stop was requested");
                     return;

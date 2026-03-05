@@ -43,6 +43,7 @@ use tokio::task::JoinSet;
 
 use crate::cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal};
 use crate::firmware_downloader::FirmwareDownloader;
+use crate::periodic_timer::PeriodicTimer;
 use crate::preingestion_manager::metrics::PreingestionMetrics;
 use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
 use crate::{CarbideError, CarbideResult};
@@ -134,7 +135,9 @@ impl PreingestionManager {
     }
 
     async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+        let timer = PeriodicTimer::new(self.static_info.run_interval);
         loop {
+            let tick = timer.tick();
             let res = self.run_single_iteration().await;
 
             if let Err(e) = &res {
@@ -144,7 +147,7 @@ impl PreingestionManager {
             // If we were able to go through everything (few or no uploads), or if we ran into a database error,
             // we will wait before checking if new state changes need to happen.
             tokio::select! {
-                _ = tokio::time::sleep(self.static_info.run_interval) => {},
+                _ = tick.sleep() => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("Preingestion manager stop was requested");
                     return;
