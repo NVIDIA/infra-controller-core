@@ -2700,6 +2700,13 @@ impl Forge for Api {
         ))
     }
 
+    async fn set_identity_configuration(
+        &self,
+        request: tonic::Request<rpc::IdentityConfigRequest>,
+    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
+        crate::handlers::identity_config::set_identity_configuration(self, request).await
+    }
+
     async fn modify_dpf_state(
         &self,
         request: Request<rpc::ModifyDpfStateRequest>,

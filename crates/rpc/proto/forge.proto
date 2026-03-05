@@ -689,6 +689,8 @@ service Forge {
   // SPIFFE Machine Identity APIs
   // Signs a JWT-SVID token for machine identity
   rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
+  // Create or replace per-org identity configuration (issuer, audiences, TTL, signing key)
+  rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -845,6 +847,30 @@ message MachineIdentityResponse {
   string issued_token_type = 2;
   string token_type = 3;
   string expires_in = 4;
+}
+
+// Identity configuration (per-org)
+message IdentityConfigRequest {
+  string org_id = 1;
+  bool enabled = 2;
+  string issuer = 3;
+  string default_audience = 4;
+  repeated string allowed_audiences = 5;
+  uint32 token_ttl = 6;
+  string subject_domain = 7;
+  bool rotate_key = 8;
+}
+
+message IdentityConfigResponse {
+  string org_id = 1;
+  bool enabled = 2;
+  string issuer = 3;
+  string default_audience = 4;
+  repeated string allowed_audiences = 5;
+  uint32 token_ttl = 6;
+  string subject_domain = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  string key_id = 9;
 }
 
 // Determines machine ingestion state in relation to the power on gate

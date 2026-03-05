@@ -101,10 +101,10 @@ Each of these flows are discussed below.
 
 ## **3.1 Per-tenant Identity Configuration and Signing Key Provisioning**
 
-Per-org signing keys are created when an admin first configures machine identity for an org via `PUT identity/config` (PutIdentityConfiguration). Key generation is not tied to tenant creation.
+Per-org signing keys are created when an admin first configures machine identity for an org via `PUT identity/config` (SetIdentityConfiguration). Key generation is not tied to tenant creation.
 
 ```
-PutIdentityConfiguration (PUT identity/config)
+SetIdentityConfiguration (PUT identity/config)
               │
               ▼
 ┌───────────────────────────────┐
@@ -436,6 +436,8 @@ eyJhbGciOiJSUzI1NiIs...
 
 These APIs manage per-org identity configuration that controls how Carbide issues JWT-SVIDs for machines in that org. Admins use them to enable or disable the feature per org, and to set the issuer URI, allowed audiences, token TTL, and SPIFFE subject prefix. The configuration applies to all JWT-SVID tokens issued for the org's machines (via IMDS or token exchange). GET retrieves the current config, PUT creates or replaces it, and DELETE removes it (org no longer has machine identity).
 
+**Carbide-rest config defaults:** Carbide-rest has per-site config settings for `issuer`, `tokenTtl`, and `subjectDomainPrefix`. When a REST client omits these fields, Carbide-rest supplies them from the target site's config before calling the downstream gRPC `SetIdentityConfiguration`. Thus gRPC always receives these values; they are optional only at the REST layer. If Carbide-rest does not have per-site config for these fields and the client omits them, PUT returns **400 Bad Request** asking the caller to include `issuer`, `tokenTtl`, and `subjectDomainPrefix` in the request. This allows the API to work even when site config is incomplete; the client can supply the values explicitly.
+
 **Per-org key generation on PUT:** When PUT creates identity config for an org for the first time, Carbide generates a new per-org signing key pair using the global `algorithm`, encrypts the private key with the Vault master key, and stores it in `tenant_identity_keys`. On subsequent PUTs (updates), the key is not regenerated unless `rotateKey` is `true`. On DELETE, the identity config and the org's signing key are removed.
 
 **PUT when global is disabled:** If the global `enabled` setting in site config is `false`, PUT returns `503 Service Unavailable` with a message indicating that machine identity must be enabled at the site level first. This enforces the deployment order: global config must be enabled before per-org config can be created or updated.
@@ -467,14 +469,14 @@ PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/confi
 | :---- | :--- | :------- | :---------- |
 | `orgId` | string | Yes | Org identifier |
 | `enabled` | boolean | No | Enable JWT-SVID for this org. Default `true` when unset. |
-| `issuer` | string | Yes | Issuer URI that appears in Carbide JWT-SVID. |
-| `defaultAudience` | string | Yes | Default audience. Must be in `allowedAudiences`. |
-| `allowedAudiences` | string[] | Yes | Whitelist of allowed audiences. |
-| `tokenTtl` | number | Yes | Token TTL in seconds (300–86400). |
-| `subjectDomainPrefix` | string | Yes | SPIFFE prefix for JWT-SVID `sub` field. |
+| `issuer` | string | No | Issuer URI that appears in Carbide JWT-SVID. Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
+| `defaultAudience` | string | Yes | Default audience. Must be in `allowedAudiences` when provided. |
+| `allowedAudiences` | string[] | No | Permitted audiences. Optional; when empty or omitted, all audiences are allowed (permissive mode). When non-empty, only audiences in the list are allowed. |
+| `tokenTtl` | number | No | Token TTL in seconds (300–86400). Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
+| `subjectDomainPrefix` | string | No | SPIFFE prefix for JWT-SVID `sub` field. Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
 | `rotateKey` | boolean | No | If `true`, regenerate the per-org signing key. Default `false`. |
 
-Note: `defaultAudience` must be present in `allowedAudiences`.
+Note: When `allowedAudiences` is provided and non-empty, `defaultAudience` must be present in it.
 
 Response:
 
@@ -701,7 +703,7 @@ message GetTokenDelegationRequest {
 }
 
 // Request for PUT (includes delegation config)
-message PutTokenDelegationRequest {
+message SetTokenDelegationRequest {
   string org_id = 1;
   string token_endpoint = 2;
   string auth_method = 3;
@@ -721,7 +723,7 @@ service Forge {
 
   // Token Delegation Endpoints
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse) {}
-  rpc PutTokenDelegation(PutTokenDelegationRequest) returns (TokenDelegationResponse) {}
+  rpc SetTokenDelegation(SetTokenDelegationRequest) returns (TokenDelegationResponse) {}
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty) {}
 }
 ```
@@ -781,8 +783,8 @@ message IdentityConfigRequest {
   string org_id = 1;           // org-id, primary key
   bool enabled = 2;            // Optional. enable JWT-SVID for this org. Default true when unset.
   string issuer = 3;           // Required. issuer URI that appears in Carbide JWT-SVID
-  string default_audience = 4;  // Required. default audience; must be in allowed_audiences
-  repeated string allowed_audiences = 5;  // Required. whitelist of allowed audiences
+  string default_audience = 4;  // Required. default audience; must be in allowed_audiences when provided
+  repeated string allowed_audiences = 5;  // Optional. When empty, all audiences allowed (permissive). When non-empty, whitelist.
   uint32 token_ttl = 6;        // Required. token TTL in seconds (300–86400)
   string subject_domain_prefix = 7;   // Required. SPIFFE prefix for JWT-SVID 'sub' field (e.g. spiffe://carbide.example.com)
   bool rotate_key = 8;         // Optional. If true, regenerate per-org signing key. Default false.
@@ -804,7 +806,7 @@ message IdentityConfigResponse {
 // gRPC service
 service Forge {
   rpc GetIdentityConfiguration(GetIdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc PutIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
+  rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
   rpc DeleteIdentityConfiguration(GetIdentityConfigRequest) returns (google.protobuf.Empty);
   rpc GetJWKS(JWKSRequest) returns (JWKS);
   rpc GetOpenIDConfiguration(OpenIDConfigRequest) returns (OpenIDConfiguration);
@@ -818,10 +820,10 @@ service Forge {
 | `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json` | `Forge.GetJWKS` | Fetch JSON Web Key Set (public, unauthenticated) |
 | `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/openid-configuration` | `Forge.GetOpenIDConfiguration` | Fetch OpenID Connect config (public, unauthenticated) |
 | `GET /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.GetIdentityConfiguration` | Retrieve identity configuration |
-| `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.PutIdentityConfiguration` | Create or replace identity configuration |
+| `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.SetIdentityConfiguration` | Create or replace identity configuration |
 | `DELETE /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.DeleteIdentityConfiguration` | Delete identity configuration |
 | `GET /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.GetTokenDelegation` | Retrieve token delegation config |
-| `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.PutTokenDelegation` | Create or replace token delegation |
+| `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.SetTokenDelegation` | Create or replace token delegation |
 | `DELETE /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.DeleteTokenDelegation` | Delete token delegation |
 
 ### **3.5.2.2 Error Handling**

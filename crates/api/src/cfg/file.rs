@@ -304,6 +304,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub machine_validation_config: MachineValidationConfig,
 
+    /// Machine identity (SPIFFE JWT-SVID) config. Section `[machine-identity]`.
+    #[serde(default, rename = "machine-identity")]
+    pub machine_identity: MachineIdentityConfig,
+
     #[serde(default)]
     pub bypass_rbac: bool,
 
@@ -489,6 +493,52 @@ pub enum ComputeAllocationEnforcement {
 pub struct DpfConfig {
     #[serde(default)]
     pub enabled: bool,
+}
+
+/// Machine identity (SPIFFE JWT-SVID) configuration.
+/// Loaded from `[machine-identity]` section in config.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MachineIdentityConfig {
+    /// Master switch. If false, SetIdentityConfiguration and SignMachineIdentity return 503.
+    #[serde(default = "machine_identity_default_enabled")]
+    pub enabled: bool,
+    /// Signing algorithm for per-org keys (e.g. ES256).
+    #[serde(default = "machine_identity_default_algorithm")]
+    pub algorithm: String,
+    /// Min token TTL permitted in seconds.
+    #[serde(default = "machine_identity_default_token_ttl_min")]
+    pub token_ttl_min: u32,
+    /// Max token TTL permitted in seconds.
+    #[serde(default = "machine_identity_default_token_ttl_max")]
+    pub token_ttl_max: u32,
+    /// Optional HTTP proxy for token exchange (SSRF mitigation).
+    #[serde(default)]
+    pub token_delegation_http_proxy: Option<String>,
+}
+
+fn machine_identity_default_enabled() -> bool {
+    true
+}
+fn machine_identity_default_algorithm() -> String {
+    "ES256".to_string()
+}
+fn machine_identity_default_token_ttl_min() -> u32 {
+    60
+}
+fn machine_identity_default_token_ttl_max() -> u32 {
+    86400
+}
+
+impl Default for MachineIdentityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: machine_identity_default_enabled(),
+            algorithm: machine_identity_default_algorithm(),
+            token_ttl_min: machine_identity_default_token_ttl_min(),
+            token_ttl_max: machine_identity_default_token_ttl_max(),
+            token_delegation_http_proxy: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
