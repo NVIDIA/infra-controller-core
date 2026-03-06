@@ -216,13 +216,13 @@ impl TryFrom<HealthReportAlert> for HealthProbeAlert {
     type Error = HealthReportConversionError;
 
     fn try_from(value: HealthReportAlert) -> Result<Self, Self::Error> {
-        let mut classifications = Vec::with_capacity(value.classifications.len() + 1);
-        for classification in value.classifications {
-            classifications.push(classification.try_into()?);
-        }
-
-        // Marks report as Hardware, used to filter all reports coming from health service.
-        classifications.push(HealthAlertClassification::hardware());
+        let classifications = value
+            .classifications
+            .into_iter()
+            .map(TryInto::try_into)
+            // Marks report as Hardware, used to filter all reports coming from health service.
+            .chain(Some(Ok(HealthAlertClassification::hardware())))
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
             id: value.probe_id.try_into()?,
