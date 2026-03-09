@@ -50,6 +50,7 @@ async fn test_integration() -> eyre::Result<()> {
     let Some(test_env) =
         IntegrationTestEnvironment::try_from_environment(2, "api_server_test_integration").await?
     else {
+        println!("test_integration: SKIPPED (set REPO_ROOT and DATABASE_URL to run)");
         return Ok(());
     };
 
@@ -429,7 +430,10 @@ async fn run_identity_config_tests(
     carbide_api_addrs: &[SocketAddr],
     tenant_org_id: &str,
 ) -> eyre::Result<()> {
+    println!("[identity_config] Running identity config integration tests for org {tenant_org_id}");
+
     // Identity config: set, get, delete
+    println!("[identity_config] Set identity configuration");
     identity_config::set_identity_configuration(
         carbide_api_addrs,
         tenant_org_id,
@@ -451,7 +455,9 @@ async fn run_identity_config_tests(
     assert_eq!(cfg.token_ttl, 3600);
     assert_eq!(cfg.subject_domain, "example.com");
     assert!(cfg.key_id.is_some());
+    println!("[identity_config] Get identity configuration: ok");
 
+    println!("[identity_config] Delete identity configuration");
     identity_config::delete_identity_configuration(carbide_api_addrs, tenant_org_id).await?;
 
     // Re-create identity config for token delegation tests
@@ -468,6 +474,7 @@ async fn run_identity_config_tests(
     .await?;
 
     // Token delegation: set, get (assert no secrets), delete
+    println!("[identity_config] Set token delegation");
     identity_config::set_token_delegation(
         carbide_api_addrs,
         tenant_org_id,
@@ -499,9 +506,12 @@ async fn run_identity_config_tests(
         Some("test-client")
     );
     assert_eq!(delegation.subject_token_audience.as_deref(), Some("https://api.example.com"));
+    println!("[identity_config] Get token delegation: ok (client_secret omitted)");
 
+    println!("[identity_config] Delete token delegation");
     identity_config::delete_token_delegation(carbide_api_addrs, tenant_org_id).await?;
 
+    println!("[identity_config] All identity config integration tests passed");
     Ok(())
 }
 
