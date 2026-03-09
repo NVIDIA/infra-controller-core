@@ -810,6 +810,94 @@ pub async fn update_interface_state(
     InterfaceState::update_state(&needed_state, hbn_device_names, current_state).await
 }
 
+/// Sends the current DHCP server config to the dhcp-server process via gRPC.
+///
+/// Builds YAML representations of [`DhcpConfig`] and [`HostConfig`] from the
+/// supplied network config and service addresses, then calls `UpdateConfig`
+/// followed by `ReloadConfig` on the remote control service.  The server only
+/// restarts when the content has actually changed (see server-side diffing in
+/// `grpc_server.rs`), so this is safe to call on every agent tick.
+///
+/// Returns `Ok(true)` on success (matching the convention of the file-write
+/// path) so callers can treat both paths uniformly.
+async fn update_dhcp_via_grpc(
+    grpc_addr: &str,
+    network_config: &rpc::ManagedHostNetworkConfigResponse,
+    service_addrs: &ServiceAddresses,
+    hbn_device_names: HBNDeviceNames,
+) -> eyre::Result<bool> {
+    let Some(mh_nc) = &network_config.managed_host_config else {
+        eyre::bail!("Loopback IP is missing. Can't write dhcp-server config.");
+    };
+    let loopback_ip: Ipv4Addr = mh_nc.loopback_ip.parse()?;
+
+    let nameservers_v4 = service_addrs
+        .nameservers
+        .iter()
+        .filter_map(|x| match x {
+            IpAddr::V4(x) => Some(*x),
+            _ => None,
+        })
+        .collect::<Vec<Ipv4Addr>>();
+
+    let ntpservers_v4 = service_addrs
+        .ntpservers
+        .iter()
+        .filter_map(|x| match x {
+            IpAddr::V4(x) => Some(*x),
+            _ => None,
+        })
+        .collect::<Vec<Ipv4Addr>>();
+
+    let pxe_ip_v4 = service_addrs
+        .pxe_ips
+        .iter()
+        .find_map(|x| match x {
+            IpAddr::V4(x) => Some(*x),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            eyre::eyre!(
+                "DHCPv4 server config requires an IPv4 PXE/UEFI HTTP boot address, but none found in {:?}",
+                service_addrs.pxe_ips
+            )
+        })?;
+
+    let dhcp_config = utils::models::dhcp::DhcpConfig::from_forge_dhcp_config(
+        pxe_ip_v4,
+        ntpservers_v4,
+        nameservers_v4,
+        loopback_ip,
+    )?;
+    let host_config = utils::models::dhcp::HostConfig::try_from(
+        network_config.clone(),
+        hbn_device_names.reps[0],
+        hbn_device_names.virt_rep_begin,
+        hbn_device_names.sf_id,
+    )?;
+    let interfaces: Vec<String> = host_config.host_ip_addresses.keys().cloned().collect();
+
+    crate::dhcp_server_grpc_client::update_and_reload(
+        grpc_addr,
+        dhcp_config,
+        Some(host_config),
+        interfaces,
+    )
+    .await?;
+    Ok(true)
+}
+
+/// Updates DHCP server configuration using either the gRPC or file-write path.
+///
+/// When `dhcp_grpc_server` is `Some`, delegates to [`update_dhcp_via_grpc`]
+/// which pushes YAML configs to the dhcp-server control service directly.
+///
+/// When `dhcp_grpc_server` is `None`, falls back to the original behaviour:
+/// writes config files into the HBN container and triggers a supervisord
+/// restart via [`do_post`] if any file changed.
+///
+/// Returns `Ok(true)` if a reload was triggered, `Ok(false)` if configs were
+/// already up-to-date.
 pub async fn update_dhcp(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
@@ -817,7 +905,12 @@ pub async fn update_dhcp(
     skip_post: bool,
     service_addrs: &ServiceAddresses,
     hbn_device_names: HBNDeviceNames,
+    dhcp_grpc_server: Option<String>,
 ) -> eyre::Result<bool> {
+    if let Some(ref addr) = dhcp_grpc_server {
+        return update_dhcp_via_grpc(addr, network_config, service_addrs, hbn_device_names).await;
+    }
+
     let path_dhcp_relay = FPath(hbn_root.join(dhcp::RELAY_PATH));
     let path_dhcp_relay_nvue = FPath(hbn_root.join(dhcp::RELAY_PATH_NVUE));
     let paths_dhcp_server = DhcpServerPaths {

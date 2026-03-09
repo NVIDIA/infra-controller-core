@@ -113,6 +113,7 @@ pub fn setup_agent_run_env(
             override_machine_id: None,
             override_network_virtualization_type: None,
             skip_upgrade_check: false,
+            dhcp_grpc_server: None,
         }))),
     };
 

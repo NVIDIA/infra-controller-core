@@ -363,6 +363,45 @@ struct IterationResult {
     loop_period: std::time::Duration,
 }
 
+/// Returns the last DHCP request timestamps for all known host interfaces.
+///
+/// When `dhcp_grpc_server` is `Some`, fetches timestamps from the dhcp-server
+/// control service via gRPC.  This is required when the DHCP server runs in a
+/// separate container where the timestamps file on the DPU filesystem is not
+/// accessible.
+///
+/// When `dhcp_grpc_server` is `None`, reads the timestamps file directly from
+/// the DPU filesystem (`DhcpTimestampsFilePath::Dpu`).
+///
+/// Errors on either path are logged as warnings and an empty list is returned
+/// so the caller can degrade gracefully.
+async fn fetch_last_dhcp_requests(dhcp_grpc_server: Option<&str>) -> Vec<rpc::LastDhcpRequest> {
+    if let Some(addr) = dhcp_grpc_server {
+        return match crate::dhcp_server_grpc_client::get_dhcp_timestamps(addr).await {
+            Ok(requests) => requests,
+            Err(e) => {
+                tracing::warn!("Failed to fetch DHCP timestamps via gRPC: {e:#}");
+                vec![]
+            }
+        };
+    }
+
+    let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
+    if let Err(e) = dhcp_timestamps.read() {
+        tracing::warn!(
+            "Failed to read from {}: {e}",
+            DhcpTimestampsFilePath::Dpu.path_str()
+        );
+    }
+    dhcp_timestamps
+        .into_iter()
+        .map(|(host_interface_id, timestamp)| rpc::LastDhcpRequest {
+            host_interface_id: Some(host_interface_id),
+            timestamp,
+        })
+        .collect()
+}
+
 impl MainLoop {
     /// Runs the MainLoop in endless mode
     async fn run(&mut self) -> Result<(), eyre::Report> {
@@ -443,21 +482,8 @@ impl MainLoop {
             dpu_extension_services: vec![],
         };
 
-        let mut last_dhcp_requests = vec![];
-        let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
-        if let Err(e) = dhcp_timestamps.read() {
-            tracing::warn!(
-                "Failed to read from {}: {e}",
-                DhcpTimestampsFilePath::Dpu.path_str()
-            );
-        }
-        for (host_interface_id, timestamp) in dhcp_timestamps.into_iter() {
-            last_dhcp_requests.push(rpc::LastDhcpRequest {
-                host_interface_id: Some(host_interface_id),
-                timestamp: timestamp.to_string(),
-            });
-        }
-        status_out.last_dhcp_requests = last_dhcp_requests;
+        status_out.last_dhcp_requests =
+            fetch_last_dhcp_requests(self.options.dhcp_grpc_server.as_deref()).await;
 
         // `read` does not block
         match self.periodic_config_reader.net_conf_read() {
@@ -527,6 +553,7 @@ impl MainLoop {
                         self.agent_config.hbn.skip_reload,
                         &self.service_addrs,
                         self.hbn_device_names.clone(),
+                        self.options.dhcp_grpc_server.clone(),
                     )
                     .await;
 

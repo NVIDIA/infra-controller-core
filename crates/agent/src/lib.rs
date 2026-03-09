@@ -44,6 +44,7 @@ mod command_line;
 pub mod containerd;
 mod daemons;
 mod dhcp;
+mod dhcp_server_grpc_client;
 mod ethernet_virtualization;
 use carbide_uuid::machine::MachineId;
 pub use ethernet_virtualization::FPath;

@@ -292,6 +292,12 @@ pub struct RunOptions {
         help = "Do not perform upgrade checks. This is for development only. Do not use in production."
     )]
     pub skip_upgrade_check: bool,
+    #[clap(
+        long,
+        help = "gRPC address of the DHCP server control service (e.g. http://localhost:50051). \
+                When set, the agent sends config updates via gRPC instead of writing files directly."
+    )]
+    pub dhcp_grpc_server: Option<String>,
 }
 
 #[derive(Parser, Debug)]

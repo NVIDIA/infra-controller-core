@@ -14,16 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    carbide_version::build();
     tonic_prost_build::configure()
-        .build_server(false)
-        .build_client(true)
+        .build_server(true)
+        .build_client(false)
         .protoc_arg("--experimental_allow_proto3_optional")
-        .compile_protos(
-            &["../dhcp-server/proto/dhcp_server_control.proto"],
-            &["../dhcp-server/proto"],
-        )?;
+        .compile_protos(&["proto/dhcp_server_control.proto"], &["proto"])?;
     Ok(())
 }
