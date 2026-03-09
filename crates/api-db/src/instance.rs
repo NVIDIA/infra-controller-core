@@ -238,12 +238,11 @@ pub async fn any_instance_referencing_nvlink_logical_partition(
             WHERE g->>'logical_partition_id' = $1::text
           )
     )"#;
-    let row: (bool,) = sqlx::query_as(query)
+    sqlx::query_scalar(query)
         .bind(logical_partition_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    Ok(row.0)
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn use_custom_ipxe_on_next_boot(
