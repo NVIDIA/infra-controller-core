@@ -24,7 +24,8 @@ use std::time::{self, Duration};
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use api_test_helper::{
-    IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
+    identity_config, IntegrationTestEnvironment, domain, instance, machine, metrics, subnet,
+    tenant, utils, vpc,
 };
 use bmc_mock::{HostHardwareType, ListenerOrAddress};
 use eyre::ContextCompat;
@@ -105,6 +106,7 @@ async fn test_integration() -> eyre::Result<()> {
 
     let tenant_org_id = "tenant_organization";
     tenant::create(carbide_api_addrs, tenant_org_id, "Tenant Organization").await?;
+    run_identity_config_tests(carbide_api_addrs, tenant_org_id).await?;
     let tenant1_vpc = vpc::create(carbide_api_addrs, tenant_org_id).await?;
     let domain_id = domain::create(carbide_api_addrs, "tenant-1.local").await?;
     let managed_segment_id =
@@ -420,6 +422,86 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     cancel_token.cancel();
     server_handle.wait().await?;
     db_pool.close().await;
+    Ok(())
+}
+
+async fn run_identity_config_tests(
+    carbide_api_addrs: &[SocketAddr],
+    tenant_org_id: &str,
+) -> eyre::Result<()> {
+    // Identity config: set, get, delete
+    identity_config::set_identity_configuration(
+        carbide_api_addrs,
+        tenant_org_id,
+        "https://issuer.example.com",
+        "api",
+        &["api", "audience2"],
+        3600,
+        "example.com",
+        true,
+    )
+    .await?;
+
+    let cfg = identity_config::get_identity_configuration(carbide_api_addrs, tenant_org_id).await?;
+    assert_eq!(cfg.org_id, tenant_org_id);
+    assert!(cfg.enabled);
+    assert_eq!(cfg.issuer, "https://issuer.example.com");
+    assert_eq!(cfg.default_audience, "api");
+    assert_eq!(cfg.allowed_audiences, vec!["api", "audience2"]);
+    assert_eq!(cfg.token_ttl, 3600);
+    assert_eq!(cfg.subject_domain, "example.com");
+    assert!(cfg.key_id.is_some());
+
+    identity_config::delete_identity_configuration(carbide_api_addrs, tenant_org_id).await?;
+
+    // Re-create identity config for token delegation tests
+    identity_config::set_identity_configuration(
+        carbide_api_addrs,
+        tenant_org_id,
+        "https://issuer.example.com",
+        "api",
+        &["api"],
+        3600,
+        "example.com",
+        true,
+    )
+    .await?;
+
+    // Token delegation: set, get (assert no secrets), delete
+    identity_config::set_token_delegation(
+        carbide_api_addrs,
+        tenant_org_id,
+        "https://auth.example.com/token",
+        "client_secret_basic",
+        serde_json::json!({
+            "client_id": "test-client",
+            "client_secret": "secret123"
+        }),
+        Some("https://api.example.com"),
+    )
+    .await?;
+
+    let delegation =
+        identity_config::get_token_delegation(carbide_api_addrs, tenant_org_id).await?;
+    assert_eq!(delegation.org_id, tenant_org_id);
+    assert_eq!(delegation.token_endpoint, "https://auth.example.com/token");
+    assert_eq!(delegation.auth_method, "client_secret_basic");
+    assert!(delegation.auth_method_config.is_some());
+    let auth_cfg = delegation.auth_method_config.as_ref().unwrap().as_object().unwrap();
+    assert!(
+        !auth_cfg.contains_key("client_secret") && !auth_cfg.contains_key("clientSecret"),
+        "client_secret must be omitted from response"
+    );
+    assert_eq!(
+        auth_cfg.get("client_id")
+            .or_else(|| auth_cfg.get("clientId"))
+            .and_then(|v| v.as_str()),
+        Some("test-client")
+    );
+    assert_eq!(delegation.subject_token_audience.as_deref(), Some("https://api.example.com"));
+
+    identity_config::delete_token_delegation(carbide_api_addrs, tenant_org_id).await?;
+
     Ok(())
 }
 

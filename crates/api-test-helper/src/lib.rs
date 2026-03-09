@@ -18,6 +18,7 @@
 pub mod api_server;
 pub mod domain;
 pub mod grpcurl;
+pub mod identity_config;
 pub mod instance;
 pub mod machine;
 pub mod machine_a_tron;

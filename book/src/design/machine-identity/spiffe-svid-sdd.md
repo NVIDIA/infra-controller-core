@@ -101,7 +101,7 @@ Each of these flows are discussed below.
 
 ## **3.1 Per-tenant Identity Configuration and Signing Key Provisioning**
 
-Per-org signing keys are created when an admin first configures machine identity for an org via `PUT identity/config` (SetIdentityConfiguration). Key generation is not tied to tenant creation.
+Per-org signing keys are created when an admin first configures machine identity for an org via `PUT identity/config` (SetIdentityConfiguration).
 
 ```
 SetIdentityConfiguration (PUT identity/config)
@@ -295,7 +295,7 @@ A new table will be created to store tenant signing key pairs and optional token
 | `TIMESTAMPTZ` | `created_at` | When identity config was first created |
 | `TIMESTAMPTZ` | `updated_at` | When identity config or token delegation was last updated |
 | `VARCHAR(512)` | `token_endpoint` | Token exchange endpoint URL (optional; from PUT identity/token-delegation) |
-| `VARCHAR(64)` | `auth_method` | e.g. client_secret_basic, private_key_jwt (optional) |
+| `VARCHAR(64)` | `auth_method` | e.g. client_secret_basic, none, private_key_jwt. (optional) |
 | `TEXT` | `encrypted_auth_method_config` | Encrypted blob of method-specific fields. For example: to store client_id and client_secret. (optional) |
 | `VARCHAR(255)` | `subject_token_audience` | Audience to include in Carbide JWT-SVID sent to exchange. (optional) |
 | `TIMESTAMPTZ` | `token_delegation_created_at` | When token delegation was first configured. (optional) |
@@ -306,7 +306,7 @@ The JWT spec and vault related configs are passed to the Carbide API server duri
 
 ```bash
 # In site config file (e.g., site_config.toml)
-[machine-identity]
+[machine_identity]
 enabled = true
 algorithm = "ES256"
 token_ttl_min = 60 # min ttl permitted in seconds
@@ -320,7 +320,7 @@ token_endpoint_http_proxy = "https://carbide-ext.com" # optional, SSRF mitigatio
 
 ### **3.4.3 Incomplete or Invalid Global Config**
 
-When the `[machine-identity]` section exists but is incomplete or invalid, the following behavior applies.
+When the `[machine_identity]` section exists but is incomplete or invalid, the following behavior applies.
 
 **Required fields (when section exists and `enabled` is true):** `algorithm`. Optional: `token_endpoint_http_proxy`.
 

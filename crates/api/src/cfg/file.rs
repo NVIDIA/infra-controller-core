@@ -304,8 +304,8 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub machine_validation_config: MachineValidationConfig,
 
-    /// Machine identity (SPIFFE JWT-SVID) config. Section `[machine-identity]`.
-    #[serde(default, rename = "machine-identity")]
+    /// Machine identity (SPIFFE JWT-SVID) config. Section `[machine_identity]`.
+    #[serde(default)]
     pub machine_identity: MachineIdentityConfig,
 
     #[serde(default)]
@@ -496,7 +496,7 @@ pub struct DpfConfig {
 }
 
 /// Machine identity (SPIFFE JWT-SVID) configuration.
-/// Loaded from `[machine-identity]` section in config.
+/// Loaded from `[machine_identity]` section in config.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MachineIdentityConfig {
     /// Master switch. If false, SetIdentityConfiguration and SignMachineIdentity return 503.
