@@ -15,21 +15,17 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+pub mod args;
+pub mod cmd;
 
-#[derive(Parser, Debug, Clone)]
-pub struct Args {
-    #[clap(
-        short = 'i',
-        long,
-        help = "Optional, instance type ID to restrict the search"
-    )]
-    pub id: Option<String>,
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
 
-    #[clap(
-        short = 's',
-        long,
-        help = "Optional, show counts for allocations of instance types"
-    )]
-    pub show_stats: Option<bool>,
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::update(self, ctx.config.format, &ctx.api_client).await
+    }
 }

@@ -82,14 +82,15 @@ use tracing_subscriber::EnvFilter;
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{
-    BomValidationConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
-    DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig, IBFabricConfig, IbFabricDefinition,
-    IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
-    MachineValidationConfig, MeasuredBootMetricsCollectorConfig, MqttAuthConfig,
-    NetworkSecurityGroupConfig, NetworkSegmentStateControllerConfig, NvLinkConfig,
-    PowerManagerOptions, PowerShelfStateControllerConfig, RackStateControllerConfig,
-    SiteExplorerConfig, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
-    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
+    BomValidationConfig, CarbideConfig, ComputeAllocationEnforcement, DpaConfig,
+    DpaInterfaceStateControllerConfig, DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig,
+    IBFabricConfig, IbFabricDefinition, IbPartitionStateControllerConfig, ListenMode,
+    MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
+    MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
+    NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig, SpdmConfig,
+    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
+    VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
@@ -263,6 +264,7 @@ pub struct TestEnvOverrides {
     pub nmxm_default_partition: Option<bool>,
     // After n create_requests succeed, they will start failing.
     pub nmxm_fail_after_n_creates: Option<usize>,
+    pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
 }
 
 impl TestEnvOverrides {
@@ -305,6 +307,14 @@ impl TestEnvOverrides {
             })
         });
 
+        self
+    }
+
+    pub fn with_compute_allocation_enforcement(
+        mut self,
+        enforcement: ComputeAllocationEnforcement,
+    ) -> Self {
+        self.compute_allocation_enforcement = Some(enforcement);
         self
     }
 
@@ -1007,6 +1017,7 @@ pub fn get_config() -> CarbideConfig {
         alt_metric_prefix: None,
         database_url: "pgsql:://localhost".to_string(),
         max_database_connections: 1000,
+        compute_allocation_enforcement: Default::default(),
         asn: 0,
         datacenter_asn: 0,
         dhcp_servers: vec![],
@@ -1302,6 +1313,9 @@ pub async fn create_test_env_with_overrides(
     } else {
         Default::default()
     };
+
+    config.compute_allocation_enforcement =
+        overrides.compute_allocation_enforcement.unwrap_or_default();
 
     let config = Arc::new(config);
 
@@ -1712,6 +1726,8 @@ pub async fn get_instance_type_fixture_id(env: &TestEnv) -> String {
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
+                include_allocation_stats: false,
+                tenant_organization_id: None,
             },
         ))
         .await

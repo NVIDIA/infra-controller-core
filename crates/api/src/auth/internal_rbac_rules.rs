@@ -687,6 +687,14 @@ impl InternalRBACRules {
         x.perm("ModifyDPFState", vec![ForgeAdminCLI]);
         x.perm("GetDPFState", vec![ForgeAdminCLI]);
         x.perm("UpdateMachineNvLinkInfo", vec![ForgeAdminCLI]);
+        x.perm("CreateComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindComputeAllocationIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindComputeAllocationsByIds",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm("UpdateComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

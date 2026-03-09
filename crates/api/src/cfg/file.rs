@@ -443,6 +443,11 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub arm_pxe_boot_url_override: Option<String>,
 
+    /// Controls enforcement of compute allocations when a new instance is
+    /// requested.
+    #[serde(default)]
+    pub compute_allocation_enforcement: ComputeAllocationEnforcement,
+
     /// supernic_firmware_profiles is a nested map of FirmwareFlasherProfiles
     /// keyed by part_number and PSID. Each profile specifies the firmware to
     /// flash and optional lifecycle flags (reset, verify_image, verify_version).
@@ -465,6 +470,19 @@ pub struct CarbideConfig {
     /// ```
     #[serde(default)]
     pub supernic_firmware_profiles: HashMap<String, HashMap<String, FirmwareFlasherProfile>>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputeAllocationEnforcement {
+    #[default]
+    /// If an allocation exists, don't enforce, but log what would have happened.
+    WarnOnly,
+    /// Only enforce if allocations exist.
+    EnforceIfPresent,
+    /// Always enforce, and zero allocations for the tenant means
+    /// the new instance request will be rejected.
+    Always,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

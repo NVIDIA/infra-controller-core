@@ -15,21 +15,23 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-#[derive(Parser, Debug, Clone)]
-pub struct Args {
-    #[clap(
-        short = 'i',
-        long,
-        help = "Optional, instance type ID to restrict the search"
-    )]
-    pub id: Option<String>,
+/// Marker type for ComputeAllocationId
+pub struct ComputeAllocationIdMarker;
 
-    #[clap(
-        short = 's',
-        long,
-        help = "Optional, show counts for allocations of instance types"
-    )]
-    pub show_stats: Option<bool>,
+impl UuidSubtype for ComputeAllocationIdMarker {
+    const TYPE_NAME: &'static str = "ComputeAllocationId";
+}
+
+/// ComputeAllocationId is a strongly typed UUID for ComputeAllocations.
+pub type ComputeAllocationId = TypedUuid<ComputeAllocationIdMarker>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(ComputeAllocationId, "ComputeAllocationId", "id");
 }

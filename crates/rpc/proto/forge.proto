@@ -629,6 +629,15 @@ service Forge {
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
 
+  //
+  // Compute Allocations
+  //
+  rpc CreateComputeAllocation(CreateComputeAllocationRequest) returns (CreateComputeAllocationResponse);
+  rpc FindComputeAllocationIds(FindComputeAllocationIdsRequest) returns (FindComputeAllocationIdsResponse);
+  rpc FindComputeAllocationsByIds(FindComputeAllocationsByIdsRequest) returns (FindComputeAllocationsByIdsResponse);
+  rpc UpdateComputeAllocation(UpdateComputeAllocationRequest) returns (UpdateComputeAllocationResponse);
+  rpc DeleteComputeAllocation(DeleteComputeAllocationRequest) returns (DeleteComputeAllocationResponse);
+
   rpc SetFirmwareUpdateTimeWindow(SetFirmwareUpdateTimeWindowRequest) returns (SetFirmwareUpdateTimeWindowResponse);
   rpc ListHostFirmware(ListHostFirmwareRequest) returns (ListHostFirmwareResponse);
   rpc PublishMlxDeviceReport(mlx_device.PublishMlxDeviceReportRequest) returns (mlx_device.PublishMlxDeviceReportResponse);
@@ -4232,6 +4241,7 @@ enum UuidType {
   UuidTypeVpc = 3;
   UuidTypeDomain = 4;
   UuidTypeDpaInterfaceId = 5;
+  UuidTypeComputeAllocationId = 6;
 }
 
 message IdentifyMacRequest {
@@ -5043,17 +5053,18 @@ message InstanceTypeAttributes {
   repeated InstanceTypeMachineCapabilityFilterAttributes desired_capabilities = 1;
 }
 
-// An InstanceType describes a desired set of
+// An InstanceType describes a desired set of 
 // machine capabilities.
 // It's probably easiest to just think of InstanceType
 // as a pool, and the desired capabilities of an InstanceType
 // define which machines are allowed in the pool.
 message InstanceType {
-  string id                         = 1;
-  InstanceTypeAttributes attributes = 2;
-  string version                    = 3;
-  Metadata metadata                 = 4;
-  optional string created_at        = 5;
+  string id                                             = 1;
+  InstanceTypeAttributes attributes                     = 2;
+  string version                                        = 3;
+  Metadata metadata                                     = 4;
+  optional string created_at                            = 5;
+  optional InstanceTypeAllocationStats allocation_stats = 6;  
 }
 
 // These match the current set of distinct
@@ -5108,11 +5119,23 @@ message FindInstanceTypeIdsResponse {
 }
 
 message FindInstanceTypesByIdsRequest {
-  repeated string instance_type_ids = 1;
+  repeated string instance_type_ids        = 1;
+  
+  // Used to filter by tenant allocations.
+  // In the future, this value would be ignored if the
+  // caller is a tenant and the org of the tenant would
+  // be used automatically by the handler. If this option
+  // is used and there are no allocations associated with
+  // the tenant org, no results will be returned.
+
+  optional string tenant_organization_id = 2;
+  // This option would trigger additional queries to calculate
+  // allocation stats.
+  bool include_allocation_stats = 3;
 }
 
 message FindInstanceTypesByIdsResponse {
-  repeated InstanceType instance_types = 1;
+  repeated InstanceType instance_types = 1;  
 }
 
 message DeleteInstanceTypeRequest {
@@ -5691,6 +5714,112 @@ message PowerOptions {
 
 message PowerOptionResponse {
   repeated PowerOptions response = 1;
+}
+
+
+
+message ComputeAllocationAttributes {   
+  string instance_type_id = 1; // The source of the compute resources
+  
+  // The number of instances for this requested instance type allocated
+  // for the tenant.  The total for all allocations of an instance type
+  // cannot exceed the number of machines associated with the instance
+  // type.  Still, it's possible for an allocation to be unable to
+  // satisfy an allocation if associated machines are in failed states
+  // that prevent them from being allocated.
+  uint32 count            = 2;
+}
+
+
+message ComputeAllocation {
+  common.ComputeAllocationId id          = 1;
+  string tenant_organization_id          = 2;
+  ComputeAllocationAttributes attributes = 3;
+  string version                         = 4;
+  Metadata metadata                      = 5;
+  optional string created_at             = 6;
+  optional string created_by             = 7;
+  optional string updated_by             = 8;
+}
+
+message CreateComputeAllocationRequest {
+  optional common.ComputeAllocationId id = 1;
+  Metadata metadata                      = 2;
+  string tenant_organization_id          = 3; // Allocations are created by provider admins for tenants, but only providers can update them.
+  ComputeAllocationAttributes attributes = 4;
+  optional string created_by             = 5;
+}
+
+message CreateComputeAllocationResponse {
+  ComputeAllocation allocation = 1;
+}
+
+// Tenants and providers are both allowed to call the related endpoint.
+// A provider could filter on `tenant_organization_id`. In the
+// future, the field would be ignored if a tenant attempted to filter
+// on the org and the handler would automatically filter by the tenant
+// org of the caller.
+message FindComputeAllocationIdsRequest {
+  // Options will be AND'ed
+  optional string name                   = 1;
+  optional string tenant_organization_id = 2;
+  optional string instance_type_id       = 3;
+};
+
+message FindComputeAllocationIdsResponse {
+  repeated common.ComputeAllocationId ids = 1;
+}
+
+// Tenants and providers are both allowed to call this endpoint.
+// In the future, the handler would automatically filter by the
+// tenant org of the caller.
+message FindComputeAllocationsByIdsRequest {
+  repeated common.ComputeAllocationId ids = 1;   
+}
+
+message FindComputeAllocationsByIdsResponse {
+  repeated ComputeAllocation allocations = 1;
+}
+
+message UpdateComputeAllocationResponse {
+  ComputeAllocation allocation = 1;
+}
+
+message UpdateComputeAllocationRequest {
+  common.ComputeAllocationId id          = 1;
+  string tenant_organization_id          = 2;
+  Metadata metadata                      = 3;
+  ComputeAllocationAttributes attributes = 4;
+  optional string if_version_match       = 5;
+  optional string updated_by             = 6;
+}
+
+message DeleteComputeAllocationRequest {
+  common.ComputeAllocationId id = 1;
+  string tenant_organization_id = 2;
+}
+
+message DeleteComputeAllocationResponse {
+}
+
+// For use with the existing InstanceType message
+// to include allocation stats when requested in
+// FindInstanceTypesByIdsRequest 
+message InstanceTypeAllocationStats {
+  // The sum of all allocations for the instance type
+  uint32 max_allocatable = 1;
+
+  // The number of active instances for an instance type
+  uint32 used            = 2;
+
+  // The number of additional instances that a user _should_
+  // be able to create.
+  uint32 unused          = 3;
+
+  // The number of additional instances that a user can
+  // _actually_ create after filtering out all unused
+  // machines in bad states
+  uint32 unused_usable   = 4;    
 }
 
 message GetRackRequest {

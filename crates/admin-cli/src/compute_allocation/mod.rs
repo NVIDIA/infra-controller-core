@@ -15,21 +15,31 @@
  * limitations under the License.
  */
 
+mod common;
+mod create;
+mod delete;
+mod show;
+mod update;
+
+// Cross-module re-exports for jump module
 use clap::Parser;
+pub use show::args::Args as ShowComputeAllocation;
+pub use show::cmd::show;
 
-#[derive(Parser, Debug, Clone)]
-pub struct Args {
-    #[clap(
-        short = 'i',
-        long,
-        help = "Optional, instance type ID to restrict the search"
-    )]
-    pub id: Option<String>,
+use crate::cfg::dispatch::Dispatch;
 
-    #[clap(
-        short = 's',
-        long,
-        help = "Optional, show counts for allocations of instance types"
-    )]
-    pub show_stats: Option<bool>,
+#[derive(Parser, Debug, Clone, Dispatch)]
+#[clap(rename_all = "kebab_case")]
+pub enum Cmd {
+    #[clap(about = "Create a compute allocation", visible_alias = "c")]
+    Create(create::Args),
+
+    #[clap(about = "Show one or more compute allocations", visible_alias = "s")]
+    Show(show::Args),
+
+    #[clap(about = "Delete a compute allocation", visible_alias = "d")]
+    Delete(delete::Args),
+
+    #[clap(about = "Update a compute allocation", visible_alias = "u")]
+    Update(update::Args),
 }

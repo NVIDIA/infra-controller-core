@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 pub(crate) mod common;
+mod compute_allocation;
 mod connected_device;
 mod create_domain;
 mod credential;

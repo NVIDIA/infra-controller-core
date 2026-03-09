@@ -15,21 +15,21 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::forge::DeleteComputeAllocationRequest;
 
-#[derive(Parser, Debug, Clone)]
-pub struct Args {
-    #[clap(
-        short = 'i',
-        long,
-        help = "Optional, instance type ID to restrict the search"
-    )]
-    pub id: Option<String>,
+use super::args::Args;
+use crate::rpc::ApiClient;
 
-    #[clap(
-        short = 's',
-        long,
-        help = "Optional, show counts for allocations of instance types"
-    )]
-    pub show_stats: Option<bool>,
+/// Delete a compute allocation.
+pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .delete_compute_allocation(DeleteComputeAllocationRequest {
+            id: Some(args.id),
+            tenant_organization_id: args.tenant_organization_id,
+        })
+        .await?;
+    println!("Deleted compute allocation {} successfully.", args.id);
+    Ok(())
 }

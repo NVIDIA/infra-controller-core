@@ -2791,6 +2791,8 @@ async fn test_allocate_with_instance_type_id(
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
+                include_allocation_stats: false,
+                tenant_organization_id: None,
             },
         ))
         .await

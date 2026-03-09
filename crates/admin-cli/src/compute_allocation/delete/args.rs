@@ -15,21 +15,18 @@
  * limitations under the License.
  */
 
+use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
-    #[clap(
-        short = 'i',
-        long,
-        help = "Optional, instance type ID to restrict the search"
-    )]
-    pub id: Option<String>,
+    #[clap(short = 'i', long, help = "Compute allocation ID to delete")]
+    pub id: ComputeAllocationId,
 
     #[clap(
-        short = 's',
+        short = 't',
         long,
-        help = "Optional, show counts for allocations of instance types"
+        help = "Tenant organization ID for the compute allocation"
     )]
-    pub show_stats: Option<bool>,
+    pub tenant_organization_id: String,
 }
