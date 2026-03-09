@@ -85,11 +85,11 @@ use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
     DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig, IBFabricConfig, IbFabricDefinition,
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
-    MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
-    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig, SpdmConfig,
-    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
-    VpcPeeringPolicy, default_max_find_by_ids,
+    MachineValidationConfig, MeasuredBootMetricsCollectorConfig, MqttAuthConfig,
+    NetworkSecurityGroupConfig, NetworkSegmentStateControllerConfig, NvLinkConfig,
+    PowerManagerOptions, PowerShelfStateControllerConfig, RackStateControllerConfig,
+    SiteExplorerConfig, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
+    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
@@ -1132,6 +1132,7 @@ pub fn get_config() -> CarbideConfig {
             hb_interval: Duration::minutes(2),
             subnet_ip: Ipv4Addr::UNSPECIFIED,
             subnet_mask: 0_i32,
+            auth: MqttAuthConfig::default(),
         }),
         power_manager_options: PowerManagerOptions {
             enabled: false,

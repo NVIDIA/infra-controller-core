@@ -337,6 +337,13 @@ pub enum BmcCredentialType {
     BmcForgeAdmin { bmc_mac_address: MacAddress },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MqttCredentialType {
+    Dpa,
+    DsxExchangeEventBus,
+    DsxExchangeConsumer,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialKey {
     DpuSsh { machine_id: MachineId },
@@ -351,6 +358,7 @@ pub enum CredentialKey {
     NmxM { nmxm_id: String },
     RackFirmware { firmware_id: String },
     SwitchNvosAdmin { bmc_mac_address: MacAddress },
+    MqttAuth { credential_type: MqttCredentialType },
 }
 
 impl CredentialKey {
@@ -430,6 +438,15 @@ impl CredentialKey {
             CredentialKey::SwitchNvosAdmin { bmc_mac_address } => {
                 Cow::from(format!("switch_nvos/{bmc_mac_address}/admin"))
             }
+            CredentialKey::MqttAuth { credential_type } => match credential_type {
+                MqttCredentialType::Dpa => Cow::from("mqtt/dpa/auth"),
+                MqttCredentialType::DsxExchangeEventBus => {
+                    Cow::from("mqtt/dsx-exchange-event-bus/auth")
+                }
+                MqttCredentialType::DsxExchangeConsumer => {
+                    Cow::from("mqtt/dsx-exchange-consumer/auth")
+                }
+            },
         }
     }
 }

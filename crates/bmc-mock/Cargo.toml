@@ -53,6 +53,8 @@ rand = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 http-body-util = { workspace = true }
+nv-redfish = { workspace = true, features = ["bmc-http"] }
+url = { workspace = true }
 
 [lints]
 workspace = true

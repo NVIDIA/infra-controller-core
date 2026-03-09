@@ -601,11 +601,31 @@ pub async fn initialize_and_start_controllers(
         if let Some(ref config) = carbide_config.dsx_exchange_event_bus
             && config.enabled
         {
+            let options = {
+                let defaults =
+                    mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce);
+
+                if let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
+                    &config.auth,
+                    forge_secrets::credentials::CredentialKey::MqttAuth {
+                        credential_type:
+                            forge_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
+                    },
+                    api_service.credential_manager.clone(),
+                )
+                .await?
+                {
+                    defaults.with_credentials_provider(provider)
+                } else {
+                    defaults
+                }
+            };
+
             let client = mqttea::MqtteaClient::new(
                 &config.mqtt_endpoint,
                 config.mqtt_broker_port,
                 "carbide-dsx-exchange-event-bus",
-                Some(mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce)),
+                Some(options),
             )
             .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))
             .await?;

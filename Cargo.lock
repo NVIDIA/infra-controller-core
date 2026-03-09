@@ -995,6 +995,7 @@ dependencies = [
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
+ "nv-redfish",
  "rand 0.9.2",
  "regex",
  "rustls 0.23.34",
@@ -1008,6 +1009,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -1796,6 +1798,7 @@ dependencies = [
  "async-trait",
  "carbide-health-report",
  "carbide-rpc",
+ "carbide-secrets",
  "carbide-tls",
  "carbide-uuid",
  "carbide-version",
@@ -6422,9 +6425,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f368279cf355ed5c2dda5c5c2a0f2025b5acbf7bbe18621327e6b89159deb9a"
+checksum = "38be633e16be40825aea296d60ceb55792a42c6a891d5f3d32b8bdbb559cdb65"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6438,9 +6441,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "428c30ac9b74ce46a174cf27dc1f50a80200119322d924f88fbcdfe4892694bf"
+checksum = "f68344a4dc04ee6c04a3ccbe2e8417d36ea851b3a035f686e92d28b940a6975c"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6458,9 +6461,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22874ccf9984c2b04819ff3d5769c14daaa8782d306a041d1029750f54b6aaf2"
+checksum = "3dbb94646a902920f1571f772f580cb7895d8fc7a1404c8c9c78f46c9d24a2b6"
 dependencies = [
  "futures-core",
  "rust_decimal",
@@ -6472,9 +6475,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cfa6586a248272c092203ad43484b4c6758d29c74311a2b717a83b728b870db"
+checksum = "5a1b67170463b61d2357898809955e9e7d03a105548c0f6b8f1153f35ed783fb"
 dependencies = [
  "clap",
  "clap_derive",
