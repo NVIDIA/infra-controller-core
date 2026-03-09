@@ -42,7 +42,7 @@ pub struct TenantIdentityConfig {
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
     pub auth_method: Option<String>,
-    /// Encrypted blob (TEXT). Until encryption is enabled, stores JSON string. API uses auth_method_config.
+    /// Encrypted blob (TEXT). stores JSON string. API uses auth_method_config.
     pub encrypted_auth_method_config: Option<String>,
     pub subject_token_audience: Option<String>,
     pub token_delegation_created_at: Option<DateTime<Utc>>,
@@ -50,6 +50,7 @@ pub struct TenantIdentityConfig {
 
 /// Set identity config for an org. On first create, generates a placeholder key.
 /// Caller must ensure tenant exists and global machine-identity is enabled.
+#[allow(clippy::too_many_arguments)]
 pub async fn set(
     org_id: &str,
     issuer: &str,
@@ -83,15 +84,19 @@ pub async fn set(
     // Bounds validation is done by the handler using site config (token_ttl_min, token_ttl_max).
 
     let existing = find(org_id, &mut *txn).await?;
-    let (key_id, encrypted_key, public_key) = if existing.is_none() || rotate_key {
-        // Generate new key pair (placeholder: use deterministic placeholder for rough impl)
-        let key_id = uuid::Uuid::new_v4().to_string();
-        let encrypted_key = "PLACEHOLDER_ENCRYPTED_KEY".to_string();
-        let public_key = "PLACEHOLDER_PUBLIC_KEY".to_string();
-        (key_id, encrypted_key, public_key)
-    } else {
-        let ex = existing.unwrap();
-        (ex.key_id, ex.encrypted_signing_key, ex.signing_key_public)
+    let (key_id, encrypted_key, public_key) = match (&existing, rotate_key) {
+        (None, _) | (_, true) => {
+            // Generate new key pair (placeholder: use deterministic placeholder for rough impl)
+            let key_id = uuid::Uuid::new_v4().to_string();
+            let encrypted_key = "PLACEHOLDER_ENCRYPTED_KEY".to_string();
+            let public_key = "PLACEHOLDER_PUBLIC_KEY".to_string();
+            (key_id, encrypted_key, public_key)
+        }
+        (Some(ex), false) => (
+            ex.key_id.clone(),
+            ex.encrypted_signing_key.clone(),
+            ex.signing_key_public.clone(),
+        ),
     };
 
     let query = r#"

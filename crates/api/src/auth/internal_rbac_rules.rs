@@ -282,7 +282,10 @@ impl InternalRBACRules {
         x.perm("SignMachineIdentity", vec![Agent]);
         x.perm("GetIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SetIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("DeleteIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "DeleteIdentityConfiguration",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("GetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);

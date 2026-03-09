@@ -108,7 +108,12 @@ pub async fn set_token_delegation(
     if let Some(aud) = subject_token_audience {
         data["subject_token_audience"] = serde_json::Value::String(aud.to_string());
     }
-    grpcurl(carbide_api_addrs, "SetTokenDelegation", Some(data.to_string())).await?;
+    grpcurl(
+        carbide_api_addrs,
+        "SetTokenDelegation",
+        Some(data.to_string()),
+    )
+    .await?;
     tracing::info!("Token delegation set for org {org_id}");
     Ok(())
 }
@@ -119,8 +124,12 @@ pub async fn get_token_delegation(
     org_id: &str,
 ) -> eyre::Result<TokenDelegationResponse> {
     let data = serde_json::json!({ "org_id": org_id });
-    let response =
-        grpcurl(carbide_api_addrs, "GetTokenDelegation", Some(data.to_string())).await?;
+    let response = grpcurl(
+        carbide_api_addrs,
+        "GetTokenDelegation",
+        Some(data.to_string()),
+    )
+    .await?;
     let parsed: TokenDelegationResponse = serde_json::from_str(&response)?;
     Ok(parsed)
 }
@@ -133,7 +142,12 @@ pub async fn delete_token_delegation(
     tracing::info!("Deleting token delegation for org {org_id}");
 
     let data = serde_json::json!({ "org_id": org_id });
-    grpcurl(carbide_api_addrs, "DeleteTokenDelegation", Some(data.to_string())).await?;
+    grpcurl(
+        carbide_api_addrs,
+        "DeleteTokenDelegation",
+        Some(data.to_string()),
+    )
+    .await?;
     tracing::info!("Token delegation deleted for org {org_id}");
     Ok(())
 }

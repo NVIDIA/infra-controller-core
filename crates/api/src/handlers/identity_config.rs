@@ -21,20 +21,18 @@
 
 use std::collections::BTreeMap;
 
-use sha2::{Digest, Sha256};
+use ::rpc::Timestamp;
 use ::rpc::forge::{
     GetIdentityConfigRequest, GetTokenDelegationRequest, IdentityConfigRequest,
     IdentityConfigResponse, TokenDelegationRequest, TokenDelegationResponse,
 };
-use ::rpc::Timestamp;
-use db::tenant;
-use db::tenant_identity_config;
-use db::WithTransaction;
+use db::{WithTransaction, tenant, tenant_identity_config};
 use prost_types::value::Kind;
 use prost_types::{Struct, Value};
+use sha2::{Digest, Sha256};
 use tonic::{Request, Response, Status};
 
-use crate::api::{log_request_data, Api};
+use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
 // --- Token delegation: Struct/JSON conversion and secret hashing ---
@@ -53,7 +51,16 @@ fn compute_secret_hash(cleartext: &str) -> String {
 
 /// Truncates hash for display in get_token_delegation: algorithm-prefix:XXXXXXXX.. (algorithm-prefix is "sha256" or "sha512" etc.)
 fn truncate_hash_for_display(full_hash: &str) -> String {
-    full_hash.split_once(':').map(|(prefix, rest)| format!("{}:{}..", prefix, rest.chars().take(HASH_DISPLAY_HEX_LEN).collect::<String>())).unwrap_or_else(|| full_hash.to_string())
+    full_hash
+        .split_once(':')
+        .map(|(prefix, rest)| {
+            format!(
+                "{}:{}..",
+                prefix,
+                rest.chars().take(HASH_DISPLAY_HEX_LEN).collect::<String>()
+            )
+        })
+        .unwrap_or_else(|| full_hash.to_string())
 }
 
 fn struct_to_json(pb: &Struct) -> serde_json::Value {
@@ -438,13 +445,12 @@ pub(crate) async fn set_token_delegation(
         .and_then(|o| o.iter().find(|(k, _)| k.to_lowercase() == "client_secret"))
         .and_then(|(_, v)| v.as_str());
     if let Some(client_secret) = client_secret
+        && let Some(obj) = config_json.as_object_mut()
     {
-        if let Some(obj) = config_json.as_object_mut() {
-            obj.insert(
-                "client_secret_hash".to_string(),
-                serde_json::Value::String(compute_secret_hash(client_secret)),
-            );
-        }
+        obj.insert(
+            "client_secret_hash".to_string(),
+            serde_json::Value::String(compute_secret_hash(client_secret)),
+        );
     }
 
     let config_str = serde_json::to_string(&config_json).unwrap_or_else(|_| "{}".to_string());
@@ -522,9 +528,9 @@ pub(crate) async fn delete_token_delegation(
 
     api.database_connection
         .with_txn(|txn| {
-            Box::pin(async move {
-                tenant_identity_config::delete_token_delegation(org_id, txn).await
-            })
+            Box::pin(
+                async move { tenant_identity_config::delete_token_delegation(org_id, txn).await },
+            )
         })
         .await??;
 
@@ -556,10 +562,7 @@ mod tests {
             truncate_hash_for_display("sha256:abcd1234567890abcdef"),
             "sha256:abcd1234.."
         );
-        assert_eq!(
-            truncate_hash_for_display("sha512:xyz"),
-            "sha512:xyz.."
-        );
+        assert_eq!(truncate_hash_for_display("sha512:xyz"), "sha512:xyz..");
         assert_eq!(truncate_hash_for_display("no-colon"), "no-colon");
     }
 

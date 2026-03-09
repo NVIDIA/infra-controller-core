@@ -24,7 +24,7 @@ use std::time::{self, Duration};
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use api_test_helper::{
-    identity_config, IntegrationTestEnvironment, domain, instance, machine, metrics, subnet,
+    IntegrationTestEnvironment, domain, identity_config, instance, machine, metrics, subnet,
     tenant, utils, vpc,
 };
 use bmc_mock::{HostHardwareType, ListenerOrAddress};
@@ -494,18 +494,27 @@ async fn run_identity_config_tests(
     assert_eq!(delegation.token_endpoint, "https://auth.example.com/token");
     assert_eq!(delegation.auth_method, "client_secret_basic");
     assert!(delegation.auth_method_config.is_some());
-    let auth_cfg = delegation.auth_method_config.as_ref().unwrap().as_object().unwrap();
+    let auth_cfg = delegation
+        .auth_method_config
+        .as_ref()
+        .unwrap()
+        .as_object()
+        .unwrap();
     assert!(
         !auth_cfg.contains_key("client_secret") && !auth_cfg.contains_key("clientSecret"),
         "client_secret must be omitted from response"
     );
     assert_eq!(
-        auth_cfg.get("client_id")
+        auth_cfg
+            .get("client_id")
             .or_else(|| auth_cfg.get("clientId"))
             .and_then(|v| v.as_str()),
         Some("test-client")
     );
-    assert_eq!(delegation.subject_token_audience.as_deref(), Some("https://api.example.com"));
+    assert_eq!(
+        delegation.subject_token_audience.as_deref(),
+        Some("https://api.example.com")
+    );
     println!("[identity_config] Get token delegation: ok (client_secret omitted)");
 
     println!("[identity_config] Delete token delegation");
