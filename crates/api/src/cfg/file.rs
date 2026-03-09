@@ -922,6 +922,28 @@ pub struct StateControllerConfig {
         serialize_with = "as_std_duration"
     )]
     pub processor_log_interval: std::time::Duration,
+
+    /// Configures how often the state handling processor will reassess metrics and emit them.
+    /// Calculating aggregate metrics is expensive (all object metrics need to be traversed).
+    /// Therefore this should not happen much more frequently than the observabilty system
+    /// will access them.
+    #[serde(
+        default = "StateControllerConfig::metric_emission_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub metric_emission_interval: std::time::Duration,
+
+    /// Configures for how long metrics for each object managed by the state controller
+    /// will show up before they get evicted.
+    /// The duration of this needs to be longer than the time between state handler
+    /// invocations for the object
+    #[serde(
+        default = "StateControllerConfig::metric_hold_time",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub metric_hold_time: std::time::Duration,
 }
 
 impl StateControllerConfig {
@@ -941,6 +963,14 @@ impl StateControllerConfig {
         std::time::Duration::from_secs(60)
     }
 
+    pub const fn metric_emission_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+
+    pub const fn metric_hold_time() -> std::time::Duration {
+        std::time::Duration::from_secs(5 * 60)
+    }
+
     pub const fn max_concurrency_default() -> usize {
         10
     }
@@ -954,6 +984,8 @@ impl Default for StateControllerConfig {
             processor_dispatch_interval: Self::processor_dispatch_interval_default(),
             processor_log_interval: Self::processor_log_interval_default(),
             max_concurrency: Self::max_concurrency_default(),
+            metric_emission_interval: Self::metric_emission_interval(),
+            metric_hold_time: Self::metric_hold_time(),
         }
     }
 }
@@ -966,6 +998,8 @@ impl From<&StateControllerConfig> for IterationConfig {
             max_concurrency: config.max_concurrency,
             processor_dispatch_interval: config.processor_dispatch_interval,
             processor_log_interval: config.processor_log_interval,
+            metric_emission_interval: config.metric_emission_interval,
+            metric_hold_time: config.metric_hold_time,
         }
     }
 }
@@ -2638,6 +2672,8 @@ mod tests {
                 max_concurrency: 10,
                 processor_dispatch_interval: std::time::Duration::from_secs(2),
                 processor_log_interval: std::time::Duration::from_secs(60),
+                metric_emission_interval: std::time::Duration::from_secs(60),
+                metric_hold_time: std::time::Duration::from_secs(5 * 60),
             },
             dpu_wait_time: Duration::minutes(20),
             power_down_wait: Duration::seconds(10),
@@ -2677,6 +2713,8 @@ mod tests {
                         max_concurrency: 13,
                         processor_dispatch_interval: std::time::Duration::from_secs(2),
                         processor_log_interval: std::time::Duration::from_secs(60),
+                        metric_emission_interval: std::time::Duration::from_secs(60),
+                        metric_hold_time: std::time::Duration::from_secs(5 * 60),
                     }
                 },
                 dpu_wait_time: Duration::minutes(20),
@@ -2723,6 +2761,8 @@ mod tests {
                         max_concurrency: 13,
                         processor_dispatch_interval: std::time::Duration::from_secs(2),
                         processor_log_interval: std::time::Duration::from_secs(60),
+                        metric_emission_interval: std::time::Duration::from_secs(60),
+                        metric_hold_time: std::time::Duration::from_secs(5 * 60),
                     }
                 },
                 network_segment_drain_time: Duration::minutes(21),
@@ -2744,7 +2784,7 @@ mod tests {
         let config_str = serde_json::to_string(&input).unwrap();
         assert_eq!(
             config_str,
-            r#"{"iteration_time":"30s","max_object_handling_time":"180s","max_concurrency":10,"processor_dispatch_interval":"2s","processor_log_interval":"60s"}"#
+            r#"{"iteration_time":"30s","max_object_handling_time":"180s","max_concurrency":10,"processor_dispatch_interval":"2s","processor_log_interval":"60s","metric_emission_interval":"60s","metric_hold_time":"300s"}"#
         );
         let config: StateControllerConfig = serde_json::from_str(&config_str).unwrap();
         assert_eq!(config, input);
@@ -2758,11 +2798,13 @@ mod tests {
             max_concurrency: 33,
             processor_dispatch_interval: std::time::Duration::from_secs(2),
             processor_log_interval: std::time::Duration::from_secs(60),
+            metric_emission_interval: std::time::Duration::from_secs(60),
+            metric_hold_time: std::time::Duration::from_secs(5 * 60),
         };
         let config_str = serde_json::to_string(&input).unwrap();
         assert_eq!(
             config_str,
-            r#"{"iteration_time":"11s","max_object_handling_time":"22s","max_concurrency":33,"processor_dispatch_interval":"2s","processor_log_interval":"60s"}"#
+            r#"{"iteration_time":"11s","max_object_handling_time":"22s","max_concurrency":33,"processor_dispatch_interval":"2s","processor_log_interval":"60s","metric_emission_interval":"60s","metric_hold_time":"300s"}"#
         );
         let config: StateControllerConfig = serde_json::from_str(&config_str).unwrap();
         assert_eq!(config, input);
@@ -2933,6 +2975,8 @@ mod tests {
                     max_concurrency: 22,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
                 dpu_wait_time: Duration::minutes(7),
                 power_down_wait: Duration::seconds(17),
@@ -2951,6 +2995,8 @@ mod tests {
                     max_concurrency: 1888,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -2963,6 +3009,8 @@ mod tests {
                     max_concurrency: 1777,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3098,6 +3146,8 @@ mod tests {
                     max_concurrency: 999,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
                 dpu_wait_time: Duration::minutes(3),
                 power_down_wait: Duration::seconds(13),
@@ -3116,6 +3166,8 @@ mod tests {
                     max_concurrency: 888,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3128,6 +3180,8 @@ mod tests {
                     max_concurrency: 777,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3368,6 +3422,8 @@ mod tests {
                     max_concurrency: 22,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
                 dpu_wait_time: Duration::minutes(7),
                 power_down_wait: Duration::seconds(17),
@@ -3386,6 +3442,8 @@ mod tests {
                     max_concurrency: 1888,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3398,6 +3456,8 @@ mod tests {
                     max_concurrency: 1777,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
