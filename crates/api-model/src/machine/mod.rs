@@ -112,10 +112,17 @@ pub struct ManagedHostStateSnapshot {
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        #[derive(Deserialize)]
+        struct RackHealthOverrides {
+            json: HealthReportOverrides,
+        }
+
         let host_snapshot: sqlx::types::Json<MachineSnapshotPgJson> =
             row.try_get("host_snapshot")?;
         let dpu_snapshots: sqlx::types::Json<Vec<Option<MachineSnapshotPgJson>>> =
             row.try_get("dpu_snapshots")?;
+        let rack_health_overrides: sqlx::types::Json<Vec<Option<RackHealthOverrides>>> =
+            row.try_get("rack_health_overrides")?;
         // We are setting dpa_interface_snapshots to an emtpy vector here.
         // This will be filled by load_object_state later.
         let dpa_interface_snapshots: Vec<DpaInterface> = Vec::new();
@@ -138,6 +145,20 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
+        let rack_health_overrides = rack_health_overrides
+            .0
+            .into_iter()
+            .next()
+            .flatten()
+            .and_then(|overrides| {
+                let overrides = overrides.json;
+                if overrides.replace.is_some() || !overrides.merges.is_empty() {
+                    Some(overrides)
+                } else {
+                    None
+                }
+            });
+
         // Instance network observation is fetched from dpu_snapshots.
         if let Some(instance) = &mut instance {
             instance.observations.network =
@@ -157,10 +178,10 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             dpa_interface_snapshots,
             managed_state,
             instance,
+            rack_health_overrides,
             // This will need to be modified by callers, as its value depends on a
             // HardwareHealthReportsConfig being specified.
             aggregate_health: health_report::HealthReport::empty("".to_string()),
-            rack_health_overrides: None,
         };
 
         result.sort_dpu_snapshots()?;
@@ -251,101 +272,103 @@ impl ManagedHostStateSnapshot {
         // the host, use that as the base. Rack overrides are still merged on
         // top afterward so that rack-level events (e.g. leak) are never hidden
         // by a per-host administrative Replace.
-        let mut output = if let Some(over) = self.host_snapshot.health_report_overrides.replace.clone() {
-            over
-        } else {
-            let mut output = health_report::HealthReport::empty("".to_string());
-            output.merge(&self.host_snapshot.machine_validation_health_report);
+        let mut output =
+            if let Some(over) = self.host_snapshot.health_report_overrides.replace.clone() {
+                over
+            } else {
+                let mut output = health_report::HealthReport::empty("".to_string());
+                output.merge(&self.host_snapshot.machine_validation_health_report);
 
-            if let Some(sku_validation_health_report) =
-                self.host_snapshot.sku_validation_health_report.as_ref()
-            {
-                output.merge(sku_validation_health_report);
-            }
-
-            if let Some(input) = &self.host_snapshot.log_parser_health_report {
-                output.merge(input);
-            }
-
-            if let Some(report) = self.host_snapshot.site_explorer_health_report.as_ref() {
-                output.merge(report);
-            }
-
-            let merge_or_timeout =
-                |output: &mut HealthReport, input: &Option<HealthReport>, target: String| {
-                    if let Some(input) = input {
-                        output.merge(input);
-                    } else {
-                        output.merge(&HealthReport::heartbeat_timeout(
-                            "".to_string(),
-                            target,
-                            "".to_string(),
-                        ));
-                    }
-                };
-
-            use HardwareHealthReportsConfig as HWConf;
-            match host_health_config.hardware_health_reports {
-                HWConf::Disabled => {}
-                HWConf::MonitorOnly => {
-                    if let Some(h) = &mut self.host_snapshot.hardware_health_report {
-                        for alert in &mut h.alerts {
-                            alert.classifications.clear();
-                        }
-                        output.merge(h)
-                    }
-                }
-                HWConf::Enabled => {
-                    merge_or_timeout(
-                        &mut output,
-                        &self.host_snapshot.hardware_health_report,
-                        "hardware-health".to_string(),
-                    );
-                }
-            }
-
-            let suppress_dpu_alerts = self.managed_state.suppress_dpu_alerts();
-            for snapshot in self.dpu_snapshots.iter_mut() {
-                let health_report = if suppress_dpu_alerts {
-                    let mut health_report = snapshot.dpu_agent_health_report.clone();
-
-                    if let Some(health_report) = &mut health_report {
-                        for alert in &mut health_report.alerts {
-                            alert.classifications.clear();
-                        }
-                    }
-                    health_report
-                } else {
-                    snapshot.dpu_agent_health_report.clone()
-                };
-
-                if let Some(network_status_observation) = snapshot.network_status_observation.as_ref()
-                    && let Some(health_report) = network_status_observation
-                        .expired_version_health_report(
-                            host_health_config.dpu_agent_version_staleness_threshold,
-                            host_health_config.prevent_allocations_on_stale_dpu_agent_version,
-                        )
+                if let Some(sku_validation_health_report) =
+                    self.host_snapshot.sku_validation_health_report.as_ref()
                 {
-                    output.merge(&health_report);
+                    output.merge(sku_validation_health_report);
                 }
 
-                merge_or_timeout(&mut output, &health_report, "forge-dpu-agent".to_string());
+                if let Some(input) = &self.host_snapshot.log_parser_health_report {
+                    output.merge(input);
+                }
 
-                if let Some(report) = snapshot.site_explorer_health_report.as_ref() {
+                if let Some(report) = self.host_snapshot.site_explorer_health_report.as_ref() {
                     output.merge(report);
                 }
 
-                for over in snapshot.health_report_overrides.merges.values() {
+                let merge_or_timeout =
+                    |output: &mut HealthReport, input: &Option<HealthReport>, target: String| {
+                        if let Some(input) = input {
+                            output.merge(input);
+                        } else {
+                            output.merge(&HealthReport::heartbeat_timeout(
+                                "".to_string(),
+                                target,
+                                "".to_string(),
+                            ));
+                        }
+                    };
+
+                use HardwareHealthReportsConfig as HWConf;
+                match host_health_config.hardware_health_reports {
+                    HWConf::Disabled => {}
+                    HWConf::MonitorOnly => {
+                        if let Some(h) = &mut self.host_snapshot.hardware_health_report {
+                            for alert in &mut h.alerts {
+                                alert.classifications.clear();
+                            }
+                            output.merge(h)
+                        }
+                    }
+                    HWConf::Enabled => {
+                        merge_or_timeout(
+                            &mut output,
+                            &self.host_snapshot.hardware_health_report,
+                            "hardware-health".to_string(),
+                        );
+                    }
+                }
+
+                let suppress_dpu_alerts = self.managed_state.suppress_dpu_alerts();
+                for snapshot in self.dpu_snapshots.iter_mut() {
+                    let health_report = if suppress_dpu_alerts {
+                        let mut health_report = snapshot.dpu_agent_health_report.clone();
+
+                        if let Some(health_report) = &mut health_report {
+                            for alert in &mut health_report.alerts {
+                                alert.classifications.clear();
+                            }
+                        }
+                        health_report
+                    } else {
+                        snapshot.dpu_agent_health_report.clone()
+                    };
+
+                    if let Some(network_status_observation) =
+                        snapshot.network_status_observation.as_ref()
+                        && let Some(health_report) = network_status_observation
+                            .expired_version_health_report(
+                                host_health_config.dpu_agent_version_staleness_threshold,
+                                host_health_config.prevent_allocations_on_stale_dpu_agent_version,
+                            )
+                    {
+                        output.merge(&health_report);
+                    }
+
+                    merge_or_timeout(&mut output, &health_report, "forge-dpu-agent".to_string());
+
+                    if let Some(report) = snapshot.site_explorer_health_report.as_ref() {
+                        output.merge(report);
+                    }
+
+                    for over in snapshot.health_report_overrides.merges.values() {
+                        output.merge(over);
+                    }
+                }
+
+                for over in self.host_snapshot.health_report_overrides.merges.values() {
                     output.merge(over);
                 }
-            }
 
-            for over in self.host_snapshot.health_report_overrides.merges.values() {
-                output.merge(over);
-            }
-
-            output
-        };
+                output
+            };
 
         // Rack-level overrides always layer on top, regardless of whether the
         // host had a Replace override. A rack Replace is normalized to a Merge

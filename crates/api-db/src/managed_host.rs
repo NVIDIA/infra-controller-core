@@ -26,7 +26,6 @@ use carbide_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use model::machine::{LoadSnapshotOptions, ManagedHostStateSnapshot};
-use model::rack::Rack;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -49,26 +48,21 @@ where
 pub async fn load_all(
     txn: impl DbReader<'_>,
     options: LoadSnapshotOptions,
-    racks_with_overrides: &[Rack],
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
     let query = managed_host_snapshots_query(&options);
-    let mut snapshots: Vec<ManagedHostStateSnapshot> = sqlx::query_as(&format!(
+    Ok(sqlx::query_as(&format!(
         r#"{query} WHERE NOT starts_with(m.id, '{}')"#,
         MachineType::Dpu.id_prefix(),
     ))
     .fetch_all(txn)
     .await
-    .map_err(|e| DatabaseError::new("managed_host::load_all", e))?;
-
-    apply_rack_health_overrides(racks_with_overrides, &mut snapshots);
-
-    Ok(snapshots
-        .into_iter()
-        .map(|mut snapshot: ManagedHostStateSnapshot| {
-            snapshot.derive_aggregate_health(options.host_health_config);
-            snapshot
-        })
-        .collect())
+    .map_err(|e| DatabaseError::new("managed_host::load_all", e))?
+    .into_iter()
+    .map(|mut snapshot: ManagedHostStateSnapshot| {
+        snapshot.derive_aggregate_health(options.host_health_config);
+        snapshot
+    })
+    .collect())
 }
 
 /// Loads ManagedHost snapshots from the database for all enumerated machines
@@ -127,14 +121,13 @@ where
         sqlx::query_as(&query).bind(host_ids)
     };
 
-    let mut snapshots: Vec<ManagedHostStateSnapshot> = sqlx_query
-        .fetch_all(&mut *txn)
+    // Index snapshots into a HashMap by their machine_id, while calling derive_aggregate_health on
+    // each. It's mut because we are going to re-index by the ID's that the user requested, which
+    // may be different from the managed_host ID.
+    let mut snapshots_by_host_id: HashMap<MachineId, ManagedHostStateSnapshot> = sqlx_query
+        .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new("managed_host::load_by_machine_ids", e))?;
-
-    populate_rack_health_overrides(&mut *txn, &mut snapshots).await?;
-
-    let mut snapshots_by_host_id: HashMap<MachineId, ManagedHostStateSnapshot> = snapshots
+        .map_err(|e| DatabaseError::new("managed_host::load_by_machine_ids", e))?
         .into_iter()
         .map(|mut snapshot: ManagedHostStateSnapshot| {
             snapshot.derive_aggregate_health(options.host_health_config);
@@ -200,17 +193,13 @@ pub async fn load_by_instance_ids(
     "#,
         managed_host_snapshots_query(&load_snapshot_options)
     );
-    let mut snapshots: Vec<ManagedHostStateSnapshot> = sqlx::QueryBuilder::new(query)
+    let result: Vec<ManagedHostStateSnapshot> = sqlx::QueryBuilder::new(query)
         .push_bind(instance_ids)
         .push(")")
         .build_query_as()
-        .fetch_all(&mut *txn)
+        .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new("managed_host::load_by_instance_ids", e))?;
-
-    populate_rack_health_overrides(&mut *txn, &mut snapshots).await?;
-
-    let result: Vec<ManagedHostStateSnapshot> = snapshots
+        .map_err(|e| DatabaseError::new("managed_host::load_by_instance_ids", e))?
         .into_iter()
         .map(|mut s: ManagedHostStateSnapshot| {
             s.derive_aggregate_health(load_snapshot_options.host_health_config);
@@ -218,43 +207,6 @@ pub async fn load_by_instance_ids(
         })
         .collect();
     Ok(result)
-}
-
-async fn populate_rack_health_overrides(
-    txn: impl DbReader<'_>,
-    snapshots: &mut [ManagedHostStateSnapshot],
-) -> Result<(), DatabaseError> {
-    let racks_with_overrides = crate::rack::list_with_health_overrides(txn).await?;
-    apply_rack_health_overrides(&racks_with_overrides, snapshots);
-    Ok(())
-}
-
-fn apply_rack_health_overrides(
-    racks_with_overrides: &[Rack],
-    snapshots: &mut [ManagedHostStateSnapshot],
-) {
-    if racks_with_overrides.is_empty() {
-        return;
-    }
-
-    let host_to_rack: HashMap<MachineId, &Rack> = racks_with_overrides
-        .iter()
-        .flat_map(|rack| {
-            rack.config
-                .compute_trays
-                .iter()
-                .map(move |machine_id| (*machine_id, rack))
-        })
-        .collect();
-
-    for snapshot in snapshots.iter_mut() {
-        if let Some(rack) = host_to_rack.get(&snapshot.host_snapshot.id) {
-            let overrides = &rack.health_report_overrides;
-            if overrides.replace.is_some() || !overrides.merges.is_empty() {
-                snapshot.rack_health_overrides = Some(overrides.clone());
-            }
-        }
-    }
 }
 
 // Return the appropriate query to use for finding managed hosts, depending on the options

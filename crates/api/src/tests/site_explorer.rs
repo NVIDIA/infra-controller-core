@@ -293,7 +293,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     );
 
     let machine_snapshots =
-        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default(), &[]).await?;
+        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 0);
     let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
     assert_eq!(explored_managed_hosts.len(), 0);
@@ -330,7 +330,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
     assert_eq!(explored_managed_hosts.len(), 1);
     let machine_snapshots =
-        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default(), &[]).await?;
+        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 1);
 
     Ok(())

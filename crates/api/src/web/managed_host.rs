@@ -384,9 +384,6 @@ pub async fn show_html(
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
     let host_health = state.runtime_config.host_health;
-    let racks_with_overrides = db::rack::list_with_health_overrides(&state.database_connection)
-        .await
-        .unwrap_or_default();
     let managed_hosts = match managed_host::load_all(
         &state.database_connection,
         LoadSnapshotOptions {
@@ -394,7 +391,6 @@ pub async fn show_html(
             include_instance_data: false,
             host_health_config: host_health,
         },
-        &racks_with_overrides,
     )
     .await
     {

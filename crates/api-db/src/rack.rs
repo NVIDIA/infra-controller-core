@@ -178,16 +178,6 @@ pub async fn final_delete(txn: &mut PgConnection, rack_id: RackId) -> DatabaseRe
     Ok(())
 }
 
-pub async fn list_with_health_overrides(
-    txn: impl DbReader<'_>,
-) -> DatabaseResult<Vec<Rack>> {
-    let query = "SELECT * FROM racks WHERE health_report_overrides IS NOT NULL AND deleted IS NULL";
-    sqlx::query_as(query)
-        .fetch_all(txn)
-        .await
-        .map_err(|e| DatabaseError::new("racks list_with_health_overrides", e))
-}
-
 pub async fn insert_health_report_override(
     txn: &mut PgConnection,
     rack_id: &RackId,
