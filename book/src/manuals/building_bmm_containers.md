@@ -83,6 +83,15 @@ docker build --build-arg "CONTAINER_RUNTIME_X86_64=bmm-runtime-container-x86_64"
 docker build --file dev/docker/Dockerfile.build-artifacts-container-cross-aarch64 -t build-artifacts-container-cross-aarch64 .
 ```
 
+## Building the admin-cli
+The `admin-cli` build does not produce a container. It produces a binary:
+
+`$REPO_ROOT/target/release/carbide-admin-cli`
+
+```
+BUILD_CONTAINER_X86_URL="bmm-buildcontainer-x86_64" cargo make build-cli
+```
+
 ### Building the DPU BFB
 ## Download and Extracting the HBN container
 ```
