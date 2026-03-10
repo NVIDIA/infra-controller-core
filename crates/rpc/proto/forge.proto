@@ -5479,7 +5479,12 @@ message GetNetworkSecurityGroupAttachmentsResponse {
 
 message GetDesiredFirmwareVersionsRequest {
 }
-RackFirmwareHistoryEntryry {
+
+message GetDesiredFirmwareVersionsResponse {
+  repeated DesiredFirmwareVersionEntry entries = 1;
+}
+
+message DesiredFirmwareVersionEntry {
   string vendor = 1;
   string model = 2;
   map<string, string> component_versions = 3;

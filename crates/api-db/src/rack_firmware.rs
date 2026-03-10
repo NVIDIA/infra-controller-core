@@ -80,21 +80,26 @@ impl RackFirmwareApplyHistory {
             LEFT JOIN rack_firmware rf ON rf.id = h.firmware_id";
 
         if let Some(fid) = firmware_id {
-            let query =
-                &format!("{base} WHERE h.firmware_id = $1 ORDER BY h.applied_at DESC");
+            let query = &format!("{base} WHERE h.firmware_id = $1 ORDER BY h.applied_at DESC");
             let rows: Vec<RackFirmwareApplyHistoryWithAvailability> = sqlx::query_as(query)
                 .bind(fid)
                 .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::query(query, e))?;
-            Ok(rows.into_iter().map(|r| (r.history, r.firmware_available)).collect())
+            Ok(rows
+                .into_iter()
+                .map(|r| (r.history, r.firmware_available))
+                .collect())
         } else {
             let query = &format!("{base} ORDER BY h.applied_at DESC");
             let rows: Vec<RackFirmwareApplyHistoryWithAvailability> = sqlx::query_as(query)
                 .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::query(query, e))?;
-            Ok(rows.into_iter().map(|r| (r.history, r.firmware_available)).collect())
+            Ok(rows
+                .into_iter()
+                .map(|r| (r.history, r.firmware_available))
+                .collect())
         }
     }
 }
