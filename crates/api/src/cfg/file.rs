@@ -823,6 +823,13 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub scout_reporting_timeout: Duration,
+    /// How long to wait for UEFI boot to complete after rebooting a host
+    #[serde(
+        default = "MachineStateControllerConfig::uefi_boot_wait_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub uefi_boot_wait: Duration,
 }
 
 impl MachineStateControllerConfig {
@@ -845,6 +852,10 @@ impl MachineStateControllerConfig {
     fn scout_reporting_timeout_default() -> Duration {
         Duration::minutes(5)
     }
+
+    pub fn uefi_boot_wait_default() -> Duration {
+        Duration::minutes(5)
+    }
 }
 
 impl Default for MachineStateControllerConfig {
@@ -857,6 +868,7 @@ impl Default for MachineStateControllerConfig {
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
             scout_reporting_timeout: MachineStateControllerConfig::scout_reporting_timeout_default(
             ),
+            uefi_boot_wait: MachineStateControllerConfig::uefi_boot_wait_default(),
         }
     }
 }
@@ -2824,6 +2836,7 @@ mod tests {
             failure_retry_time: Duration::minutes(90),
             dpu_up_threshold: Duration::weeks(1),
             scout_reporting_timeout: Duration::minutes(5),
+            uefi_boot_wait: Duration::minutes(5),
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -2866,6 +2879,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
     }
@@ -2885,6 +2899,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
     }
@@ -3129,6 +3144,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -3303,6 +3319,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(31),
                 dpu_up_threshold: Duration::minutes(33),
                 scout_reporting_timeout: Duration::minutes(20),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -3582,6 +3599,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(20),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
