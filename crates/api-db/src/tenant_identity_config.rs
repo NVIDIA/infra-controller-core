@@ -185,17 +185,12 @@ pub async fn set_token_delegation(
 }
 
 /// Delete identity config for an org (removes the entire row).
-pub async fn delete(
-    org_id: &str,
-    txn: &mut PgConnection,
-) -> DatabaseResult<bool> {
-    let result = sqlx::query(
-        "DELETE FROM tenant_identity_config WHERE organization_id = $1",
-    )
-    .bind(org_id)
-    .execute(txn)
-    .await
-    .map_err(|e| DatabaseError::query("DELETE tenant_identity_config", e))?;
+pub async fn delete(org_id: &str, txn: &mut PgConnection) -> DatabaseResult<bool> {
+    let result = sqlx::query("DELETE FROM tenant_identity_config WHERE organization_id = $1")
+        .bind(org_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query("DELETE tenant_identity_config", e))?;
     Ok(result.rows_affected() > 0)
 }
 
