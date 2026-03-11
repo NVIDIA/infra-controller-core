@@ -30,11 +30,11 @@ use tracing::Instrument;
 use super::db;
 use crate::logging::sqlx_query_tracing::{self, SqlxQueryDataAggregation};
 use crate::state_controller::config::IterationConfig;
+use crate::state_controller::controller::ControllerIterationId;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::{
     IterationMetrics, MetricHolder, ObjectHandlerMetrics, StateProcessorMetricEmitter,
 };
-use crate::state_controller::controller::ControllerIterationId;
 use crate::state_controller::state_change_emitter::{StateChangeEmitter, StateChangeEvent};
 use crate::state_controller::state_handler::{
     FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerContextObjects,
