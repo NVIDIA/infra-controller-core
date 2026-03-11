@@ -435,3 +435,29 @@ fn prefer(user: Option<&User>) -> Cow<'_, User> {
 }
 ```
 
+### Error handling
+
+Prefer custom errors for library crates, using the `thiserror` crate to reduce boilerplate for declaring them. Use
+automatic conversions to convert between errors, or `.map_err()` if you have to. Using `eyre` is acceptable for crates
+that are used for tests/mocks, or for toplevel binaries where errors are given to the user for informational purposes,
+and not intended to be inspected by other rust code. (We do not always adhere to this rule.)
+
+Avoid using `let _unused = foo();` to discard errors. This is error-prone: If later `foo()` is refactored to become
+an async function, assigning the result to `_unused` silences the compiler warning telling you forgot to call `.await`.
+If you don't care about the errors a function produces, prefer using `.ok()` to convert the error into a
+(discardable) Option.
+
+```rust
+fn fails() -> Result<(), Error> {}
+
+fn avoid() {
+    // if somebody makes `fails()` async later, the compiler won't complain, and the future will
+    // never get run
+    let _dontcare = fails();
+}
+
+fn prefer() {
+    // if somebody makes `fails()` async later, you get a compiler error
+    fails().ok();
+}
+```
