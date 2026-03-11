@@ -179,7 +179,7 @@ fn build_select_query(
     for (key, value) in json_object {
         if !value.is_null() {
             match value {
-                serde_json::Value::String(s) => wheres.push(format!("{key}='{s}'")),
+                serde_json::Value::String(s) => wheres.push(format!("LOWER({key})=LOWER('{s}')")),
                 serde_json::Value::Number(n) => wheres.push(format!("{key}={n}")),
                 serde_json::Value::Bool(b) => wheres.push(format!("{key}={b}")),
                 serde_json::Value::Array(v) => {
@@ -221,7 +221,7 @@ pub async fn find(
 }
 
 pub fn generate_test_id(name: &str) -> String {
-    format!("forge_{name}")
+    format!("forge_{}", name.to_ascii_lowercase())
 }
 
 pub async fn save(
@@ -348,4 +348,61 @@ pub async fn enable_disable(
         ),
     };
     update(txn, req).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_test_id_lowercases_name() {
+        assert_eq!(generate_test_id("MyTest"), "forge_mytest");
+        assert_eq!(generate_test_id("ALLCAPS"), "forge_allcaps");
+        assert_eq!(generate_test_id("already_lower"), "forge_already_lower");
+        assert_eq!(generate_test_id("MiXeD_CaSe_123"), "forge_mixed_case_123");
+    }
+
+    #[test]
+    fn test_build_select_query_uses_lower_for_strings() {
+        let req = rpc::forge::MachineValidationTestsGetRequest {
+            test_id: Some("Forge_MyTest".to_string()),
+            ..Default::default()
+        };
+        let query = build_select_query(req, "machine_validation_tests").unwrap();
+        assert!(
+            query.contains("LOWER("),
+            "Expected LOWER() in query, got: {query}"
+        );
+        assert!(
+            query.contains("LOWER(test_id)=LOWER('Forge_MyTest')"),
+            "Expected case-insensitive test_id comparison, got: {query}"
+        );
+    }
+
+    #[test]
+    fn test_build_select_query_no_lower_for_non_strings() {
+        let req = rpc::forge::MachineValidationTestsGetRequest {
+            is_enabled: Some(true),
+            ..Default::default()
+        };
+        let query = build_select_query(req, "machine_validation_tests").unwrap();
+        assert!(
+            query.contains("is_enabled=true"),
+            "Boolean fields should not use LOWER(), got: {query}"
+        );
+    }
+
+    #[test]
+    fn test_build_select_query_empty_request_returns_all() {
+        let req = rpc::forge::MachineValidationTestsGetRequest::default();
+        let query = build_select_query(req, "machine_validation_tests").unwrap();
+        assert!(
+            query.contains("WHERE 1=1"),
+            "Empty request should have no extra filters, got: {query}"
+        );
+        assert!(
+            !query.contains("LOWER("),
+            "Empty request should have no LOWER(), got: {query}"
+        );
+    }
 }

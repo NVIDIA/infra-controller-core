@@ -1422,10 +1422,15 @@ impl ApiClient {
         run_unverfied_tests: bool,
         contexts: Option<Vec<String>>,
     ) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
+        let allowed_tests: Vec<String> = allowed_tests
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.to_ascii_lowercase())
+            .collect();
         let request = rpc::MachineValidationOnDemandRequest {
             machine_id: Some(machine_id),
             tags: tags.unwrap_or_default(),
-            allowed_tests: allowed_tests.unwrap_or_default(),
+            allowed_tests,
             action: rpc::machine_validation_on_demand_request::Action::Start.into(),
             run_unverfied_tests,
             contexts: contexts.unwrap_or_default(),

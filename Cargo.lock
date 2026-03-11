@@ -1342,6 +1342,7 @@ dependencies = [
  "hyper-util",
  "ipnetwork",
  "itertools 0.14.0",
+ "jsonwebtoken",
  "kube",
  "lazy_static",
  "libnmxm",

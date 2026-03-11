@@ -423,7 +423,8 @@ impl MachineValidation {
                 if !machine_validation_filter.allowed_tests.is_empty()
                     && !machine_validation_filter
                         .allowed_tests
-                        .contains(&test.test_id)
+                        .iter()
+                        .any(|t| t.eq_ignore_ascii_case(&test.test_id))
                 {
                     continue;
                 }

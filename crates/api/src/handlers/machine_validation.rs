@@ -416,13 +416,18 @@ pub(crate) async fn on_demand_machine_validation(
                         tracing::error!(msg);
                         return Err(Status::invalid_argument(msg));
                     }
+                    let allowed_tests: Vec<String> = req
+                        .allowed_tests
+                        .into_iter()
+                        .map(|t| t.to_ascii_lowercase())
+                        .collect();
                     let validation_id = db::machine_validation::create_new_run(
                         &mut txn,
                         &machine_id,
                         "OnDemand".to_string(),
                         MachineValidationFilter {
                             tags: req.tags,
-                            allowed_tests: req.allowed_tests,
+                            allowed_tests,
                             run_unverfied_tests: Some(req.run_unverfied_tests),
                             contexts: Some(req.contexts),
                         },
