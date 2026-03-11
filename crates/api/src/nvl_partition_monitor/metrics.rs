@@ -50,8 +50,9 @@ pub struct NvlPartitionMonitorMetrics {
     pub num_stale_partitions_deleted: usize,
     pub applied_changes: HashMap<AppliedChange, usize>,
     pub operation_latencies: HashMap<AppliedChange, Vec<Duration>>,
-    /// Time from nvlink_config_version for instances currently in Pending (time spent in Pending), in milliseconds
-    pub nvlink_config_apply_durations_ms: Vec<f64>,
+    /// Time since instance config was requested
+    /// Each entry is (duration_ms, instance_id) for per-instance metrics.
+    pub nvlink_config_apply_durations_ms: Vec<(f64, String)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -336,8 +337,11 @@ impl NvlPartitionMonitorInstruments {
             }
         }
 
-        for &duration_ms in &metrics.nvlink_config_apply_durations_ms {
-            self.nvlink_config_apply_latency.record(duration_ms, &[]);
+        for (duration_ms, instance_id) in &metrics.nvlink_config_apply_durations_ms {
+            self.nvlink_config_apply_latency.record(
+                *duration_ms,
+                &[KeyValue::new("instance_id", instance_id.clone())],
+            );
         }
     }
 

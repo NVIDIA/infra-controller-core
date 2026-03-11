@@ -1318,7 +1318,9 @@ impl NvlPartitionMonitor {
                 let duration_ms = (Utc::now() - instance.nvlink_config_version.timestamp())
                     .num_milliseconds()
                     .max(0) as f64;
-                metrics.nvlink_config_apply_durations_ms.push(duration_ms);
+                metrics
+                    .nvlink_config_apply_durations_ms
+                    .push((duration_ms, instance.id.to_string()));
             }
         }
     }
