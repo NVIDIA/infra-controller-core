@@ -159,7 +159,7 @@ fn bench_composite_sink(c: &mut Criterion) {
 
 fn health_report_with_alerts(alert_count: usize) -> HealthReport {
     let mut report = HealthReport {
-        source: carbide_health::sink::ReportSource::Health,
+        source: carbide_health::sink::ReportSource::BmcSensors,
         observed_at: Some(chrono::Utc::now()),
         successes: Vec::new(),
         alerts: Vec::new(),
