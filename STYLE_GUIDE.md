@@ -413,3 +413,24 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
 - If a field isn't currently yet, but you want to leave it around as documentation on what fields could exist (like an
   unused database column, or unused JSON field), comment it out.
 - Otherwise, strongly consider deleting the code.
+
+### Create Features
+
+Avoid using crate features unless there is a good reason. Our CI runners only build with the default features you get
+from `cargo build --release`, meaning that if certain code breaks under certain combinations of crate features, it
+might not get caught by CI. If we wanted to support numerous crate features, we would need CI runners to produce
+checks for each meaningful combination of feature flags we support, which scales exponentially to the feature count.
+
+Cases where features *are* warranted:
+
+- For shared crates when only a subset of dependents need certain code: For example, the `carbide_uuid` is used by
+  several dependents, but only the `carbide_api` crate needs the sqlx conversions. We don't want e.g.
+  `carbide_admin_cli` to take a dependency on `sqlx`, so the sqlx conversions are behind a `sqlx` crate feature. But
+  this is covered by CI tests, since CI builds both the admin-cli and the api crate, both sets of features are
+  exercised.
+
+- For supporting non-linux builds: The `carbide_api` crate needs to use types from the `tss-esapi` crate to support
+  validating secure-boot keys, but `tss-esapi` only builds on Linux. To support developers running `carbide_api` on
+  their Mac for testing, the parts which require `tss-esapi` are carefully carved out into a `linux-build` feature
+  (which is enabled by default). We do not run CI tests with this feature disabled, so supporting a build without
+  `linux-build` enabled is best-effort.
