@@ -629,6 +629,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.RackFirmware", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackFirmwareList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackFirmwareHistoryRecord", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackFirmwareHistoryRecords", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackFirmwareHistoryResponse", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineHardwareInfoGpu",
             "#[derive(serde::Deserialize, serde::Serialize)]",

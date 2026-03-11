@@ -34,7 +34,16 @@ pub async fn history(
     let result = api_client.0.get_rack_firmware_history(request).await?;
 
     if format == OutputFormat::Json {
-        println!("{}", serde_json::to_string_pretty(&result.histories)?);
+        // Flatten to map<rack_id, Vec<record>> for serialization
+        let json_histories: std::collections::HashMap<
+            &str,
+            Vec<&rpc::forge::RackFirmwareHistoryRecord>,
+        > = result
+            .histories
+            .iter()
+            .map(|(rack_id, records)| (rack_id.as_str(), records.records.iter().collect()))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&json_histories)?);
     } else if result.histories.is_empty() {
         println!("No rack firmware apply history found.");
     } else {

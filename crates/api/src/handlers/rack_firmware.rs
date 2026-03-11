@@ -1376,14 +1376,10 @@ pub async fn get_history(
             .map_err(CarbideError::from)?;
 
     // Group results by rack_id
-    let mut histories: std::collections::HashMap<String, Vec<_>> =
-        std::collections::HashMap::new();
+    let mut histories: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
     for record in records {
         let rack_id = record.rack_id.clone();
-        histories
-            .entry(rack_id)
-            .or_default()
-            .push(record.into());
+        histories.entry(rack_id).or_default().push(record.into());
     }
 
     let histories = histories

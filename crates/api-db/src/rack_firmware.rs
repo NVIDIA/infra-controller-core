@@ -16,6 +16,7 @@
  */
 
 use chrono::{DateTime, Utc};
+use model::rack_firmware::RackFirmwareApplyHistoryRecord;
 use serde::{Deserialize, Serialize};
 use sqlx::Error::RowNotFound;
 use sqlx::postgres::PgRow;
@@ -24,8 +25,6 @@ use sqlx::{FromRow, PgConnection, Row};
 
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
-
-use model::rack_firmware::RackFirmwareApplyHistoryRecord;
 
 #[derive(Debug, Clone, FromRow)]
 struct DbRackFirmwareApplyHistory {
@@ -319,10 +318,9 @@ mod tests {
         assert_eq!(by_rack[0].rack_id, "rack-a");
 
         // Filter by both firmware_id and rack_ids
-        let combined =
-            list_apply_history(&mut txn, Some("fw-001"), &["rack-b".to_string()])
-                .await
-                .unwrap();
+        let combined = list_apply_history(&mut txn, Some("fw-001"), &["rack-b".to_string()])
+            .await
+            .unwrap();
         assert_eq!(combined.len(), 1);
         assert_eq!(combined[0].rack_id, "rack-b");
     }
