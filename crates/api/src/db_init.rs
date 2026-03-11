@@ -169,7 +169,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
 ) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
     let initial_policy: AgentUpgradePolicy = initial_dpu_agent_upgrade_policy
-        .unwrap_or(AgentUpgradePolicyChoice::UpOnly)
+        .unwrap_or(AgentUpgradePolicyChoice::UpDown)
         .into();
     let current_policy = dpu_agent_upgrade_policy::get(&mut txn).await?;
     // Only set if the very first time, it's the initial policy
