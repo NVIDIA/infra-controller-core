@@ -64,14 +64,4 @@ impl HealthReportOverrides {
     pub fn is_hardware_health_override_source(source: &str) -> bool {
         source.starts_with(HARDWARE_HEALTH_OVERRIDE_PREFIX)
     }
-
-    pub fn hardware_health_reports(&self) -> impl Iterator<Item = &HealthReport> {
-        self.merges.iter().filter_map(|(source, report)| {
-            if Self::is_hardware_health_override_source(source) {
-                Some(report)
-            } else {
-                None
-            }
-        })
-    }
 }

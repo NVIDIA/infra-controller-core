@@ -30,6 +30,7 @@ use futures_util::FutureExt;
 use health_report::HealthReport;
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
+use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
     BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
     FailureSource, LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
@@ -707,7 +708,10 @@ impl<'a> MockExploredHost<'a> {
             .api
             .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
                 r#override: Some(HealthReportOverride {
-                    report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+                    report: Some(
+                        HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"))
+                            .into(),
+                    ),
                     ..Default::default()
                 }),
                 machine_id: Some(host_machine_id),
@@ -927,7 +931,10 @@ impl<'a> MockExploredHost<'a> {
             .api
             .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
                 r#override: Some(HealthReportOverride {
-                    report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+                    report: Some(
+                        HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"))
+                            .into(),
+                    ),
                     ..Default::default()
                 }),
                 machine_id: Some(host_machine_id),

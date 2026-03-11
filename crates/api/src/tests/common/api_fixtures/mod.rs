@@ -2176,7 +2176,7 @@ pub async fn simulate_hardware_health_report(
     use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest};
     use tonic::Request;
 
-    let source = format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}.{}", health_report.source);
+    let source = format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}{}", health_report.source);
     let mut hw_report = health_report;
     hw_report.source = source;
     let _ = env

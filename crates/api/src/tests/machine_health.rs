@@ -20,6 +20,7 @@ use std::str::FromStr;
 use db::machine::update_dpu_agent_health_report;
 use db::{self};
 use health_report::OverrideMode;
+use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
 use rpc::forge::HealthOverrideOrigin;
 use rpc::forge::forge_server::Forge;
@@ -113,12 +114,13 @@ async fn test_machine_health_reporting(
         health_report::HealthReport::empty("".to_string()),
     );
     check_reports_equal(
-        "hardware-health",
+        &format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"),
         load_snapshot(&env, &host_machine_id)
             .await?
             .host_snapshot
             .health_report_overrides
-            .hardware_health_reports()
+            .merges
+            .values()
             .next()
             .unwrap()
             .clone(),
@@ -185,13 +187,15 @@ async fn test_hardware_health_reporting(
             .await?
             .host_snapshot
             .health_report_overrides
-            .hardware_health_reports()
+            .merges
+            .values()
             .next()
             .is_none(),
     );
 
+    let report_name: String = format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}sensor");
     let report = hr(
-        "hardware-health",
+        &report_name,
         vec![("Fan", Some("TestFan"))],
         vec![("Failure", Some("Sensor"), "Failure")],
     );
@@ -201,12 +205,13 @@ async fn test_hardware_health_reporting(
         .await?
         .host_snapshot
         .health_report_overrides
-        .hardware_health_reports()
+        .merges
+        .values()
         .next()
         .unwrap()
         .clone();
     check_time(&stored_report);
-    check_reports_equal("hardware-health", report, stored_report);
+    check_reports_equal(&report_name, report, stored_report);
 
     Ok(())
 }
@@ -263,7 +268,7 @@ async fn test_machine_health_aggregation(
 
     // Simulate the same alert as DPU but with a different message and from hardware health.
     let hardware_health = hr(
-        "hardware-health",
+        &format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"),
         vec![("Fan", Some("TestFan"))],
         vec![("Failure1", None, "HardwareReason")],
     );
@@ -521,7 +526,11 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let (host_machine_id, _) = create_managed_host(&env).await.into();
 
-    let hardware_health = hr("hardware-health", vec![("Fan", None)], vec![]);
+    let hardware_health = hr(
+        &format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"),
+        vec![("Fan", None)],
+        vec![],
+    );
     simulate_hardware_health_report(&env, &host_machine_id, hardware_health.clone()).await;
 
     // Inserting a Replace override then a Merge override with the same source
@@ -670,7 +679,7 @@ async fn create_env(pool: sqlx::PgPool) -> TestEnv {
 
 /// Creates a health report.
 fn hr(
-    source: &'static str,
+    source: &str,
     successes: Vec<(&'static str, Option<&'static str>)>,
     alerts: Vec<(&'static str, Option<&'static str>, &'static str)>,
 ) -> health_report::HealthReport {
@@ -798,7 +807,7 @@ fn check_time(report: &health_report::HealthReport) {
 /// to have this source and checks that the reports are equal (not considering
 /// timestamps).
 fn check_reports_equal(
-    source: &'static str,
+    source: &str,
     reported: health_report::HealthReport,
     mut expected: health_report::HealthReport,
 ) {

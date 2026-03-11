@@ -33,6 +33,7 @@ use measured_boot::records::MeasurementBundleState;
 use measured_boot::report::MeasurementReport;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::hardware_info::TpmEkCertificate;
+use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
     DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownMode, MachineState,
     MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
@@ -1235,7 +1236,9 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     env.api
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
             r#override: Some(HealthReportOverride {
-                report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+                report: Some(
+                    HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")).into(),
+                ),
                 ..Default::default()
             }),
             machine_id: Some(host_machine_id),

@@ -227,16 +227,17 @@ impl ManagedHostStateSnapshot {
     fn merge_override_report_with_hw_health(
         output: &mut HealthReport,
         source: &str,
-        report: &HealthReport,
+        report: &mut HealthReport,
         hardware_health_config: HardwareHealthReportsConfig,
     ) -> bool {
         if HealthReportOverrides::is_hardware_health_override_source(source) {
             match hardware_health_config {
                 HardwareHealthReportsConfig::Disabled => {}
                 HardwareHealthReportsConfig::MonitorOnly => {
-                    output.merge_with_alert_transform(report, |alert| {
-                        alert.to_mut().classifications.clear();
-                    });
+                    for alert in &mut report.alerts {
+                        alert.classifications.clear();
+                    }
+                    output.merge(report)
                 }
                 HardwareHealthReportsConfig::Enabled => output.merge(report),
             }
@@ -365,7 +366,7 @@ impl ManagedHostStateSnapshot {
                 output.merge(report);
             }
 
-            for (source, over) in snapshot.health_report_overrides.merges.iter() {
+            for (source, over) in snapshot.health_report_overrides.merges.iter_mut() {
                 let merged_hardware = Self::merge_override_report_with_hw_health(
                     &mut output,
                     source,
@@ -376,7 +377,7 @@ impl ManagedHostStateSnapshot {
             }
         }
 
-        for (source, over) in self.host_snapshot.health_report_overrides.merges.iter() {
+        for (source, over) in self.host_snapshot.health_report_overrides.merges.iter_mut() {
             let merged_hardware = Self::merge_override_report_with_hw_health(
                 &mut output,
                 source,

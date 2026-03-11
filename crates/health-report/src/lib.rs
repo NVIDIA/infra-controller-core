@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::Hash;
 use std::str::FromStr;
@@ -246,15 +245,6 @@ impl HealthReport {
     ///   - messages of both alerts will be concatenated
     ///   - the smaller `in_alert_since` timestamp of both alerts will be utilized
     pub fn merge(&mut self, other: &HealthReport) {
-        self.merge_with_alert_transform(other, |_| {});
-    }
-
-    /// Merges another health report while allowing copy-on-write alert-level
-    /// transformation before merge logic is applied.
-    pub fn merge_with_alert_transform<F>(&mut self, other: &HealthReport, mut transform: F)
-    where
-        F: for<'a> FnMut(&mut Cow<'a, HealthProbeAlert>),
-    {
         self.observed_at = match (self.observed_at, other.observed_at) {
             (Some(t1), Some(t2)) => Some(t1.min(t2)),
             (Some(t1), None) => Some(t1),
@@ -272,26 +262,20 @@ impl HealthReport {
         }
 
         let mut alerts = BTreeMap::new();
-        for alert in self.alerts.drain(..) {
+        for alert in self.alerts.iter() {
             // If an alarm and success are reported for the same probe, then
             // the alarm takes precedence
             successes.remove(&(alert.id.clone(), alert.target.clone()));
-            alerts.insert((alert.id.clone(), alert.target.clone()), alert);
+            alerts.insert((alert.id.clone(), alert.target.clone()), alert.clone());
         }
-
-        for alert in &other.alerts {
-            let key = (alert.id.clone(), alert.target.clone());
-            successes.remove(&key);
-
-            let mut alert = Cow::Borrowed(alert);
-            transform(&mut alert);
-
-            match alerts.entry(key) {
+        for alert in other.alerts.iter() {
+            successes.remove(&(alert.id.clone(), alert.target.clone()));
+            match alerts.entry((alert.id.clone(), alert.target.clone())) {
                 std::collections::btree_map::Entry::Vacant(v) => {
-                    v.insert(alert.into_owned());
+                    v.insert(alert.clone());
                 }
                 std::collections::btree_map::Entry::Occupied(mut existing) => {
-                    existing.get_mut().merge(alert.as_ref());
+                    existing.get_mut().merge(alert);
                 }
             }
         }
@@ -1355,39 +1339,5 @@ mod tests {
         let mut merged2 = r2.clone();
         merged2.merge(&r1);
         assert_eq!(merged2.observed_at, expected.observed_at);
-    }
-
-    #[test]
-    fn test_merge_with_alert_transform() {
-        let mut target = HealthReport {
-            source: "Reporter".to_string(),
-            observed_at: None,
-            successes: vec![],
-            alerts: vec![],
-            triggered_by: None,
-        };
-        let incoming = HealthReport {
-            source: "Reporter2".to_string(),
-            observed_at: None,
-            successes: vec![],
-            alerts: vec![HealthProbeAlert {
-                id: HealthProbeId("ProbeA".to_string()),
-                target: Some("t1".to_string()),
-                in_alert_since: None,
-                message: "msg".to_string(),
-                tenant_message: None,
-                classifications: vec!["a".parse().unwrap()],
-            }],
-            triggered_by: None,
-        };
-
-        target
-            .merge_with_alert_transform(&incoming, |alert| alert.to_mut().classifications.clear());
-
-        assert_eq!(target.alerts.len(), 1);
-        assert_eq!(target.alerts[0].id, HealthProbeId("ProbeA".to_string()));
-        assert_eq!(target.alerts[0].target, Some("t1".to_string()));
-        assert_eq!(target.alerts[0].message, "msg");
-        assert!(target.alerts[0].classifications.is_empty());
     }
 }
