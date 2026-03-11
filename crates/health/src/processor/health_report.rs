@@ -203,7 +203,7 @@ impl EventProcessor for HealthReportProcessor {
                     return Vec::new();
                 };
                 let report = HealthReport {
-                    source: ReportSource::Health,
+                    source: ReportSource::BmcSensors,
                     observed_at: Some(chrono::Utc::now()),
                     successes: window.successes,
                     alerts: window.alerts,
@@ -293,7 +293,7 @@ mod tests {
             panic!("expected health report event");
         };
 
-        assert_eq!(report.source, ReportSource::Health);
+        assert_eq!(report.source, ReportSource::BmcSensors);
         assert!(report.successes.is_empty());
         assert_eq!(report.alerts.len(), 1);
     }

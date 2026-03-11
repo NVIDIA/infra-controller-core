@@ -134,15 +134,15 @@ pub enum CollectorEvent {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ReportSource {
-    Health,
+    BmcSensors,
     TrayLeakDetection,
 }
 
 impl ReportSource {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Health => "hardware-health",
-            Self::TrayLeakDetection => "hardware-tray-leak-detection",
+            Self::BmcSensors => "bmc-sensors",
+            Self::TrayLeakDetection => "tray-leak-detection",
         }
     }
 }
@@ -239,8 +239,10 @@ impl TryFrom<HealthReport> for CarbideHealthReport {
     type Error = HealthReportConversionError;
 
     fn try_from(value: HealthReport) -> Result<Self, Self::Error> {
+        let source = format!("hardware-health.{}", value.source.as_str());
+
         Ok(Self {
-            source: value.source.as_str().to_string(),
+            source,
             triggered_by: None,
             observed_at: value.observed_at,
             successes: value

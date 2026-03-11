@@ -202,13 +202,18 @@ impl ApiClientWrapper {
         machine_id: &carbide_uuid::machine::MachineId,
         report: health_report::HealthReport,
     ) -> Result<(), HealthError> {
-        let request = rpc::forge::HardwareHealthReport {
-            machine_id: Some(*machine_id),
+        let ovrd = rpc::forge::HealthReportOverride {
             report: Some(report.into()),
+            mode: rpc::forge::OverrideMode::Merge.into(),
+        };
+
+        let request = rpc::forge::InsertHealthReportOverrideRequest {
+            machine_id: Some(*machine_id),
+            r#override: Some(ovrd),
         };
 
         self.client
-            .record_hardware_health_report(request)
+            .insert_health_report_override(request)
             .await
             .map_err(HealthError::ApiInvocationError)?;
 

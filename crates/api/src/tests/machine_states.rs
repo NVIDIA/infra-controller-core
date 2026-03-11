@@ -38,7 +38,7 @@ use model::machine::{
     MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
 };
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
+use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
 use tonic::Request;
 
@@ -1233,9 +1233,12 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     .await;
 
     env.api
-        .record_hardware_health_report(Request::new(HardwareHealthReport {
-            machine_id: host_machine_id.into(),
-            report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+            r#override: Some(HealthReportOverride {
+                report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+                ..Default::default()
+            }),
+            machine_id: Some(host_machine_id),
         }))
         .await
         .expect("Failed to add hardware health report to newly created machine");

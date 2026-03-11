@@ -151,7 +151,7 @@ mod tests {
     fn does_not_emit_alert_when_threshold_not_met() {
         let processor = LeakEventProcessor::new(2);
         let report = HealthReport {
-            source: ReportSource::Health,
+            source: ReportSource::BmcSensors,
             observed_at: Some(chrono::Utc::now()),
             successes: Vec::new(),
             alerts: vec![leak_alert("LeakDetector_Probe")],
@@ -173,7 +173,7 @@ mod tests {
     fn emits_derived_leak_report_when_threshold_met() {
         let processor = LeakEventProcessor::new(1);
         let report = HealthReport {
-            source: ReportSource::Health,
+            source: ReportSource::BmcSensors,
             observed_at: Some(chrono::Utc::now()),
             successes: Vec::new(),
             alerts: vec![leak_alert("LeakDetector_Probe")],

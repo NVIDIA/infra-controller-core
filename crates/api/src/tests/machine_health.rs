@@ -117,8 +117,11 @@ async fn test_machine_health_reporting(
         load_snapshot(&env, &host_machine_id)
             .await?
             .host_snapshot
-            .hardware_health_report
-            .unwrap(),
+            .health_report_overrides
+            .hardware_health_reports()
+            .next()
+            .unwrap()
+            .clone(),
         health_report::HealthReport::empty("".to_string()),
     );
 
@@ -177,14 +180,14 @@ async fn test_hardware_health_reporting(
     let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     // Hardware health should start empty.
-    check_reports_equal(
-        "hardware-health",
+    assert!(
         load_snapshot(&env, &host_machine_id)
             .await?
             .host_snapshot
-            .hardware_health_report
-            .unwrap(),
-        health_report::HealthReport::empty("".to_string()),
+            .health_report_overrides
+            .hardware_health_reports()
+            .next()
+            .is_none(),
     );
 
     let report = hr(
@@ -197,8 +200,11 @@ async fn test_hardware_health_reporting(
     let stored_report = load_snapshot(&env, &host_machine_id)
         .await?
         .host_snapshot
-        .hardware_health_report
-        .unwrap();
+        .health_report_overrides
+        .hardware_health_reports()
+        .next()
+        .unwrap()
+        .clone();
     check_time(&stored_report);
     check_reports_equal("hardware-health", report, stored_report);
 

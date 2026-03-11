@@ -448,20 +448,6 @@ impl Forge for Api {
         crate::handlers::dpu::record_dpu_network_status(self, request).await
     }
 
-    async fn record_hardware_health_report(
-        &self,
-        request: Request<rpc::HardwareHealthReport>,
-    ) -> Result<Response<()>, Status> {
-        crate::handlers::health::record_hardware_health_report(self, request).await
-    }
-
-    async fn get_hardware_health_report(
-        &self,
-        request: Request<MachineId>,
-    ) -> Result<Response<rpc::OptionalHealthReport>, Status> {
-        crate::handlers::health::get_hardware_health_report(self, request).await
-    }
-
     async fn list_health_report_overrides(
         &self,
         request: Request<MachineId>,

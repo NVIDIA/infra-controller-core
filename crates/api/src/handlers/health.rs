@@ -27,62 +27,6 @@ use crate::api::Api;
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 
-pub async fn record_hardware_health_report(
-    api: &Api,
-    request: Request<rpc::HardwareHealthReport>,
-) -> Result<Response<()>, Status> {
-    let mut txn = api.txn_begin().await?;
-    let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
-    let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
-
-    let Some(report) = report else {
-        return Err(CarbideError::MissingArgument("report").into());
-    };
-
-    let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
-
-    let mut report = health_report::HealthReport::try_from(report.clone())
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-    report.observed_at = Some(chrono::Utc::now());
-
-    // Fix the in_alert times based on the previously stored report
-    report.update_in_alert_since(host_machine.hardware_health_report.as_ref());
-    db::machine::update_hardware_health_report(&mut txn, &machine_id, &report).await?;
-
-    txn.commit().await?;
-
-    Ok(Response::new(()))
-}
-
-pub async fn get_hardware_health_report(
-    api: &Api,
-    request: Request<MachineId>,
-) -> Result<Response<rpc::OptionalHealthReport>, Status> {
-    let mut txn = api.txn_begin().await?;
-
-    let machine_id = request.into_inner();
-    let machine_id = convert_and_log_machine_id(Some(&machine_id))?;
-
-    let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
-
-    txn.commit().await?;
-
-    let report = host_machine.hardware_health_report.clone();
-    Ok(Response::new(::rpc::forge::OptionalHealthReport {
-        report: report.map(|hr| hr.into()),
-    }))
-}
-
 pub async fn list_health_report_overrides(
     api: &Api,
     machine_id: Request<MachineId>,
@@ -224,7 +168,6 @@ pub async fn remove_health_report_override(
 
     let rpc::RemoveHealthReportOverrideRequest { machine_id, source } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
-
     remove_by_source(&mut txn, machine_id, source).await?;
     txn.commit().await?;
 
