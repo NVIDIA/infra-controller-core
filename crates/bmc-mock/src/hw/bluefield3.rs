@@ -191,6 +191,7 @@ impl Bluefield3<'_> {
                         entries: vec!["DPU Warm Reset".to_string()],
                     },
                 })),
+                storage: None,
             }],
         }
     }

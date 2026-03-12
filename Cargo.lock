@@ -1014,6 +1014,7 @@ dependencies = [
  "arc-swap",
  "axum 0.8.6",
  "axum-server",
+ "bmc-vendor",
  "bytes",
  "carbide-rpc",
  "carbide-utils",

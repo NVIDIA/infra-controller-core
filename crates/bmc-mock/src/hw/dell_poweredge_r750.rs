@@ -18,6 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use bmc_vendor::BMCVendor;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, MemoryDevice};
 use serde_json::json;
@@ -129,6 +130,11 @@ impl DellPowerEdgeR750<'_> {
                 bios_mode: redfish::computer_system::BiosMode::DellOem,
                 oem: redfish::computer_system::Oem::Generic,
                 log_services: None,
+                // Today carbide need for any Dell to have storage
+                // collection. It tries to find BOSS controller
+                // there. So we provide empty collection to avoid 404
+                // failure.
+                storage: Some(vec![]),
                 base_bios: Some(redfish::bios::builder(&redfish::bios::resource(system_id))
                     .attributes(json!({
                         "BootSeqRetry": "Disabled",
@@ -147,8 +153,7 @@ impl DellPowerEdgeR750<'_> {
                         "HttpDev1EnDis": "Enabled",
                         "PxeDev1EnDis": "Disabled",
                         "HttpDev1Interface": "NIC.Slot.5-1",
-                    }))
-                    .build()),
+                    })).build()),
             }],
         }
     }
@@ -252,20 +257,14 @@ impl DellPowerEdgeR750<'_> {
                 cores: 18,
                 threads: 36,
             }],
-            block_devices: vec![
-                BlockDevice {
+            block_devices: (0..2)
+                .map(|n| BlockDevice {
                     model: "Dell Ent NVMe v2 AGN RI U.2 1.92TB".into(),
                     revision: "2.3.0".into(),
-                    serial: "FAKESERNUM0".into(),
+                    serial: format!("FAKESERNUM{n}"),
                     device_type: "".into(),
-                },
-                BlockDevice {
-                    model: "Dell Ent NVMe v2 AGN RI U.2 1.92TB".into(),
-                    revision: "2.3.0".into(),
-                    serial: "FAKESERNUM1".into(),
-                    device_type: "".into(),
-                },
-            ],
+                })
+                .collect(),
             machine_type: CpuArchitecture::X86_64.to_string(),
             machine_arch: Some(CpuArchitecture::X86_64.into()),
             nvme_devices: vec![],
@@ -278,7 +277,10 @@ impl DellPowerEdgeR750<'_> {
                 board_serial: format!(".{}.FAKESERNUM2.", self.product_serial_number),
                 chassis_serial: self.product_serial_number.to_string(),
                 product_name: "PowerEdge R750".into(),
-                sys_vendor: "Dell".into(),
+                // Logic of machine state handler depends on BMC
+                // vendor that is calculated from dmi_data.sys_vendor
+                // value.
+                sys_vendor: hw::bmc_vendor_to_udev_dmi(BMCVendor::Dell).into(),
             }),
             dpu_info: None,
             gpus: vec![],

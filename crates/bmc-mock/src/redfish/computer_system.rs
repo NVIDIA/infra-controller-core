@@ -109,6 +109,10 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
             get(get_log_service_entries),
         )
         .route(
+            &redfish::storage::system_collection(SYSTEM_ID).odata_id,
+            get(get_storage_collection),
+        )
+        .route(
             &bmc_vendor.make_settings_odata_id(&bios),
             patch(patch_bios_settings),
         )
@@ -131,6 +135,7 @@ pub struct SingleSystemConfig {
     pub bios_mode: BiosMode,
     pub base_bios: Option<serde_json::Value>,
     pub log_services: Option<Arc<dyn LogServices>>,
+    pub storage: Option<Vec<redfish::storage::Storage>>,
     pub oem: Oem,
 }
 
@@ -278,10 +283,16 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .is_some()
         .then_some(redfish::log_service::system_collection(&system_id));
 
+    let storage = config
+        .storage
+        .is_some()
+        .then_some(redfish::storage::system_collection(&system_id));
+
     b.maybe_with(SystemBuilder::serial_number, &config.serial_number)
         .maybe_with(SystemBuilder::manufacturer, &config.manufacturer)
         .maybe_with(SystemBuilder::model, &config.model)
         .maybe_with(SystemBuilder::log_services, &log_services)
+        .maybe_with(SystemBuilder::storage, &storage)
         .pcie_devices(&pcie_devices)
         .build()
         .into_ok_response()
@@ -577,6 +588,28 @@ async fn get_log_service_entries(
         .unwrap_or_else(http::not_found)
 }
 
+async fn get_storage_collection(
+    State(state): State<BmcState>,
+    Path(system_id): Path<String>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.config.storage.as_ref())
+        .map(|storage| {
+            let members = storage
+                .iter()
+                .map(|storage| {
+                    redfish::storage::system_resource(&system_id, &storage.id).entity_ref()
+                })
+                .collect::<Vec<_>>();
+            redfish::boot_option::collection(&system_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
 async fn get_bios(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
     state
         .system_state
@@ -717,6 +750,10 @@ impl SystemBuilder {
 
     pub fn log_services(self, log_services: &redfish::Collection<'_>) -> Self {
         self.apply_patch(log_services.nav_property("LogServices"))
+    }
+
+    pub fn storage(self, storage: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(storage.nav_property("Storage"))
     }
 
     pub fn link_chassis(self, ids: &[Cow<'static, str>]) -> Self {
