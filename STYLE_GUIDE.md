@@ -77,7 +77,7 @@ This helps in log parsing, especially when we want to find logs corresponding to
 `machine_id` are probably the two most important examples, but try to express other relevant data as fields instead of
 using interpolation if it makes sense.
 
-## Create Features
+## Crate Features
 
 Avoid using crate features unless there is a good reason. Our CI runners only build with the default features you get
 from `cargo build --release`, meaning that if certain code breaks under certain combinations of crate features, it
@@ -118,7 +118,7 @@ code needs to be fixed, do not `#[allow(txn_held_across_await)]`.
 
 - Type definitions: The code in `crates/api-db` is intended to wrap database calls, whereas `crates/api-model` should
   contain the actual model definitions. In the api-db crate, prefer bare functions that take a model as an argument, to
-  OO-style methods on db-specific types. This allows the model types to live a separate model crate, eliminating the
+  OO-style methods on db-specific types. This allows the model types to live in a separate model crate, without the
   temptation for an OO-style database type to become a quasi-model unto itself.
 
 - Read vs Write: Prefer accepting a `impl DbReader` as a connection if your database function is read-only. This allows
@@ -228,7 +228,7 @@ impl RedfishClient {
 ```
 
 If your type has fields that can all be default values in the common case (like a Config object), prefer implementing
-`Default` for the type and let calleres call `T::default()`, instead of a parameterless `new()`.
+`Default` for the type and let callers call `T::default()`, instead of a parameterless `new()`.
 
 If, in addition to not wanting callers to initialize certain fields, you also have a large number of fields that can
 to be passed, consider adding a Builder type.
