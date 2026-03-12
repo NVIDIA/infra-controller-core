@@ -6574,6 +6574,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvue-client"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "oauth2"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
