@@ -857,57 +857,81 @@ message MachineIdentityResponse {
 
 // Identity configuration (per-org)
 message GetIdentityConfigRequest {
-  string org_id = 1;
+  string organization_id = 1;
+}
+
+message IdentityConfig {
+  bool enabled = 1;
+  string issuer = 2;
+  string default_audience = 3;
+  repeated string allowed_audiences = 4;
+  uint32 token_ttl_sec = 5;
+  string subject_prefix = 6;
+  bool rotate_key = 7;
 }
 
 message IdentityConfigRequest {
-  string org_id = 1;
-  bool enabled = 2;
-  string issuer = 3;
-  string default_audience = 4;
-  repeated string allowed_audiences = 5;
-  uint32 token_ttl = 6;
-  string subject_domain = 7;
-  bool rotate_key = 8;
+  string organization_id = 1;
+  IdentityConfig config = 2;
 }
 
 message IdentityConfigResponse {
-  string org_id = 1;
+  string organization_id = 1;
   bool enabled = 2;
   string issuer = 3;
   string default_audience = 4;
   repeated string allowed_audiences = 5;
-  uint32 token_ttl = 6;
-  string subject_domain = 7;
+  uint32 token_ttl_sec = 6;
+  string subject_prefix = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
   string key_id = 10;
 }
 
 // Token delegation config (per-org token exchange for machine identity).
-// auth_method: e.g. "client_secret_basic", "private_key_jwt"
-// auth_method_config: method-specific fields (Struct). For client_secret_basic: client_id, client_secret.
-// Secrets in auth_method_config are write-only; responses omit them.
+// auth_method_config: strongly-typed oneof per auth method.
+// The structure used when CREATING or UPDATING a secret
+message ClientSecretBasic {
+  string client_id = 1;
+  string client_secret = 2;  // Required for input, never returned
+}
+
+// The structure used when RETRIEVING a secret configuration
+message ClientSecretBasicResponse {
+  string client_id = 1;
+  string client_secret_hash = 2;  // Returned to client, but never accepted as input
+}
+
+// auth_method_config oneof: only set for "client_secret_basic".
+// When omitted, auth_method is "none". auth_method is not returned; infer from oneof.
 message TokenDelegationResponse {
-  string org_id = 1;
+  string organization_id = 1;
   string token_endpoint = 2;
-  string auth_method = 3;
-  google.protobuf.Struct auth_method_config = 4;  // method-specific; never includes secrets in responses
-  string subject_token_audience = 5;
-  google.protobuf.Timestamp created_at = 6;
-  google.protobuf.Timestamp updated_at = 7;
+  string subject_token_audience = 3;
+  oneof auth_method_config {
+    ClientSecretBasicResponse client_secret_basic = 4;
+  }
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
 }
 
 message GetTokenDelegationRequest {
-  string org_id = 1;
+  string organization_id = 1;
+}
+
+// auth_method_config oneof: only set when auth_method is "client_secret_basic".
+// When auth_method is "none", omit the oneof entirely.
+message TokenDelegation {
+  string token_endpoint = 1;
+  string subject_token_audience = 2;
+  oneof auth_method_config {
+    ClientSecretBasic client_secret_basic = 4;
+  }
 }
 
 message TokenDelegationRequest {
-  string org_id = 1;
-  string token_endpoint = 2;
-  string auth_method = 3;
-  google.protobuf.Struct auth_method_config = 4;  // e.g. {"client_id":"...","client_secret":"..."} for client_secret_basic
-  string subject_token_audience = 5;
+  string organization_id = 1;
+  TokenDelegation config = 2;
 }
 
 // Determines machine ingestion state in relation to the power on gate

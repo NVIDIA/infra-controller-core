@@ -278,8 +278,8 @@ pub async fn start(
         [machine_identity]
         enabled = true
         algorithm = "ES256"
-        token_ttl_min = 60
-        token_ttl_max = 86400
+        token_ttl_min_sec = 60
+        token_ttl_max_sec = 86400
     "#
         )
     };

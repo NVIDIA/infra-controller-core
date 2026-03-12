@@ -29,21 +29,23 @@ pub async fn set_identity_configuration(
     issuer: &str,
     default_audience: &str,
     allowed_audiences: &[&str],
-    token_ttl: u32,
-    subject_domain: &str,
+    token_ttl_sec: u32,
+    subject_prefix: &str,
     enabled: bool,
 ) -> eyre::Result<()> {
     tracing::info!("Setting identity configuration for org {org_id}");
 
     let data = serde_json::json!({
-        "org_id": org_id,
-        "enabled": enabled,
-        "issuer": issuer,
-        "default_audience": default_audience,
-        "allowed_audiences": allowed_audiences,
-        "token_ttl": token_ttl,
-        "subject_domain": subject_domain,
-        "rotate_key": false
+        "organization_id": org_id,
+        "config": {
+            "enabled": enabled,
+            "issuer": issuer,
+            "default_audience": default_audience,
+            "allowed_audiences": allowed_audiences,
+            "token_ttl_sec": token_ttl_sec,
+            "subject_prefix": subject_prefix,
+            "rotate_key": false
+        }
     });
     grpcurl(
         carbide_api_addrs,
@@ -60,7 +62,7 @@ pub async fn get_identity_configuration(
     carbide_api_addrs: &[SocketAddr],
     org_id: &str,
 ) -> eyre::Result<IdentityConfigResponse> {
-    let data = serde_json::json!({ "org_id": org_id });
+    let data = serde_json::json!({ "organization_id": org_id });
     let response = grpcurl(
         carbide_api_addrs,
         "GetIdentityConfiguration",
@@ -78,7 +80,7 @@ pub async fn delete_identity_configuration(
 ) -> eyre::Result<()> {
     tracing::info!("Deleting identity configuration for org {org_id}");
 
-    let data = serde_json::json!({ "org_id": org_id });
+    let data = serde_json::json!({ "organization_id": org_id });
     grpcurl(
         carbide_api_addrs,
         "DeleteIdentityConfiguration",
@@ -89,26 +91,47 @@ pub async fn delete_identity_configuration(
     Ok(())
 }
 
+/// Auth method config for token delegation. Matches proto oneof.
+#[derive(Clone, Debug)]
+pub enum AuthMethodConfig {
+    None,
+    ClientSecretBasic {
+        client_id: String,
+        client_secret: String,
+    },
+}
+
 /// Set token delegation for an org. Identity config must exist first.
 pub async fn set_token_delegation(
     carbide_api_addrs: &[SocketAddr],
     org_id: &str,
     token_endpoint: &str,
-    auth_method: &str,
-    auth_method_config: serde_json::Value,
-    subject_token_audience: Option<&str>,
+    auth_method_config: AuthMethodConfig,
+    subject_token_audience: &str,
 ) -> eyre::Result<()> {
     tracing::info!("Setting token delegation for org {org_id}");
 
-    let mut data = serde_json::json!({
-        "org_id": org_id,
+    let mut config = serde_json::json!({
         "token_endpoint": token_endpoint,
-        "auth_method": auth_method,
-        "auth_method_config": auth_method_config
+        "subject_token_audience": subject_token_audience,
     });
-    if let Some(aud) = subject_token_audience {
-        data["subject_token_audience"] = serde_json::Value::String(aud.to_string());
+    // Proto oneof: variant fields are flat at config level. For "none", omit entirely.
+    match &auth_method_config {
+        AuthMethodConfig::None => {}
+        AuthMethodConfig::ClientSecretBasic {
+            client_id,
+            client_secret,
+        } => {
+            config["clientSecretBasic"] = serde_json::json!({
+                "client_id": client_id,
+                "client_secret": client_secret
+            });
+        }
     }
+    let data = serde_json::json!({
+        "organization_id": org_id,
+        "config": config
+    });
     grpcurl(
         carbide_api_addrs,
         "SetTokenDelegation",
@@ -124,7 +147,7 @@ pub async fn get_token_delegation(
     carbide_api_addrs: &[SocketAddr],
     org_id: &str,
 ) -> eyre::Result<TokenDelegationResponse> {
-    let data = serde_json::json!({ "org_id": org_id });
+    let data = serde_json::json!({ "organization_id": org_id });
     let response = grpcurl(
         carbide_api_addrs,
         "GetTokenDelegation",
@@ -142,7 +165,7 @@ pub async fn delete_token_delegation(
 ) -> eyre::Result<()> {
     tracing::info!("Deleting token delegation for org {org_id}");
 
-    let data = serde_json::json!({ "org_id": org_id });
+    let data = serde_json::json!({ "organization_id": org_id });
     grpcurl(
         carbide_api_addrs,
         "DeleteTokenDelegation",
@@ -156,13 +179,13 @@ pub async fn delete_token_delegation(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityConfigResponse {
-    pub org_id: String,
+    pub organization_id: String,
     pub enabled: bool,
     pub issuer: String,
     pub default_audience: String,
     pub allowed_audiences: Vec<String>,
-    pub token_ttl: u32,
-    pub subject_domain: String,
+    pub token_ttl_sec: u32,
+    pub subject_prefix: String,
     #[serde(default)]
     pub created_at: Option<serde_json::Value>,
     #[serde(default)]
@@ -174,9 +197,8 @@ pub struct IdentityConfigResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenDelegationResponse {
-    pub org_id: String,
+    pub organization_id: String,
     pub token_endpoint: String,
-    pub auth_method: String,
     #[serde(default)]
     pub auth_method_config: Option<serde_json::Value>,
     #[serde(default)]

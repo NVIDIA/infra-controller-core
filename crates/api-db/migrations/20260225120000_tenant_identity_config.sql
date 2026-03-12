@@ -3,7 +3,7 @@
 -- Private key is encrypted with a master key.
 -- Token delegation columns are nullable when an org does not use delegation.
 
--- this line will be removed before checking in.
+-- this line will be removed before merging into main branch.
 --DROP TABLE IF EXISTS tenant_identity_config CASCADE;
 
 CREATE TABLE tenant_identity_config (
@@ -12,8 +12,8 @@ CREATE TABLE tenant_identity_config (
     issuer                   VARCHAR(512) NOT NULL,
     default_audience         VARCHAR(255) NOT NULL,
     allowed_audiences        JSONB NOT NULL,
-    token_ttl                INTEGER NOT NULL,
-    subject_domain_prefix    VARCHAR(255) NOT NULL,
+    token_ttl_sec            INTEGER NOT NULL,
+    subject_prefix    VARCHAR(255) NOT NULL,
     enabled                  BOOLEAN NOT NULL DEFAULT TRUE,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),

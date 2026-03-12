@@ -7,6 +7,7 @@
 | Version | Date | Modified By | Description |
 | :---: | :---: | :---- | :---- |
 | 0.1 | 02/24/2026 | Binu Ramakrishnan | Initial version |
+| 0.2 | 03/11/2026 | Binu Ramakrishnan | gRPC/API updates and incorporated reivew feedback |
 |  |  |  |  |
 
 # **1\. Introduction**
@@ -125,7 +126,7 @@ SetIdentityConfiguration (PUT identity/config)
 │    using global algorithm,    │
 │    encrypt with master key,   │
 │    store in tenant_identity_  │
-│    keys                       │
+│    config                     │
 │ If rotate_key=true: same      │
 └───────────────────────────────┘
               │
@@ -309,12 +310,19 @@ The JWT spec and vault related configs are passed to the Carbide API server duri
 [machine_identity]
 enabled = true
 algorithm = "ES256"
-token_ttl_min = 60 # min ttl permitted in seconds
-token_ttl_max = 86400 # max ttl permitted in seconds
+token_ttl_min_sec = 60 # min ttl permitted in seconds
+token_ttl_max_sec = 86400 # max ttl permitted in seconds
 token_endpoint_http_proxy = "https://carbide-ext.com" # optional, SSRF mitigation for token exchange
 ```
 
-**Global vs per-org:** Global config provides the master switch (`enabled`), site-wide signing algorithm (`algorithm`), optional token TTL bounds (`token_ttl_min`, `token_ttl_max`), and optional HTTP proxy for token endpoint calls (`token_endpoint_http_proxy`). All identity settings (`issuer`, `defaultAudience`, `allowedAudiences`, `tokenTtl`, `subjectDomainPrefix` etc.) are **per-org only** and orgs supply them when calling PUT identity/config. There is no global fallback; orgs must provide these to generate keys and receive tokens. Per-org `enabled` can further disable an org when global is true (default `true` when unset). 
+**Global vs per-org:** 
+Global config provides:
+  * the master switch (`enabled`)
+  * site-wide signing algorithm (`algorithm`)
+  * optional token TTL bounds (`token_ttl_min_sec`, `token_ttl_max_sec`), and
+  * optional HTTP proxy for token endpoint calls (`token_endpoint_http_proxy`)
+  
+All identity settings (`issuer`, `defaultAudience`, `allowedAudiences`, `tokenTtlSec`, `subjectPrefix` etc.) are **per-org only** and orgs supply them when calling PUT identity/config. There is no global fallback; orgs must provide these to generate keys and receive tokens. Per-org `enabled` can further disable an org when global is true (default `true` when unset).
 
 **PUT prerequisite:** Per-org config can only be created or updated when global `enabled` is `true`; otherwise PUT returns `503 Service Unavailable`.
 
@@ -341,7 +349,7 @@ When the `[machine_identity]` section exists but is incomplete or invalid, the f
 
 ### **3.4.4 JWT-SVID Token Format**
 
-The subject format complies with the SPIFFE ID specification. The `iss` and `sub` values come from the org's identity config (`issuer`, `subjectDomainPrefix`).
+The subject format complies with the SPIFFE ID specification. The `iss` and `sub` values come from the org's identity config (`issuer`, `subjectPrefix`).
 
 **Carbide JWT-SPIFFE (passed to Tenant Layer):**
 
@@ -408,9 +416,8 @@ Content-Type: application/json
 Content-Length: ...
 {
   "access_token":"...",
-  "issued_token_type":
-      "urn:ietf:params:oauth:token-type:jwt",
-  "token_type":"Bearer",
+  "issued_token_type": "urn:ietf:params:oauth:token-type:jwt",
+  "token_type": "Bearer",
   "expires_in": ...
  }
 ```
@@ -438,9 +445,9 @@ eyJhbGciOiJSUzI1NiIs...
 
 These APIs manage per-org identity configuration that controls how Carbide issues JWT-SVIDs for machines in that org. Admins use them to enable or disable the feature per org, and to set the issuer URI, allowed audiences, token TTL, and SPIFFE subject prefix. The configuration applies to all JWT-SVID tokens issued for the org's machines (via IMDS or token exchange). GET retrieves the current config, PUT creates or replaces it, and DELETE removes it (org no longer has machine identity).
 
-**Carbide-rest config defaults:** Carbide-rest has per-site config settings for `issuer`, `tokenTtl`, and `subjectDomainPrefix`. When a REST client omits these fields, Carbide-rest supplies them from the target site's config before calling the downstream gRPC `SetIdentityConfiguration`. Thus gRPC always receives these values; they are optional only at the REST layer. If Carbide-rest does not have per-site config for these fields and the client omits them, PUT returns **400 Bad Request** asking the caller to include `issuer`, `tokenTtl`, and `subjectDomainPrefix` in the request. This allows the API to work even when site config is incomplete; the client can supply the values explicitly.
+**Carbide-rest config defaults:** Carbide-rest has per-site config settings for `issuer`, `tokenTtlSec`, and `subjectPrefix`. When a REST client omits these fields, Carbide-rest supplies them from the target site's config before calling the downstream gRPC `SetIdentityConfiguration`. Thus gRPC always receives these values; they are optional only at the REST layer. If Carbide-rest does not have per-site config for these fields and the client omits them, PUT returns **400 Bad Request** asking the caller to include `issuer`, `tokenTtlSec`, and `subjectPrefix` in the request. This allows the API to work even when site config is incomplete; the client can supply the values explicitly.
 
-**Per-org key generation on PUT:** When PUT creates identity config for an org for the first time, Carbide generates a new per-org signing key pair using the global `algorithm`, encrypts the private key with the Vault master key, and stores it in `tenant_identity_keys`. On subsequent PUTs (updates), the key is not regenerated unless `rotateKey` is `true`. On DELETE, the identity config and the org's signing key are removed.
+**Per-org key generation on PUT:** When PUT creates identity config for an org for the first time, Carbide generates a new per-org signing key pair using the global `algorithm`, encrypts the private key with the Vault master key, and stores it in `tenant_identity_config` DB table. On subsequent PUTs (updates), the key is not regenerated unless `rotateKey` is `true`. On DELETE, the identity config and the org's signing key are removed.
 
 **PUT when global is disabled:** If the global `enabled` setting in site config is `false`, PUT returns `503 Service Unavailable` with a message indicating that machine identity must be enabled at the site level first. This enforces the deployment order: global config must be enabled before per-org config can be created or updated.
 
@@ -461,8 +468,8 @@ PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/confi
   "issuer": "https://carbide-rest.example.com/org/{org-id}/site/{site-id}",
   "defaultAudience": "carbide-tenant-xxx",
   "allowedAudiences": ["carbide-tenant-xxx", "tenant-a", "tenant-b"],
-  "tokenTtl": 300,
-  "subjectDomainPrefix": "spiffe://trust-domain",
+  "tokenTtlSec": 300,
+  "subjectPrefix": "spiffe://trust-domain",
   "rotateKey": false
 }
 ```
@@ -474,8 +481,8 @@ PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/confi
 | `issuer` | string | No | Issuer URI that appears in Carbide JWT-SVID. Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
 | `defaultAudience` | string | Yes | Default audience. Must be in `allowedAudiences` when provided. |
 | `allowedAudiences` | string[] | No | Permitted audiences. Optional; when empty or omitted, all audiences are allowed (permissive mode). When non-empty, only audiences in the list are allowed. |
-| `tokenTtl` | number | No | Token TTL in seconds (300–86400). Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
-| `subjectDomainPrefix` | string | No | SPIFFE prefix for JWT-SVID `sub` field. Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
+| `tokenTtlSec` | number | No | Token TTL in seconds (300–86400). Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
+| `subjectPrefix` | string | No | SPIFFE prefix for JWT-SVID `sub` field. Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
 | `rotateKey` | boolean | No | If `true`, regenerate the per-org signing key. Default `false`. |
 
 Note: When `allowedAudiences` is provided and non-empty, `defaultAudience` must be present in it.
@@ -489,8 +496,8 @@ Response:
   "issuer": "https://carbide-rest.example.com/org/{org-id}/site/{site-id}",
   "defaultAudience": "carbide-tenant-xxx",
   "allowedAudiences": ["carbide-tenant-xxx", "tenant-a", "tenant-b"],
-  "tokenTtl": 300,
-  "subjectDomainPrefix": "spiffe://trust-domain",
+  "tokenTtlSec": 300,
+  "subjectPrefix": "spiffe://trust-domain",
   "keyId": "af6426a5-5f49-44b9-8721-b5294be20bb6",
   "updatedAt": "2026-02-25T12:00:00Z"
 }
@@ -511,7 +518,7 @@ These APIs let Carbide tenants register a token exchange callback endpoint (RFC 
 | `enabled` | Global | Master switch. If false, PUT token-delegation is rejected (same as identity/config). |
 | `token_endpoint_http_proxy` | Global | Outbound calls from Carbide to the tenant's token endpoint use this proxy (SSRF mitigation). |
 | Identity config (issuer, audiences, TTL) | Per-org (with global defaults) | The JWT-SVID sent to the exchange server is signed using the org's effective identity config. |
-| Token delegation config | Per-org | Each org registers its own `tokenEndpoint`, `authMethod`, `subjectTokenAudience`, etc. |
+| Token delegation config | Per-org | Each org registers its own `tokenEndpoint`, `subjectTokenAudience`, and auth method via oneof (`clientSecretBasic`, etc.). |
 
 **PUT token-delegation prerequisites:** Same as PUT identity/config, global `enabled` must be `true` and global config must be complete. If not, PUT returns `503 Service Unavailable`. Token delegation also requires org identity config to exist (the JWT sent to the exchange is built from it); if the org has no identity config, PUT token-delegation returns `404` or `503`.
 
@@ -527,8 +534,7 @@ Request:
 PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation
 {
   "tokenEndpoint": "https://auth.acme.com/oauth2/token",
-  "authMethod": "client_secret_basic",
-  "authMethodConfig": {
+  "clientSecretBasic": {
     "client_id": "abc123",
     "client_secret": "super-secret"
   },
@@ -542,8 +548,7 @@ Response:
 {
   "orgId": "org-id",
   "tokenEndpoint": "https://tenant.example.com/oauth2/token",
-  "authMethod": "client_secret_basic",
-  "authMethodConfig": {
+  "clientSecretBasic": {
     "client_id": "abc123",
     "client_secret_hash": "sha256:a1b2c3d4"
   },
@@ -553,14 +558,14 @@ Response:
 }
 ```
 
-Note: `authMethodConfig` omits secret keys; `client_secret_hash` (SHA256 prefix) is returned for verification. Non-secret fields (e.g. `client_id`) are returned.
+Note: Auth method is inferred from the oneof. `clientSecretBasic` omits secret keys in response; `client_secret_hash` (SHA256 prefix) is returned for verification. Non-secret fields (e.g. `client_id`) are returned. Omit the oneof entirely for `none`.
 
 Possible ([openid client auth](https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
-)) values for `authMethod`:
+)) values (inferred from oneof):
 
-* `client_secret_basic` supported (auth_method_config: client_id, client_secret)
-* `none` supported; if set, auth_method_config is ignored/not passed to exchange endpoint
-* `client_secret_post`, `private_key_jwt` extensible via auth_method_config without schema changes (currently unsupported)
+* `client_secret_basic` supported (`clientSecretBasic`: client_id, client_secret)
+* `none` supported; omit oneof entirely
+* `client_secret_post`, `private_key_jwt` extensible (currently unsupported)
 
 
 #### **3.5.1.3 Token Exchange Request**
@@ -693,49 +698,64 @@ service Forge {
 syntax = "proto3";
 // crates/rpc/proto/forge.proto
 
-// Token Delegation config message.
-// auth_method: e.g. "client_secret_basic", "private_key_jwt"
-// auth_method_config: method-specific fields (Struct). Secrets are write-only; never returned in responses.
+// The structure used when CREATING or UPDATING a secret
+message ClientSecretBasic {
+  string client_id = 1;
+  string client_secret = 2;  // Required for input, never returned
+}
+
+// The structure used when RETRIEVING a secret configuration
+message ClientSecretBasicResponse {
+  string client_id = 1;
+  string client_secret_hash = 2;  // Returned to client, but never accepted as input
+}
+
+// auth_method_config oneof: only set for "client_secret_basic".
+// When omitted, auth_method is "none". auth_method is not returned; infer from oneof.
 message TokenDelegationResponse {
-  string org_id = 1;
+  string organization_id = 1;
   string token_endpoint = 2;
-  string auth_method = 3;
-  google.protobuf.Struct auth_method_config = 4;  // method-specific; never includes secrets in responses
-  string subject_token_audience = 5;
-  google.protobuf.Timestamp created_at = 6;
-  google.protobuf.Timestamp updated_at = 7;
+  string subject_token_audience = 3;
+  oneof auth_method_config {
+    ClientSecretBasicResponse client_secret_basic = 4;
+  }
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
 }
 
-// Request for GET / DELETE (identifies org)
 message GetTokenDelegationRequest {
-  string org_id = 1;
+  string organization_id = 1;
 }
 
-// Request for PUT (includes delegation config)
-// auth_method_config: e.g. {"client_id":"...","client_secret":"..."} for client_secret_basic
+// auth_method_config oneof: only set when auth_method is "client_secret_basic".
+// When auth_method is "none", omit the oneof entirely.
+message TokenDelegation {
+  string token_endpoint = 1;
+  string subject_token_audience = 2;
+  oneof auth_method_config {
+    ClientSecretBasic client_secret_basic = 4;
+  }
+}
+
 message TokenDelegationRequest {
-  string org_id = 1;
-  string token_endpoint = 2;
-  string auth_method = 3;
-  google.protobuf.Struct auth_method_config = 4;
-  string subject_token_audience = 5;
+  string organization_id = 1;
+  TokenDelegation config = 2;
 }
 
 // gRPC service
 service Forge {
-
-  // Token Delegation Endpoints
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse) {}
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse) {}
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty) {}
 }
 ```
 
-**Auth method extensibility:** Token delegation uses `auth_method` (string) + `auth_method_config` (Struct/JSONB) to support multiple auth methods without schema changes. Examples:
-- `client_secret_basic`: `auth_method_config` = `{"client_id":"...","client_secret":"..."}`
-- `none`: `auth_method_config` = `{}`
+**Auth method extensibility:** Token delegation uses a strongly-typed `oneof auth_method_config`. Auth method is inferred from the oneof (not sent in request or response):
+- Oneof omitted → auth_method is `none`.
+- `client_secret_basic`: Request uses `ClientSecretBasic` (client_id, client_secret). Response uses `ClientSecretBasicResponse` (client_id, client_secret_hash truncated).
 
-**HTTP response for `authMethodConfig`:** Secret keys are omitted; corresponding `*_hash` fields are returned (e.g. `client_secret_hash` with `sha256:` + 8-char hex prefix). Example for `client_secret_basic`: `{"client_id":"abc123","client_secret_hash":"sha256:a1b2c3d4"}`.
+New auth methods can be added by extending the oneof.
+
 
 ```protobuf
 syntax = "proto3";
@@ -784,19 +804,24 @@ message OpenIDConfigRequest {
 
 // Request for Get/Delete identity configuration (identifiers only)
 message GetIdentityConfigRequest {
-  string org_id = 1;
+  string organization_id = 1;
+}
+
+// Identity config payload (reusable)
+message IdentityConfig {
+  bool enabled = 1;
+  string issuer = 2;
+  string default_audience = 3;
+  repeated string allowed_audiences = 4;
+  uint32 token_ttl_sec = 5;
+  string subject_prefix = 6;
+  bool rotate_key = 7;
 }
 
 // Request to configure identity token settings (per org)
 message IdentityConfigRequest {
-  string org_id = 1;           // org-id, primary key
-  bool enabled = 2;            // Optional. enable JWT-SVID for this org. Default true when unset.
-  string issuer = 3;           // Required. issuer URI that appears in Carbide JWT-SVID
-  string default_audience = 4;  // Required. default audience; must be in allowed_audiences when provided
-  repeated string allowed_audiences = 5;  // Optional. When empty, all audiences allowed (permissive). When non-empty, whitelist.
-  uint32 token_ttl = 6;        // Required. token TTL in seconds (300–86400)
-  string subject_domain_prefix = 7;   // Required. SPIFFE prefix for JWT-SVID 'sub' field (e.g. spiffe://carbide.example.com)
-  bool rotate_key = 8;         // Optional. If true, regenerate per-org signing key. Default false.
+  string organization_id = 1;
+  IdentityConfig config = 2;
 }
 
 // Response for Get/Put identity configuration (persisted config per org)
@@ -806,8 +831,8 @@ message IdentityConfigResponse {
   string issuer = 3;
   string default_audience = 4;
   repeated string allowed_audiences = 5;
-  uint32 token_ttl = 6;
-  string subject_domain_prefix = 7;
+  uint32 token_ttl_sec = 6;
+  string subject_prefix = 7;
   google.protobuf.Timestamp updated_at = 8;  // When config was last updated
   string key_id = 9;            // Key identifier for org's signing key; matches JWKS kid for JWT verification.
 }

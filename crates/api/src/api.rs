@@ -2942,6 +2942,14 @@ pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
     );
 }
 
+/// Logs a pre-redacted request string (e.g. for requests containing secrets).
+pub(crate) fn log_request_data_redacted(s: impl AsRef<str>) {
+    tracing::Span::current().record(
+        "request",
+        truncate(s.as_ref().to_string(), ::rpc::MAX_ERR_MSG_SIZE as usize),
+    );
+}
+
 /// Logs the Machine ID in the current tracing span
 pub(crate) fn log_machine_id(machine_id: &MachineId) {
     tracing::Span::current().record("forge.machine_id", machine_id.to_string());
