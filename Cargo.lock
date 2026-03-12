@@ -1496,6 +1496,7 @@ dependencies = [
  "thiserror 2.0.17",
  "time",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
  "tonic 0.14.2",
  "tracing",
