@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use health_report::HealthProbeId;
 use tokio::process::Command as TokioCommand;
@@ -116,7 +116,6 @@ pub struct HealthCheckParams<'a> {
     pub min_healthy_links: u32,
     pub route_servers: &'a [String],
     pub hbn_device_names: HBNDeviceNames,
-    pub include_dhcp_server: bool,
     pub run_restricted_mode_check: bool,
 }
 
@@ -152,9 +151,7 @@ pub async fn health_check(params: HealthCheckParams<'_>) -> health_report::Healt
     if !is_up(&hr) {
         return hr;
     }
-    if params.include_dhcp_server {
-        check_dhcp_server(&mut hr, &container_id).await;
-    }
+    check_dhcp_server(&mut hr, &container_id).await;
     check_ifreload(&mut hr, &container_id).await;
     let hbn_daemons_file = params.hbn_root.join(HBN_DAEMONS_FILE);
     bgp::check_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());

@@ -325,6 +325,7 @@ pub async fn setup_and_run(
         service_addrs,
         close_sender,
         network_monitor_handle,
+        interface_state: None,
         extension_service_manager: extension_services::ExtensionServiceManager::default(),
     };
 
@@ -356,6 +357,7 @@ struct MainLoop {
     service_addrs: ServiceAddresses,
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
+    interface_state: Option<ethernet_virtualization::InterfaceState>,
     extension_service_manager: extension_services::ExtensionServiceManager,
 }
 
@@ -690,11 +692,26 @@ impl MainLoop {
                         }
                     }
 
-                    // In case of secondary DPU, the interface must be disabled if on admin network, else enabled.
-                    // Note that the nvue config handles the blocking of traffic on the interface.  This is only so that the host link reflects the correct state.
-                    if let Err(err) = ethernet_virtualization::update_interface_state(&conf).await {
-                        tracing::error!(error = format!("{err:#}"), "Updating interface state.");
-                    }
+                    // In case of secondary DPU, physical interface must be disabled if on admin
+                    // network, else enabled.
+                    match ethernet_virtualization::update_interface_state(
+                        &conf,
+                        self.agent_config.hbn.skip_reload,
+                        &self.hbn_device_names,
+                        &self.interface_state,
+                    )
+                    .await
+                    {
+                        Ok(new_state) => {
+                            self.interface_state = new_state;
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                error = format!("{err:#}"),
+                                "Updating interface state."
+                            );
+                        }
+                    };
                 }
 
                 // Feed the latest instance metadata to FMDS and acknowledge it
@@ -721,10 +738,9 @@ impl MainLoop {
                     min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
                     route_servers: &conf.route_servers,
                     hbn_device_names: self.hbn_device_names.clone(),
-                    include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
                     run_restricted_mode_check: false,
-                })
-                .await;
+                }).await;
+
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);
                 // subset of is_healthy
