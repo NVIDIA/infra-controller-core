@@ -20,6 +20,7 @@
 //! This module defines the clap-derive CLI structure and dispatches parsed
 //! commands to the corresponding handlers in submodules.
 
+pub mod channel;
 pub mod chassis;
 pub mod fru;
 pub mod mc;
@@ -27,6 +28,7 @@ pub mod raw;
 pub mod sdr;
 pub mod sel;
 pub mod sensor;
+pub mod user;
 
 use clap::Parser;
 
@@ -108,5 +110,15 @@ pub enum CliCommand {
     Sensor {
         #[command(subcommand)]
         command: sensor::SensorCommand,
+    },
+    /// User management.
+    User {
+        #[command(subcommand)]
+        command: user::UserCommand,
+    },
+    /// Channel configuration and auth capabilities.
+    Channel {
+        #[command(subcommand)]
+        command: channel::ChannelCommand,
     },
 }

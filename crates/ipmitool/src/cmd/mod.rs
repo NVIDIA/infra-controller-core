@@ -20,6 +20,7 @@
 //! Each submodule implements one command group (chassis, sdr, sel, etc.)
 //! using the [`IpmiTransport`](crate::transport::IpmiTransport) trait.
 
+pub mod channel;
 pub mod chassis;
 pub mod fru;
 pub mod mc;
@@ -27,3 +28,4 @@ pub mod raw;
 pub mod sdr;
 pub mod sel;
 pub mod sensor;
+pub mod user;
