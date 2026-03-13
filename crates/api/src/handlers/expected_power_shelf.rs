@@ -18,6 +18,7 @@
 use ::rpc::forge as rpc;
 use db::{DatabaseError, expected_power_shelf as db_expected_power_shelf};
 use mac_address::MacAddress;
+use model::expected_power_shelf::{ExpectedPowerShelf, ExpectedPowerShelfRequest};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -27,14 +28,12 @@ pub async fn add_expected_power_shelf(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelf>,
 ) -> Result<Response<()>, Status> {
-    let expected_power_shelf = request.into_inner();
-
-    let bmc_mac_address = MacAddress::try_from(expected_power_shelf.bmc_mac_address.as_str())
-        .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
-
-    let metadata = expected_power_shelf.metadata.unwrap_or_default();
-    let metadata = model::metadata::Metadata::try_from(metadata)
-        .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
+    let rpc_power_shelf = request.into_inner();
+    let request_rack_id = rpc_power_shelf.rack_id;
+    let power_shelf: ExpectedPowerShelf = rpc_power_shelf
+        .try_into()
+        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+    let bmc_mac_address = power_shelf.bmc_mac_address;
 
     let mut txn = api
         .database_connection
@@ -42,23 +41,9 @@ pub async fn add_expected_power_shelf(
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-    let request_rack_id = expected_power_shelf.rack_id;
-    db_expected_power_shelf::create(
-        &mut txn,
-        bmc_mac_address,
-        expected_power_shelf.bmc_username,
-        expected_power_shelf.bmc_password,
-        expected_power_shelf.shelf_serial_number,
-        if expected_power_shelf.ip_address.is_empty() {
-            None
-        } else {
-            expected_power_shelf.ip_address.parse().ok()
-        },
-        metadata,
-        request_rack_id,
-    )
-    .await
-    .map_err(|e| Status::internal(format!("Failed to create expected power shelf: {}", e)))?;
+    db_expected_power_shelf::create(&mut txn, power_shelf)
+        .await
+        .map_err(|e| Status::internal(format!("Failed to create expected power shelf: {}", e)))?;
 
     if let Some(rack_id) = request_rack_id {
         match db::rack::get(txn.as_mut(), rack_id).await {
@@ -92,10 +77,10 @@ pub async fn delete_expected_power_shelf(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelfRequest>,
 ) -> Result<Response<()>, Status> {
-    let req = request.into_inner();
-
-    let bmc_mac_address = MacAddress::try_from(req.bmc_mac_address.as_str())
-        .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
+    let req: ExpectedPowerShelfRequest = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
 
     let mut txn = api
         .database_connection
@@ -103,7 +88,7 @@ pub async fn delete_expected_power_shelf(
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-    db_expected_power_shelf::delete(bmc_mac_address, &mut txn)
+    db_expected_power_shelf::delete(&mut txn, &req)
         .await
         .map_err(|e| Status::internal(format!("Failed to delete expected power shelf: {}", e)))?;
 
@@ -120,14 +105,10 @@ pub async fn update_expected_power_shelf(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelf>,
 ) -> Result<Response<()>, Status> {
-    let expected_power_shelf = request.into_inner();
-
-    let bmc_mac_address = MacAddress::try_from(expected_power_shelf.bmc_mac_address.as_str())
-        .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
-
-    let metadata = expected_power_shelf.metadata.unwrap_or_default();
-    let metadata = model::metadata::Metadata::try_from(metadata)
-        .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
+    let power_shelf: ExpectedPowerShelf = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
 
     let mut txn = api
         .database_connection
@@ -135,32 +116,9 @@ pub async fn update_expected_power_shelf(
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-    let mut existing = db_expected_power_shelf::find_by_bmc_mac_address(&mut txn, bmc_mac_address)
+    db_expected_power_shelf::update(&mut txn, &power_shelf)
         .await
-        .map_err(|e| Status::internal(format!("Failed to find expected power shelf: {}", e)))?
-        .ok_or_else(|| {
-            Status::not_found(format!(
-                "Expected power shelf with MAC address {} not found",
-                bmc_mac_address
-            ))
-        })?;
-
-    db_expected_power_shelf::update(
-        &mut existing,
-        &mut txn,
-        expected_power_shelf.bmc_username,
-        expected_power_shelf.bmc_password,
-        expected_power_shelf.shelf_serial_number,
-        if expected_power_shelf.ip_address.is_empty() {
-            None
-        } else {
-            expected_power_shelf.ip_address.parse().ok()
-        },
-        metadata,
-        expected_power_shelf.rack_id,
-    )
-    .await
-    .map_err(|e| Status::internal(format!("Failed to update expected power shelf: {}", e)))?;
+        .map_err(|e| Status::internal(format!("Failed to update expected power shelf: {}", e)))?;
 
     txn.commit()
         .await
@@ -173,10 +131,10 @@ pub async fn get_expected_power_shelf(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelfRequest>,
 ) -> Result<Response<rpc::ExpectedPowerShelf>, Status> {
-    let req = request.into_inner();
-
-    let bmc_mac_address = MacAddress::try_from(req.bmc_mac_address.as_str())
-        .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
+    let req: ExpectedPowerShelfRequest = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
 
     let mut txn = api
         .database_connection
@@ -184,16 +142,18 @@ pub async fn get_expected_power_shelf(
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-    let expected_power_shelf =
-        db_expected_power_shelf::find_by_bmc_mac_address(&mut txn, bmc_mac_address)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to find expected power shelf: {}", e)))?
-            .ok_or_else(|| {
-                Status::not_found(format!(
-                    "Expected power shelf with MAC address {} not found",
-                    bmc_mac_address
-                ))
-            })?;
+    let expected_power_shelf = db_expected_power_shelf::find(&mut txn, &req)
+        .await
+        .map_err(|e| Status::internal(format!("Failed to find expected power shelf: {}", e)))?
+        .ok_or_else(|| {
+            Status::not_found(format!(
+                "Expected power shelf not found: {}",
+                req.expected_power_shelf_id
+                    .map(|u| u.to_string())
+                    .or(req.bmc_mac_address.map(|m| m.to_string()))
+                    .unwrap_or_default()
+            ))
+        })?;
 
     txn.commit()
         .await
@@ -249,31 +209,15 @@ pub async fn replace_all_expected_power_shelves(
         .map_err(|e| Status::internal(format!("Failed to clear expected power shelves: {}", e)))?;
 
     // Add all new expected power shelves
-    for expected_power_shelf in req.expected_power_shelves {
-        let bmc_mac_address =
-            MacAddress::try_from(expected_power_shelf.bmc_mac_address.as_str())
-                .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
-
-        let metadata = expected_power_shelf.metadata.unwrap_or_default();
-        let metadata = model::metadata::Metadata::try_from(metadata)
-            .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
-
-        db_expected_power_shelf::create(
-            &mut txn,
-            bmc_mac_address,
-            expected_power_shelf.bmc_username,
-            expected_power_shelf.bmc_password,
-            expected_power_shelf.shelf_serial_number,
-            if expected_power_shelf.ip_address.is_empty() {
-                None
-            } else {
-                expected_power_shelf.ip_address.parse().ok()
-            },
-            metadata,
-            expected_power_shelf.rack_id,
-        )
-        .await
-        .map_err(|e| Status::internal(format!("Failed to create expected power shelf: {}", e)))?;
+    for rpc_power_shelf in req.expected_power_shelves {
+        let power_shelf: ExpectedPowerShelf = rpc_power_shelf
+            .try_into()
+            .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+        db_expected_power_shelf::create(&mut txn, power_shelf)
+            .await
+            .map_err(|e| {
+                Status::internal(format!("Failed to create expected power shelf: {}", e))
+            })?;
     }
 
     txn.commit()

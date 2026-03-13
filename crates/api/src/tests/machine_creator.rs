@@ -1472,10 +1472,13 @@ async fn test_rms_registration_with_rack_id(
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,
-        mock_host.bmc_mac_address,
-        model::expected_machine::ExpectedMachineData {
-            rack_id: Some(rack_id),
-            ..Default::default()
+        model::expected_machine::ExpectedMachine {
+            id: None,
+            bmc_mac_address: mock_host.bmc_mac_address,
+            data: model::expected_machine::ExpectedMachineData {
+                rack_id: Some(rack_id),
+                ..Default::default()
+            },
         },
     )
     .await?;
@@ -1636,10 +1639,13 @@ async fn test_rms_registration_retries_on_failure(
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,
-        mock_host.bmc_mac_address,
-        model::expected_machine::ExpectedMachineData {
-            rack_id: Some(rack_id),
-            ..Default::default()
+        model::expected_machine::ExpectedMachine {
+            id: None,
+            bmc_mac_address: mock_host.bmc_mac_address,
+            data: model::expected_machine::ExpectedMachineData {
+                rack_id: Some(rack_id),
+                ..Default::default()
+            },
         },
     )
     .await?;
@@ -1814,10 +1820,13 @@ async fn test_rms_verification_failure_paths(
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,
-        mock_host.bmc_mac_address,
-        model::expected_machine::ExpectedMachineData {
-            rack_id: Some(rack_id),
-            ..Default::default()
+        model::expected_machine::ExpectedMachine {
+            id: None,
+            bmc_mac_address: mock_host.bmc_mac_address,
+            data: model::expected_machine::ExpectedMachineData {
+                rack_id: Some(rack_id),
+                ..Default::default()
+            },
         },
     )
     .await?;
