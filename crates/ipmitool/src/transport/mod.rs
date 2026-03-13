@@ -18,6 +18,8 @@
 //! IPMI transport layer — defines the trait and transport implementations.
 
 pub mod lanplus;
+#[cfg(test)]
+pub mod mock;
 
 use crate::error::Result;
 use crate::types::{IpmiRequest, IpmiResponse};
