@@ -127,20 +127,7 @@ async fn run_loop(
     keepalive_timeout: Duration,
     cancel_token: CancellationToken,
 ) {
-    loop {
-        let command = tokio::select! {
-            command = cmd_rx.recv() => match command {
-                Some(command) => command,
-                None => {
-                    tracing::info!("WorkLockManager: all handles dropped, shutting down");
-                    break;
-                }
-            },
-            _ = cancel_token.cancelled() => {
-                tracing::debug!("WorkLockManager shutting down");
-                break;
-            },
-        };
+    while let Some(Some(command)) = cancel_token.run_until_cancelled(cmd_rx.recv()).await {
         if let Err(e) = db.ping().await {
             tracing::warn!("WorkLockManager database connection closed, trying to re-acquire: {e}");
             db = match pool.acquire().await {
@@ -204,6 +191,7 @@ async fn run_loop(
             },
         }
     }
+    tracing::info!("WorkLockManager: shutting down");
 }
 
 /// A lock representing exclusive ownership of a logical, named unit of work. Upon drop, the lock

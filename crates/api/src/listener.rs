@@ -29,7 +29,6 @@ use opentelemetry::metrics::Meter;
 use rustls::server::WebPkiClientVerifier;
 use rustls_pki_types::CertificateDer;
 use tokio::net::TcpListener;
-use tokio::select;
 use tokio::task::JoinSet;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
@@ -299,12 +298,9 @@ pub async fn start(
 
     join_set.build_task().name("listener accept loop").spawn(async move {
         loop {
-            let incoming_connection = select! {
-                incoming_connection = listener.accept() => incoming_connection,
-                _ = cancel_token.cancelled() => {
-                    tracing::info!("carbide-api shutting down");
-                    return;
-                }
+            let Some(incoming_connection) = cancel_token.run_until_cancelled(listener.accept()).await else {
+                tracing::info!("carbide-api shutting down");
+                return;
             };
             connection_total_counter.add(1, &[]);
             let (conn, addr) = match incoming_connection {

@@ -154,12 +154,8 @@ async fn process_events<P: MqttPublisher>(
     cancel_token: CancellationToken,
 ) {
     loop {
-        let msg = tokio::select! {
-            msg = receiver.recv() => match msg {
-                Some(msg) => msg,
-                None => break,
-            },
-            _ = cancel_token.cancelled() => break,
+        let Some(Some(msg)) = cancel_token.run_until_cancelled(receiver.recv()).await else {
+            break;
         };
         match timeout_at(msg.deadline, client.publish(&msg.topic, msg.payload)).await {
             Ok(Ok(())) => {
