@@ -16,7 +16,7 @@
  */
 use std::process::Command;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ::rpc::DiscoveryInfo;
 use ::rpc::forge_tls_client::ForgeClientConfig;

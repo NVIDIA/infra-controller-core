@@ -739,7 +739,8 @@ impl MainLoop {
                     route_servers: &conf.route_servers,
                     hbn_device_names: self.hbn_device_names.clone(),
                     run_restricted_mode_check: false,
-                }).await;
+                })
+                .await;
 
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);

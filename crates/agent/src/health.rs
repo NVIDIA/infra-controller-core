@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use health_report::HealthProbeId;
 use tokio::process::Command as TokioCommand;
