@@ -428,7 +428,7 @@ pub struct TenantIdentityConfig {
     pub master_key_id: String,
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
-    pub auth_method: Option<String>,
+    pub auth_method: Option<TokenDelegationAuthMethod>,
     /// Auth method config blob (TEXT). Stores JSON; not yet encrypted at rest.
     pub encrypted_auth_method_config: Option<String>,
     pub subject_token_audience: Option<String>,
@@ -531,6 +531,24 @@ pub enum TokenDelegationAuthMethodConfig {
     },
 }
 
+/// Database enum for token_delegation_auth_method_t. Maps to auth_method column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "token_delegation_auth_method_t")]
+#[sqlx(rename_all = "snake_case")]
+pub enum TokenDelegationAuthMethod {
+    None,
+    ClientSecretBasic,
+}
+
+impl TokenDelegationAuthMethod {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::ClientSecretBasic => "client_secret_basic",
+        }
+    }
+}
+
 /// Computes SHA256 hash of client_secret for display (e.g. in get_token_delegation response).
 pub fn compute_client_secret_hash(client_secret: &str) -> String {
     let h = sha2::Sha256::digest(client_secret.as_bytes());
@@ -543,9 +561,11 @@ pub struct TokenDelegationValidationError(pub String);
 
 impl TokenDelegation {
     /// Returns (auth_method, config_json) for DB storage.
-    pub fn to_db_format(&self) -> (&'static str, String) {
+    pub fn to_db_format(&self) -> (TokenDelegationAuthMethod, String) {
         match &self.auth_method_config {
-            TokenDelegationAuthMethodConfig::None => ("none", "{}".to_string()),
+            TokenDelegationAuthMethodConfig::None => {
+                (TokenDelegationAuthMethod::None, "{}".to_string())
+            }
             TokenDelegationAuthMethodConfig::ClientSecretBasic {
                 client_id,
                 client_secret,
@@ -556,7 +576,7 @@ impl TokenDelegation {
                 };
                 let config_json =
                     serde_json::to_string(&stored).unwrap_or_else(|_| "{}".to_string());
-                ("client_secret_basic", config_json)
+                (TokenDelegationAuthMethod::ClientSecretBasic, config_json)
             }
         }
     }
@@ -712,7 +732,7 @@ mod tests {
             },
         };
         let (auth_method, config_json) = config.to_db_format();
-        assert_eq!(auth_method, "client_secret_basic");
+        assert_eq!(auth_method, TokenDelegationAuthMethod::ClientSecretBasic);
         let stored: rpc_forge::ClientSecretBasic = serde_json::from_str(&config_json).unwrap();
         assert_eq!(stored.client_id, "client");
         assert_eq!(stored.client_secret, "secret");
@@ -730,7 +750,7 @@ mod tests {
             auth_method_config: TokenDelegationAuthMethodConfig::None,
         };
         let (auth_method, config_json) = config.to_db_format();
-        assert_eq!(auth_method, "none");
+        assert_eq!(auth_method, TokenDelegationAuthMethod::None);
         assert_eq!(config_json, "{}");
     }
 

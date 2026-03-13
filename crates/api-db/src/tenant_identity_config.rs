@@ -197,7 +197,9 @@ mod tests {
     use std::collections::HashMap;
 
     use model::metadata::Metadata;
-    use model::tenant::{IdentityConfig, TokenDelegation, TokenDelegationAuthMethodConfig};
+    use model::tenant::{
+        IdentityConfig, TokenDelegation, TokenDelegationAuthMethod, TokenDelegationAuthMethodConfig,
+    };
 
     use super::*;
     use crate::tenant;
@@ -238,7 +240,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec!["api".to_string(), "audience2".to_string()],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: "spiffe://example.com/org-x".to_string(),
             enabled: true,
             rotate_key: false,
             algorithm: "ES256".to_string(),
@@ -250,7 +252,7 @@ mod tests {
         assert_eq!(cfg.default_audience, "api");
         assert_eq!(cfg.allowed_audiences.0, ["api", "audience2"]);
         assert_eq!(cfg.token_ttl_sec, 3600);
-        assert_eq!(cfg.subject_prefix, "example.com");
+        assert_eq!(cfg.subject_prefix, "spiffe://example.com/org-x");
         assert!(cfg.enabled);
         assert_eq!(cfg.algorithm, "ES256");
         assert_eq!(cfg.master_key_id, "test-master");
@@ -308,7 +310,10 @@ mod tests {
             cfg.token_endpoint.as_deref(),
             Some("https://auth.example.com/token")
         );
-        assert_eq!(cfg.auth_method.as_deref(), Some("client_secret_basic"));
+        assert_eq!(
+            cfg.auth_method,
+            Some(TokenDelegationAuthMethod::ClientSecretBasic)
+        );
         assert_eq!(
             cfg.subject_token_audience.as_deref(),
             Some("https://api.example.com")

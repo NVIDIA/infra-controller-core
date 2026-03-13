@@ -328,7 +328,7 @@ pub(crate) async fn get_token_delegation(
     };
 
     let (token_endpoint, auth_method) = match (&cfg.token_endpoint, &cfg.auth_method) {
-        (Some(te), Some(am)) => (te.clone(), am.clone()),
+        (Some(te), Some(am)) => (te.clone(), am.as_str()),
         _ => {
             return Err(Status::from(CarbideError::NotFoundError {
                 kind: "token_delegation",
@@ -422,7 +422,7 @@ pub(crate) async fn set_token_delegation(
         })
         .await??;
 
-    let auth_method = cfg.auth_method.as_deref().unwrap_or("");
+    let auth_method = cfg.auth_method.as_ref().map(|m| m.as_str()).unwrap_or("");
     let stored: Option<ClientSecretBasic> = cfg
         .encrypted_auth_method_config
         .as_ref()

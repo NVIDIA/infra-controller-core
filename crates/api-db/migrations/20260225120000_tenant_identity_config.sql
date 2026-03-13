@@ -6,6 +6,8 @@
 -- this line will be removed before merging into main branch.
 --DROP TABLE IF EXISTS tenant_identity_config CASCADE;
 
+CREATE TYPE token_delegation_auth_method_t AS ENUM ('none', 'client_secret_basic');
+
 CREATE TABLE tenant_identity_config (
     organization_id   VARCHAR(255) PRIMARY KEY REFERENCES tenants(organization_id) ON DELETE CASCADE,
     -- Identity config (from PUT identity/config)
@@ -24,10 +26,10 @@ CREATE TABLE tenant_identity_config (
     algorithm                VARCHAR(255) NOT NULL,
     master_key_id            VARCHAR(255) NOT NULL,
     -- Token delegation (from PUT identity/token-delegation, optional)
-    -- auth_method: e.g. "client_secret_basic", "private_key_jwt"
+    -- auth_method: none, client_secret_basic
     -- encrypted_auth_method_config: encrypted blob (TEXT). API uses auth_method_config.
     token_endpoint               VARCHAR(512),
-    auth_method                  VARCHAR(64),
+    auth_method                  token_delegation_auth_method_t,
     encrypted_auth_method_config  TEXT,
     subject_token_audience       VARCHAR(255),
     token_delegation_created_at  TIMESTAMPTZ
