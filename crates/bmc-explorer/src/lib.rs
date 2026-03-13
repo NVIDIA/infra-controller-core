@@ -253,7 +253,10 @@ pub(crate) fn hw_type<B: Bmc>(
             "Supermicro" => Some(hw::HwType::Supermicro),
             "HPE" => Some(hw::HwType::Hpe),
             "Nvidia" if system.id().into_inner() == "Bluefield" => Some(hw::HwType::Bluefield),
-            "WIWYNN" | "NVIDIA" if root.product() == Some(Product::new("GB200 NVL")) => {
+            "WIWYNN" | "NVIDIA"
+                if root.product() == Some(Product::new("GB200 NVL"))
+                    || root.product() == Some(Product::new("GB BMC")) =>
+            {
                 Some(hw::HwType::Gb200)
             }
             "NVIDIA" if root.product() == Some(Product::new("P3809")) => Some(hw::HwType::NvSwitch),

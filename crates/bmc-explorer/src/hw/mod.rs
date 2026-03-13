@@ -105,6 +105,12 @@ impl BiosAttr<'_> {
             value: BiosAttrValue::AnyStr(value),
         }
     }
+    pub const fn new_int(key: &'static str, value: i64) -> BiosAttr<'static> {
+        BiosAttr {
+            key,
+            value: BiosAttrValue::Int(value),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -112,6 +118,7 @@ pub enum BiosAttrValue<'a> {
     Str(&'a str),
     AnyStr(&'a [&'a str]),
     Bool(bool),
+    Int(i64),
 }
 
 impl fmt::Display for BiosAttrValue<'_> {
@@ -119,6 +126,7 @@ impl fmt::Display for BiosAttrValue<'_> {
         match self {
             BiosAttrValue::Str(v) => v.fmt(f),
             BiosAttrValue::Bool(v) => v.fmt(f),
+            BiosAttrValue::Int(v) => v.fmt(f),
             BiosAttrValue::AnyStr(v) => write!(f, "any({})", v.iter().join(",")),
         }
     }
