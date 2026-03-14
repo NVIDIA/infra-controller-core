@@ -346,7 +346,7 @@ pub(crate) async fn get_token_delegation(
         None // Omit oneof from response for cleaner JSON
     } else {
         Some(
-            stored_to_response_auth_config(&auth_method, stored.as_ref()).ok_or_else(|| {
+            stored_to_response_auth_config(auth_method, stored.as_ref()).ok_or_else(|| {
                 Status::from(CarbideError::internal(
                     "Stored auth_method_config does not match auth_method".to_string(),
                 ))
