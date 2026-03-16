@@ -643,6 +643,15 @@ impl HealthAlertClassification {
     pub fn sensor_critical() -> Self {
         Self("SensorCritical".to_string())
     }
+
+    /// Excludes the host from state machine SLA tracking.
+    /// When this classification is present on any alert in the aggregate health report,
+    /// the host will not be counted as violating its state machine SLA.
+    /// Intended for manual operations (e.g. hands-on maintenance, repair) where the
+    /// operator needs the state machine running but SLA alerts would be spurious.
+    pub fn exclude_from_state_machine_sla() -> Self {
+        Self("ExcludeFromStateMachineSla".to_string())
+    }
 }
 
 /// A health report could not be converted from an external format

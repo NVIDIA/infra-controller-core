@@ -415,7 +415,11 @@ impl ManagedHostStateSnapshot {
         match dpu_machine_id {
             None => {
                 let mut rpc_machine: rpc::forge::Machine = self.host_snapshot.clone().into();
+                let state = &self.host_snapshot.state.value;
+                let version = &self.host_snapshot.state.version;
                 rpc_machine.health = Some(self.aggregate_health.clone().into());
+                rpc_machine.state_sla =
+                    Some(state_sla(state, version, &self.aggregate_health).into());
                 Some(rpc_machine)
             }
             Some(dpu_machine_id) => {
@@ -1092,7 +1096,9 @@ impl From<Machine> for rpc::forge::Machine {
             }),
             instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
             state_version: machine.state.version.version_string(),
-            state_sla: Some(state_sla(&machine.state.value, &machine.state.version).into()),
+            state_sla: Some(
+                state_sla(&machine.state.value, &machine.state.version, &health).into(),
+            ),
             machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
             metadata: Some(machine.metadata.into()),
             version: machine.version.version_string(),
@@ -2439,8 +2445,25 @@ impl From<MachineHealthHistoryRecord> for rpc::forge::MachineHealthHistoryRecord
     }
 }
 
-/// Returns the SLA for the current state
-pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> StateSla {
+/// Returns the SLA for the current state.
+///
+/// If any alert in `aggregate_health` carries the `ExcludeFromStateMachineSla` classification,
+/// no SLA applies regardless of the current state. This allows operators to suppress
+/// SLA violations during manual operations without stopping the state machine.
+pub fn state_sla(
+    state: &ManagedHostState,
+    state_version: &ConfigVersion,
+    aggregate_health: &health_report::HealthReport,
+) -> StateSla {
+    let exclude = health_report::HealthAlertClassification::exclude_from_state_machine_sla();
+    if aggregate_health
+        .alerts
+        .iter()
+        .any(|a| a.classifications.contains(&exclude))
+    {
+        return StateSla::no_sla();
+    }
+
     let time_in_state = chrono::Utc::now()
         .signed_duration_since(state_version.timestamp())
         .to_std()
