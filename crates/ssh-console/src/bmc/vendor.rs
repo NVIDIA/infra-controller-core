@@ -17,7 +17,8 @@
 
 use std::borrow::Cow;
 
-use rpc::forge;
+use bmc_vendor::BMCVendor;
+use carbide_uuid::machine::MachineId;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The escape sequence for IPMI is vendor-independent since it's specific to ipmitool.
@@ -64,41 +65,31 @@ pub enum SshBmcVendor {
 }
 
 impl BmcVendor {
-    pub fn detect_from_api_machine(
-        machine: &forge::Machine,
+    pub fn detect_from_api_vendor(
+        vendor_string: &str,
+        machine_id: &MachineId,
     ) -> Result<Self, BmcVendorDetectionError> {
-        let Some(dmi_data) = machine
-            .discovery_info
-            .as_ref()
-            .and_then(|d| d.dmi_data.as_ref())
-        else {
-            return Err(BmcVendorDetectionError::MissingDmiData);
-        };
+        if machine_id.machine_type().is_dpu() {
+            return Ok(BmcVendor::Ssh(SshBmcVendor::Dpu));
+        }
 
-        let sys_vendor = &dmi_data.sys_vendor;
-
-        // Vendor string data here ultimately comes from DMI data, via the `sys_vendor` field.
-        let vendor = if sys_vendor.contains("Dell") {
-            BmcVendor::Ssh(SshBmcVendor::Dell)
-        } else if sys_vendor.contains("Lenovo") {
-            BmcVendor::Ssh(SshBmcVendor::Lenovo)
-        } else if sys_vendor.contains("HPE") || sys_vendor.contains("Hewlett") {
-            BmcVendor::Ssh(SshBmcVendor::Hpe)
-        } else if sys_vendor.contains("Supermicro") {
-            BmcVendor::Ipmi(IpmiBmcVendor::Supermicro)
-        } else if sys_vendor.contains("NVIDIA") {
-            if dmi_data.product_name.contains("DGX") {
-                BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking)
-            } else {
-                BmcVendor::Ssh(SshBmcVendor::Dpu)
-            }
-        } else {
-            return Err(BmcVendorDetectionError::UnknownSysVendor {
-                sys_vendor: sys_vendor.to_owned(),
-            });
-        };
-
-        Ok(vendor)
+        Ok(
+            match bmc_vendor::BMCVendor::try_from(vendor_string).unwrap_or_default() {
+                BMCVendor::Lenovo => BmcVendor::Ssh(SshBmcVendor::Lenovo),
+                BMCVendor::LenovoAMI => BmcVendor::Ipmi(IpmiBmcVendor::LenovoAmi),
+                BMCVendor::Dell => BmcVendor::Ssh(SshBmcVendor::Dell),
+                BMCVendor::Supermicro => BmcVendor::Ipmi(IpmiBmcVendor::Supermicro),
+                BMCVendor::Hpe => BmcVendor::Ssh(SshBmcVendor::Hpe),
+                BMCVendor::Nvidia => BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking),
+                // Intentionally not doing a default `_` case so we get compiler errors (and can add more cases) later.
+                // TODO: figure out what kind of connection Liteon uses.
+                BMCVendor::Liteon | BMCVendor::Unknown => {
+                    return Err(BmcVendorDetectionError::UnknownSysVendor {
+                        sys_vendor: vendor_string.to_owned(),
+                    });
+                }
+            },
+        )
     }
 
     pub fn from_config_string(s: &str) -> Option<Self> {

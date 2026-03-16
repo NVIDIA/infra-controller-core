@@ -3739,6 +3739,7 @@ message BMCMetaDataGetResponse {
   optional uint32 port = 5;
   optional uint32 ssh_port = 6;
   optional uint32 ipmi_port = 7;
+  optional string vendor = 8;
 }
 
 message MachineCredentialsUpdateRequest {
