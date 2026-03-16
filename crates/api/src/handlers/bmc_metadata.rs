@@ -47,7 +47,6 @@ pub(crate) async fn get_inner(
     credential_reader: &dyn CredentialReader,
 ) -> Result<rpc::BmcMetaDataGetResponse, CarbideError> {
     let mut txn = pool.txn_begin().await?;
-    let request_type = request.request_type(); // get before partial move
     let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
         &mut txn,
         request.bmc_endpoint_request,
@@ -93,15 +92,10 @@ pub(crate) async fn get_inner(
         .map_err(|e| CarbideError::internal(e.to_string()))?
         .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
 
-    let vendor = match request_type {
-        rpc::BmcRequestType::Ipmi => {
-            let ip_address = bmc_endpoint_request.ip_address.parse().map_err(|_| {
-                CarbideError::internal("Internal error: Stored IP address is invalid".to_string())
-            })?;
-            db::explored_endpoints::lookup_vendor_by_ip(ip_address, pool).await?
-        }
-        rpc::BmcRequestType::Redfish => None,
-    };
+    let ip_address = bmc_endpoint_request.ip_address.parse().map_err(|_| {
+        CarbideError::internal("Internal error: Stored IP address is invalid".to_string())
+    })?;
+    let vendor = db::explored_endpoints::lookup_vendor_by_ip(ip_address, pool).await?;
 
     let (username, password) = match credentials {
         Credentials::UsernamePassword { username, password } => (username, password),
