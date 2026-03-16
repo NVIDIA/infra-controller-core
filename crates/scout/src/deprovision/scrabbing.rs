@@ -537,15 +537,17 @@ async fn try_ata_secure_erase(devpath: &str) -> Result<(), CarbideClientError> {
         )));
     }
 
+    if !hdparm_supports_enhanced_erase(&info) {
+        return Err(CarbideClientError::GenericError(format!(
+            "Device {} does not support ATA enhanced erase; non-SED SATA drives are not supported",
+            devpath
+        )));
+    }
+
     cmdrun::run_prog(HDPARM_CLI_PROG, ["--security-set-pass", "p", devpath]).await?;
 
-    if hdparm_supports_enhanced_erase(&info) {
-        tracing::info!("Using enhanced erase for {}", devpath);
-        cmdrun::run_prog(HDPARM_CLI_PROG, ["--security-erase-enhanced", "p", devpath]).await?;
-    } else {
-        tracing::info!("Using standard erase for {}", devpath);
-        cmdrun::run_prog(HDPARM_CLI_PROG, ["--security-erase", "p", devpath]).await?;
-    }
+    tracing::info!("Using enhanced erase for {}", devpath);
+    cmdrun::run_prog(HDPARM_CLI_PROG, ["--security-erase-enhanced", "p", devpath]).await?;
 
     Ok(())
 }
