@@ -93,7 +93,7 @@ pub(crate) async fn get_inner(
         .map_err(|e| CarbideError::internal(e.to_string()))?
         .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
 
-    let bmc_vendor = match request_type {
+    let vendor = match request_type {
         rpc::BmcRequestType::Ipmi => {
             let ip_address = bmc_endpoint_request.ip_address.parse().map_err(|_| {
                 CarbideError::internal("Internal error: Stored IP address is invalid".to_string())
@@ -115,6 +115,6 @@ pub(crate) async fn get_inner(
         mac: bmc_mac_address.to_string(),
         user: username,
         password,
-        vendor: bmc_vendor.map(|v| v.to_string()),
+        vendor,
     })
 }
