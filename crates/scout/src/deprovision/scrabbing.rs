@@ -555,18 +555,27 @@ async fn try_scsi_sanitize(devpath: &str) -> Result<(), CarbideClientError> {
     Ok(())
 }
 
+fn sysfs_path_is_sata(path: &std::path::Path) -> bool {
+    // SATA devices resolve through an ATA host in the sysfs device tree (path contains "/ata").
+    // SAS/SCSI devices do not.
+    path.to_string_lossy().contains("/ata")
+}
+
+fn is_sata_device(devname: &str) -> bool {
+    fs::canonicalize(format!("/sys/block/{devname}"))
+        .map(|p| sysfs_path_is_sata(&p))
+        .unwrap_or(false)
+}
+
 async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError> {
-    match try_ata_secure_erase(devpath).await {
-        Ok(()) => return Ok(()),
-        Err(e) => {
-            tracing::info!(
-                "ATA secure erase not applicable for {}: {}. Trying SCSI sanitize.",
-                devpath,
-                e
-            );
-        }
+    let devname = devpath.trim_start_matches("/dev/");
+    if is_sata_device(devname) {
+        tracing::info!("{} detected as SATA, using ATA Secure Erase", devpath);
+        try_ata_secure_erase(devpath).await
+    } else {
+        tracing::info!("{} detected as SAS/SCSI, using SCSI Sanitize", devpath);
+        try_scsi_sanitize(devpath).await
     }
-    try_scsi_sanitize(devpath).await
 }
 
 async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
@@ -1236,6 +1245,19 @@ mod tests {
 
         assert!(hdparm_supports_enhanced_erase(with_enhanced));
         assert!(!hdparm_supports_enhanced_erase(without_enhanced));
+    }
+
+    #[test]
+    fn test_sysfs_path_is_sata() {
+        use std::path::Path;
+        // SATA: path contains /ata host component
+        assert!(sysfs_path_is_sata(Path::new(
+            "/sys/devices/pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0/block/sda"
+        )));
+        // SAS: path goes through SAS host, no /ata component
+        assert!(!sysfs_path_is_sata(Path::new(
+            "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/host0/port-0:0/end_device-0:0/target0:0:0/0:0:0:0/block/sda"
+        )));
     }
 
     #[test]
