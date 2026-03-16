@@ -3,13 +3,10 @@
 -- Private key is encrypted with a master key.
 -- Token delegation columns are nullable when an org does not use delegation.
 
--- this line will be removed before merging into main branch.
---DROP TABLE IF EXISTS tenant_identity_config CASCADE;
-
 CREATE TYPE token_delegation_auth_method_t AS ENUM ('none', 'client_secret_basic');
 
 CREATE TABLE tenant_identity_config (
-    organization_id   VARCHAR(255) PRIMARY KEY REFERENCES tenants(organization_id) ON DELETE CASCADE,
+    organization_id   TEXT PRIMARY KEY REFERENCES tenants(organization_id) ON DELETE CASCADE,
     -- Identity config (from PUT identity/config)
     issuer                   VARCHAR(512) NOT NULL,
     default_audience         VARCHAR(255) NOT NULL,

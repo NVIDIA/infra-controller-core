@@ -88,7 +88,7 @@ pub async fn set(
             key_id = EXCLUDED.key_id,
             algorithm = EXCLUDED.algorithm,
             master_key_id = EXCLUDED.master_key_id
-        RETURNING issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
+        RETURNING organization_id, issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
             enabled, created_at, updated_at, encrypted_signing_key, signing_key_public, key_id,
             algorithm, master_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
             subject_token_audience, token_delegation_created_at
@@ -116,7 +116,7 @@ pub async fn find(
     org_id: &TenantOrganizationId,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Option<TenantIdentityConfig>> {
-    let query = "SELECT issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix, \
+    let query = "SELECT organization_id, issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix, \
         enabled, created_at, updated_at, encrypted_signing_key, signing_key_public, key_id, algorithm, \
         master_key_id, token_endpoint, auth_method, encrypted_auth_method_config, subject_token_audience, \
         token_delegation_created_at FROM tenant_identity_config WHERE organization_id = $1";
@@ -140,7 +140,7 @@ pub async fn set_token_delegation(
             subject_token_audience = $5, updated_at = NOW(),
             token_delegation_created_at = COALESCE(token_delegation_created_at, NOW())
         WHERE organization_id = $1
-        RETURNING issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
+        RETURNING organization_id, issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
             enabled, created_at, updated_at, encrypted_signing_key, signing_key_public, key_id,
             algorithm, master_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
             subject_token_audience, token_delegation_created_at
@@ -180,7 +180,7 @@ pub async fn delete_token_delegation(
         SET token_endpoint = NULL, auth_method = NULL, encrypted_auth_method_config = NULL,
             subject_token_audience = NULL, token_delegation_created_at = NULL, updated_at = NOW()
         WHERE organization_id = $1
-        RETURNING issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
+        RETURNING organization_id, issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
             enabled, created_at, updated_at, encrypted_signing_key, signing_key_public, key_id,
             algorithm, master_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
             subject_token_audience, token_delegation_created_at
