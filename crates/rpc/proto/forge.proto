@@ -212,10 +212,10 @@ service Forge {
 
   rpc ValidateTenantPublicKey(ValidateTenantPublicKeyRequest) returns (ValidateTenantPublicKeyResponse);
 
-  // Admin CLI actions
+  // Query for BMC Credentials
+  rpc GetBmcCredentials(GetBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
 
-  // Query Vault for the DPU's SSH admin password
-  rpc GetDpuSSHCredential(CredentialRequest) returns (CredentialResponse);
+  // Admin CLI actions
 
   // List all machines network status (HBN), as reported by `forge-dpu-agent`
   rpc GetAllManagedHostNetworkStatus(ManagedHostNetworkStatusRequest) returns (ManagedHostNetworkStatusResponse);
@@ -3096,13 +3096,19 @@ message SSHKeyValidationResponse {
   UserRoles role = 2;
 }
 
-message CredentialRequest {
-  string host_id = 1; // UUID, IP address, host name or MAC address
+message GetBmcCredentialsRequest {
+  string mac_addr = 1;
 }
 
-message CredentialResponse {
-  string username = 1;
-  string password = 2;
+message GetBmcCredentialsResponse {
+  BmcCredentials credentials = 1;
+}
+
+message BmcCredentials {
+  oneof type {
+    UsernamePassword username_password = 1;
+    SessionToken session_token = 2;
+  }
 }
 
 message GetSiteExplorationRequest {
@@ -3744,7 +3750,6 @@ message BMCMetaDataGetResponse {
 message MachineCredentialsUpdateRequest {
   enum CredentialPurpose {
     HBN = 0;
-    LOGIN_USER = 1;
     BMC = 2;
   }
 
@@ -6273,6 +6278,10 @@ enum DpuExtensionServiceType {
 message UsernamePassword {
   string username = 1;
   string password = 2;
+}
+
+message SessionToken {
+  string token = 1;
 }
 
 message DpuExtensionServiceCredential {

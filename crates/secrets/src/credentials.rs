@@ -345,7 +345,6 @@ pub enum MqttCredentialType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialKey {
-    DpuSsh { machine_id: MachineId },
     DpuHbn { machine_id: MachineId },
     DpuRedfish { credential_type: CredentialType },
     HostRedfish { credential_type: CredentialType },
@@ -363,9 +362,6 @@ pub enum CredentialKey {
 impl CredentialKey {
     pub fn to_key_str(&self) -> Cow<'_, str> {
         match self {
-            CredentialKey::DpuSsh { machine_id } => {
-                Cow::from(format!("machines/{machine_id}/dpu-ssh"))
-            }
             CredentialKey::DpuHbn { machine_id } => {
                 Cow::from(format!("machines/{machine_id}/dpu-hbn"))
             }

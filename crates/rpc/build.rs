@@ -84,7 +84,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.CredentialResponse", "#[derive(serde::Serialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -757,6 +756,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.ComputeAllocationAttributes",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.GetBmcCredentialsRequest",
             "#[derive(serde::Serialize)]",
         )
         .build_server(true)

@@ -796,22 +796,12 @@ impl Forge for Api {
         crate::handlers::machine_interface::delete_interface(self, request).await
     }
 
-    // Fetch the DPU admin SSH password from Vault.
-    // "host_id" can be any of:
-    //  - UUID (primary key)
-    //  - IPv4 address
-    //  - MAC address
-    //  - Hostname
-    //
-    // Usage:
-    //  grpcurl -d '{"host_id": "neptune-bravo"}' -insecure 127.0.0.1:1079 forge.Forge/GetDpuSSHCredential | jq -r -j ".password"
-    // That should evaluate to exactly the password, ready for inclusion in a script.
-    //
-    async fn get_dpu_ssh_credential(
+    // Fetches BMC Credentials
+    async fn get_bmc_credentials(
         &self,
-        request: Request<rpc::CredentialRequest>,
-    ) -> Result<Response<rpc::CredentialResponse>, Status> {
-        crate::handlers::credential::get_dpu_ssh_credential(self, request).await
+        request: Request<rpc::GetBmcCredentialsRequest>,
+    ) -> Result<Response<rpc::GetBmcCredentialsResponse>, Status> {
+        crate::handlers::credential::get_bmc_credentals(self, request).await
     }
 
     /// Network status of each managed host, as reported by forge-dpu-agent.
