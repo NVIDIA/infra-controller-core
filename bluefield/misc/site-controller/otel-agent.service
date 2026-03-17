@@ -1,15 +1,15 @@
 [Unit]
 Description=DPU OpenTelemetry mTLS certificate renewal agent (otel-agent in Docker)
 After=networking.service network-online.target time-sync.target containerd@mgmt.service
-StartLimitIntervalSec=300
-StartLimitBurst=5
+StartLimitIntervalSec=0
+StartLimitBurst=0
 
 [Service]
 ExecStart=/usr/share/otelcol-contrib/docker/otel-agent/otel-agent.sh
 ExecStop=/usr/bin/docker stop otel-agent
 KillMode=mixed
 Restart=on-failure
-RestartSec=10
+RestartSec=30
 
 Type=simple
 User=root
