@@ -8,10 +8,10 @@ if [ "$1" = "configure" ]; then
 	# Must match /proc/sys/kernel/core_pattern
 	mkdir -p /var/support/core
 
-        # otel_post_install.sh is written to be harmless if run a second time.
-        if ! /usr/local/sbin/otel_post_install.sh; then
-            echo "otel_post_install.sh failed, will retry on next configure." >&2
-        fi
+	# otel_post_install.sh is written to be harmless if run a second time.
+	if ! /usr/local/sbin/otel_post_install.sh; then
+		echo "otel_post_install.sh failed, will retry on next configure." >&2
+	fi
 
 	systemctl daemon-reload
 	systemctl enable otelcol-contrib.service
