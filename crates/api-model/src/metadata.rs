@@ -151,6 +151,22 @@ impl Metadata {
     }
 }
 
+/// A single label filter used for searching resources by label key and/or value
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelFilter {
+    pub key: String,
+    pub value: Option<String>,
+}
+
+impl From<rpc::forge::Label> for LabelFilter {
+    fn from(label: rpc::forge::Label) -> Self {
+        LabelFilter {
+            key: label.key,
+            value: label.value,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,5 +297,38 @@ mod tests {
             metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
+    }
+
+    #[test]
+    fn label_filter_from_rpc_with_value() {
+        let rpc_label = rpc::forge::Label {
+            key: "env".to_string(),
+            value: Some("prod".to_string()),
+        };
+        let filter = LabelFilter::from(rpc_label);
+        assert_eq!(filter.key, "env");
+        assert_eq!(filter.value, Some("prod".to_string()));
+    }
+
+    #[test]
+    fn label_filter_from_rpc_without_value() {
+        let rpc_label = rpc::forge::Label {
+            key: "env".to_string(),
+            value: None,
+        };
+        let filter = LabelFilter::from(rpc_label);
+        assert_eq!(filter.key, "env");
+        assert_eq!(filter.value, None);
+    }
+
+    #[test]
+    fn label_filter_from_rpc_empty_key() {
+        let rpc_label = rpc::forge::Label {
+            key: String::new(),
+            value: Some("prod".to_string()),
+        };
+        let filter = LabelFilter::from(rpc_label);
+        assert!(filter.key.is_empty());
+        assert_eq!(filter.value, Some("prod".to_string()));
     }
 }

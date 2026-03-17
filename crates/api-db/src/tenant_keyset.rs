@@ -38,7 +38,7 @@ pub async fn create(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::forge::TenantKeysetSearchFilter,
+    filter: model::tenant::TenantKeysetSearchFilter,
 ) -> Result<Vec<TenantKeysetId>, DatabaseError> {
     // build query
     let mut builder =

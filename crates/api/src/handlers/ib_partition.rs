@@ -96,7 +96,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::IbPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::IbPartitionSearchFilter = request.into_inner();
+    let filter: model::ib_partition::IbPartitionSearchFilter = request.into_inner().into();
 
     let ib_partition_ids = db::ib_partition::find_ids(&api.database_connection, filter).await?;
 

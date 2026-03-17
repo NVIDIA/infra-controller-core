@@ -183,7 +183,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::InstanceIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::InstanceSearchFilter = request.into_inner();
+    let filter: model::instance::InstanceSearchFilter = request.into_inner().into();
 
     let instance_ids = db::instance::find_ids(&api.database_connection, filter).await?;
 

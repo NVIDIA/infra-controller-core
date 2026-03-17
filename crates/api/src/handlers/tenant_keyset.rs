@@ -66,7 +66,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
+    let filter: model::tenant::TenantKeysetSearchFilter = request.into_inner().into();
 
     let keyset_ids = db::tenant_keyset::find_ids(&api.database_connection, filter).await?;
 

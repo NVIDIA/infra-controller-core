@@ -57,7 +57,8 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::NvLinkLogicalPartitionSearchFilter = request.into_inner();
+    let filter: model::nvl_logical_partition::NvLinkLogicalPartitionSearchFilter =
+        request.into_inner().into();
 
     let partition_ids =
         db::nvl_logical_partition::find_ids(&api.database_connection, filter).await?;

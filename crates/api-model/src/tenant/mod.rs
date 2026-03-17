@@ -33,6 +33,32 @@ use sqlx::{FromRow, Row};
 
 use crate::metadata::Metadata;
 
+#[derive(Clone, Debug, Default)]
+pub struct TenantSearchFilter {
+    pub tenant_organization_name: Option<String>,
+}
+
+impl From<rpc::forge::TenantSearchFilter> for TenantSearchFilter {
+    fn from(filter: rpc::forge::TenantSearchFilter) -> Self {
+        TenantSearchFilter {
+            tenant_organization_name: filter.tenant_organization_name,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TenantKeysetSearchFilter {
+    pub tenant_org_id: Option<String>,
+}
+
+impl From<rpc::forge::TenantKeysetSearchFilter> for TenantKeysetSearchFilter {
+    fn from(filter: rpc::forge::TenantKeysetSearchFilter) -> Self {
+        TenantKeysetSearchFilter {
+            tenant_org_id: filter.tenant_org_id,
+        }
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum TenantError {
     #[error("Publickey validation fail for instance {0}, key {1}")]

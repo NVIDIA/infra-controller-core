@@ -34,13 +34,12 @@ use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
 use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
-use model::ib_partition::PartitionKey;
+use model::ib_partition::{IbPartitionSearchFilter, PartitionKey};
 use model::machine::infiniband::{
     MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
 };
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
-use rpc::forge::IbPartitionSearchFilter;
 use sqlx::{PgConnection, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;

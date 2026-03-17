@@ -445,7 +445,7 @@ pub async fn batch_allocate_instances(
         // Now we need to grab the count of instances for the tenant for this instance type.
         // We will need to compare the count+1 against new allocation total to make sure a
         // new instance won't exceed it.
-        let filter = rpc::InstanceSearchFilter {
+        let filter = model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: Some(tenant_organization_id.to_string()),
             vpc_id: None,

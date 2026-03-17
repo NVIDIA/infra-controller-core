@@ -62,12 +62,10 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::network_security_group::NetworkSecurityGroupStatusObservation;
-use model::network_segment::NetworkSegmentSearchConfig;
+use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentSearchFilter};
 use model::vpc::UpdateVpcVirtualization;
 use model::vpc_prefix::VpcPrefixConfig;
-use rpc::forge::{
-    DpuExtensionService, Issue, IssueCategory, NetworkSegmentSearchFilter, TpmCaCert, TpmCaCertId,
-};
+use rpc::forge::{DpuExtensionService, Issue, IssueCategory, TpmCaCert, TpmCaCertId};
 use rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp};
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};

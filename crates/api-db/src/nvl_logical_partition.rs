@@ -285,7 +285,7 @@ pub async fn for_tenant(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::NvLinkLogicalPartitionSearchFilter,
+    filter: model::nvl_logical_partition::NvLinkLogicalPartitionSearchFilter,
 ) -> Result<Vec<NvLinkLogicalPartitionId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM nvlink_logical_partitions");

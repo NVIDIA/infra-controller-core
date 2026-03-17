@@ -452,7 +452,7 @@ pub(crate) async fn update(
         // Now we need to grab the count of instances for the tenant for this instance type.
         // We will need to compare the count against the new allocation total to make sure the
         // total isn't dropping below the count of already-created instances.
-        let filter = rpc::InstanceSearchFilter {
+        let filter = model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: Some(req.tenant_organization_id),
             vpc_id: None,
@@ -597,7 +597,7 @@ pub(crate) async fn delete(
         // Now we need to grab the count of instances for the tenant for this instance type.
         // We will need to compare the count against the new allocation total to make sure the
         // total isn't dropping below the count of already-created instances.
-        let filter = rpc::InstanceSearchFilter {
+        let filter = model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: Some(req.tenant_organization_id),
             vpc_id: None,

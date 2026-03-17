@@ -32,7 +32,7 @@ pub(crate) async fn find_explored_endpoint_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredEndpointIdList>, Status> {
     log_request_data(&request);
 
-    let filter: ::rpc::site_explorer::ExploredEndpointSearchFilter = request.into_inner();
+    let filter: model::site_explorer::ExploredEndpointSearchFilter = request.into_inner().into();
 
     let endpoint_ips = db::explored_endpoints::find_ips(&api.database_connection, filter).await?;
 
@@ -87,7 +87,7 @@ pub(crate) async fn find_explored_managed_host_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredManagedHostIdList>, Status> {
     log_request_data(&request);
 
-    let filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter = request.into_inner();
+    let filter: model::site_explorer::ExploredManagedHostSearchFilter = request.into_inner().into();
 
     let host_ips = db::explored_managed_host::find_ips(&api.database_connection, filter).await?;
 

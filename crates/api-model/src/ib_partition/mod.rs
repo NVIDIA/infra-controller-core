@@ -24,6 +24,21 @@ use crate::StateSla;
 
 mod slas;
 
+#[derive(Clone, Debug, Default)]
+pub struct IbPartitionSearchFilter {
+    pub tenant_org_id: Option<String>,
+    pub name: Option<String>,
+}
+
+impl From<rpc::forge::IbPartitionSearchFilter> for IbPartitionSearchFilter {
+    fn from(filter: rpc::forge::IbPartitionSearchFilter) -> Self {
+        IbPartitionSearchFilter {
+            tenant_org_id: filter.tenant_org_id,
+            name: filter.name,
+        }
+    }
+}
+
 /// Represents an InfiniBand Partition Key
 /// Partition Keys are 16 bit values valid up to a value of 0x7fff
 /// Partition Keys are serialized as strings, since the hex represenation is

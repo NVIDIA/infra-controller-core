@@ -403,7 +403,7 @@ pub async fn for_tenant(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::IbPartitionSearchFilter,
+    filter: model::ib_partition::IbPartitionSearchFilter,
 ) -> Result<Vec<IBPartitionId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM ib_partitions");
