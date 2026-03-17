@@ -507,7 +507,7 @@ impl TestEnv {
             let mut txn: sqlx::Transaction<'static, sqlx::Postgres> =
                 self.pool.begin().await.unwrap();
             let machine = db::machine::find_one(
-                &mut txn,
+                txn.as_mut(),
                 host_machine_id,
                 model::machine::machine_search_config::MachineSearchConfig::default(),
             )
@@ -521,7 +521,7 @@ impl TestEnv {
         }
         let mut txn = self.pool.begin().await.unwrap();
         let machine = db::machine::find_one(
-            &mut txn,
+            txn.as_mut(),
             host_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )

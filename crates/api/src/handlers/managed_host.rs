@@ -167,7 +167,7 @@ pub(crate) async fn set_primary_dpu(
 
     // increment the network config version so that the DPUs pick up their new config
     let (network_config, network_config_version) =
-        db::machine::get_network_config(&mut txn, &host_machine_id)
+        db::machine::get_network_config(txn.as_pgconn(), &host_machine_id)
             .await?
             .take();
     db::machine::try_update_network_config(

@@ -168,19 +168,14 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
         .into());
     }
 
-    // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    let mut txn = api.txn_begin().await?;
-
     let dpa_ifs_int =
-        db::dpa_interface::find_by_ids(&mut txn, &req.ids, req.include_history).await?;
+        db::dpa_interface::find_by_ids(&api.database_connection, &req.ids, req.include_history)
+            .await?;
 
     let rpc_dpa_ifs = dpa_ifs_int
         .into_iter()
         .map(|i| i.into())
         .collect::<Vec<rpc::forge::DpaInterface>>();
-
-    // Commit if nothing has gone wrong up to now
-    txn.commit().await?;
 
     Ok(Response::new(rpc::forge::DpaInterfaceList {
         interfaces: rpc_dpa_ifs,

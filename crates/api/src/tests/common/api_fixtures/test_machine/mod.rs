@@ -63,7 +63,7 @@ impl TestMachine {
     }
 
     pub async fn db_machine(&self, txn: &mut Txn<'_>) -> Machine {
-        db::machine::find_one(txn, &self.id, Default::default())
+        db::machine::find_one(txn.as_mut(), &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()

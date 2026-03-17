@@ -101,7 +101,7 @@ pub async fn admin_network(
 
     let domain = match admin_segment.subdomain_id {
         Some(domain_id) => {
-            db::dns::domain::find_by_uuid(txn, domain_id)
+            db::dns::domain::find_by_uuid(&mut *txn, domain_id)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| CarbideError::NotFoundError {

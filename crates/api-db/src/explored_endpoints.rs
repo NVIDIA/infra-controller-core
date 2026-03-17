@@ -147,7 +147,7 @@ pub async fn find_by_ips(
 }
 
 /// find_all returns all explored endpoints that site explorer has been able to probe
-pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+pub async fn find_all(txn: impl DbReader<'_>) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints";
 
     sqlx::query_as::<_, DbExploredEndpoint>(query)
@@ -514,7 +514,7 @@ pub async fn delete_many(
 /// explored_endpoints_mac_addresses_idx, to avoid a full scan of all endpoint reports. Do NOT
 /// change this query without changing the index to match!
 pub async fn find_by_mac_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     mac: MacAddress,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = r#"

@@ -345,7 +345,7 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
             DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
         })?;
         db::machine::find_one(
-            &mut conn,
+            &mut *conn,
             &host_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )

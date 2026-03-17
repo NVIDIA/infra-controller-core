@@ -370,7 +370,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let domain = match segment.subdomain_id {
                 Some(domain_id) => {
-                    db::dns::domain::find_by_uuid(&mut txn, domain_id)
+                    db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
                         .await
                         .map_err(CarbideError::from)?
                         .ok_or_else(|| CarbideError::NotFoundError {

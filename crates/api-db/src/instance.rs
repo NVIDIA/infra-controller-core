@@ -135,7 +135,7 @@ WHERE vpc_id = ",
 }
 
 pub async fn find(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'_, IdColumn>,
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT row_to_json(i.*) FROM instances i")

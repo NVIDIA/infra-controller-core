@@ -76,7 +76,7 @@ pub(crate) async fn find_interfaces(
                     "Impossible interface.address array length",
                 ));
             };
-            match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
+            match db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), ip).await {
                 Ok(Some(machine_id)) => {
                     let rpc_machine_id = Some(machine_id);
                     interface.is_bmc = Some(true);
@@ -125,7 +125,8 @@ pub(crate) async fn delete_interface(
     // There should not be any BMC information associated with any machine.
     for address in interface.addresses.iter() {
         let machine_id =
-            db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, &address.to_string()).await?;
+            db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), &address.to_string())
+                .await?;
 
         if let Some(machine_id) = machine_id {
             return Err(Status::invalid_argument(format!(

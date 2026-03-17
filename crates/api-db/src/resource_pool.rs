@@ -36,6 +36,7 @@ use tokio::sync::oneshot;
 
 use super::BIND_LIMIT;
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 
 /// Put some resources into the pool, so they can be allocated later.
 /// This needs to be called before `allocate` can return anything.
@@ -274,7 +275,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Da
 
 /// All the resource pool entries for the given value
 pub async fn find_value(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     value: &str,
 ) -> Result<Vec<ResourcePoolEntry>, DatabaseError> {
     let query =

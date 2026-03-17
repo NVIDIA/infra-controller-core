@@ -258,12 +258,11 @@ pub(crate) async fn get_machine_validation_results(
         }
     };
 
-    let mut txn = api.txn_begin().await?;
-
+    let mut db_reader = api.db_reader();
     let mut db_results: Vec<MachineValidationResult> = Vec::new();
     if let Some(machine_id) = machine_id.as_ref() {
         db_results = db::machine_validation_result::find_by_machine_id(
-            &mut txn,
+            &mut db_reader,
             machine_id,
             req.include_history,
         )
@@ -273,16 +272,17 @@ pub(crate) async fn get_machine_validation_results(
             db_results.retain(|x| x.validation_id == validation_id)
         }
     } else if let Some(validation_id) = validation_id {
-        db_results =
-            db::machine_validation_result::find_by_validation_id(&mut txn, &validation_id).await?;
+        db_results = db::machine_validation_result::find_by_validation_id(
+            &api.database_connection,
+            &validation_id,
+        )
+        .await?;
     }
 
     let vec_rest = db_results
         .into_iter()
         .map(rpc::MachineValidationResult::from)
         .collect();
-
-    txn.commit().await?;
 
     Ok(tonic::Response::new(rpc::MachineValidationResultList {
         results: vec_rest,
@@ -336,13 +336,12 @@ pub(crate) async fn get_machine_validation_runs(
     log_request_data(&request);
     let machine_validation_run_request: rpc::MachineValidationRunListGetRequest =
         request.into_inner();
-    let mut txn = api.txn_begin().await?;
-
+    let mut db_reader = api.db_reader();
     let db_runs = match machine_validation_run_request.machine_id {
         Some(id) => {
             let machine_id = convert_and_log_machine_id(Some(&id))?;
             db::machine_validation::find(
-                &mut txn,
+                &mut db_reader,
                 &machine_id,
                 machine_validation_run_request.include_history,
             )
@@ -350,7 +349,7 @@ pub(crate) async fn get_machine_validation_runs(
         }
         None => {
             tracing::info!("no machine ID");
-            db::machine_validation::find_all(&mut txn).await
+            db::machine_validation::find_all(&api.database_connection).await
         }
     };
     let ret = db_runs
@@ -364,7 +363,6 @@ pub(crate) async fn get_machine_validation_runs(
         )
         .map(Response::new)?;
 
-    txn.commit().await?;
     Ok(ret)
 }
 

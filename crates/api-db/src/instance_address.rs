@@ -54,7 +54,7 @@ impl super::ColumnInfo<'_> for PrefixColumn {
 }
 
 pub async fn find_by_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     address: IpAddr,
 ) -> Result<Option<InstanceAddress>, DatabaseError> {
     let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";

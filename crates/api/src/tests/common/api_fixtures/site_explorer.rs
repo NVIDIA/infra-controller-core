@@ -371,7 +371,7 @@ impl<'a> MockExploredHost<'a> {
 
         //run scout discovery for dpu(s)
         for dpu in self.managed_host.dpus.clone() {
-            let machine_interfaces = find_by_mac_address(&mut txn, dpu.oob_mac_address)
+            let machine_interfaces = find_by_mac_address(txn.as_mut(), dpu.oob_mac_address)
                 .await
                 .unwrap();
             let primary_interface = machine_interfaces
@@ -453,7 +453,7 @@ impl<'a> MockExploredHost<'a> {
 
         //run scout discovery for dpu(s)
         for dpu in self.managed_host.dpus.clone() {
-            let machine_interfaces = find_by_mac_address(&mut txn, dpu.oob_mac_address)
+            let machine_interfaces = find_by_mac_address(txn.as_mut(), dpu.oob_mac_address)
                 .await
                 .unwrap();
             let primary_interface = machine_interfaces
@@ -557,7 +557,7 @@ impl<'a> MockExploredHost<'a> {
 
         //run scout discovery for dpu(s)
         for dpu in self.managed_host.dpus.clone() {
-            let machine_interfaces = find_by_mac_address(&mut txn, dpu.oob_mac_address)
+            let machine_interfaces = find_by_mac_address(txn.as_mut(), dpu.oob_mac_address)
                 .await
                 .unwrap();
             let primary_interface = machine_interfaces
@@ -990,7 +990,7 @@ impl<'a> MockExploredHost<'a> {
 
                 let mut txn = self.test_env.pool.begin().await.unwrap();
                 let machine = db::machine::find_one(
-                    &mut txn,
+                    txn.as_mut(),
                     &self.dpu_machine_ids[&0],
                     model::machine::machine_search_config::MachineSearchConfig::default(),
                 )
