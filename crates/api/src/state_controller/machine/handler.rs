@@ -9319,17 +9319,17 @@ async fn handle_instance_host_platform_config(
                     })?)
                 {
                     tracing::warn!(
-                        "Tenant has released {} but the {} does not have its boot order configured properly",
-                        mh_snapshot.host_snapshot.id,
-                        vendor.to_string()
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        bmc_vendor = %vendor,
+                        "Host boot order is not configured properly"
                     );
 
                     true
                 } else {
                     tracing::info!(
-                        "Tenant has released {} and the {} has its boot order configured properly",
-                        mh_snapshot.host_snapshot.id,
-                        vendor.to_string()
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        bmc_vendor = %vendor,
+                        "Host boot order is configured properly"
                     );
 
                     false
