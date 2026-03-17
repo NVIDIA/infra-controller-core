@@ -29,7 +29,7 @@ use db::{self, ObjectColumnFilter, ObjectFilter, explored_endpoints as db_explor
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachineData;
+use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
@@ -171,6 +171,7 @@ impl FakePowerShelf {
 
     fn as_expected_power_shelf(&self) -> model::expected_power_shelf::ExpectedPowerShelf {
         model::expected_power_shelf::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: self.bmc_mac_address,
             bmc_username: self.bmc_username.clone(),
             bmc_password: self.bmc_password.clone(),
@@ -1391,19 +1392,21 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     db::expected_machine::create(
         &mut txn,
-        HOST1_MAC.to_string().parse().unwrap(),
-        ExpectedMachineData {
-            bmc_username: "user1".to_string(),
-            bmc_password: "pw".to_string(),
-            serial_number: "host1".to_string(),
-            fallback_dpu_serial_numbers: vec![],
-            metadata: Metadata::new_with_default_name(),
-            sku_id: Some("Sku1".to_string()),
-            override_id: None,
-            default_pause_ingestion_and_poweron: None,
-            host_nics: vec![],
-            rack_id: None,
-            dpf_enabled: Some(true),
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: HOST1_MAC.to_string().parse().unwrap(),
+            data: ExpectedMachineData {
+                bmc_username: "user1".to_string(),
+                bmc_password: "pw".to_string(),
+                serial_number: "host1".to_string(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: Some("Sku1".to_string()),
+                default_pause_ingestion_and_poweron: None,
+                host_nics: vec![],
+                rack_id: None,
+                dpf_enabled: Some(true),
+            },
         },
     )
     .await?;
@@ -1438,24 +1441,19 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), HOST1_MAC.parse().unwrap())
             .await?
             .expect("Expected machine not found");
-    db::expected_machine::update(
-        &mut host1_expected_machine,
-        &mut txn,
-        ExpectedMachineData {
-            bmc_username: "user1".to_string(),
-            bmc_password: "pw".to_string(),
-            serial_number: "host1".to_string(),
-            fallback_dpu_serial_numbers: vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
-            metadata: Metadata::new_with_default_name(),
-            sku_id: None,
-            override_id: None,
-            default_pause_ingestion_and_poweron: None,
-            host_nics: vec![],
-            rack_id: None,
-            dpf_enabled: Some(true),
-        },
-    )
-    .await?;
+    host1_expected_machine.data = ExpectedMachineData {
+        bmc_username: "user1".to_string(),
+        bmc_password: "pw".to_string(),
+        serial_number: "host1".to_string(),
+        fallback_dpu_serial_numbers: vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
+        metadata: Metadata::new_with_default_name(),
+        sku_id: None,
+        default_pause_ingestion_and_poweron: None,
+        host_nics: vec![],
+        rack_id: None,
+        dpf_enabled: Some(true),
+    };
+    db::expected_machine::update(&mut txn, &host1_expected_machine).await?;
     txn.commit().await?;
 
     explorer.run_single_iteration().await.unwrap();
@@ -2396,19 +2394,21 @@ async fn test_machine_creation_with_sku(
 
     db::expected_machine::create(
         &mut txn,
-        HOST1_MAC.to_string().parse().unwrap(),
-        ExpectedMachineData {
-            bmc_username: "user1".to_string(),
-            bmc_password: "pw".to_string(),
-            serial_number: "host1".to_string(),
-            fallback_dpu_serial_numbers: vec![],
-            metadata: Metadata::new_with_default_name(),
-            sku_id: Some("Sku1".to_string()),
-            override_id: None,
-            default_pause_ingestion_and_poweron: None,
-            host_nics: vec![],
-            rack_id: None,
-            dpf_enabled: Some(true),
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: HOST1_MAC.to_string().parse().unwrap(),
+            data: ExpectedMachineData {
+                bmc_username: "user1".to_string(),
+                bmc_password: "pw".to_string(),
+                serial_number: "host1".to_string(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: Some("Sku1".to_string()),
+                default_pause_ingestion_and_poweron: None,
+                host_nics: vec![],
+                rack_id: None,
+                dpf_enabled: Some(true),
+            },
         },
     )
     .await?;
@@ -2525,57 +2525,63 @@ async fn test_expected_machine_device_type_metrics(
     // Create expected machines with different SKU configurations
     db::expected_machine::create(
         &mut txn,
-        EXPECTED_MACHINE_1_MAC.parse().unwrap(),
-        ExpectedMachineData {
-            bmc_username: "user1".to_string(),
-            bmc_password: "pass1".to_string(),
-            serial_number: "serial1".to_string(),
-            fallback_dpu_serial_numbers: vec![],
-            metadata: Metadata::new_with_default_name(),
-            sku_id: Some(test_sku_gpu_id.clone()),
-            override_id: None,
-            default_pause_ingestion_and_poweron: None,
-            host_nics: vec![],
-            rack_id: None,
-            dpf_enabled: Some(true),
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: EXPECTED_MACHINE_1_MAC.parse().unwrap(),
+            data: ExpectedMachineData {
+                bmc_username: "user1".to_string(),
+                bmc_password: "pass1".to_string(),
+                serial_number: "serial1".to_string(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: Some(test_sku_gpu_id.clone()),
+                default_pause_ingestion_and_poweron: None,
+                host_nics: vec![],
+                rack_id: None,
+                dpf_enabled: Some(true),
+            },
         },
     )
     .await?;
 
     db::expected_machine::create(
         &mut txn,
-        EXPECTED_MACHINE_2_MAC.parse().unwrap(),
-        ExpectedMachineData {
-            bmc_username: "user2".to_string(),
-            bmc_password: "pass2".to_string(),
-            serial_number: "serial2".to_string(),
-            fallback_dpu_serial_numbers: vec![],
-            metadata: Metadata::new_with_default_name(),
-            sku_id: Some(test_sku_no_type_id.clone()),
-            override_id: None,
-            default_pause_ingestion_and_poweron: None,
-            host_nics: vec![],
-            rack_id: None,
-            dpf_enabled: Some(true),
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: EXPECTED_MACHINE_2_MAC.parse().unwrap(),
+            data: ExpectedMachineData {
+                bmc_username: "user2".to_string(),
+                bmc_password: "pass2".to_string(),
+                serial_number: "serial2".to_string(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: Some(test_sku_no_type_id.clone()),
+                default_pause_ingestion_and_poweron: None,
+                host_nics: vec![],
+                rack_id: None,
+                dpf_enabled: Some(true),
+            },
         },
     )
     .await?;
 
     db::expected_machine::create(
         &mut txn,
-        EXPECTED_MACHINE_3_MAC.parse().unwrap(),
-        ExpectedMachineData {
-            bmc_username: "user3".to_string(),
-            bmc_password: "pass3".to_string(),
-            serial_number: "serial3".to_string(),
-            fallback_dpu_serial_numbers: vec![],
-            metadata: Metadata::new_with_default_name(),
-            sku_id: None, // No SKU
-            override_id: None,
-            default_pause_ingestion_and_poweron: None,
-            host_nics: vec![],
-            rack_id: None,
-            dpf_enabled: Some(true),
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: EXPECTED_MACHINE_3_MAC.parse().unwrap(),
+            data: ExpectedMachineData {
+                bmc_username: "user3".to_string(),
+                bmc_password: "pass3".to_string(),
+                serial_number: "serial3".to_string(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: None, // No SKU
+                default_pause_ingestion_and_poweron: None,
+                host_nics: vec![],
+                rack_id: None,
+                dpf_enabled: Some(true),
+            },
         },
     )
     .await?;
@@ -2773,17 +2779,7 @@ async fn test_site_explorer_power_shelf_discovery(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -2932,17 +2928,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
 
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3094,17 +3080,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
     let mut txn = env.pool.begin().await?;
     for power_shelf in &power_shelves {
         let expected_power_shelf = power_shelf.as_expected_power_shelf();
-        db::expected_power_shelf::create(
-            &mut txn,
-            expected_power_shelf.bmc_mac_address,
-            expected_power_shelf.bmc_username.clone(),
-            expected_power_shelf.bmc_password.clone(),
-            expected_power_shelf.serial_number.clone(),
-            expected_power_shelf.ip_address,
-            expected_power_shelf.metadata.clone(),
-            expected_power_shelf.rack_id,
-        )
-        .await?;
+        db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     }
     txn.commit().await?;
 
@@ -3245,17 +3221,7 @@ async fn test_site_explorer_power_shelf_disabled(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3382,17 +3348,7 @@ async fn test_site_explorer_power_shelf_error_handling(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3531,17 +3487,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -3746,17 +3692,7 @@ async fn test_power_shelf_state_history(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -3970,29 +3906,8 @@ async fn test_power_shelf_state_history_multiple(
     let expected_power_shelf1 = power_shelf1.as_expected_power_shelf();
     let expected_power_shelf2 = power_shelf2.as_expected_power_shelf();
 
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf1.bmc_mac_address,
-        expected_power_shelf1.bmc_username.clone(),
-        expected_power_shelf1.bmc_password.clone(),
-        expected_power_shelf1.serial_number.clone(),
-        expected_power_shelf1.ip_address,
-        expected_power_shelf1.metadata.clone(),
-        expected_power_shelf1.rack_id,
-    )
-    .await?;
-
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf2.bmc_mac_address,
-        expected_power_shelf2.bmc_username.clone(),
-        expected_power_shelf2.bmc_password.clone(),
-        expected_power_shelf2.serial_number.clone(),
-        expected_power_shelf2.ip_address,
-        expected_power_shelf2.metadata.clone(),
-        expected_power_shelf2.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf1.clone()).await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf2.clone()).await?;
     txn.commit().await?;
 
     // Create exploration reports for power shelves
@@ -4261,17 +4176,7 @@ async fn test_power_shelf_state_history_error_handling(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -4457,17 +4362,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());

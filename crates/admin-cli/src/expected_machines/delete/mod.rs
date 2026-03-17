@@ -26,13 +26,7 @@ use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        ctx.api_client
-            .0
-            .delete_expected_machine(::rpc::forge::ExpectedMachineRequest {
-                bmc_mac_address: self.bmc_mac_address.to_string(),
-                id: None,
-            })
-            .await?;
+        cmd::delete(self, &ctx.api_client).await?;
         Ok(())
     }
 }
