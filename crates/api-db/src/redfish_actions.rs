@@ -25,7 +25,7 @@ use crate::db_read::DbReader;
 
 pub async fn list_requests(
     request: rpc::forge::RedfishListActionsRequest,
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<ActionRequest>, DatabaseError> {
     let text_query = format!(
         "SELECT
@@ -99,7 +99,8 @@ pub async fn find_serials(
     ips: &[String],
     txn: &mut PgConnection,
 ) -> Result<HashMap<String, String>, DatabaseError> {
-    let pairs = crate::machine_topology::find_machine_bmc_pairs(&mut *txn, ips.to_vec()).await?;
+    let pairs =
+        crate::machine_topology::find_machine_bmc_pairs(&mut txn.into(), ips.to_vec()).await?;
     if pairs.len() != ips.len() {
         let requested_ips: HashSet<_> = ips.iter().cloned().collect();
         let found_ips: HashSet<_> = pairs.into_iter().map(|p| p.1).collect();

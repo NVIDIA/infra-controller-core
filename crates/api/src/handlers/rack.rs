@@ -18,6 +18,7 @@ use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, HealthReportOverride};
 use carbide_uuid::rack::RackId;
+use db::db_read::AsDbReader;
 use db::{WithTransaction, rack as db_rack};
 use futures_util::FutureExt;
 use health_report::OverrideMode;
@@ -35,12 +36,12 @@ pub async fn get_rack(
     let rack = if let Some(id) = req.id {
         let rack_id = RackId::from_str(&id)
             .map_err(|e| Status::invalid_argument(format!("Invalid rack ID: {}", e)))?;
-        let r = db_rack::get(&api.database_connection, rack_id)
+        let r = db_rack::get(&mut api.db_reader(), rack_id)
             .await
             .map_err(CarbideError::from)?;
         vec![r.into()]
     } else {
-        db_rack::list(&api.database_connection)
+        db_rack::list(&mut api.db_reader())
             .await
             .map_err(CarbideError::from)?
             .into_iter()
@@ -99,7 +100,7 @@ pub async fn delete_rack(
         async move {
             let rack_id = RackId::from_str(&req.id)
                 .map_err(|e| Status::invalid_argument(format!("Invalid rack ID: {}", e)))?;
-            let rack = db_rack::get(txn.as_mut(), rack_id)
+            let rack = db_rack::get(&mut txn.as_db_reader(), rack_id)
                 .await
                 .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
             db_rack::mark_as_deleted(&rack, txn)
@@ -122,7 +123,7 @@ pub async fn list_rack_health_report_overrides(
         .rack_id
         .ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
-    let rack = db_rack::get(&api.database_connection, rack_id)
+    let rack = db_rack::get(&mut api.db_reader(), rack_id)
         .await
         .map_err(CarbideError::from)?;
 
@@ -167,7 +168,7 @@ pub async fn insert_rack_health_report_override(
 
     let mut txn = api.txn_begin().await?;
 
-    let rack = db_rack::get(&mut txn, rack_id)
+    let rack = db_rack::get(&mut txn.as_db_reader(), rack_id)
         .await
         .map_err(CarbideError::from)?;
 
@@ -200,7 +201,7 @@ pub async fn remove_rack_health_report_override(
 
     let mut txn = api.txn_begin().await?;
 
-    let rack = db_rack::get(&mut txn, rack_id)
+    let rack = db_rack::get(&mut txn.as_db_reader(), rack_id)
         .await
         .map_err(CarbideError::from)?;
 

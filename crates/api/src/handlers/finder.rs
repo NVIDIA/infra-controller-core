@@ -122,9 +122,9 @@ pub(crate) async fn identify_serial(
     let req = request.into_inner();
 
     let machine_ids = if req.exact {
-        db::machine_topology::find_by_serial(&api.database_connection, &req.serial_number).await?
+        db::machine_topology::find_by_serial(&mut api.db_reader(), &req.serial_number).await?
     } else {
-        db::machine_topology::find_freetext(&api.database_connection, &req.serial_number).await?
+        db::machine_topology::find_freetext(&mut api.db_reader(), &req.serial_number).await?
     };
 
     if machine_ids.len() > 1 {
@@ -203,7 +203,8 @@ async fn search(
 ) -> Result<Option<rpc::IpAddressMatch>, CarbideError> {
     let addr: IpAddr = ip.parse()?;
 
-    let db = &api.database_connection;
+    let mut db_reader = api.db_reader();
+    let db = &mut db_reader;
 
     use Finder::*;
     let match_result = match finder {
@@ -380,12 +381,12 @@ async fn search(
 }
 
 async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, CarbideError> {
-    let db = &api.database_connection;
     let mut db_reader = api.db_reader();
+    let db = &mut db_reader;
 
     if let Ok(ns_id) = NetworkSegmentId::from_str(&u.value) {
         let segments = db::network_segment::find_by(
-            &mut db_reader,
+            db,
             ObjectColumnFilter::List(network_segment::IdColumn, &[ns_id]),
             NetworkSegmentSearchConfig {
                 include_history: false,
@@ -447,7 +448,8 @@ async fn by_mac(
     api: &Api,
     mac: mac_address::MacAddress,
 ) -> Result<Option<(String, rpc::MacOwner)>, DatabaseError> {
-    let db = &api.database_connection;
+    let mut db_reader = api.db_reader();
+    let db = &mut db_reader;
 
     match db::machine_interface::find_by_mac_address(db, mac).await {
         Ok(interfaces) if interfaces.len() == 1 => {

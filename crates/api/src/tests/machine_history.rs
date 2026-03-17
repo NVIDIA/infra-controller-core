@@ -16,6 +16,7 @@
  */
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::{self};
 use model::machine::{MachineStateHistory, ManagedHostState};
 use rpc::forge::forge_server::Forge;
@@ -65,7 +66,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let mut txn = env.pool.begin().await?;
 
         let machine = db::machine::find_one(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             &dpu_machine_id,
             model::machine::machine_search_config::MachineSearchConfig {
                 include_history: true,
@@ -81,7 +82,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         );
 
         let machine = db::machine::find_one(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             &dpu_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )
@@ -143,7 +144,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let machine = db::machine::find_one(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
@@ -170,7 +171,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert_eq!(result.len(), 250);
 
     let machine = db::machine::find_one(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
@@ -244,7 +245,7 @@ async fn test_old_machine_state_history(
         .await?;
 
     let machine = db::machine::find_one(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,

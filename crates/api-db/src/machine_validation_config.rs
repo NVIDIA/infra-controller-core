@@ -22,7 +22,7 @@ use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 pub async fn find_config_by_name(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     name: &str,
 ) -> DatabaseResult<MachineValidationExternalConfig> {
     let query = "SELECT * FROM machine_validation_external_config WHERE name=$1";
@@ -79,7 +79,7 @@ pub async fn create_or_update(
     description: &str,
     data: &Vec<u8>,
 ) -> DatabaseResult<()> {
-    match find_config_by_name(&mut *txn, name).await {
+    match find_config_by_name(&mut txn.into(), name).await {
         Ok(config) => update(txn, name, data, config.version.increment()).await?,
         Err(_) => save(txn, name, description, data).await?,
     };
@@ -87,7 +87,7 @@ pub async fn create_or_update(
 }
 
 pub async fn find_configs(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> DatabaseResult<Vec<MachineValidationExternalConfig>> {
     let query = "SELECT * FROM machine_validation_external_config";
 

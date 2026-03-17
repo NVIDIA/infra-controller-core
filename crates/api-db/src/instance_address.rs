@@ -37,7 +37,7 @@ use model::network_segment::{
 use sqlx::{FromRow, PgConnection, PgTransaction, query_as};
 
 use super::{ObjectColumnFilter, network_segment};
-use crate::db_read::DbReader;
+use crate::db_read::{AsDbReader, DbReader};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::{DatabaseError, DatabaseResult, Transaction};
 
@@ -54,7 +54,7 @@ impl super::ColumnInfo<'_> for PrefixColumn {
 }
 
 pub async fn find_by_address(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     address: IpAddr,
 ) -> Result<Option<InstanceAddress>, DatabaseError> {
     let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
@@ -223,7 +223,7 @@ pub async fn allocate(
     }
 
     let segments = crate::network_segment::find_by(
-        &mut inner_txn,
+        &mut inner_txn.as_db_reader(),
         ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
         NetworkSegmentSearchConfig::default(),
     )
@@ -293,7 +293,7 @@ pub async fn allocate(
                 .copied()
                 .collect::<Vec<IpAddr>>();
 
-            let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
+            let dhcp_handler: Box<dyn UsedIpResolver + Send> =
                 Box::new(UsedOverlayNetworkIpResolver {
                     segment_id: segment.id,
                     busy_ips,
@@ -303,7 +303,7 @@ pub async fn allocate(
             // for IPv4, /126 for IPv6) via InstanceInterfaceConfig. For now,
             // the allocator defaults to single-host allocation (/32 or /128).
             let ip_allocator = IpAllocator::new(
-                inner_txn.as_pgconn(),
+                &mut inner_txn.as_db_reader(),
                 segment,
                 dhcp_handler,
                 AddressSelectionStrategy::NextAvailableIp,
@@ -342,10 +342,7 @@ pub struct UsedOverlayNetworkIpResolver {
 }
 
 #[async_trait::async_trait]
-impl<DB> UsedIpResolver<DB> for UsedOverlayNetworkIpResolver
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+impl UsedIpResolver for UsedOverlayNetworkIpResolver {
     // DEPRECATED
     // With the introduction of `used_prefixes()` this is no
     // longer an accurate approach for finding all allocated
@@ -359,7 +356,7 @@ where
     // target the `address` column of the `instance_addresses`
     // table, in which a single /32 is stored (although, as an
     // `inet`, it could techincally also have a prefix length).
-    async fn used_ips(&self, txn: &mut DB) -> Result<Vec<IpAddr>, DatabaseError> {
+    async fn used_ips(&self, txn: &mut DbReader<'_>) -> Result<Vec<IpAddr>, DatabaseError> {
         // IpAddrContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -396,7 +393,7 @@ WHERE network_segments.id = $1::uuid";
     // or a /30 (for FNN prefix allocations), where the `address`
     // column would contain the host IP allocated from the
     // /30 prefix.
-    async fn used_prefixes(&self, txn: &mut DB) -> Result<Vec<IpNetwork>, DatabaseError> {
+    async fn used_prefixes(&self, txn: &mut DbReader<'_>) -> Result<Vec<IpNetwork>, DatabaseError> {
         // IpNetworkContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -545,11 +542,10 @@ pub async fn allocate_svi_ip(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
 ) -> DatabaseResult<(NetworkPrefixId, IpAddr)> {
-    let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
-        Box::new(UsedOverlayNetworkIpResolver {
-            segment_id: segment.id,
-            busy_ips: vec![],
-        });
+    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedOverlayNetworkIpResolver {
+        segment_id: segment.id,
+        busy_ips: vec![],
+    });
 
     // If either requested addresses are auto-generated, we lock the entire table
     let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
@@ -558,8 +554,9 @@ pub async fn allocate_svi_ip(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
+    let mut db_reader = DbReader::from(txn);
     let mut addresses_allocator = IpAllocator::new(
-        txn.as_mut(),
+        &mut db_reader,
         segment,
         dhcp_handler,
         AddressSelectionStrategy::NextAvailableIp,

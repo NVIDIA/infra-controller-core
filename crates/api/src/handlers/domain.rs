@@ -61,13 +61,12 @@ pub(crate) async fn update(
         .id
         .ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
-    let mut domain =
-        domain::find_by_uuid(&mut txn, uuid)
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "domain",
-                id: uuid.to_string(),
-            })?;
+    let mut domain = domain::find_by_uuid(&mut txn.as_db_reader(), uuid)
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "domain",
+            id: uuid.to_string(),
+        })?;
 
     domain.name = domain_proto.name;
 
@@ -91,13 +90,12 @@ pub(crate) async fn delete(
     let req = request.into_inner();
     let uuid = req.id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
-    let domain =
-        domain::find_by_uuid(&mut txn, uuid)
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "domain",
-                id: uuid.to_string(),
-            })?;
+    let domain = domain::find_by_uuid(&mut txn.as_db_reader(), uuid)
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "domain",
+            id: uuid.to_string(),
+        })?;
 
     // TODO: This needs to validate that nothing references the domain anymore
     // (like NetworkSegments)
@@ -120,15 +118,15 @@ pub(crate) async fn find(
     let domains = match (id, name) {
         (Some(id), _) => {
             domain::find_by(
-                &api.database_connection,
+                &mut api.db_reader(),
                 ObjectColumnFilter::One(domain::IdColumn, &id),
             )
             .await
         }
-        (None, Some(name)) => domain::find_by_name(&api.database_connection, &name).await,
+        (None, Some(name)) => domain::find_by_name(&mut api.db_reader(), &name).await,
         (None, None) => {
             domain::find_by(
-                &api.database_connection,
+                &mut api.db_reader(),
                 ObjectColumnFilter::<domain::IdColumn>::All,
             )
             .await
@@ -156,6 +154,7 @@ use ::rpc::protos::forge::{
     DomainDeletionLegacy, DomainDeletionResultLegacy, DomainLegacy, DomainListLegacy,
     DomainSearchQueryLegacy,
 };
+use db::db_read::AsDbReader;
 
 /// Compatibility adapter for legacy create_domain RPC
 pub async fn create_legacy_compat(

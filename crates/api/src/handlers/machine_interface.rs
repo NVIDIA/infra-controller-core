@@ -20,6 +20,7 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineType;
+use db::db_read::AsDbReader;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 
@@ -37,9 +38,13 @@ pub(crate) async fn find_interfaces(
     let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
 
     let mut interfaces: Vec<rpc::MachineInterface> = match (id, ip) {
-        (Some(id), _) => vec![db::machine_interface::find_one(&mut txn, id).await?.into()],
+        (Some(id), _) => vec![
+            db::machine_interface::find_one(&mut txn.as_db_reader(), id)
+                .await?
+                .into(),
+        ],
         (None, Some(ip)) => match IpAddr::from_str(ip.as_ref()) {
-            Ok(ip) => match db::machine_interface::find_by_ip(&mut txn, ip).await? {
+            Ok(ip) => match db::machine_interface::find_by_ip(&mut txn.as_db_reader(), ip).await? {
                 Some(interface) => vec![interface.into()],
                 None => {
                     return Err(CarbideError::internal(format!(
@@ -76,7 +81,8 @@ pub(crate) async fn find_interfaces(
                     "Impossible interface.address array length",
                 ));
             };
-            match db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), ip).await {
+            match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn.as_db_reader(), ip).await
+            {
                 Ok(Some(machine_id)) => {
                     let rpc_machine_id = Some(machine_id);
                     interface.is_bmc = Some(true);
@@ -113,7 +119,7 @@ pub(crate) async fn delete_interface(
         return Err(CarbideError::MissingArgument("delete interface.interface_id").into());
     };
 
-    let interface = db::machine_interface::find_one(&mut txn, id).await?;
+    let interface = db::machine_interface::find_one(&mut txn.as_db_reader(), id).await?;
 
     // There should not be any machine associated with this interface.
     if let Some(machine_id) = interface.machine_id {
@@ -124,9 +130,11 @@ pub(crate) async fn delete_interface(
 
     // There should not be any BMC information associated with any machine.
     for address in interface.addresses.iter() {
-        let machine_id =
-            db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), &address.to_string())
-                .await?;
+        let machine_id = db::machine_topology::find_machine_id_by_bmc_ip(
+            &mut txn.as_db_reader(),
+            &address.to_string(),
+        )
+        .await?;
 
         if let Some(machine_id) = machine_id {
             return Err(Status::invalid_argument(format!(
@@ -152,7 +160,7 @@ pub(crate) async fn find_mac_address_by_bmc_ip(
     let bmc_ip = req.bmc_ip;
 
     let interface = db::machine_interface::find_by_ip(
-        &api.database_connection,
+        &mut api.db_reader(),
         bmc_ip
             .parse()
             .map_err(|e| tonic::Status::invalid_argument(format!("Invalid IP address: {e}")))?,

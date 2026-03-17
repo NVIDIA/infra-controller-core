@@ -387,7 +387,7 @@ pub async fn show_html(
 ) -> Response {
     let host_health = state.runtime_config.host_health;
     let managed_hosts = match managed_host::load_all(
-        &state.database_connection,
+        &mut state.db_reader(),
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,

@@ -21,10 +21,7 @@ use crate::DatabaseError;
 use crate::db_read::DbReader;
 
 /// Fetches the latest site exploration report from the database
-pub async fn fetch<DB>(db: &mut DB) -> Result<SiteExplorationReport, DatabaseError>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+pub async fn fetch(db: &mut DbReader<'_>) -> Result<SiteExplorationReport, DatabaseError> {
     let endpoints = crate::explored_endpoints::find_all(&mut *db).await?;
     let managed_hosts = crate::explored_managed_host::find_all(db).await?;
     Ok(SiteExplorationReport {

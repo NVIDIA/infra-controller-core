@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use db::ObjectColumnFilter;
+use db::db_read::AsDbReader;
 use model::dns::NewDomain;
 
 use crate::DatabaseError;
@@ -37,7 +38,7 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
     assert!(delete_result.is_ok());
 
     let domains = db::dns::domain::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await
@@ -100,7 +101,7 @@ async fn find_domain(pool: sqlx::PgPool) {
         .expect("Unable to create transaction on database pool");
 
     let domains = db::dns::domain::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await

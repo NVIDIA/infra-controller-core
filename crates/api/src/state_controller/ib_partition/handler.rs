@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use carbide_uuid::infiniband::IBPartitionId;
+use db::db_read::AsDbReader;
 use db::ib_partition::{IBPartition, IBPartitionStatus};
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
 use model::ib_partition::IBPartitionControllerState;
@@ -97,7 +98,7 @@ impl StateHandler for IBPartitionStateHandler {
                                     let mut txn = ctx.services.db_pool.begin().await?;
                                     let instance_count =
                                         db::ib_partition::count_instances_referencing_partition(
-                                            txn.as_mut(),
+                                            &mut txn.as_db_reader(),
                                             *partition_id,
                                         )
                                         .await?;

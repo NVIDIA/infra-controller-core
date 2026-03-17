@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use chrono::Utc;
 use common::api_fixtures::{TestEnv, create_test_env};
+use db::db_read::AsDbReader;
 use db::{self};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
@@ -42,7 +43,7 @@ async fn move_machine_to_needed_state(
         .await
         .expect("Unable to create transaction on database pool");
     let machine = db::machine::find_one(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &machine_id,
         model::machine::machine_search_config::MachineSearchConfig::default(),
     )
@@ -404,7 +405,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
     // Interface is created. Let's fetch interface id.
     let mut txn = env.pool.begin().await.unwrap();
     let interfaces = db::machine_interface::find_by_mac_address(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         mac_address.parse::<MacAddress>().unwrap(),
     )
     .await

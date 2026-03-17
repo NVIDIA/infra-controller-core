@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use ::db::db_read::AsDbReader;
 use ::db::{ObjectColumnFilter, vpc, vpc_peering as db};
 use ::rpc::forge as rpc;
 use carbide_network::virtualization::VpcVirtualizationType;
@@ -56,14 +57,17 @@ pub async fn create(
             return Err(CarbideError::internal("VPC Peering feature disabled.".to_string()).into());
         }
         Some(VpcPeeringPolicy::Exclusive) => {
-            let vpcs1 =
-                vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
+            let vpcs1 = vpc::find_by(
+                &mut txn.as_db_reader(),
+                ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+            )
+            .await?;
             let vpc1 = vpcs1.first().ok_or_else(|| CarbideError::NotFoundError {
                 kind: "VPC",
                 id: vpc_id.clone().to_string(),
             })?;
             let vpcs2 = vpc::find_by(
-                &mut txn,
+                &mut txn.as_db_reader(),
                 ObjectColumnFilter::One(vpc::IdColumn, &peer_vpc_id),
             )
             .await?;

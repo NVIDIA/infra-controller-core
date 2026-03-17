@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use carbide_uuid::rack::RackId;
+use db::db_read::AsDbReader;
 use db::rack as db_rack;
 use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
 use rpc::forge::RackStateHistoryRecord;
@@ -129,7 +130,7 @@ async fn test_can_retrieve_rack_state_history(
         .await?;
 
     // Verify rack exists
-    db_rack::get(&mut *txn, rack_id).await?;
+    db_rack::get(&mut txn.as_db_reader(), rack_id).await?;
 
     // Start the state controller to process the rack while it's active
     let rack_handler = Arc::new(TestRackStateHandler::default());
@@ -202,7 +203,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         .await?;
 
     // Verify rack exists
-    let rack = db_rack::get(&mut *txn, rack_id).await?;
+    let rack = db_rack::get(&mut txn.as_db_reader(), rack_id).await?;
 
     // Verify initial state is Expected
     assert!(matches!(rack.controller_state.value, RackState::Expected));
@@ -262,7 +263,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         .await?;
 
     // Verify rack exists
-    let rack = db_rack::get(&mut *txn, rack_id).await?;
+    let rack = db_rack::get(&mut txn.as_db_reader(), rack_id).await?;
     assert_eq!(rack.id, rack_id);
 
     // Start the state controller to process the rack while it's active
@@ -395,7 +396,7 @@ async fn test_rack_state_transition_validation(
         .with_rack_id(rack_id)
         .persist(&mut txn)
         .await?;
-    let rack = db_rack::get(&mut *txn, rack_id).await?;
+    let rack = db_rack::get(&mut txn.as_db_reader(), rack_id).await?;
 
     // Verify initial state is Expected
     assert!(matches!(rack.controller_state.value, RackState::Expected));
@@ -419,10 +420,10 @@ async fn test_rack_state_transition_validation(
     ];
 
     for state in states {
-        set_rack_controller_state(pool.acquire().await?.as_mut(), rack_id, state.clone()).await?;
+        set_rack_controller_state(txn.as_mut(), rack_id, state.clone()).await?;
 
         // Verify the state was set correctly
-        let rack = db_rack::get(&pool, rack_id).await?;
+        let rack = db_rack::get(&mut txn.as_db_reader(), rack_id).await?;
         assert!(matches!(rack.controller_state.value, _ if rack.controller_state.value == state));
     }
 

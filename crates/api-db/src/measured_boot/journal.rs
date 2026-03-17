@@ -77,7 +77,7 @@ pub async fn delete_where_id(
     }
 }
 
-pub async fn get_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<MeasurementJournal>> {
+pub async fn get_all(txn: &mut DbReader<'_>) -> DatabaseResult<Vec<MeasurementJournal>> {
     get_measurement_journals(txn).await
 }
 
@@ -175,7 +175,7 @@ pub async fn get_journal_for_report_id(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 async fn get_measurement_journals(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> DatabaseResult<Vec<MeasurementJournal>> {
     let journal_records: Vec<MeasurementJournalRecord> = common::get_all_objects(txn).await?;
     let res: Vec<MeasurementJournal> = journal_records
@@ -196,7 +196,7 @@ async fn get_measurement_journals(
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
 pub async fn get_latest_journal_for_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: MachineId,
 ) -> DatabaseResult<Option<MeasurementJournal>> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
@@ -230,7 +230,7 @@ pub async fn get_latest_for_machine_id(
     txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> DatabaseResult<Option<MeasurementJournal>> {
-    get_latest_journal_for_id(txn, machine_id).await
+    get_latest_journal_for_id(&mut txn.into(), machine_id).await
 }
 
 /// get_measurement_journals_for_machine_id returns all fully populated

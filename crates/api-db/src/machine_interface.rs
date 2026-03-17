@@ -38,7 +38,7 @@ use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{FromRow, PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::db_read::DbReader;
+use crate::db_read::{AsDbReader, DbReader};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
 
@@ -201,14 +201,14 @@ pub async fn associate_interface_with_machine(
 }
 
 pub async fn find_by_mac_address(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     macaddr: MacAddress,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(MacAddressColumn, &macaddr)).await
 }
 
 pub async fn find_by_ip(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     ip: IpAddr,
 ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
     lazy_static! {
@@ -227,7 +227,7 @@ pub async fn find_by_ip(
 }
 
 pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MachineInterfaceSnapshot>> {
-    find_by(txn, ObjectColumnFilter::All::<IdColumn>).await
+    find_by(&mut txn.into(), ObjectColumnFilter::All::<IdColumn>).await
 }
 
 pub async fn find_by_machine_ids(
@@ -237,12 +237,13 @@ pub async fn find_by_machine_ids(
     use itertools::Itertools;
     // The .unwrap() in the `group_map_by` call is ok - because we are only
     // searching for Machines which have associated MachineIds
-    Ok(
-        find_by(txn, ObjectColumnFilter::List(MachineIdColumn, machine_ids))
-            .await?
-            .into_iter()
-            .into_group_map_by(|interface| interface.machine_id.unwrap()),
+    Ok(find_by(
+        &mut txn.into(),
+        ObjectColumnFilter::List(MachineIdColumn, machine_ids),
     )
+    .await?
+    .into_iter()
+    .into_group_map_by(|interface| interface.machine_id.unwrap()))
 }
 
 pub async fn count_by_segment_id(
@@ -260,7 +261,7 @@ pub async fn count_by_segment_id(
 }
 
 pub async fn find_one(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     interface_id: MachineInterfaceId,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id)).await?;
@@ -295,7 +296,7 @@ pub async fn find_or_create_machine_interface(
             Ok(validate_existing_mac_and_create(&mut *txn, mac_address, relay, host_nic).await?)
         }
         Some(_) => {
-            let mut ifcs = find_by_mac_address(&mut *txn, mac_address).await?;
+            let mut ifcs = find_by_mac_address(&mut txn.into(), mac_address).await?;
             match ifcs.len() {
                 1 => Ok(ifcs.remove(0)),
                 n => {
@@ -321,7 +322,7 @@ pub async fn validate_existing_mac_and_create(
     relay: IpAddr,
     host_nic: Option<ExpectedHostNic>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
-    let mut existing_mac = find_by_mac_address(&mut *txn, mac_address).await?;
+    let mut existing_mac = find_by_mac_address(&mut txn.into(), mac_address).await?;
     match &existing_mac.len() {
         0 => {
             tracing::debug!(
@@ -464,11 +465,12 @@ async fn create_fast_path(
         {
             Ok(interface_id) => {
                 fast_txn.commit().await?;
-                return Ok(
-                    find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))
-                        .await?
-                        .remove(0),
-                );
+                return Ok(find_by(
+                    &mut txn.into(),
+                    ObjectColumnFilter::One(IdColumn, &interface_id),
+                )
+                .await?
+                .remove(0));
             }
             Err(err) if err.is_fqdn_conflict() => {
                 // Another simultaneous create got the same FQDN, try again.
@@ -525,16 +527,15 @@ pub async fn create_slow_path(
         }
     }
 
-    let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
-        Box::new(UsedAdminNetworkIpResolver {
-            segment_id: segment.id,
-            busy_ips: reserved_ips,
-        });
+    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
+        segment_id: segment.id,
+        busy_ips: reserved_ips,
+    });
 
     // Allocate an address from each prefix in the segment. For dual-stack
     // segments this means one IPv4 address and one IPv6 address.
     let allocator = IpAllocator::new(
-        inner_txn.as_pgconn(),
+        &mut inner_txn.as_db_reader(),
         segment,
         dhcp_handler,
         address_strategy,
@@ -558,11 +559,12 @@ pub async fn create_slow_path(
     .await?;
     inner_txn.commit().await?;
 
-    Ok(
-        find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))
-            .await?
-            .remove(0),
+    Ok(find_by(
+        &mut txn.into(),
+        ObjectColumnFilter::One(IdColumn, &interface_id),
     )
+    .await?
+    .remove(0))
 }
 
 /// Fast path for single-IP allocation.
@@ -754,17 +756,16 @@ pub async fn allocate_svi_ip(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
 ) -> DatabaseResult<(NetworkPrefixId, IpAddr)> {
-    let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
-        Box::new(UsedAdminNetworkIpResolver {
-            segment_id: segment.id,
-            busy_ips: vec![],
-        });
+    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
+        segment_id: segment.id,
+        busy_ips: vec![],
+    });
 
     // Prevent other allocations from happening concurrently in this network segment
     lock_network_segment_exclusive(txn, segment).await?;
 
     let mut addresses_allocator = IpAllocator::new(
-        txn.as_mut(),
+        &mut txn.into(),
         segment,
         dhcp_handler,
         AddressSelectionStrategy::NextAvailableIp,
@@ -788,7 +789,7 @@ pub async fn find_by_ip_or_id(
     interface_id: Option<MachineInterfaceId>,
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     if let Some(remote_ip) = remote_ip
-        && let Some(interface) = find_by_ip(&mut *txn, remote_ip).await?
+        && let Some(interface) = find_by_ip(&mut txn.into(), remote_ip).await?
     {
         // remove debug message by Apr 2024
         tracing::debug!(
@@ -799,7 +800,7 @@ pub async fn find_by_ip_or_id(
         return Ok(interface);
     }
     match interface_id {
-        Some(interface_id) => find_one(txn, interface_id).await,
+        Some(interface_id) => find_one(&mut txn.into(), interface_id).await,
         None => Err(DatabaseError::NotFoundError {
             kind: "machine_interface",
             id: format!("remote_ip={remote_ip:?},interface_id={interface_id:?}"),
@@ -892,7 +893,7 @@ fn address_to_hostname(address: &IpAddr) -> DatabaseResult<String> {
 }
 
 async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(MACHINE_INTERFACE_SNAPSHOT_QUERY)
@@ -954,7 +955,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     }
 
     let machine_interface_id = match self::find_by_mac_address(
-        &mut *txn,
+        &mut txn.into(),
         predicted_machine_interface.mac_address,
     )
     .await?
@@ -1121,7 +1122,7 @@ pub async fn delete(
 }
 
 pub async fn delete_by_ip(txn: &mut PgConnection, ip: IpAddr) -> Result<Option<()>, DatabaseError> {
-    let interface = find_by_ip(&mut *txn, ip).await?;
+    let interface = find_by_ip(&mut txn.into(), ip).await?;
 
     let Some(interface) = interface else {
         return Ok(None);
@@ -1133,10 +1134,7 @@ pub async fn delete_by_ip(txn: &mut PgConnection, ip: IpAddr) -> Result<Option<(
 }
 
 #[async_trait::async_trait]
-impl<DB> UsedIpResolver<DB> for UsedAdminNetworkIpResolver
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+impl UsedIpResolver for UsedAdminNetworkIpResolver {
     // DEPRECATED
     // With the introduction of `used_prefixes()` this is no
     // longer an accurate approach for finding all allocated
@@ -1152,7 +1150,7 @@ where
     // target the `address` column of the `machine_interface_addresses`
     // table, in which a single /32 is stored (although, as an
     // `inet`, it could techincally also have a prefix length).
-    async fn used_ips(&self, txn: &mut DB) -> Result<Vec<IpAddr>, DatabaseError> {
+    async fn used_ips(&self, txn: &mut DbReader<'_>) -> Result<Vec<IpAddr>, DatabaseError> {
         // IpAddrContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -1195,7 +1193,7 @@ WHERE network_segments.id = $1::uuid";
     // saying its not implemented for machine_interfaces, BUT,
     // it keeps it cleaner knowing the IpAllocator works via
     // calling used_prefixes() regardless of who is using it.
-    async fn used_prefixes(&self, txn: &mut DB) -> Result<Vec<IpNetwork>, DatabaseError> {
+    async fn used_prefixes(&self, txn: &mut DbReader<'_>) -> Result<Vec<IpNetwork>, DatabaseError> {
         let used_ips = self.used_ips(txn).await?;
         let mut ip_networks: Vec<IpNetwork> = Vec::new();
         for used_ip in used_ips {

@@ -23,6 +23,7 @@ use std::sync::atomic::Ordering;
 pub use ::rpc::forge as rpc;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
+use db::db_read::AsDbReader;
 use futures_util::FutureExt;
 use model::hardware_info::{GpuPlatformInfo, HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::machine::machine_id::{from_hardware_info, host_id_from_dpu_hardware_info};
@@ -156,7 +157,7 @@ pub(crate) async fn discover_machine(
             .load(Ordering::Relaxed)
         {
             db::machine::find_one(
-                &mut txn,
+                &mut txn.as_db_reader(),
                 &stable_machine_id,
                 MachineSearchConfig {
                     include_dpus: true,
@@ -191,7 +192,7 @@ pub(crate) async fn discover_machine(
             machine
         } else {
             db::machine::find_one(
-                &mut txn,
+                &mut txn.as_db_reader(),
                 &stable_machine_id,
                 MachineSearchConfig {
                     include_dpus: true,

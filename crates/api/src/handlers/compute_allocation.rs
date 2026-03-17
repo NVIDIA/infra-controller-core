@@ -22,6 +22,7 @@ use ::rpc::forge as rpc;
 use carbide_uuid::compute_allocation::ComputeAllocationId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::{compute_allocation, instance, instance_type, machine};
 use model::compute_allocation::MAX_COMPUTE_ALLOCATION_SIZE;
 use model::metadata::Metadata;
@@ -459,7 +460,9 @@ pub(crate) async fn update(
             instance_type_id: Some(instance_type_id.to_string()),
         };
 
-        let instance_count = instance::find_ids(&mut txn, filter).await?.len();
+        let instance_count = instance::find_ids(&mut txn.as_db_reader(), filter)
+            .await?
+            .len();
 
         if instance_count
             > new_tenant_allocation_total
@@ -604,7 +607,9 @@ pub(crate) async fn delete(
             instance_type_id: Some(allocation.instance_type_id.to_string()),
         };
 
-        let instance_count = instance::find_ids(&mut txn, filter).await?.len();
+        let instance_count = instance::find_ids(&mut txn.as_db_reader(), filter)
+            .await?
+            .len();
 
         if instance_count
             > new_tenant_allocation_total

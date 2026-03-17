@@ -51,7 +51,8 @@ pub(crate) async fn get_cloud_init_instructions(
     let cloud_name = "nvidia".to_string();
     let platform = "forge".to_string();
 
-    let db = &api.database_connection;
+    let mut db_reader = api.db_reader();
+    let db = &mut db_reader;
 
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str

@@ -139,7 +139,7 @@ pub async fn persist(
     crate::network_segment_state_history::persist(txn, segment_id, &initial_state, version).await?;
 
     find_by(
-        txn,
+        &mut txn.into(),
         ObjectColumnFilter::One(IdColumn, &segment_id),
         Default::default(),
     )
@@ -154,7 +154,7 @@ pub async fn persist(
 }
 
 pub async fn for_vpc(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     vpc_id: VpcId,
 ) -> Result<Vec<NetworkSegment>, DatabaseError> {
     lazy_static! {
@@ -258,7 +258,7 @@ pub async fn list_segment_ids(
 }
 
 pub async fn find_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: rpc::NetworkSegmentSearchFilter,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     // build query
@@ -287,14 +287,11 @@ pub async fn find_ids(
     Ok(ids)
 }
 
-pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>, DB>(
-    conn: &mut DB,
+pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>>(
+    conn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
     search_config: NetworkSegmentSearchConfig,
-) -> Result<Vec<NetworkSegment>, DatabaseError>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> Result<Vec<NetworkSegment>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(if search_config.include_history {
         NETWORK_SEGMENT_SNAPSHOT_WITH_HISTORY_QUERY.deref()
     } else {
@@ -373,13 +370,10 @@ pub async fn batch_find_ids_by_machine_ids(
     Ok(result)
 }
 
-async fn update_num_free_ips_into_prefix_list<DB>(
-    conn: &mut DB,
+async fn update_num_free_ips_into_prefix_list(
+    conn: &mut DbReader<'_>,
     all_records: &mut [NetworkSegment],
-) -> Result<(), DatabaseError>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> Result<(), DatabaseError> {
     for record in all_records.iter_mut().filter(|s| !s.prefixes.is_empty()) {
         let mut busy_ips = vec![];
         for prefix in &record.prefixes {
@@ -387,7 +381,7 @@ where
                 busy_ips.push(svi_ip);
             }
         }
-        let dhcp_handler: Box<dyn UsedIpResolver<DB> + Send> = if record.segment_type.is_tenant() {
+        let dhcp_handler: Box<dyn UsedIpResolver + Send> = if record.segment_type.is_tenant() {
             // Note on UsedOverlayNetworkIpResolver:
             // In this case, the IpAllocator isn't being used to iterate to get
             // the next available prefix_length allocation -- it's actually just
@@ -600,13 +594,10 @@ pub async fn admin(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseErr
 
 /// Are queried segment in ready state?
 /// Returns true if all segments are in Ready state, else false
-pub async fn are_network_segments_ready<DB>(
-    conn: &mut DB,
+pub async fn are_network_segments_ready(
+    conn: &mut DbReader<'_>,
     segment_ids: &[NetworkSegmentId],
-) -> Result<bool, DatabaseError>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> Result<bool, DatabaseError> {
     let segments = find_by(
         conn,
         ObjectColumnFilter::List(IdColumn, segment_ids),

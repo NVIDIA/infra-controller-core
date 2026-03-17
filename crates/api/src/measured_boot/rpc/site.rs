@@ -172,7 +172,7 @@ pub async fn handle_list_measurement_trusted_machines(
     _req: ListMeasurementTrustedMachinesRequest,
 ) -> Result<ListMeasurementTrustedMachinesResponse, Status> {
     let approval_records: Vec<MeasurementApprovedMachineRecordPb> =
-        get_approved_machines(&api.database_connection)
+        get_approved_machines(&mut api.db_reader())
             .await
             .map_err(|e| Status::internal(format!("failed to fetch machine approvals: {e}")))?
             .into_iter()
@@ -248,7 +248,7 @@ pub async fn handle_list_measurement_trusted_profiles(
     _req: ListMeasurementTrustedProfilesRequest,
 ) -> Result<ListMeasurementTrustedProfilesResponse, Status> {
     let approval_records: Vec<MeasurementApprovedProfileRecordPb> =
-        get_approved_profiles(&api.database_connection)
+        get_approved_profiles(&mut api.db_reader())
             .await
             .map_err(|e| Status::internal(format!("failed to fetch profile approvals: {e}")))?
             .into_iter()
@@ -262,7 +262,7 @@ pub async fn handle_list_attestation_summary(
     api: &Api,
     _req: ListAttestationSummaryRequest,
 ) -> Result<ListAttestationSummaryResponse, Status> {
-    let attestation_summary = list_attestation_summary(&api.database_connection)
+    let attestation_summary = list_attestation_summary(&mut api.db_reader())
         .await
         .map_err(|e| Status::internal(format!("failed to fetch attestation summary: {e}")))?;
 

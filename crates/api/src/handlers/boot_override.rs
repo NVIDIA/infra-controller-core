@@ -17,6 +17,7 @@
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineInterfaceId;
+use db::db_read::AsDbReader;
 use model::machine_boot_override::MachineBootOverride;
 
 use crate::api::Api;
@@ -31,7 +32,12 @@ pub(crate) async fn get(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
+    let machine_id = match db::machine_interface::find_one(
+        &mut txn.as_db_reader(),
+        machine_interface_id,
+    )
+    .await
+    {
         Ok(interface) => interface.machine_id,
         Err(_) => None,
     };
@@ -40,8 +46,11 @@ pub(crate) async fn get(
         crate::api::log_machine_id(&machine_id);
     }
 
-    let mbo = match db::machine_boot_override::find_optional(txn.as_pgconn(), machine_interface_id)
-        .await?
+    let mbo = match db::machine_boot_override::find_optional(
+        &mut txn.as_db_reader(),
+        machine_interface_id,
+    )
+    .await?
     {
         Some(mbo) => mbo,
         None => MachineBootOverride {
@@ -65,11 +74,13 @@ pub(crate) async fn set(
     let mbo: MachineBootOverride = request.into_inner().try_into()?;
     let mut txn = api.txn_begin().await?;
 
-    let machine_id = match db::machine_interface::find_one(&mut txn, mbo.machine_interface_id).await
-    {
-        Ok(interface) => interface.machine_id,
-        Err(_) => None,
-    };
+    let machine_id =
+        match db::machine_interface::find_one(&mut txn.as_db_reader(), mbo.machine_interface_id)
+            .await
+        {
+            Ok(interface) => interface.machine_id,
+            Err(_) => None,
+        };
     match machine_id {
         Some(machine_id) => {
             crate::api::log_machine_id(&machine_id);
@@ -103,7 +114,12 @@ pub(crate) async fn clear(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
+    let machine_id = match db::machine_interface::find_one(
+        &mut txn.as_db_reader(),
+        machine_interface_id,
+    )
+    .await
+    {
         Ok(interface) => interface.machine_id,
         Err(_) => None,
     };

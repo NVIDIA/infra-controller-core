@@ -41,7 +41,7 @@ impl super::ColumnInfo<'_> for SegmentIdColumn {
 
 /// Fetch the prefix that matches, is a subnet of, or contains the given one.
 pub async fn containing_prefix(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     prefix: &str,
 ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
     let query = "select * from network_prefixes where prefix && $1::inet";

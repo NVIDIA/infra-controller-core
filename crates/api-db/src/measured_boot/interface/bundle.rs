@@ -190,7 +190,7 @@ pub async fn update_state_for_bundle_id(
 /// for the given `bundle_id`, if it exists. This leverages the generic
 /// get_object_for_id function since its a simple/common pattern.
 pub async fn get_measurement_bundle_by_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     bundle_id: MeasurementBundleId,
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::get_object_for_id(txn, bundle_id)
@@ -205,7 +205,7 @@ pub async fn get_measurement_bundle_for_name(
     txn: &mut PgConnection,
     bundle_name: String,
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
-    common::get_object_for_unique_column(txn, "name", bundle_name.clone())
+    common::get_object_for_unique_column(&mut txn.into(), "name", bundle_name.clone())
         .await
         .map_err(|e| e.with_op_name("get_measurement_bundle_for_name"))
 }
@@ -214,7 +214,7 @@ pub async fn get_measurement_bundle_for_name(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundle_records(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -228,7 +228,7 @@ pub async fn get_measurement_bundle_records_for_profile_id(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
-    common::get_objects_where_id(txn, profile_id)
+    common::get_objects_where_id(&mut txn.into(), profile_id)
         .await
         .map_err(|e| e.with_op_name("get_measurement_bundle_records_for_profile_id"))
 }
@@ -237,7 +237,7 @@ pub async fn get_measurement_bundle_records_for_profile_id(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundles_values(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -252,7 +252,7 @@ pub async fn get_measurement_bundles_values(
 /// of multiple objects matching a given PgUuid, where
 /// the PgUuid is probably a reference/foreign key.
 pub async fn get_measurement_bundle_values_for_bundle_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     bundle_id: MeasurementBundleId,
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_objects_where_id(txn, bundle_id)

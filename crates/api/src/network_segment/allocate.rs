@@ -19,6 +19,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use carbide_network::ip::IdentifyAddressFamily;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use db::db_read::AsDbReader;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NewNetworkPrefix;
@@ -201,11 +202,12 @@ impl PrefixAllocator {
 
     pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<IpNetwork> {
         let vpc_str = self.vpc_prefix.to_string();
-        let used_prefixes = db::network_prefix::containing_prefix(txn, vpc_str.as_str())
-            .await?
-            .iter()
-            .map(|x| x.prefix)
-            .collect_vec();
+        let used_prefixes =
+            db::network_prefix::containing_prefix(&mut txn.as_db_reader(), vpc_str.as_str())
+                .await?
+                .iter()
+                .map(|x| x.prefix)
+                .collect_vec();
 
         // Reminder that `new()` already validated self.prefix > self.vpc_prefix.prefix().
         let total_network_possible: u128 = 1u128 << (self.prefix - self.vpc_prefix.prefix()) as u32;

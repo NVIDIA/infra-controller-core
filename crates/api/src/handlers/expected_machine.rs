@@ -16,6 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use carbide_uuid::rack::RackId;
+use db::db_read::AsDbReader;
 use db::rack as db_rack;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
@@ -49,7 +50,7 @@ pub(crate) async fn get(
         .or(req.bmc_mac_address.map(|m| m.to_string()))
         .unwrap_or_default();
 
-    let expected_machine = db::expected_machine::find(&api.database_connection, &req)
+    let expected_machine = db::expected_machine::find(&mut api.db_reader(), &req)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
@@ -110,7 +111,7 @@ pub(crate) async fn add(
     db::expected_machine::create(&mut txn, machine).await?;
 
     if let Some(rack_id) = request_rack_id {
-        match db_rack::get(&mut txn, rack_id).await {
+        match db_rack::get(&mut api.db_reader(), rack_id).await {
             Ok(rack) => {
                 let mut config = rack.config.clone();
                 if !config.expected_compute_trays.contains(&parsed_mac) {
@@ -199,7 +200,7 @@ pub(crate) async fn update(
         .map_err(CarbideError::from)?;
 
     if let Some(rack_id) = request_rack_id {
-        match db_rack::get(&mut txn, rack_id).await {
+        match db_rack::get(&mut txn.as_db_reader(), rack_id).await {
             Ok(rack) => {
                 let mut config = rack.config.clone();
                 if !config.expected_compute_trays.contains(&parsed_mac) {
@@ -250,7 +251,7 @@ pub(crate) async fn get_all(
     log_request_data(&request);
 
     let expected_machine_list: Vec<ExpectedMachine> =
-        db::expected_machine::find_all(&api.database_connection).await?;
+        db::expected_machine::find_all(&mut api.db_reader()).await?;
 
     Ok(tonic::Response::new(rpc::ExpectedMachineList {
         expected_machines: expected_machine_list.into_iter().map(Into::into).collect(),
@@ -263,7 +264,7 @@ pub(crate) async fn get_linked(
 ) -> Result<tonic::Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
-    let out = db::expected_machine::find_all_linked(&api.database_connection).await?;
+    let out = db::expected_machine::find_all_linked(&mut api.db_reader()).await?;
     let list = rpc::LinkedExpectedMachineList {
         expected_machines: out.into_iter().map(|m| m.into()).collect(),
     };
@@ -339,7 +340,7 @@ async fn process_rack_association(
     rack_id: RackId,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    match db_rack::get(&mut *txn, rack_id).await {
+    match db_rack::get(&mut txn.as_db_reader(), rack_id).await {
         Ok(rack) => {
             let mut config = rack.config.clone();
             if !config.expected_compute_trays.contains(&parsed_mac) {

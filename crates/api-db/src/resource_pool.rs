@@ -275,7 +275,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Da
 
 /// All the resource pool entries for the given value
 pub async fn find_value(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     value: &str,
 ) -> Result<Vec<ResourcePoolEntry>, DatabaseError> {
     let query =

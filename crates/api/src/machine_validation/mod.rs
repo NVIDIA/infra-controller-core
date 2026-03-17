@@ -22,6 +22,7 @@ use std::io;
 use std::sync::Arc;
 
 use db::ObjectFilter;
+use db::db_read::AsDbReader;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -94,7 +95,7 @@ impl MachineValidationManager {
         let mut txn = db::Transaction::begin(&self.database_connection).await?;
 
         metrics.completed_validation = db::machine_validation::find_by(
-            &mut txn,
+            &mut txn.as_db_reader(),
             ObjectFilter::List(&["Success".to_string()]),
             "state",
         )
@@ -102,14 +103,14 @@ impl MachineValidationManager {
         .len();
 
         metrics.failed_validation = db::machine_validation::find_by(
-            &mut txn,
+            &mut txn.as_db_reader(),
             ObjectFilter::List(&["Failed".to_string()]),
             "state",
         )
         .await?
         .len();
         metrics.in_progress_validation = db::machine_validation::find_by(
-            &mut txn,
+            &mut txn.as_db_reader(),
             ObjectFilter::List(&["InProgress".to_string()]),
             "state",
         )
@@ -117,7 +118,7 @@ impl MachineValidationManager {
         .len();
 
         metrics.tests = db::machine_validation_suites::find(
-            &mut txn,
+            &mut txn.as_db_reader(),
             rpc::forge::MachineValidationTestsGetRequest::default(),
         )
         .await?;

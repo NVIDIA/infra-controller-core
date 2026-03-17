@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use db::db_read::PgPoolReader;
+use db::db_read::DbReader;
 use libredfish::Redfish;
 use librms::RmsApi;
 use model::machine::Machine;
@@ -36,10 +36,6 @@ use crate::state_controller::state_handler::StateHandlerError;
 pub struct CommonStateHandlerServices {
     /// Postgres database pool
     pub db_pool: PgPool,
-
-    /// Postgres database pool that can be passed directly to read-only db functions without a
-    /// transaction
-    pub db_reader: PgPoolReader,
 
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
@@ -71,5 +67,9 @@ impl CommonStateHandlerServices {
             .redfish_client_pool
             .create_client_from_machine(machine, &self.db_pool)
             .await?)
+    }
+
+    pub fn db_reader(&self) -> DbReader<'_> {
+        DbReader::from(&self.db_pool)
     }
 }

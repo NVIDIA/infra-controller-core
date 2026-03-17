@@ -18,6 +18,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::network_security_group::NetworkSecurityGroupId;
 use carbide_uuid::vpc::VpcId;
+use db::db_read::AsDbReader;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter, network_security_group};
@@ -196,10 +197,12 @@ pub(crate) async fn update(
 
         // Query for the VPC because we need to do
         // some validation against the request.
-        let Some(vpc) = db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-            .await?
-            .pop()
-        else {
+        let Some(vpc) = db::vpc::find_by(
+            &mut txn.as_db_reader(),
+            ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+        )
+        .await?
+        .pop() else {
             return Err(CarbideError::NotFoundError {
                 kind: "Vpc",
                 id: vpc_id.to_string(),
@@ -257,7 +260,7 @@ pub(crate) async fn update_virtualization(
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
     let instances = db::instance::find_ids(
-        &mut txn,
+        &mut txn.as_db_reader(),
         rpc::InstanceSearchFilter {
             label: None,
             tenant_org_id: None,
@@ -366,7 +369,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::VpcSearchFilter = request.into_inner();
 
-    let vpc_ids = db::vpc::find_ids(&api.database_connection, filter).await?;
+    let vpc_ids = db::vpc::find_ids(&mut api.db_reader(), filter).await?;
 
     Ok(Response::new(rpc::VpcIdList { vpc_ids }))
 }
@@ -392,7 +395,7 @@ pub(crate) async fn find_by_ids(
     }
 
     let db_vpcs = db::vpc::find_by(
-        &api.database_connection,
+        &mut api.db_reader(),
         ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids),
     )
     .await;

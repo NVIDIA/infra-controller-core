@@ -196,7 +196,7 @@ pub async fn find_latest_by_machine_ids(
 }
 
 pub async fn find_machine_id_by_bmc_ip(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     address: &str,
 ) -> Result<Option<MachineId>, DatabaseError> {
     let query = "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";
@@ -220,7 +220,7 @@ pub async fn find_machine_id_by_bmc_mac(
 }
 
 pub async fn find_machine_bmc_pairs(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     bmc_ips: Vec<String>,
 ) -> Result<Vec<(MachineId, String)>, DatabaseError> {
     let query = r#"SELECT machine_id, topology->'bmc_info'->>'ip'
@@ -272,7 +272,7 @@ pub async fn find_machine_bmc_pairs_by_machine_id(
 /// will make this a fast operation that doesn't need to sequentially scan. DO NOT change this
 /// query without also changing the index!
 pub async fn find_by_serial(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     to_find: &str,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = r#"
@@ -300,7 +300,7 @@ pub async fn find_by_serial(
 /// Search the topologyfor a string anywhere in the JSON.
 /// Used by the serial number finder for non-exact matches
 pub async fn find_freetext(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     to_find: &str,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query =

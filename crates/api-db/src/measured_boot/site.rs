@@ -48,10 +48,7 @@ pub async fn import(txn: &mut PgConnection, model: &SiteModel) -> DatabaseResult
 }
 
 /// export builds a SiteModel from the records in the database.
-pub async fn export<DB>(txn: &mut DB) -> DatabaseResult<SiteModel>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+pub async fn export(txn: &mut DbReader<'_>) -> DatabaseResult<SiteModel> {
     let measurement_system_profiles = export_measurement_profile_records(&mut *txn).await?;
     let measurement_system_profiles_attrs =
         export_measurement_system_profiles_attrs(&mut *txn).await?;

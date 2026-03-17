@@ -148,7 +148,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
         .expect("mock DPU should have gotten a BMC IP");
 
     let snapshots = managed_host::load_all(
-        &env.pool,
+        &mut env.db_reader(),
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,

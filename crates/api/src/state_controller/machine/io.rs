@@ -19,6 +19,7 @@
 
 use carbide_uuid::machine::MachineId;
 use config_version::{ConfigVersion, Versioned};
+use db::db_read::AsDbReader;
 use db::{self, DatabaseError};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
@@ -60,7 +61,7 @@ impl StateControllerIO for MachineStateControllerIO {
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
         Ok(db::machine::find_machine_ids(
-            txn,
+            &mut txn.as_db_reader(),
             MachineSearchConfig {
                 include_predicted_host: true,
                 ..Default::default()
@@ -89,7 +90,7 @@ impl StateControllerIO for MachineStateControllerIO {
         }
 
         let mut retstate = db::managed_host::load_snapshot(
-            txn,
+            &mut txn.as_db_reader(),
             machine_id,
             model::machine::LoadSnapshotOptions {
                 include_history: false,
@@ -100,7 +101,8 @@ impl StateControllerIO for MachineStateControllerIO {
         .await?;
 
         if let Some(retstate) = retstate.as_mut() {
-            let dpa_snapshots = db::dpa_interface::find_by_machine_id(txn, *machine_id).await?;
+            let dpa_snapshots =
+                db::dpa_interface::find_by_machine_id(&mut txn.as_db_reader(), *machine_id).await?;
             retstate.dpa_interface_snapshots = dpa_snapshots;
         };
 

@@ -68,7 +68,7 @@ pub mod tests {
         let mut txn = env.pool.begin().await?;
 
         let segment = db::network_segment::find_by(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
@@ -119,7 +119,7 @@ pub mod tests {
         let mut txn = env.pool.begin().await?;
 
         let segment = db::network_segment::find_by(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
@@ -181,6 +181,7 @@ pub mod tests {
     }
 
     use db::attestation::ek_cert_verification_status;
+    use db::db_read::AsDbReader;
 
     use crate::attestation::match_insert_new_ek_cert_status_against_ca;
 
@@ -262,10 +263,11 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
 
-        let ek_cert_status = ek_cert_verification_status::get_by_machine_id(txn.as_mut(), host_id)
-            .await
-            .expect("Failed: could not make a look up for EkCertVerificationStatus in DB")
-            .expect("Failed: could not find EkCertVerificationStatus for given machine in DB");
+        let ek_cert_status =
+            ek_cert_verification_status::get_by_machine_id(&mut txn.as_db_reader(), host_id)
+                .await
+                .expect("Failed: could not make a look up for EkCertVerificationStatus in DB")
+                .expect("Failed: could not find EkCertVerificationStatus for given machine in DB");
 
         assert!(!ek_cert_status.signing_ca_found);
 
@@ -296,10 +298,11 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
 
-        let ek_cert_status = ek_cert_verification_status::get_by_machine_id(txn.as_mut(), host_id)
-            .await
-            .expect("Failed: could not make a look up for EkCertVerificationStatus in DB")
-            .expect("Failed: could not find EkCertVerificationStatus for given machine in DB");
+        let ek_cert_status =
+            ek_cert_verification_status::get_by_machine_id(&mut txn.as_db_reader(), host_id)
+                .await
+                .expect("Failed: could not make a look up for EkCertVerificationStatus in DB")
+                .expect("Failed: could not find EkCertVerificationStatus for given machine in DB");
 
         assert!(!ek_cert_status.signing_ca_found);
 
@@ -1182,7 +1185,7 @@ pub mod tests {
         let mut txn = env.pool.begin().await?;
 
         let segment = db::network_segment::find_by(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )

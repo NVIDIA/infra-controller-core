@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
-use db::db_read::PgPoolReader;
+use db::db_read::{AsDbReader, DbReader};
 use model::machine::{
     InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
     ReprovisionState,
@@ -61,7 +61,7 @@ impl TestManagedHost {
     }
 
     pub async fn snapshot(&self, txn: &mut Txn<'_>) -> ManagedHostStateSnapshot {
-        db::managed_host::load_snapshot(txn.as_mut(), &self.id, Default::default())
+        db::managed_host::load_snapshot(&mut txn.as_db_reader(), &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()
@@ -140,7 +140,7 @@ impl TestManagedHost {
 pub(crate) trait TestManagedHostSnapshots {
     async fn snapshots(
         &self,
-        txn: &mut PgPoolReader,
+        txn: &mut DbReader<'_>,
         load_options: LoadSnapshotOptions,
     ) -> HashMap<MachineId, ManagedHostStateSnapshot>;
 }
@@ -148,7 +148,7 @@ pub(crate) trait TestManagedHostSnapshots {
 impl TestManagedHostSnapshots for Vec<TestManagedHost> {
     async fn snapshots(
         &self,
-        txn: &mut PgPoolReader,
+        txn: &mut DbReader<'_>,
         load_options: LoadSnapshotOptions,
     ) -> HashMap<MachineId, ManagedHostStateSnapshot> {
         db::managed_host::load_by_machine_ids(

@@ -16,6 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use db::db_read::AsDbReader;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, InstanceState,
@@ -187,7 +188,7 @@ pub(crate) async fn forge_agent_control(
                     )
                     .await?;
                     let machine_validation =
-                        db::machine_validation::find_by_id(&mut txn, id).await?;
+                        db::machine_validation::find_by_id(&mut txn.as_db_reader(), id).await?;
                     (
                         Action::MachineValidation,
                         Some(

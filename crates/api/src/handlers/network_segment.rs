@@ -16,6 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use carbide_network::virtualization::VpcVirtualizationType;
+use db::db_read::AsDbReader;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
 use model::network_segment::{
@@ -36,8 +37,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
 
-    let network_segments_ids =
-        db::network_segment::find_ids(&api.database_connection, filter).await?;
+    let network_segments_ids = db::network_segment::find_ids(&mut api.db_reader(), filter).await?;
 
     Ok(Response::new(rpc::NetworkSegmentIdList {
         network_segments_ids,
@@ -130,7 +130,7 @@ pub(crate) async fn create(
     let allocate_svi_ip = if let Some(vpc_id) = new_network_segment.vpc_id {
         if new_network_segment.can_stretch.unwrap_or(true) {
             let vpcs = db::vpc::find_by(
-                &mut txn,
+                &mut txn.as_db_reader(),
                 ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
             )
             .await?;
@@ -167,7 +167,7 @@ pub(crate) async fn delete(
     let segment_id = id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
     let mut segments = db::network_segment::find_by(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -204,7 +204,7 @@ pub(crate) async fn for_vpc(
 
     let uuid = id.ok_or_else(|| CarbideError::InvalidArgument("id".to_string()))?;
 
-    let results = db::network_segment::for_vpc(&api.database_connection, uuid).await?;
+    let results = db::network_segment::for_vpc(&mut api.db_reader(), uuid).await?;
 
     let mut network_segments = Vec::with_capacity(results.len());
 
@@ -252,7 +252,7 @@ pub(crate) async fn save(
     if allocate_svi_ip {
         db::network_segment::allocate_svi_ip(&network_segment, txn).await?;
         let network_segments = db::network_segment::find_by(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectColumnFilter::One(network_segment::IdColumn, &network_segment.id),
             NetworkSegmentSearchConfig::default(),
         )

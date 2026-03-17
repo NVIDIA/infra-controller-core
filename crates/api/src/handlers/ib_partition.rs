@@ -16,6 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use db::ObjectColumnFilter;
+use db::db_read::AsDbReader;
 use db::ib_partition::{self, IBPartitionStatus, NewIBPartition};
 use db::resource_pool::ResourcePoolDatabaseError;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
@@ -98,7 +99,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::IbPartitionSearchFilter = request.into_inner();
 
-    let ib_partition_ids = db::ib_partition::find_ids(&api.database_connection, filter).await?;
+    let ib_partition_ids = db::ib_partition::find_ids(&mut api.db_reader(), filter).await?;
 
     Ok(Response::new(rpc::IbPartitionIdList { ib_partition_ids }))
 }
@@ -126,7 +127,7 @@ pub(crate) async fn find_by_ids(
     }
 
     let partitions = db::ib_partition::find_by(
-        &api.database_connection,
+        &mut api.db_reader(),
         ObjectColumnFilter::List(ib_partition::IdColumn, &ib_partition_ids),
     )
     .await?;
@@ -153,7 +154,7 @@ pub(crate) async fn delete(
     let uuid = id.ok_or(CarbideError::MissingArgument("id"))?;
 
     let mut segments = db::ib_partition::find_by(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(ib_partition::IdColumn, &uuid),
     )
     .await?;
@@ -197,7 +198,7 @@ pub(crate) async fn for_tenant(
     };
 
     let results =
-        db::ib_partition::for_tenant(&api.database_connection, _tenant_organization_id).await?;
+        db::ib_partition::for_tenant(&mut api.db_reader(), _tenant_organization_id).await?;
 
     let mut ib_partitions = Vec::with_capacity(results.len());
 

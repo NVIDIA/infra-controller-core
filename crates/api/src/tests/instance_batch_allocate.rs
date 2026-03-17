@@ -26,6 +26,7 @@ use common::api_fixtures::instance::{
 use common::api_fixtures::{
     TestEnv, create_managed_host, create_test_env, populate_network_security_groups,
 };
+use db::db_read::AsDbReader;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::tests::common;
@@ -69,7 +70,7 @@ async fn test_batch_allocate_instances_success(_: PgPoolOptions, options: PgConn
     for instance in &response.instances {
         let machine_id = *instance.machine_id.as_ref().unwrap();
         let snapshot = db::managed_host::load_snapshot(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             &machine_id,
             model::machine::LoadSnapshotOptions::default(),
         )
@@ -149,7 +150,7 @@ async fn test_batch_allocate_instances_rollback_on_failure(
     // Verify that the first instance was NOT created (transaction rolled back)
     let mut txn = env.db_txn().await;
     let snapshot1 = db::managed_host::load_snapshot(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &mh1.host().id,
         model::machine::LoadSnapshotOptions::default(),
     )
@@ -164,7 +165,7 @@ async fn test_batch_allocate_instances_rollback_on_failure(
 
     // Verify that the third instance was also NOT created
     let snapshot2 = db::managed_host::load_snapshot(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &mh2.host().id,
         model::machine::LoadSnapshotOptions::default(),
     )

@@ -17,6 +17,7 @@
 
 use ::rpc::forge::{self as rpc, HealthReportOverride};
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use health_report::OverrideMode;
 use model::machine::machine_search_config::MachineSearchConfig;
 use sqlx::PgConnection;
@@ -35,12 +36,16 @@ pub async fn list_health_report_overrides(
 
     let machine_id = convert_and_log_machine_id(Some(&machine_id.into_inner()))?;
 
-    let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
+    let host_machine = db::machine::find_one(
+        &mut txn.as_db_reader(),
+        &machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
 
     txn.commit().await?;
 
@@ -63,7 +68,7 @@ async fn remove_by_source(
     source: String,
 ) -> Result<(), CarbideError> {
     let host_machine = db::machine::find_one(
-        &mut *txn,
+        &mut txn.as_db_reader(),
         &machine_id,
         MachineSearchConfig {
             // Technically,  an update is going to happen,

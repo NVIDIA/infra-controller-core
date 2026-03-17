@@ -16,6 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use db::ObjectFilter;
+use db::db_read::AsDbReader;
 use db::network_devices::NetworkDeviceSearchConfig;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
@@ -36,7 +37,7 @@ pub(crate) async fn get_network_topology(
         None => ObjectFilter::All,
     };
 
-    let data = db::network_devices::get_topology(&mut txn, query).await?;
+    let data = db::network_devices::get_topology(&mut txn.as_db_reader(), query).await?;
 
     txn.commit().await?;
 
@@ -77,7 +78,7 @@ pub(crate) async fn find_connected_devices_by_dpu_machine_ids(
     let dpu_ids = request.into_inner().machine_ids;
 
     let connected_devices = db::network_devices::dpu_to_network_device_map::find_by_dpu_ids(
-        &api.database_connection,
+        &mut api.db_reader(),
         &dpu_ids,
     )
     .await?;

@@ -19,6 +19,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use db::db_read::AsDbReader;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
 
@@ -101,12 +102,16 @@ pub(crate) async fn set_primary_dpu(
 
     // we need to set the boot device or the host will no longer be able to boot.  we need BMC info.
     // the same BMC info is used if a reboot was requested.
-    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "Machine",
-            id: host_machine_id.to_string(),
-        })?;
+    let machine = db::machine::find_one(
+        &mut txn.as_db_reader(),
+        &host_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "Machine",
+        id: host_machine_id.to_string(),
+    })?;
 
     let bmc_addr_str = machine
         .bmc_info
@@ -119,7 +124,7 @@ pub(crate) async fn set_primary_dpu(
     let bmc_addr = IpAddr::from_str(&bmc_addr_str).map_err(CarbideError::AddressParseError)?;
     let bmc_socket_addr = SocketAddr::new(bmc_addr, 443);
 
-    let bmc_interface = db::machine_interface::find_by_ip(&mut txn, bmc_addr)
+    let bmc_interface = db::machine_interface::find_by_ip(&mut txn.as_db_reader(), bmc_addr)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "BMC Interface",
@@ -167,7 +172,7 @@ pub(crate) async fn set_primary_dpu(
 
     // increment the network config version so that the DPUs pick up their new config
     let (network_config, network_config_version) =
-        db::machine::get_network_config(txn.as_pgconn(), &host_machine_id)
+        db::machine::get_network_config(&mut txn.as_db_reader(), &host_machine_id)
             .await?
             .take();
     db::machine::try_update_network_config(

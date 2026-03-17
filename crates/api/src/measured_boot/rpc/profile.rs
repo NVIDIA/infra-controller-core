@@ -199,7 +199,7 @@ pub async fn handle_list_measurement_system_profiles(
     _req: ListMeasurementSystemProfilesRequest,
 ) -> Result<ListMeasurementSystemProfilesResponse, Status> {
     let system_profiles: Vec<MeasurementSystemProfileRecordPb> =
-        export_measurement_profile_records(&api.database_connection)
+        export_measurement_profile_records(&mut api.db_reader())
             .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .into_iter()

@@ -18,7 +18,6 @@
 use std::collections::HashMap;
 
 use carbide_uuid::infiniband::IBPartitionId;
-use db::db_read::PgPoolReader;
 use db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use db::{self, ObjectColumnFilter};
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
@@ -461,7 +460,9 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     .await?;
     txn.commit().await?;
 
-    let results = db::ib_partition::for_tenant(&pool, FIXTURE_TENANT_ORG_ID.to_string()).await?;
+    let results =
+        db::ib_partition::for_tenant(&mut (&pool).into(), FIXTURE_TENANT_ORG_ID.to_string())
+            .await?;
 
     assert_eq!(results.len(), 1);
     assert_eq!(partition.config, results[0].config);
@@ -495,7 +496,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     txn.commit().await?;
 
     let partition2 = db::ib_partition::find_by(
-        &mut PgPoolReader::from(pool.clone()),
+        &mut (&pool).into(),
         ObjectColumnFilter::One(db::ib_partition::IdColumn, &partition.id),
     )
     .await?
@@ -670,7 +671,7 @@ async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
     // we perform status updates, and pkey is part of status.
 
     let mut partition = db::ib_partition::find_by(
-        &mut PgPoolReader::from(pool.clone()),
+        &mut (&pool).into(),
         ObjectColumnFilter::One(db::ib_partition::IdColumn, p2.id.as_ref().unwrap()),
     )
     .await

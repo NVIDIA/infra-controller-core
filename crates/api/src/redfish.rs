@@ -111,7 +111,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         };
         let ip = addr.ip();
         let port = addr.port();
-        let auth_key = db::machine_interface::find_by_ip(pool, ip)
+        let auth_key = db::machine_interface::find_by_ip(&mut pool.into(), ip)
             .await?
             .ok_or_else(|| {
                 RedfishClientCreationError::MissingArgument(format!(
@@ -135,7 +135,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         port: Option<u16>,
         pool: &PgPool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let auth_key = db::machine_interface::find_by_ip(pool, ip)
+        let auth_key = db::machine_interface::find_by_ip(&mut pool.into(), ip)
             .await?
             .ok_or_else(|| {
                 RedfishClientCreationError::MissingArgument(format!(

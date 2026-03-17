@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::ops::DerefMut;
 use std::time::SystemTime;
 
 use ::rpc::forge::{
@@ -444,7 +443,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let network_config_version =
-        db::machine::get_network_config(env.pool.begin().await?.deref_mut(), &host_machine_id)
+        db::machine::get_network_config(&mut env.db_reader(), &host_machine_id)
             .await?
             .version;
 
@@ -526,8 +525,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     // Make sure the version got bumped
     let network_config =
-        db::machine::get_network_config(env.pool.begin().await?.deref_mut(), &host_machine_id)
-            .await?;
+        db::machine::get_network_config(&mut env.db_reader(), &host_machine_id).await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,
@@ -593,8 +591,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     // Make sure the version got bumped again
     let network_config =
-        db::machine::get_network_config(env.pool.begin().await?.deref_mut(), &host_machine_id)
-            .await?;
+        db::machine::get_network_config(&mut env.db_reader(), &host_machine_id).await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,
@@ -656,8 +653,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     // Make sure the network config version bumps again on clear
     let network_config =
-        db::machine::get_network_config(env.pool.begin().await?.deref_mut(), &host_machine_id)
-            .await?;
+        db::machine::get_network_config(&mut env.db_reader(), &host_machine_id).await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,

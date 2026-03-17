@@ -171,7 +171,7 @@ impl NewNvlPartition {
 /// * `txn` - A reference to a currently open database transaction
 ///
 pub async fn for_tenant(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     tenant_organization_id: String,
 ) -> Result<Vec<NvlPartition>, DatabaseError> {
     let results: Vec<NvlPartition> = {
@@ -193,7 +193,7 @@ pub async fn for_tenant(
 }
 
 pub async fn find_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: rpc::NvLinkPartitionSearchFilter,
 ) -> Result<Vec<NvLinkPartitionId>, DatabaseError> {
     // build query
@@ -224,7 +224,7 @@ pub async fn find_ids(
 }
 
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NvlPartition>>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<NvlPartition>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(

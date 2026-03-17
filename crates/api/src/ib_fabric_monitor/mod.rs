@@ -26,6 +26,7 @@ use std::time::Duration;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
+use db::db_read::AsDbReader;
 use db::ib_partition::IBPartition;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
@@ -442,7 +443,7 @@ impl IbFabricMonitor {
         txn: &mut PgConnection,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let machine_ids = db::machine::find_machine_ids(
-            &mut *txn,
+            &mut txn.as_db_reader(),
             MachineSearchConfig {
                 include_predicted_host: true,
                 ..Default::default()
@@ -450,7 +451,7 @@ impl IbFabricMonitor {
         )
         .await?;
         db::managed_host::load_by_machine_ids(
-            txn,
+            &mut txn.as_db_reader(),
             &machine_ids,
             LoadSnapshotOptions {
                 include_history: false,
@@ -623,7 +624,7 @@ async fn get_tenant_partitions(
     txn: &mut PgConnection,
 ) -> Result<HashMap<IBPartitionId, IBPartition>, CarbideError> {
     let partition_ids = db::ib_partition::find_ids(
-        &mut *txn,
+        &mut txn.as_db_reader(),
         IbPartitionSearchFilter {
             tenant_org_id: None,
             name: None,
@@ -638,7 +639,7 @@ async fn get_tenant_partitions(
         let page_size = PAGE_SIZE.min(partition_ids.len() - offset);
         let next_ids = &partition_ids[offset..offset + page_size];
         let partition_data = db::ib_partition::find_by(
-            &mut *txn,
+            &mut txn.as_db_reader(),
             db::ObjectColumnFilter::List(db::ib_partition::IdColumn, next_ids),
         )
         .await?;

@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use model::machine::{Machine, ManagedHostState};
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
@@ -63,7 +64,7 @@ impl TestMachine {
     }
 
     pub async fn db_machine(&self, txn: &mut Txn<'_>) -> Machine {
-        db::machine::find_one(txn.as_mut(), &self.id, Default::default())
+        db::machine::find_one(&mut txn.as_db_reader(), &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()

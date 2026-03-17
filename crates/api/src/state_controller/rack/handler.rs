@@ -18,6 +18,7 @@
 use std::cmp::Ordering;
 
 use carbide_uuid::rack::RackId;
+use db::db_read::AsDbReader;
 use db::{expected_machine as db_expected_machine, rack as db_rack};
 use model::machine::{LoadSnapshotOptions, ManagedHostState};
 use model::rack::{
@@ -138,7 +139,7 @@ impl StateHandler for RackStateHandler {
                 let mut txn = ctx.services.db_pool.begin().await?;
                 for machine_id in config.compute_trays.iter() {
                     let mh_snapshot = db::managed_host::load_snapshot(
-                        txn.as_mut(),
+                        &mut txn.as_db_reader(),
                         machine_id,
                         LoadSnapshotOptions {
                             include_history: false,

@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use db::machine_interface::find_by_ip;
 use libredfish::RoleId;
 use mac_address::MacAddress;
@@ -402,7 +403,7 @@ pub(crate) async fn admin_power_control(
         let power_manager_enabled = api.runtime_config.power_manager_options.enabled;
         if power_manager_enabled {
             let snapshot = db::managed_host::load_snapshot(
-                &mut txn,
+                &mut txn.as_db_reader(),
                 &machine_id,
                 LoadSnapshotOptions {
                     include_history: true,
@@ -455,12 +456,11 @@ pub(crate) async fn explore(
         crate::handlers::expected_power_shelf::query(api, bmc_mac_address).await?;
 
     // Look up boot_interface_mac from existing explored endpoint if available
-    let mut txn = api.txn_begin().await?;
-    let boot_interface_mac = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr.ip()])
-        .await?
-        .first()
-        .and_then(|ep| ep.boot_interface_mac);
-    txn.commit().await?;
+    let boot_interface_mac =
+        db::explored_endpoints::find_by_ips(&mut api.db_reader(), vec![bmc_addr.ip()])
+            .await?
+            .first()
+            .and_then(|ep| ep.boot_interface_mac);
 
     let report = api
         .endpoint_explorer
@@ -602,7 +602,7 @@ async fn resolve_bmc_interface(
     if let Some(mac_str) = &request.mac_address {
         bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
     } else if let Some(bmc_machine_interface) =
-        find_by_ip(&api.database_connection, bmc_addr.ip()).await?
+        find_by_ip(&mut api.db_reader(), bmc_addr.ip()).await?
     {
         bmc_mac_address = bmc_machine_interface.mac_address;
     } else {
@@ -813,7 +813,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
             let interface = db::machine_interface::find_by_ip(
-                txn,
+                &mut txn.into(),
                 bmc_endpoint_request.ip_address.parse().unwrap(),
             )
             .await?

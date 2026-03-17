@@ -16,6 +16,7 @@
  */
 
 use ::rpc::forge as rpc;
+use db::db_read::AsDbReader;
 use db::{DatabaseError, expected_power_shelf as db_expected_power_shelf};
 use mac_address::MacAddress;
 use model::expected_power_shelf::{ExpectedPowerShelf, ExpectedPowerShelfRequest};
@@ -46,7 +47,7 @@ pub async fn add_expected_power_shelf(
         .map_err(|e| Status::internal(format!("Failed to create expected power shelf: {}", e)))?;
 
     if let Some(rack_id) = request_rack_id {
-        match db::rack::get(txn.as_mut(), rack_id).await {
+        match db::rack::get(&mut txn.as_db_reader(), rack_id).await {
             Ok(rack) => {
                 let mut config = rack.config.clone();
                 if !config.expected_power_shelves.contains(&bmc_mac_address) {

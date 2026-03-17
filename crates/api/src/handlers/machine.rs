@@ -22,6 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
@@ -44,8 +45,7 @@ pub(crate) async fn find_machine_ids(
 
     let search_config = request.into_inner().try_into()?;
 
-    let machine_ids =
-        db::machine::find_machine_ids(&api.database_connection, search_config).await?;
+    let machine_ids = db::machine::find_machine_ids(&mut api.db_reader(), search_config).await?;
 
     Ok(Response::new(::rpc::common::MachineIdList {
         machine_ids: machine_ids.into_iter().collect(),
@@ -59,7 +59,7 @@ pub(crate) async fn find_machine_ids_by_bmc_ips(
     log_request_data(&request);
 
     let pairs = db::machine_topology::find_machine_bmc_pairs(
-        &api.database_connection,
+        &mut api.db_reader(),
         request.into_inner().bmc_ips,
     )
     .await?;
@@ -100,7 +100,7 @@ pub(crate) async fn find_machines_by_ids(
     }
 
     let snapshots = db::managed_host::load_by_machine_ids(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &machine_ids,
         LoadSnapshotOptions {
             include_history: request.include_history,
@@ -206,8 +206,12 @@ pub(crate) async fn machine_set_auto_update(
     let mut txn = api.txn_begin().await?;
 
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
-    let Some(_machine) =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?
+    let Some(_machine) = db::machine::find_one(
+        &mut txn.as_db_reader(),
+        &machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?
     else {
         return Err(Status::not_found("The machine ID was not found"));
     };
@@ -724,7 +728,7 @@ pub async fn get_machine_position_info(
 
     // Find the explored endpoints for those BMC IPs
     let explored_endpoints = db::explored_endpoints::find_by_ips(
-        &mut txn,
+        &mut txn.as_db_reader(),
         pairs
             .iter()
             .filter_map(|(machine_id, ip_opt)| match ip_opt {

@@ -172,7 +172,7 @@ pub async fn update_ip(
         .map_err(|e| DatabaseError::query(builder.sql(), e))
 }
 
-pub async fn find_ids(txn: impl DbReader<'_>) -> Result<Vec<DpaInterfaceId>, DatabaseError> {
+pub async fn find_ids(txn: &mut DbReader<'_>) -> Result<Vec<DpaInterfaceId>, DatabaseError> {
     let query = "SELECT id from dpa_interfaces WHERE deleted is NULL";
 
     let results: Vec<DpaInterfaceId> = {
@@ -188,7 +188,7 @@ pub async fn find_ids(txn: impl DbReader<'_>) -> Result<Vec<DpaInterfaceId>, Dat
 // Given an IP address, find and return the DPA interface that has the given IP
 // as its underlay or overlay IP address.
 pub async fn find_by_ip(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     ipaddr: IpAddr,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces
@@ -213,7 +213,7 @@ pub async fn find_by_ip(
 // Returns exactly one DpaInterface, or an error if none or multiple
 // are found, because multiple would not make sense.
 pub async fn get_for_pci_name(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
     pci_name: &str,
 ) -> Result<DpaInterface, DatabaseError> {
@@ -243,7 +243,7 @@ pub async fn get_for_pci_name(
 // Find a DPA Interface given its mac address. When we receive messages from the MQTT broker,
 // the topic contains the mac address, and we look up the interface based on that mac address.
 pub async fn find_by_mac_addr(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     maddr: &MacAddress,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND mac_address = $1) m";
@@ -298,7 +298,7 @@ pub async fn update_card_state(
 
 // Used by the machine statemachine controller to find all DPAs associated with a given machine
 pub async fn find_by_machine_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = $1) m";
@@ -314,7 +314,7 @@ pub async fn find_by_machine_id(
 }
 
 pub async fn find_by_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     dpa_ids: &[DpaInterfaceId],
     include_history: bool,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
@@ -458,10 +458,10 @@ pub async fn delete(value: DpaInterface, txn: &mut PgConnection) -> Result<(), D
 // Given the DPA Interface, we know its associated machine ID. From that, we need
 // to find the VPC the machine belongs to. From the VPC, we can find the DPA VNI,
 // which is just the VPC VNI.
-pub async fn get_dpa_vni<DB>(state: &mut DpaInterface, txn: &mut DB) -> Result<i32, eyre::Report>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+pub async fn get_dpa_vni(
+    state: &mut DpaInterface,
+    txn: &mut DbReader<'_>,
+) -> Result<i32, eyre::Report> {
     let machine_id = state.machine_id;
 
     let maybe_snapshot =
@@ -575,6 +575,7 @@ mod test {
     use model::machine::ManagedHostState;
     use model::metadata::Metadata;
 
+    use crate::db_read::AsDbReader;
     use crate::machine;
 
     #[crate::sqlx_test]
@@ -605,12 +606,13 @@ mod test {
 
         let intf = crate::dpa_interface::persist(new_intf, &mut txn).await?;
 
-        let ids = crate::dpa_interface::find_ids(txn.as_mut()).await?;
+        let ids = crate::dpa_interface::find_ids(&mut txn.as_db_reader()).await?;
 
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0], intf.id);
 
-        let db_intf = crate::dpa_interface::find_by_ids(txn.as_mut(), &[ids[0]], false).await?;
+        let db_intf =
+            crate::dpa_interface::find_by_ids(&mut txn.as_db_reader(), &[ids[0]], false).await?;
 
         assert_eq!(db_intf.len(), 1);
         assert_eq!(db_intf[0].id, intf.id);
@@ -709,7 +711,8 @@ mod test {
         // Verify device_info starts as None, because in this case,
         // one hasn't been reported yet (and also allows for backwards
         // compatibility checks from before this existed).
-        let intfs = crate::dpa_interface::find_by_machine_id(txn.as_mut(), machine_id).await?;
+        let intfs =
+            crate::dpa_interface::find_by_machine_id(&mut txn.as_db_reader(), machine_id).await?;
         assert_eq!(intfs.len(), 1);
         assert!(intfs[0].device_info.is_none());
         assert!(intfs[0].device_info_ts.is_none());
@@ -737,7 +740,8 @@ mod test {
 
         // Read back and verify everything we put into
         // the database came back as we originally put it.
-        let intfs = crate::dpa_interface::find_by_machine_id(txn.as_mut(), machine_id).await?;
+        let intfs =
+            crate::dpa_interface::find_by_machine_id(&mut txn.as_db_reader(), machine_id).await?;
         assert_eq!(intfs.len(), 1);
 
         let info = intfs[0]

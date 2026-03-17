@@ -27,7 +27,7 @@ use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use db::DatabaseError;
-use db::db_read::PgPoolReader;
+use db::db_read::DbReader;
 use eyre::eyre;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures::TryFutureExt;
@@ -718,7 +718,7 @@ impl MachineStateHandler {
                 let expected_machine = if let Some(bmc_mac) = mh_snapshot.host_snapshot.bmc_info.mac
                 {
                     db::expected_machine::find_by_bmc_mac_address(
-                        &mut ctx.services.db_reader,
+                        &mut ctx.services.db_reader(),
                         bmc_mac,
                     )
                     .await?
@@ -821,8 +821,11 @@ impl MachineStateHandler {
 
                 let bmc_mac = mh_snapshot.host_snapshot.bmc_info.mac;
                 let expected_machine = if let Some(mac) = bmc_mac {
-                    db::expected_machine::find_by_bmc_mac_address(&mut ctx.services.db_reader, mac)
-                        .await?
+                    db::expected_machine::find_by_bmc_mac_address(
+                        &mut ctx.services.db_reader(),
+                        mac,
+                    )
+                    .await?
                 } else {
                     None
                 };
@@ -1090,7 +1093,7 @@ impl MachineStateHandler {
                 if self.host_handler.host_handler_params.attestation_enabled
                     && check_if_should_redo_measurements(
                         &mh_snapshot.host_snapshot.id,
-                        &mut ctx.services.db_reader,
+                        &mut ctx.services.db_reader(),
                     )
                     .await?
                 {
@@ -1559,7 +1562,7 @@ impl MachineStateHandler {
                     | FailureCause::MeasurementsCAValidationFailed { .. } => {
                         if check_if_not_in_original_failure_cause_anymore(
                             &mh_snapshot.host_snapshot.id,
-                            &mut ctx.services.db_reader,
+                            &mut ctx.services.db_reader(),
                             &details.cause,
                             self.host_handler.host_handler_params.attestation_enabled,
                         )
@@ -1668,7 +1671,7 @@ impl MachineStateHandler {
             ManagedHostState::Measuring { measuring_state } => handle_measuring_state(
                 measuring_state,
                 &mh_snapshot.host_snapshot.id,
-                &mut ctx.services.db_reader,
+                &mut ctx.services.db_reader(),
                 self.host_handler.host_handler_params.attestation_enabled,
             )
             .await
@@ -1676,7 +1679,7 @@ impl MachineStateHandler {
             ManagedHostState::PostAssignedMeasuring { measuring_state } => handle_measuring_state(
                 measuring_state,
                 &mh_snapshot.host_snapshot.id,
-                &mut ctx.services.db_reader,
+                &mut ctx.services.db_reader(),
                 self.host_handler.host_handler_params.attestation_enabled,
             )
             .await
@@ -2605,7 +2608,7 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
 // if everything is ok in general
 async fn check_if_should_redo_measurements(
     machine_id: &MachineId,
-    txn: &mut PgPoolReader,
+    txn: &mut DbReader<'_>,
 ) -> Result<bool, StateHandlerError> {
     let (machine_state, ek_cert_verification_status) =
         get_measuring_prerequisites(machine_id, txn).await?;
@@ -2621,7 +2624,7 @@ async fn check_if_should_redo_measurements(
 
 async fn check_if_not_in_original_failure_cause_anymore(
     machine_id: &MachineId,
-    txn: &mut PgPoolReader,
+    txn: &mut DbReader<'_>,
     original_failure_cause: &FailureCause,
     attestation_enabled: bool,
 ) -> Result<bool, StateHandlerError> {
@@ -4965,7 +4968,7 @@ impl StateHandler for HostMachineStateHandler {
                     match handle_measuring_state(
                         measuring_state,
                         &mh_snapshot.host_snapshot.id,
-                        &mut ctx.services.db_reader,
+                        &mut ctx.services.db_reader(),
                         self.host_handler_params.attestation_enabled,
                     )
                     .await
@@ -5330,7 +5333,7 @@ impl StateHandler for InstanceStateHandler {
 
                     let network_segments_are_ready =
                         db::network_segment::are_network_segments_ready(
-                            &mut ctx.services.db_reader,
+                            &mut ctx.services.db_reader(),
                             &network_segment_ids_with_vpc,
                         )
                         .await?;
@@ -6206,7 +6209,7 @@ async fn handle_instance_network_config_update_request(
             // No network segment is configured with vpc_prefix_id.
             if !network_segment_ids_with_vpc.is_empty() {
                 let network_segments_are_ready = db::network_segment::are_network_segments_ready(
-                    &mut ctx.services.db_reader,
+                    &mut ctx.services.db_reader(),
                     &network_segment_ids_with_vpc,
                 )
                 .await?;
@@ -8790,7 +8793,7 @@ async fn needs_ipmi_restart(
         .ip_addr()
         .map_err(StateHandlerError::GenericError)?;
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader, vec![addr]).await?;
+        db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader(), vec![addr]).await?;
     let Some(ep) = endpoints.first() else {
         return Ok(false);
     };
@@ -8883,7 +8886,7 @@ pub async fn find_explored_refreshed_endpoint(
         .map_err(StateHandlerError::GenericError)?;
 
     let endpoint =
-        db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader, vec![addr]).await?;
+        db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader(), vec![addr]).await?;
     let endpoint = endpoint
         .into_iter()
         .next()

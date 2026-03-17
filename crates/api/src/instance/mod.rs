@@ -25,6 +25,7 @@ use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcPrefixId;
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::{
     self, ObjectColumnFilter, ObjectFilter, compute_allocation, extension_service, ib_partition,
     network_security_group,
@@ -452,8 +453,10 @@ pub async fn batch_allocate_instances(
             instance_type_id: Some(instance_type_id.to_string()),
         };
 
-        let new_total_instance_count =
-            req_count + db::instance::find_ids(&mut txn, filter).await?.len();
+        let new_total_instance_count = req_count
+            + db::instance::find_ids(&mut txn.as_db_reader(), filter)
+                .await?
+                .len();
 
         if new_total_instance_count > compute_allocation_total as usize {
             // # enforce_if_present:  Instance type required in creation request.  If allocations are found for instance type ID, enforce it; otherwise, it's like no limits.
@@ -485,7 +488,7 @@ pub async fn batch_allocate_instances(
 
     // Grab a row-level locks on the requested machines
     let machines = db::machine::find(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectFilter::List(&machine_ids),
         MachineSearchConfig {
             for_update: true,
@@ -510,7 +513,7 @@ pub async fn batch_allocate_instances(
 
     // ==== Phase 4: Batch load managed host snapshots ====
     let mut snapshot_map = db::managed_host::load_by_machine_ids(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &machine_ids,
         LoadSnapshotOptions::default().with_host_health(host_health_config),
     )
@@ -884,7 +887,7 @@ pub async fn batch_validate_ib_partition_ownership(
         .collect();
 
     let partitions = db::ib_partition::find_by(
-        txn,
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::List(ib_partition::IdColumn, &unique_partition_ids),
     )
     .await?;

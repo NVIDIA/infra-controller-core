@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 use carbide_network::virtualization::VpcVirtualizationType;
+use db::db_read::AsDbReader;
 use db::dns::domain;
 use db::vpc::{self};
 use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
@@ -40,7 +41,11 @@ pub async fn create_initial_domain(
     domain_name: &str,
 ) -> Result<bool, CarbideError> {
     let mut txn = Transaction::begin(&db_pool).await?;
-    let domains = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+    let domains = domain::find_by(
+        &mut txn.as_db_reader(),
+        ObjectColumnFilter::<domain::IdColumn>::All,
+    )
+    .await?;
     if domains.is_empty() {
         let domain = NewDomain::new(domain_name);
         db::dns::domain::persist_first(&domain, &mut txn).await?;
@@ -64,7 +69,7 @@ pub async fn create_initial_networks(
 ) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
     let all_domains = db::dns::domain::find_by(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
@@ -99,7 +104,7 @@ pub async fn create_initial_networks(
 pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
     let all_segments = db::network_segment::find_by(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::<network_segment::IdColumn>::All,
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -112,7 +117,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
 
     let all_vpcs_ids = all_segments.iter().filter_map(|x| x.vpc_id).collect_vec();
     let all_vpcs = db::vpc::find_by(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::List(vpc::IdColumn, &all_vpcs_ids),
     )
     .await?;

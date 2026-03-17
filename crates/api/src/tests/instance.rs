@@ -39,6 +39,7 @@ use common::api_fixtures::{
     persist_machine_validation_result, populate_network_security_groups, site_explorer,
 };
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::instance_address::UsedOverlayNetworkIpResolver;
 use db::ip_allocator::UsedIpResolver;
 use db::network_segment::IdColumn;
@@ -1725,9 +1726,12 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         segment_id: segment_id_1,
         busy_ips: vec![],
     };
-    let used_ips = allocated_ip_resolver.used_ips(txn.as_mut()).await.unwrap();
+    let used_ips = allocated_ip_resolver
+        .used_ips(&mut txn.as_db_reader())
+        .await
+        .unwrap();
     let used_prefixes = allocated_ip_resolver
-        .used_prefixes(txn.as_mut())
+        .used_prefixes(&mut txn.as_db_reader())
         .await
         .unwrap();
     assert_eq!(1, used_ips.len());
@@ -1740,9 +1744,12 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         segment_id: segment_id_2,
         busy_ips: vec![],
     };
-    let used_ips = allocated_ip_resolver.used_ips(txn.as_mut()).await.unwrap();
+    let used_ips = allocated_ip_resolver
+        .used_ips(&mut txn.as_db_reader())
+        .await
+        .unwrap();
     let used_prefixes = allocated_ip_resolver
-        .used_prefixes(txn.as_mut())
+        .used_prefixes(&mut txn.as_db_reader())
         .await
         .unwrap();
     assert_eq!(1, used_ips.len());
@@ -2259,7 +2266,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
+    let vpc = db::vpc::find_by_name(&mut env.db_reader(), "test vpc 1")
         .await
         .unwrap()
         .into_iter()
@@ -2309,7 +2316,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
 
     let mut txn = env.db_txn().await;
     let network_segment = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(
             IdColumn,
             &config.network.interfaces[0].network_segment_id.unwrap(),
@@ -2350,7 +2357,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
-    let mut vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
+    let mut vpc = db::vpc::find_by_name(&mut env.db_reader(), "test vpc 1")
         .await
         .unwrap();
     let vpc = vpc.remove(0);
@@ -2436,7 +2443,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .unwrap();
 
     let ns = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2477,7 +2484,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let mut txn = env.db_txn().await;
     let mut ns = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(
             IdColumn,
             &fetched_instance.config.network.interfaces[0]
@@ -2548,7 +2555,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     // Address is freed during delete
     let mut txn = env.db_txn().await;
     let network_segments = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::List(IdColumn, &segment_ids),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2629,7 +2636,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns1 = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2656,7 +2663,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns2 = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2682,7 +2689,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns3 = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2717,7 +2724,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns4 = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -4141,10 +4148,12 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     };
 
     let mut txn = env.db_txn().await;
-    let segments =
-        db::network_segment::find_ids(txn.as_mut(), NetworkSegmentSearchFilter::default())
-            .await
-            .unwrap();
+    let segments = db::network_segment::find_ids(
+        &mut txn.as_db_reader(),
+        NetworkSegmentSearchFilter::default(),
+    )
+    .await
+    .unwrap();
 
     let old_length = segments.len();
     txn.rollback().await.unwrap();
@@ -4169,10 +4178,12 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let segments =
-        db::network_segment::find_ids(txn.as_mut(), NetworkSegmentSearchFilter::default())
-            .await
-            .unwrap();
+    let segments = db::network_segment::find_ids(
+        &mut txn.as_db_reader(),
+        NetworkSegmentSearchFilter::default(),
+    )
+    .await
+    .unwrap();
 
     let new_length = segments.len();
     txn.rollback().await.unwrap();
@@ -4239,7 +4250,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
+    let vpc = db::vpc::find_by_name(&mut env.db_reader(), "test vpc 1")
         .await
         .unwrap()
         .into_iter()
@@ -4324,7 +4335,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
 
     for iface in config.network.interfaces {
         let network_segment = db::network_segment::find_by(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectColumnFilter::One(IdColumn, &iface.network_segment_id.unwrap()),
             NetworkSegmentSearchConfig::default(),
         )

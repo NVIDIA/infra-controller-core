@@ -57,7 +57,7 @@ impl<'a> ManagedHost<'a> {
 /// BMC temporarily stops reporting DPUs in its PCIe device list.
 pub async fn is_endpoint_in_managed_host(
     bmc_ip_address: IpAddr,
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<bool, DatabaseError> {
     let machine_id =
         db::machine_topology::find_machine_id_by_bmc_ip(txn, &bmc_ip_address.to_string()).await?;

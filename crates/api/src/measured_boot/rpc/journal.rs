@@ -22,6 +22,7 @@
 use std::str::FromStr;
 
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use db::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
@@ -75,7 +76,7 @@ pub async fn handle_show_measurement_journal(
             }
             show_measurement_journal_request::Selector::LatestForMachineId(machine_id) => {
                 match db::measured_boot::journal::get_latest_journal_for_id(
-                    &mut txn,
+                    &mut txn.as_db_reader(),
                     MachineId::from_str(&machine_id).map_err(|e| {
                         Status::invalid_argument(format!("Could not parse MachineId: {e}"))
                     })?,
@@ -107,7 +108,7 @@ pub async fn handle_show_measurement_journals(
     _req: ShowMeasurementJournalsRequest,
 ) -> Result<ShowMeasurementJournalsResponse, Status> {
     Ok(ShowMeasurementJournalsResponse {
-        journals: db::measured_boot::journal::get_all(&api.database_connection)
+        journals: db::measured_boot::journal::get_all(&mut api.db_reader())
             .await
             .map_err(|e| Status::internal(format!("failed to fetch journals: {e}")))?
             .drain(..)

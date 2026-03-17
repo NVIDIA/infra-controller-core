@@ -150,7 +150,7 @@ async fn persist_inner_with_metadata(
 ///
 ///
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<Domain>, DatabaseError> {
     find_all_by(txn, filter, false).await
@@ -158,7 +158,7 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
 
 /// Similar to [`Domain::find_by`] but lets you specify whether to include deleted results
 pub async fn find_all_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
     include_deleted: bool,
 ) -> Result<Vec<Domain>, DatabaseError> {
@@ -175,7 +175,7 @@ pub async fn find_all_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
 }
 
 pub async fn find_by_name(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     name: &str,
 ) -> Result<Vec<Domain>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
@@ -183,7 +183,7 @@ pub async fn find_by_name(
 
 /// Find the domain with the given ID, even if it is deleted.
 pub async fn find_by_uuid(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     uuid: DomainId,
 ) -> Result<Option<Domain>, DatabaseError> {
     find_all_by(txn, ObjectColumnFilter::One(IdColumn, &uuid), true)

@@ -38,6 +38,7 @@
 mod tests {
     use std::collections::HashMap;
 
+    use db::db_read::AsDbReader;
     use db::measured_boot::interface::profile::{
         get_all_measurement_profile_attr_records, get_all_measurement_profile_records,
     };
@@ -99,7 +100,7 @@ mod tests {
 
         // Do a little bit of database recon to make
         // sure the expected number of rows are there.
-        let profile1_records = get_all_measurement_profile_records(txn.as_mut()).await?;
+        let profile1_records = get_all_measurement_profile_records(&mut txn.as_db_reader()).await?;
         assert_eq!(profile1_records.len(), 1);
 
         let profile_attr_records = get_all_measurement_profile_attr_records(&mut txn).await?;
@@ -155,7 +156,8 @@ mod tests {
 
         // Do a little bit of database recon to make
         // sure the expected number of rows are there.
-        let profile_both_records = get_all_measurement_profile_records(txn.as_mut()).await?;
+        let profile_both_records =
+            get_all_measurement_profile_records(&mut txn.as_db_reader()).await?;
         assert_eq!(profile_both_records.len(), 2);
 
         let profile_all_attr_records = get_all_measurement_profile_attr_records(&mut txn).await?;

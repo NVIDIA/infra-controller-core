@@ -386,7 +386,7 @@ pub async fn list_segment_ids(txn: &mut PgConnection) -> Result<Vec<IBPartitionI
 }
 
 pub async fn for_tenant(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     tenant_organization_id: String,
 ) -> Result<Vec<IBPartition>, DatabaseError> {
     let results: Vec<IBPartition> = {
@@ -402,7 +402,7 @@ pub async fn for_tenant(
 }
 
 pub async fn find_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: rpc::IbPartitionSearchFilter,
 ) -> Result<Vec<IBPartitionId>, DatabaseError> {
     // build query
@@ -432,7 +432,7 @@ pub async fn find_ids(
 }
 
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = IBPartition>>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<IBPartition>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM ib_partitions").filter(&filter);
@@ -544,7 +544,7 @@ pub async fn final_delete(
 
 /// Counts the number of instances that reference a given IB partition in their ib_config.
 pub async fn count_instances_referencing_partition(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     partition_id: IBPartitionId,
 ) -> Result<i64, DatabaseError> {
     let query = "

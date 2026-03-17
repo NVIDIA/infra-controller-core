@@ -302,14 +302,11 @@ pub async fn compare_pub_key_against_cert(
     }
 }
 
-pub async fn has_passed_attestation<DB>(
-    db: &mut DB,
+pub async fn has_passed_attestation(
+    db: &mut DbReader<'_>,
     machine_id: &MachineId,
     _report_id: &MeasurementReportId,
-) -> CarbideResult<bool>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> CarbideResult<bool> {
     let measuring_outcome = handle_measuring_state(
         &MeasuringState::WaitingForMeasurements,
         machine_id,

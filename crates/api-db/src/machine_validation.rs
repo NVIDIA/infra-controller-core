@@ -29,7 +29,7 @@ use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 pub async fn find_by(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectFilter<'_, String>,
     column: &str,
 ) -> Result<Vec<MachineValidation>, DatabaseError> {
@@ -176,14 +176,11 @@ pub async fn create_new_run(
     Ok(id)
 }
 
-pub async fn find<DB>(
-    txn: &mut DB,
+pub async fn find(
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
     include_history: bool,
-) -> DatabaseResult<Vec<MachineValidation>>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> DatabaseResult<Vec<MachineValidation>> {
     if include_history {
         return find_by_machine_id(&mut *txn, machine_id).await;
     };
@@ -224,7 +221,7 @@ where
 }
 
 pub async fn find_by_machine_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
 ) -> DatabaseResult<Vec<MachineValidation>> {
     find_by(
@@ -236,7 +233,7 @@ pub async fn find_by_machine_id(
 }
 
 pub async fn find_active_machine_validation_by_machine_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
 ) -> DatabaseResult<MachineValidation> {
     let ret = find_by_machine_id(txn, machine_id).await?;
@@ -251,7 +248,7 @@ pub async fn find_active_machine_validation_by_machine_id(
 }
 
 pub async fn find_by_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     validation_id: &Uuid,
 ) -> DatabaseResult<MachineValidation> {
     let machine_validation =
@@ -265,7 +262,7 @@ pub async fn find_by_id(
     )))
 }
 
-pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<MachineValidation>> {
+pub async fn find_all(txn: &mut DbReader<'_>) -> DatabaseResult<Vec<MachineValidation>> {
     find_by(txn, ObjectFilter::All, "").await
 }
 

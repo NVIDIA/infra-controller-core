@@ -19,6 +19,7 @@
 
 use carbide_uuid::infiniband::IBPartitionId;
 use config_version::{ConfigVersion, Versioned};
+use db::db_read::AsDbReader;
 use db::ib_partition::IBPartition;
 use db::{self, DatabaseError, ObjectColumnFilter};
 use model::StateSla;
@@ -61,7 +62,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         partition_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
         let mut partitions = db::ib_partition::find_by(
-            txn,
+            &mut txn.as_db_reader(),
             ObjectColumnFilter::One(db::ib_partition::IdColumn, partition_id),
         )
         .await?;

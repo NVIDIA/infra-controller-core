@@ -76,7 +76,7 @@ impl<'r> FromRow<'r, PgRow> for DbResourceRecord {
 }
 
 pub async fn get_soa_record(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     query_name: &str,
 ) -> Result<Option<DbSoaRecord>, DatabaseError> {
     let domain_name = crate::dns::normalize_domain(query_name);
@@ -89,7 +89,7 @@ pub async fn get_soa_record(
 }
 
 pub async fn find_record(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     query_name: &str,
 ) -> Result<Vec<DbResourceRecord>, DatabaseError> {
     // TODO: Configurable defaults for TTL
@@ -112,7 +112,7 @@ pub async fn find_record(
     Ok(result)
 }
 pub async fn get_all_records(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     query_name: &str,
 ) -> Result<Vec<DbResourceRecord>, DatabaseError> {
     let domain_name = crate::dns::normalize_domain(query_name);

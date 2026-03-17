@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use carbide_uuid::switch::SwitchId;
+use db::db_read::AsDbReader;
 use db::switch as db_switch;
 use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
 use rpc::forge::forge_server::Forge;
@@ -595,7 +596,7 @@ async fn test_find_switch_with_bmc_info(
         .expect("Underlay segment should exist in test env");
 
     let underlay_segments = db_network_segment::find_by(
-        &mut txn,
+        &mut txn.as_db_reader(),
         db::ObjectColumnFilter::One(db_network_segment::IdColumn, &underlay_segment_id),
         Default::default(),
     )

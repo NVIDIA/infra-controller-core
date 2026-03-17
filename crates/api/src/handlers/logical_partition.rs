@@ -16,6 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::nvl_logical_partition::{self, NewLogicalPartition};
 use db::{self, ObjectColumnFilter, WithTransaction, instance};
 use futures_util::FutureExt;
@@ -59,8 +60,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::NvLinkLogicalPartitionSearchFilter = request.into_inner();
 
-    let partition_ids =
-        db::nvl_logical_partition::find_ids(&api.database_connection, filter).await?;
+    let partition_ids = db::nvl_logical_partition::find_ids(&mut api.db_reader(), filter).await?;
 
     Ok(Response::new(rpc::NvLinkLogicalPartitionIdList {
         partition_ids,
@@ -88,7 +88,7 @@ pub(crate) async fn find_by_ids(
     }
 
     let partitions = db::nvl_logical_partition::find_by(
-        &api.database_connection,
+        &mut api.db_reader(),
         ObjectColumnFilter::List(nvl_logical_partition::IdColumn, &partition_ids),
     )
     .await
@@ -116,7 +116,7 @@ pub(crate) async fn delete(
         .ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
     let mut partitions = db::nvl_logical_partition::find_by(
-        &api.database_connection,
+        &mut api.db_reader(),
         ObjectColumnFilter::One(nvl_logical_partition::IdColumn, &id),
     )
     .await
@@ -134,7 +134,7 @@ pub(crate) async fn delete(
     };
 
     // check if any instance's nvlink config  has this logical partition
-    if instance::any_instance_referencing_nvlink_logical_partition(&api.database_connection, &id)
+    if instance::any_instance_referencing_nvlink_logical_partition(&mut api.db_reader(), &id)
         .await
         .map_err(CarbideError::from)?
     {
@@ -172,10 +172,9 @@ pub(crate) async fn for_tenant(
 
     log_tenant_organization_id(&tenant_org_id_str);
 
-    let results =
-        db::nvl_logical_partition::for_tenant(&api.database_connection, tenant_org_id_str)
-            .await
-            .map_err(CarbideError::from)?;
+    let results = db::nvl_logical_partition::for_tenant(&mut api.db_reader(), tenant_org_id_str)
+        .await
+        .map_err(CarbideError::from)?;
 
     let mut partitions = Vec::with_capacity(results.len());
 
@@ -213,7 +212,7 @@ pub(crate) async fn update(
     let mut txn = api.txn_begin().await?;
 
     let mut partitions = db::nvl_logical_partition::find_by(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(nvl_logical_partition::IdColumn, &id),
     )
     .await

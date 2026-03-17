@@ -138,7 +138,7 @@ async fn handle_dhcp_from_dpa(
         return Ok(None);
     }
 
-    let mut dpa_ifs = db::dpa_interface::find_by_mac_addr(&mut *txn, &macaddr).await?;
+    let mut dpa_ifs = db::dpa_interface::find_by_mac_addr(&mut txn.into(), &macaddr).await?;
 
     if dpa_ifs.len() != 1 {
         // If the MAC address does not belong to any DPA object, len will be 0.
@@ -325,7 +325,7 @@ async fn update_rack_config_predicted_id_with_actual(
     actual: &MachineId,
 ) -> Result<(), CarbideError> {
     // TODO: pass in a rack id query by that when we support multirack, when supported
-    let racks = db::rack::list(&mut *txn).await?;
+    let racks = db::rack::list(&mut txn.into()).await?;
     let rack = match racks.is_empty() {
         false => racks[0].clone(),
         true => {

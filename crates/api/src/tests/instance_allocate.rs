@@ -361,7 +361,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
 
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
                 db::managed_host::load_snapshot(
-                    mock.test_env.pool.begin().await?.deref_mut(),
+                    &mut mock.test_env.db_reader(),
                     &machine_id,
                     Default::default(),
                 )
@@ -422,7 +422,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
     );
 
     let host_snapshot_after_allocate = db::managed_host::load_snapshot(
-        env.pool.begin().await?.deref_mut(),
+        &mut env.db_reader(),
         &zero_dpu_host.host_snapshot.id,
         Default::default(),
     )

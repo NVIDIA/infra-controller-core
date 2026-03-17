@@ -66,7 +66,7 @@ pub async fn replace(
 
 // get returns all RouteServer entries, which include the
 // IP address and source_type of the entry.
-pub async fn get(txn: impl DbReader<'_>) -> DatabaseResult<Vec<RouteServer>> {
+pub async fn get(txn: &mut DbReader<'_>) -> DatabaseResult<Vec<RouteServer>> {
     let query = r#"SELECT * FROM route_servers;"#;
     sqlx::query_as(query)
         .fetch_all(txn)
@@ -77,7 +77,7 @@ pub async fn get(txn: impl DbReader<'_>) -> DatabaseResult<Vec<RouteServer>> {
 // find_by_address returns a RouteServer entry matching
 // the provided address, if it exists.
 pub async fn find_by_address(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     address: IpAddr,
 ) -> DatabaseResult<Option<RouteServer>> {
     let query = r#"SELECT * FROM route_servers where address=$1;"#;
@@ -152,6 +152,7 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
+    use crate::db_read::AsDbReader;
 
     // test_ips is a helper function to create test IP addresses,
     // instead of listing all of the IPs to test in a vec, since
@@ -186,7 +187,7 @@ mod tests {
         // Initial sync
         super::replace(&mut txn, &addresses, RouteServerSourceType::ConfigFile).await?;
 
-        let result = super::get(txn.as_mut()).await?;
+        let result = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(result.len(), 3);
 
         let result_addresses: Vec<IpAddr> = result.iter().map(|rs| rs.address).collect();
@@ -224,13 +225,13 @@ mod tests {
         super::replace(&mut txn, &admin_addresses, RouteServerSourceType::AdminApi).await?;
 
         // Verify we have 5 total entries
-        let all_entries = super::get(txn.as_mut()).await?;
+        let all_entries = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(all_entries.len(), 5);
 
         // Sync empty array for ConfigFile - should only remove ConfigFile entries
         super::replace(&mut txn, &[], RouteServerSourceType::ConfigFile).await?;
 
-        let remaining_entries = super::get(txn.as_mut()).await?;
+        let remaining_entries = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(remaining_entries.len(), 2);
 
         // All remaining should be AdminApi
@@ -274,7 +275,7 @@ mod tests {
 
         super::add(&mut txn, &addresses, RouteServerSourceType::ConfigFile).await?;
 
-        let result = super::get(txn.as_mut()).await?;
+        let result = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(result.len(), 3);
 
         let result_addresses: Vec<IpAddr> = result.iter().map(|rs| rs.address).collect();
@@ -346,7 +347,7 @@ mod tests {
         let to_remove = vec![config_addresses[0], config_addresses[1]];
         super::remove(&mut txn, &to_remove, RouteServerSourceType::ConfigFile).await?;
 
-        let remaining = super::get(txn.as_mut()).await?;
+        let remaining = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(remaining.len(), 3); // 1 ConfigFile + 2 AdminApi
 
         // Verify correct entries were removed
@@ -368,7 +369,7 @@ mod tests {
         let mut txn = pool.begin().await?;
 
         // Test get when empty
-        let empty_result = super::get(txn.as_mut()).await?;
+        let empty_result = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(empty_result.len(), 0);
 
         // Add some data
@@ -384,7 +385,7 @@ mod tests {
         super::add(&mut txn, &admin_addresses, RouteServerSourceType::AdminApi).await?;
 
         // Test get returns all entries
-        let result = super::get(txn.as_mut()).await?;
+        let result = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(result.len(), 3);
 
         // Verify source types are correct
@@ -422,7 +423,7 @@ mod tests {
         // The important thing is that it doesn't panic
         match result {
             Ok(_) => {
-                let entries = super::get(txn.as_mut()).await?;
+                let entries = super::get(&mut txn.as_db_reader()).await?;
                 assert_eq!(entries.len(), 3); // Should only have unique entries
             }
             Err(_) => {
@@ -465,7 +466,7 @@ mod tests {
         )
         .await?;
 
-        let all_entries = super::get(txn.as_mut()).await?;
+        let all_entries = super::get(&mut txn.as_db_reader()).await?;
 
         // Should have 2 new ConfigFile + 2 AdminApi = 4 total
         assert_eq!(all_entries.len(), 4);
@@ -537,13 +538,13 @@ mod tests {
         let to_remove = vec![admin_addresses[0]];
         super::remove(&mut txn, &to_remove, RouteServerSourceType::ConfigFile).await?;
 
-        let remaining = super::get(txn.as_mut()).await?;
+        let remaining = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(remaining.len(), 5); // All entries should remain
 
         // Now remove with correct source type
         super::remove(&mut txn, &to_remove, RouteServerSourceType::AdminApi).await?;
 
-        let remaining = super::get(txn.as_mut()).await?;
+        let remaining = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(remaining.len(), 4); // One entry should be removed
 
         Ok(())
@@ -581,7 +582,7 @@ mod tests {
         super::remove(&mut txn, &initial_admin, RouteServerSourceType::AdminApi).await?;
 
         // Final verification
-        let final_entries = super::get(txn.as_mut()).await?;
+        let final_entries = super::get(&mut txn.as_db_reader()).await?;
         assert_eq!(final_entries.len(), 3); // 2 ConfigFile + 1 AdminApi
 
         let config_final: Vec<IpAddr> = final_entries

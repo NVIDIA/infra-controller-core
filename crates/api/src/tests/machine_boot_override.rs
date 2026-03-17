@@ -18,6 +18,7 @@
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::dpu::dpu_discover_dhcp;
 use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
+use db::db_read::AsDbReader;
 use rpc::protos::forge::forge_server::Forge;
 
 use crate::DatabaseError;
@@ -46,7 +47,7 @@ async fn only_one_custom_pxe_per_interface(
     .expect("Could not create custom pxe");
 
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
+        db::machine_boot_override::find_optional(&mut txn.as_db_reader(), new_interface_id)
             .await
             .expect("Could not load custom boot")
             .unwrap();
@@ -86,7 +87,7 @@ async fn confirm_null_fields(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
 
     // ensure these stay Nones as we have code that will react to them not being None
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
+        db::machine_boot_override::find_optional(&mut txn.as_db_reader(), new_interface_id)
             .await
             .expect("Could not load custom boot")
             .unwrap();
@@ -163,7 +164,7 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
 
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), machine_interface_id)
+        db::machine_boot_override::find_optional(&mut txn.as_db_reader(), machine_interface_id)
             .await
             .expect("Could not load custom boot")
             .unwrap();
@@ -206,7 +207,7 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
 
     // ensure these stay Nones as we have code that will react to them not being None
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
+        db::machine_boot_override::find_optional(&mut txn.as_db_reader(), new_interface_id)
             .await
             .expect("Could not load custom boot");
 
@@ -250,7 +251,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let mut txn = env.pool.begin().await?;
 
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), machine_interface_id)
+        db::machine_boot_override::find_optional(&mut txn.as_db_reader(), machine_interface_id)
             .await
             .expect("Could not load custom boot")
             .unwrap();

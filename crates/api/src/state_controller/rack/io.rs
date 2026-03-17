@@ -19,6 +19,7 @@
 
 use carbide_uuid::rack::RackId;
 use config_version::{ConfigVersion, Versioned};
+use db::db_read::AsDbReader;
 use db::rack::IdColumn;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::StateSla;
@@ -51,7 +52,7 @@ impl StateControllerIO for RackStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_rack::list(txn)
+        db_rack::list(&mut txn.as_db_reader())
             .await
             .map(|racks| racks.into_iter().map(|r| r.id).collect())
     }

@@ -23,6 +23,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
@@ -58,7 +59,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     let mut txn = api.txn_begin().await?;
 
     let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &dpu_machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
@@ -91,7 +92,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
         .find(|x| x.primary_interface)
         .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
 
-    let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
+    let primary_dpu =
+        db::machine_interface::find_one(&mut txn.as_db_reader(), primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
         .attached_dpu_machine_id
         .map(|x| x == dpu_snapshot.id)
@@ -232,7 +234,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 // network segment is empty, return error.
                 return Err(CarbideError::NetworkSegmentNotAllocated.into());
             };
-            let vpc = db::vpc::find_by_segment(&mut txn, network_segment_id)
+            let vpc = db::vpc::find_by_segment(&mut txn.as_db_reader(), network_segment_id)
                 .await?;
 
             // We probably shouldn't allow multiple interfaces that are in different VPCs with
@@ -355,7 +357,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             // instance creation.
             let segment_ids = interfaces.iter().filter_map(|x|x.network_segment_id).collect_vec();
             let segment_details = db::network_segment::find_by(
-                &mut txn,
+                &mut txn.as_db_reader(),
                 ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
                 NetworkSegmentSearchConfig::default(),
             ).await?;
@@ -370,7 +372,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let domain = match segment.subdomain_id {
                 Some(domain_id) => {
-                    db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
+                    db::dns::domain::find_by_uuid(&mut txn.as_db_reader(), domain_id)
                         .await
                         .map_err(CarbideError::from)?
                         .ok_or_else(|| CarbideError::NotFoundError {
@@ -510,7 +512,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     // entire struct down, and then putting some smarts inside the DPU re: the source_type.
     // Only pass them on if route servers are enabled.
     let route_servers = if api.runtime_config.enable_route_servers {
-        db::route_servers::get(&mut txn)
+        db::route_servers::get(&mut txn.as_db_reader())
             .await?
             .into_iter()
             .map(|rs| rs.address.to_string())
@@ -796,7 +798,7 @@ pub(crate) async fn record_dpu_network_status(
     // Load the DPU Object. We require it to update the health report based
     // on the last report
     let dpu_machine = db::machine::find_one(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &dpu_machine_id,
         MachineSearchConfig {
             include_dpus: true,
@@ -933,8 +935,11 @@ async fn wakeup_host_state_handler_by_dpu_id(
     dpu_machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
     let mut txn = api.txn_begin().await?;
-    let host_machine =
-        db::machine::lookup_host_machine_ids_by_dpu_ids(&mut txn, &[*dpu_machine_id]).await?;
+    let host_machine = db::machine::lookup_host_machine_ids_by_dpu_ids(
+        &mut txn.as_db_reader(),
+        &[*dpu_machine_id],
+    )
+    .await?;
     txn.rollback().await?;
 
     if let Some(host_machine_id) = host_machine.first() {
@@ -957,7 +962,7 @@ pub(crate) async fn get_all_managed_host_network_status(
     log_request_data(&request);
 
     let all_status =
-        db::machine::get_all_network_status_observation(&api.database_connection, 2000).await?;
+        db::machine::get_all_network_status_observation(&mut api.db_reader(), 2000).await?;
 
     let mut out = Vec::with_capacity(all_status.len());
     for machine_network_status in all_status {
@@ -998,8 +1003,12 @@ pub(crate) async fn dpu_agent_upgrade_check(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+    let machine = db::machine::find_one(
+        &mut txn.as_db_reader(),
+        &machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?;
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "dpu",
         id: machine_id.to_string(),
@@ -1075,7 +1084,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     let mut txn = api.txn_begin().await?;
 
     let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &machine_id,
         LoadSnapshotOptions {
             include_history: false,
@@ -1203,7 +1212,7 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 ) -> Result<Response<rpc::DpuReprovisioningListResponse>, Status> {
     log_request_data(&request);
 
-    let dpus = db::machine::list_machines_requested_for_reprovisioning(&api.database_connection)
+    let dpus = db::machine::list_machines_requested_for_reprovisioning(&mut api.db_reader())
         .await?
         .into_iter()
         .map(

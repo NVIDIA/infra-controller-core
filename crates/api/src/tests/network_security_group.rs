@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Borrow;
 use std::time::SystemTime;
 
 use carbide_uuid::instance::InstanceId;
@@ -1262,7 +1263,7 @@ async fn test_network_security_group_propagation_impl(
 
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
-    let instance = db::instance::find_by_id(&pool, instance_id)
+    let instance = db::instance::find_by_id(&mut pool.borrow().into(), instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1466,7 +1467,7 @@ async fn test_network_security_group_propagation_impl(
 
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
-    let instance = db::instance::find_by_id(&pool, instance_id2)
+    let instance = db::instance::find_by_id(&mut pool.borrow().into(), instance_id2)
         .await
         .unwrap()
         .unwrap();

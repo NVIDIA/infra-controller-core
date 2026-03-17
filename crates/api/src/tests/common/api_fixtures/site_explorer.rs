@@ -23,6 +23,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
+use db::db_read::AsDbReader;
 use db::machine_interface::find_by_mac_address;
 use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
@@ -371,9 +372,10 @@ impl<'a> MockExploredHost<'a> {
 
         //run scout discovery for dpu(s)
         for dpu in self.managed_host.dpus.clone() {
-            let machine_interfaces = find_by_mac_address(txn.as_mut(), dpu.oob_mac_address)
-                .await
-                .unwrap();
+            let machine_interfaces =
+                find_by_mac_address(&mut txn.as_db_reader(), dpu.oob_mac_address)
+                    .await
+                    .unwrap();
             let primary_interface = machine_interfaces
                 .iter()
                 .find(|interface| interface.primary_interface)
@@ -453,9 +455,10 @@ impl<'a> MockExploredHost<'a> {
 
         //run scout discovery for dpu(s)
         for dpu in self.managed_host.dpus.clone() {
-            let machine_interfaces = find_by_mac_address(txn.as_mut(), dpu.oob_mac_address)
-                .await
-                .unwrap();
+            let machine_interfaces =
+                find_by_mac_address(&mut txn.as_db_reader(), dpu.oob_mac_address)
+                    .await
+                    .unwrap();
             let primary_interface = machine_interfaces
                 .iter()
                 .find(|interface| interface.primary_interface)
@@ -557,9 +560,10 @@ impl<'a> MockExploredHost<'a> {
 
         //run scout discovery for dpu(s)
         for dpu in self.managed_host.dpus.clone() {
-            let machine_interfaces = find_by_mac_address(txn.as_mut(), dpu.oob_mac_address)
-                .await
-                .unwrap();
+            let machine_interfaces =
+                find_by_mac_address(&mut txn.as_db_reader(), dpu.oob_mac_address)
+                    .await
+                    .unwrap();
             let primary_interface = machine_interfaces
                 .iter()
                 .find(|interface| interface.primary_interface)
@@ -990,7 +994,7 @@ impl<'a> MockExploredHost<'a> {
 
                 let mut txn = self.test_env.pool.begin().await.unwrap();
                 let machine = db::machine::find_one(
-                    txn.as_mut(),
+                    &mut txn.as_db_reader(),
                     &self.dpu_machine_ids[&0],
                     model::machine::machine_search_config::MachineSearchConfig::default(),
                 )
@@ -1117,7 +1121,7 @@ impl<'a> MockExploredHost<'a> {
 
             let mut txn = self.test_env.pool.begin().await.unwrap();
             tracing::info!("generating sku");
-            let sku = db::sku::generate_sku_from_machine(txn.as_mut(), host_machine_id)
+            let sku = db::sku::generate_sku_from_machine(&mut txn.as_db_reader(), host_machine_id)
                 .await
                 .unwrap();
             tracing::info!("creating sku: {}", sku.id);

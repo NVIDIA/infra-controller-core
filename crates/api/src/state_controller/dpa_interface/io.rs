@@ -20,6 +20,7 @@
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use config_version::{ConfigVersion, Versioned};
 use db::DatabaseError;
+use db::db_read::AsDbReader;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpa_interface::{self, DpaInterface, DpaInterfaceControllerState};
@@ -50,7 +51,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db::dpa_interface::find_ids(txn).await
+        db::dpa_interface::find_ids(&mut txn.as_db_reader()).await
     }
 
     /// Loads a state snapshot from the database
@@ -59,7 +60,9 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         txn: &mut PgConnection,
         interface_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut interfaces = db::dpa_interface::find_by_ids(txn, &[*interface_id], false).await?;
+        let mut interfaces =
+            db::dpa_interface::find_by_ids(&mut txn.as_db_reader(), &[*interface_id], false)
+                .await?;
         if interfaces.is_empty() {
             tracing::debug!("DPA load_object_state empty ifid: {:#?}", interface_id);
             return Ok(None);

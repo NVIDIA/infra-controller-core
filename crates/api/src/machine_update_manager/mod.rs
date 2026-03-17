@@ -27,6 +27,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, ObjectFilter, Transaction};
 use host_firmware::HostFirmwareUpdate;
@@ -160,7 +161,7 @@ impl MachineUpdateManager {
         txn: &mut PgConnection,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let machine_ids = db::machine::find_machine_ids(
-            &mut *txn,
+            &mut txn.as_db_reader(),
             MachineSearchConfig {
                 include_predicted_host: true,
                 ..Default::default()
@@ -168,7 +169,7 @@ impl MachineUpdateManager {
         )
         .await?;
         db::managed_host::load_by_machine_ids(
-            txn,
+            &mut txn.as_db_reader(),
             &machine_ids,
             LoadSnapshotOptions {
                 include_history: false,
@@ -302,7 +303,7 @@ impl MachineUpdateManager {
         txn: &mut PgConnection,
     ) -> Result<HashSet<MachineId>, DatabaseError> {
         let machines = db::machine::find(
-            txn,
+            &mut txn.as_db_reader(),
             ObjectFilter::All,
             MachineSearchConfig {
                 include_predicted_host: true,

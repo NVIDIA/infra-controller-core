@@ -33,7 +33,7 @@ use crate::measured_boot::machine::CandidateMachineRecord;
 /// machine ID by checking its most recent bundle (or lack thereof), and
 /// using that result to give it a corresponding MeasurementMachineState.
 pub async fn get_candidate_machine_state(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<MeasurementMachineState, DatabaseError> {
     Ok(match get_latest_journal_for_id(txn, machine_id).await? {
@@ -45,7 +45,7 @@ pub async fn get_candidate_machine_state(
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
 pub async fn get_latest_journal_for_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
@@ -61,7 +61,7 @@ pub async fn get_candidate_machine_record_by_id(
     txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<Option<CandidateMachineRecord>, DatabaseError> {
-    common::get_object_for_id(txn, machine_id)
+    common::get_object_for_id(&mut txn.into(), machine_id)
         .await
         .map_err(|e| e.with_op_name("get_candidate_machine_record_by_id"))
 }
@@ -69,7 +69,7 @@ pub async fn get_candidate_machine_record_by_id(
 /// get_candidate_machine_records returns all MockMachineRecord rows,
 /// primarily for the purpose of `mock-machine list`.
 pub async fn get_candidate_machine_records(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<CandidateMachineRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await

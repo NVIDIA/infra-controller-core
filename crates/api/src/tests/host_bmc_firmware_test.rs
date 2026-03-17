@@ -27,6 +27,7 @@ use common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::{
     self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
 };
+use db::db_read::AsDbReader;
 use db::{self, DatabaseError};
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::instance::status::tenant::TenantState;
@@ -94,7 +95,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
             .await?
             .is_empty()
     );
@@ -114,7 +115,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
             .await?
             .is_empty()
     );
@@ -137,7 +138,8 @@ async fn test_preingestion_bmc_upgrade(
     let mut txn = pool.begin().await.unwrap();
 
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -160,7 +162,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     if let PreingestionState::UpgradeFirmwareWait {
@@ -177,7 +179,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     let PreingestionState::NewFirmwareReportedWait { .. } = endpoint.preingestion_state else {
@@ -189,7 +191,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader()).await?;
     assert!(endpoints.len() == 1);
     let mut endpoint = endpoints.into_iter().next().unwrap();
 
@@ -212,7 +214,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -230,7 +232,7 @@ async fn test_preingestion_bmc_upgrade(
 
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
             .await?
             .is_empty()
     );
@@ -284,7 +286,8 @@ async fn test_preingestion_upgrade_script(
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -302,7 +305,8 @@ async fn test_preingestion_upgrade_script(
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -522,10 +526,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = db::explored_endpoints::find_by_ips(
+        &mut txn.as_db_reader(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
@@ -643,9 +649,11 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
 
     // "Site explorer" pass to indicate that we're at the desired version
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await?;
+    let endpoints = db::explored_endpoints::find_by_ips(
+        &mut txn.as_db_reader(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await?;
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint
@@ -985,7 +993,8 @@ async fn test_preingestion_preupdate_powercycling(
     // Expect "reset" the BMC
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::InitialReset { phase, .. } => {
@@ -1001,7 +1010,8 @@ async fn test_preingestion_preupdate_powercycling(
     // Expect WaitHostBoot
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::InitialReset { phase, .. } => {
@@ -1023,7 +1033,8 @@ async fn test_preingestion_preupdate_powercycling(
     // Recheck versions
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     let endpoint = endpoints.first().unwrap();
     assert_eq!(
         endpoint.preingestion_state,
@@ -1036,7 +1047,8 @@ async fn test_preingestion_preupdate_powercycling(
     let mut txn = pool.begin().await.unwrap();
 
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     assert!(endpoints.len() == 1);
     let mut endpoint = endpoints.into_iter().next().unwrap();
     match &endpoint.preingestion_state {
@@ -1080,7 +1092,7 @@ async fn test_preingestion_preupdate_powercycling(
         mgr.run_single_iteration().await?;
 
         let mut txn = pool.begin().await.unwrap();
-        let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+        let endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader()).await?;
         assert!(endpoints.len() == 1);
         let mut endpoint = endpoints.into_iter().next().unwrap();
         tracing::debug!("State should be {state:?}");
@@ -1117,7 +1129,7 @@ async fn test_preingestion_preupdate_powercycling(
 
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader()).await?;
     txn.commit().await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
@@ -1129,7 +1141,7 @@ async fn test_preingestion_preupdate_powercycling(
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
             .await?
             .is_empty()
     );
@@ -1417,10 +1429,12 @@ async fn test_instance_upgrading_actual_part_2(
     };
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = db::explored_endpoints::find_by_ips(
+        &mut txn.as_db_reader(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
@@ -1586,10 +1600,12 @@ async fn test_instance_upgrading_actual_part_2(
     );
 
     // "Site explorer" pass to indicate that we're at the desired version
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = db::explored_endpoints::find_by_ips(
+        &mut txn.as_db_reader(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint
@@ -2264,7 +2280,8 @@ async fn test_preingestion_time_sync_reset_flow(
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     assert_eq!(endpoints.len(), 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -2285,7 +2302,8 @@ async fn test_preingestion_time_sync_reset_flow(
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn.as_db_reader())
+            .await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::TimeSyncReset { phase, .. } => {
@@ -2367,7 +2385,7 @@ async fn test_preingestion_time_sync_check_error_fails(
     // The test passes if it doesn't panic - the mock BMC should return valid time
     // and the endpoint should proceed to completion or firmware check
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader()).await?;
     assert_eq!(endpoints.len(), 1);
     // Just verify we didn't fail - we should be in Complete or some valid state
     let endpoint = &endpoints[0];
@@ -2576,10 +2594,12 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
     env.run_machine_state_controller_iteration().await;
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = db::explored_endpoints::find_by_ips(
+        &mut txn.as_db_reader(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());

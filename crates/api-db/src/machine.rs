@@ -90,8 +90,12 @@ pub async fn get_or_create(
     stable_machine_id: &MachineId,
     interface: &MachineInterfaceSnapshot,
 ) -> DatabaseResult<Machine> {
-    let existing_machine =
-        find_one(&mut *txn, stable_machine_id, MachineSearchConfig::default()).await?;
+    let existing_machine = find_one(
+        &mut txn.into(),
+        stable_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?;
     if let Some(machine_id) = interface.machine_id.as_ref() {
         if machine_id != stable_machine_id {
             return Err(DatabaseError::internal(format!(
@@ -150,7 +154,7 @@ pub async fn get_or_create(
 }
 
 pub async fn find_one(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     id: &MachineId,
     search_config: MachineSearchConfig,
 ) -> Result<Option<Machine>, DatabaseError> {
@@ -231,7 +235,7 @@ pub async fn advance(
 /// * `search_config` - A MachineSearchConfig with search options to control the
 ///   records selected
 pub async fn find(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectFilter<'_, MachineId>,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<Machine>, DatabaseError> {
@@ -321,7 +325,7 @@ pub async fn find_id_by_bmc_ip(
     txn: &mut PgConnection,
     bmc_ip: &IpAddr,
 ) -> Result<Option<MachineId>, DatabaseError> {
-    crate::machine_topology::find_machine_id_by_bmc_ip(txn, &bmc_ip.to_string()).await
+    crate::machine_topology::find_machine_id_by_bmc_ip(&mut txn.into(), &bmc_ip.to_string()).await
 }
 
 /// Finds machines associated with a specified instance type
@@ -485,7 +489,7 @@ pub async fn find_by_mac_address(
 }
 
 pub async fn find_by_loopback_ip(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     loopback_ip: &str,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -513,7 +517,7 @@ pub async fn find_by_query(
     query: &str,
 ) -> Result<Option<Machine>, DatabaseError> {
     if let Ok(id) = MachineId::from_str(query) {
-        return find_one(txn, &id, MachineSearchConfig::default()).await;
+        return find_one(&mut txn.into(), &id, MachineSearchConfig::default()).await;
     }
 
     if let Ok(ip) = IpAddr::from_str(query) {
@@ -672,7 +676,7 @@ pub async fn find_host_by_dpu_machine_id(
 }
 
 pub async fn lookup_host_machine_ids_by_dpu_ids(
-    conn: impl DbReader<'_>,
+    conn: &mut DbReader<'_>,
     dpu_machine_ids: &[MachineId],
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = r#"SELECT mi.machine_id
@@ -1049,7 +1053,7 @@ pub async fn update_agent_reported_inventory(
 }
 
 pub async fn get_all_network_status_observation(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     limit: i64, // return at most this many rows
 ) -> Result<Vec<MachineNetworkStatusObservation>, DatabaseError> {
     let query = "SELECT network_status_observation FROM machines
@@ -1141,7 +1145,13 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
 
     // This is repeated call. Machine is already updated with stable ID.
     if !current_machine_id.machine_type().is_predicted_host() {
-        return match find_one(txn, current_machine_id, MachineSearchConfig::default()).await? {
+        return match find_one(
+            &mut txn.into(),
+            current_machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        {
             Some(machine) => Ok(machine.id),
             None => Err(DatabaseError::NotFoundError {
                 kind: "machine",
@@ -1295,12 +1305,16 @@ pub async fn create(
         )));
     }
 
-    let machine = find_one(&mut *txn, stable_machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| DatabaseError::NotFoundError {
-            kind: "machine",
-            id: stable_machine_id.to_string(),
-        })?;
+    let machine = find_one(
+        &mut txn.into(),
+        stable_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?
+    .ok_or_else(|| DatabaseError::NotFoundError {
+        kind: "machine",
+        id: stable_machine_id.to_string(),
+    })?;
     advance(&machine, txn, &state, None).await?;
 
     // Create a entry in power_options table as well.
@@ -1559,7 +1573,7 @@ pub async fn clear_dpu_reprovisioning_request(
 }
 
 pub async fn list_machines_requested_for_reprovisioning(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
@@ -1574,7 +1588,7 @@ pub async fn list_machines_requested_for_reprovisioning(
 }
 
 pub async fn list_machines_requested_for_host_reprovisioning(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
@@ -1598,7 +1612,7 @@ pub async fn apply_agent_upgrade_policy(
     if policy == AgentUpgradePolicy::Off {
         return Ok(false);
     }
-    let machine = find_one(&mut *txn, machine_id, MachineSearchConfig::default())
+    let machine = find_one(&mut txn.into(), machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "dpu_machine",
@@ -1649,7 +1663,7 @@ pub async fn set_dpu_agent_upgrade_requested(
 }
 
 pub async fn find_machine_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
@@ -1730,7 +1744,7 @@ pub async fn update_state(
     new_state: &ManagedHostState,
 ) -> Result<(), DatabaseError> {
     let host = find_one(
-        &mut *txn,
+        &mut txn.into(),
         host_id,
         // TODO(?): Should we be using for_update/row-level locks here?
         // This is a select that's later used for an update on both version
@@ -2137,7 +2151,7 @@ pub async fn update_sku_status_verify_request_time_for_sku(
 }
 
 pub async fn find_machine_ids_by_sku_ids(
-    db_reader: impl DbReader<'_>,
+    db_reader: &mut DbReader<'_>,
     sku_ids: &[String],
 ) -> Result<HashMap<String, Vec<MachineId>>, DatabaseError> {
     let query = r#"SELECT skus.id, COALESCE(m.machine_ids, '[]'::jsonb) as associated_machine_ids
@@ -2179,7 +2193,7 @@ pub async fn find_machine_ids_by_sku_ids(
 }
 
 pub async fn get_network_config(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Versioned<ManagedHostNetworkConfig>, DatabaseError> {
     #[derive(FromRow)]
@@ -2203,7 +2217,7 @@ pub async fn get_network_config(
 }
 
 pub async fn get_quarantine_state(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let network_config = get_network_config(txn, machine_id).await?;
@@ -2216,7 +2230,9 @@ pub async fn set_quarantine_state(
     quarantine_state: ManagedHostQuarantineState,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let (mut network_config, network_config_version) =
-        get_network_config(&mut *txn, machine_id).await?.take();
+        get_network_config(&mut txn.into(), machine_id)
+            .await?
+            .take();
     let old_quarantine_state = network_config.quarantine_state.clone();
     network_config.quarantine_state = Some(quarantine_state);
     try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
@@ -2228,7 +2244,9 @@ pub async fn clear_quarantine_state(
     machine_id: &MachineId,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let (mut network_config, network_config_version) =
-        get_network_config(&mut *txn, machine_id).await?.take();
+        get_network_config(&mut txn.into(), machine_id)
+            .await?
+            .take();
     let old_quarantine_state = network_config.quarantine_state.clone();
     network_config.quarantine_state = None;
     try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
@@ -2322,6 +2340,8 @@ mod test {
     use model::machine::machine_search_config::MachineSearchConfig;
     use model::metadata::Metadata;
 
+    use crate::db_read::AsDbReader;
+
     #[crate::sqlx_test]
 
     async fn test_set_firmware_autoupdate(
@@ -2345,19 +2365,21 @@ mod test {
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
 
-        let host = crate::machine::find_one(&mut *txn, &id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+        let host =
+            crate::machine::find_one(&mut txn.as_db_reader(), &id, MachineSearchConfig::default())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(host.firmware_autoupdate.is_some());
 
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
         super::set_firmware_autoupdate(&mut txn, &id, None).await?;
-        let host = crate::machine::find_one(&mut *txn, &id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+        let host =
+            crate::machine::find_one(&mut txn.as_db_reader(), &id, MachineSearchConfig::default())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(host.firmware_autoupdate.is_none());
         Ok(())
     }

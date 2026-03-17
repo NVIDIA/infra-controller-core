@@ -23,6 +23,7 @@ use ::rpc::forge::InstanceTypeAllocationStats;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::{ObjectFilter, compute_allocation, instance, instance_type};
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
 use model::machine::LoadSnapshotOptions;
@@ -198,7 +199,7 @@ pub(crate) async fn find_by_ids(
 
                 // Grab the count of machines in a good state.
                 let good_machine_count: u32 = db::managed_host::load_by_machine_ids(
-                    &mut txn,
+                    &mut txn.as_db_reader(),
                     &instance_type_assoc_details.machine_ids,
                     LoadSnapshotOptions {
                         ..LoadSnapshotOptions::default()
@@ -543,7 +544,7 @@ pub(crate) async fn associate_machines(
     // also get their most recent snapshots so we can check
     // their capabilities.
     let machines = db::machine::find(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectFilter::List(&machine_ids),
         MachineSearchConfig {
             for_update: true,
@@ -631,7 +632,7 @@ pub(crate) async fn remove_machine_association(
     // coordinate with the instance allocation handler and
     // check for the existence of instances.
     let mut machines = db::machine::find(
-        &mut txn,
+        &mut txn.as_db_reader(),
         ObjectFilter::List(&[machine_id]),
         MachineSearchConfig {
             for_update: true,

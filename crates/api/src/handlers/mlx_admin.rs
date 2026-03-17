@@ -1179,7 +1179,7 @@ async fn get_device_lockdown_key(
     //
     // In other words, device_id == pci_name.
     let dpa_interface =
-        db::dpa_interface::get_for_pci_name(&api.database_connection, &machine_id, device_id)
+        db::dpa_interface::get_for_pci_name(&mut api.db_reader(), &machine_id, device_id)
             .await
             .map_err(|e| {
                 Status::not_found(format!(

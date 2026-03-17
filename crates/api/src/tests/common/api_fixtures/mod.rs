@@ -33,7 +33,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
-use db::db_read::PgPoolReader;
+use db::db_read::{AsDbReader, DbReader};
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
@@ -360,7 +360,6 @@ impl TestEnv {
     pub fn state_handler_services(&self) -> CommonStateHandlerServices {
         CommonStateHandlerServices {
             db_pool: self.pool.clone(),
-            db_reader: self.pool.clone().into(),
             redfish_client_pool: self.redfish_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             ib_pools: self.common_pools.infiniband.clone(),
@@ -507,7 +506,7 @@ impl TestEnv {
             let mut txn: sqlx::Transaction<'static, sqlx::Postgres> =
                 self.pool.begin().await.unwrap();
             let machine = db::machine::find_one(
-                txn.as_mut(),
+                &mut txn.as_db_reader(),
                 host_machine_id,
                 model::machine::machine_search_config::MachineSearchConfig::default(),
             )
@@ -521,7 +520,7 @@ impl TestEnv {
         }
         let mut txn = self.pool.begin().await.unwrap();
         let machine = db::machine::find_one(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             host_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )
@@ -899,8 +898,8 @@ impl TestEnv {
             .unwrap();
     }
 
-    pub fn db_reader(&self) -> PgPoolReader {
-        self.pool.clone().into()
+    pub fn db_reader(&self) -> DbReader<'_> {
+        DbReader::from(&self.pool)
     }
 }
 
@@ -1497,7 +1496,6 @@ pub async fn create_test_env_with_overrides(
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: db_pool.clone(),
-        db_reader: db_pool.clone().into(),
         redfish_client_pool: redfish_sim.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),
@@ -2576,7 +2574,7 @@ pub async fn update_machine_validation_run(
 }
 
 pub async fn get_vpc_fixture_id(env: &TestEnv) -> VpcId {
-    db::vpc::find_by_name(&env.pool, "test vpc 1")
+    db::vpc::find_by_name(&mut env.db_reader(), "test vpc 1")
         .await
         .unwrap()
         .into_iter()

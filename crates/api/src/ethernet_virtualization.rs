@@ -101,7 +101,7 @@ pub async fn admin_network(
 
     let domain = match admin_segment.subdomain_id {
         Some(domain_id) => {
-            db::dns::domain::find_by_uuid(&mut *txn, domain_id)
+            db::dns::domain::find_by_uuid(&mut txn.into(), domain_id)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| CarbideError::NotFoundError {
@@ -166,9 +166,11 @@ pub async fn admin_network(
     } else {
         match admin_segment.vpc_id {
             Some(vpc_id) => {
-                let mut vpcs =
-                    db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-                        .await?;
+                let mut vpcs = db::vpc::find_by(
+                    &mut txn.into(),
+                    ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+                )
+                .await?;
                 if vpcs.is_empty() {
                     return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
                 }
@@ -362,9 +364,11 @@ pub async fn tenant_network(
 
     let vpc = match segment.vpc_id {
         Some(vpc_id) => {
-            let mut vpcs =
-                db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-                    .await?;
+            let mut vpcs = db::vpc::find_by(
+                &mut txn.into(),
+                ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+            )
+            .await?;
             if vpcs.is_empty() {
                 return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
             }

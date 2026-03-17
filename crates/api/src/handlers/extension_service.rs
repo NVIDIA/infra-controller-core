@@ -18,6 +18,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::{WithTransaction, extension_service, instance};
 use forge_secrets::credentials::{CredentialKey, Credentials};
 use futures_util::FutureExt;
@@ -152,7 +153,7 @@ pub(crate) async fn create(
     };
 
     // Sanity check: A newly created service should have exactly one version
-    let versions = extension_service::find_all_versions(&api.database_connection, service.id)
+    let versions = extension_service::find_all_versions(&mut api.db_reader(), service.id)
         .boxed()
         .await?;
     if versions.len() != 1 || versions.first().unwrap().version_nr() != 1 {
@@ -402,8 +403,7 @@ pub(crate) async fn update(
     };
 
     // Get all active versions for this service to return in the response
-    let versions =
-        extension_service::find_all_versions(&api.database_connection, service_id).await?;
+    let versions = extension_service::find_all_versions(&mut api.db_reader(), service_id).await?;
 
     let response = rpc::DpuExtensionService {
         service_id: service_id.to_string(),
@@ -499,7 +499,8 @@ pub(crate) async fn delete(
     // If no version was actually deleted in the last step, we don't need to do anything
     if !deleted_versions.is_empty() {
         // If the service has no versions left, delete the service
-        let all_versions = extension_service::find_all_versions(&mut txn, service_id).await?;
+        let all_versions =
+            extension_service::find_all_versions(&mut txn.as_db_reader(), service_id).await?;
         if all_versions.is_empty() {
             extension_service::soft_delete_service(&mut txn, service_id).await?;
         } else {

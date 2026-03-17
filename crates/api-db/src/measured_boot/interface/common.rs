@@ -85,7 +85,7 @@ pub fn generate_name() -> DatabaseResult<String> {
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
 pub async fn get_object_for_id<T, R>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     id: T,
 ) -> Result<Option<R>, DatabaseError>
 where
@@ -105,7 +105,7 @@ where
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
 pub async fn get_object_for_unique_column<T, R>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     col_name: &str,
     value: T,
 ) -> Result<Option<R>, DatabaseError>
@@ -134,7 +134,7 @@ where
 /// Similar to get_object_for_id above, this leverages a mixture of sqlx-based
 /// derive + traits to reduce the use of copy-pasta code + string literals.
 pub async fn get_objects_where_id<T, R>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     id: T,
 ) -> Result<Vec<R>, DatabaseError>
 where
@@ -160,7 +160,7 @@ where
 /// implementing the crate-specific DbName trait to make this possible,
 /// with the idea of reducing very boilerplate copy-pasta code and string
 /// literals.
-pub async fn get_all_objects<R>(txn: impl DbReader<'_>) -> Result<Vec<R>, DatabaseError>
+pub async fn get_all_objects<R>(txn: &mut DbReader<'_>) -> Result<Vec<R>, DatabaseError>
 where
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {

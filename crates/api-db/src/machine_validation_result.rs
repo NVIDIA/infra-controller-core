@@ -22,14 +22,11 @@ use sqlx::PgConnection;
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult, ObjectFilter, machine_validation_suites};
 
-pub async fn find_by_machine_id<DB>(
-    txn: &mut DB,
+pub async fn find_by_machine_id(
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
     include_history: bool,
-) -> DatabaseResult<Vec<MachineValidationResult>>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> DatabaseResult<Vec<MachineValidationResult>> {
     if include_history {
         // Fetch all validation_id from machine_validation table
         let machine_validation = crate::machine_validation::find_by(
@@ -87,7 +84,7 @@ where
 }
 
 async fn find_by(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectFilter<'_, String>,
     column: &str,
 ) -> Result<Vec<MachineValidationResult>, DatabaseError> {
@@ -180,7 +177,7 @@ pub async fn create(value: MachineValidationResult, txn: &mut PgConnection) -> D
 }
 
 pub async fn validate_current_context(
-    txn: &mut PgConnection,
+    txn: &mut DbReader<'_>,
     id: &rpc::Uuid,
 ) -> DatabaseResult<Option<String>> {
     let db_results = find_by(
@@ -199,7 +196,7 @@ pub async fn validate_current_context(
 }
 
 pub async fn find_by_validation_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     id: &uuid::Uuid,
 ) -> DatabaseResult<Vec<MachineValidationResult>> {
     find_by(

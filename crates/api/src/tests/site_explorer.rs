@@ -24,6 +24,7 @@ use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::sku::CURRENT_SKU_VERSION;
 use db::{self, ObjectColumnFilter, ObjectFilter, explored_endpoints as db_explored_endpoints};
 use ipnetwork::IpNetwork;
@@ -254,7 +255,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     explorer.run_single_iteration().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     assert_eq!(explored.len(), 1);
@@ -296,9 +297,9 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     );
 
     let machine_snapshots =
-        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
+        db::managed_host::load_all(&mut env.db_reader(), LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 0);
-    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    let explored_managed_hosts = db::explored_managed_host::find_all(&mut env.db_reader()).await?;
     assert_eq!(explored_managed_hosts.len(), 0);
 
     // now flip the flag and run another interation
@@ -330,10 +331,10 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         response.into_inner().machine_ingestion_state()
     );
 
-    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    let explored_managed_hosts = db::explored_managed_host::find_all(&mut env.db_reader()).await?;
     assert_eq!(explored_managed_hosts.len(), 1);
     let machine_snapshots =
-        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
+        db::managed_host::load_all(&mut env.db_reader(), LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 1);
 
     Ok(())
@@ -450,7 +451,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -515,7 +516,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -607,7 +608,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     explorer.run_single_iteration().await.unwrap();
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     assert_eq!(explored.len(), 3);
@@ -949,7 +950,7 @@ async fn test_site_explorer_audit_exploration_results(
     explorer.run_single_iteration().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1122,7 +1123,7 @@ async fn test_site_explorer_reexplore(
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 1 entries, we should have 1 results now
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1145,7 +1146,7 @@ async fn test_site_explorer_reexplore(
 
     // Calling the API should set the `exploration_requested` flag on the endpoint
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1157,7 +1158,7 @@ async fn test_site_explorer_reexplore(
     // endpoint - but not find anything new
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1190,7 +1191,7 @@ async fn test_site_explorer_reexplore(
     );
 
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1209,7 +1210,7 @@ async fn test_site_explorer_reexplore(
         .into_inner();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1220,7 +1221,7 @@ async fn test_site_explorer_reexplore(
     // 3rd iteration still yields 1 result
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1437,7 +1438,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     // Run site explorer
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored_endpoints = db::explored_endpoints::find_all(txn.as_mut())
+    let explored_endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
 
@@ -1449,11 +1450,15 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     assert_eq!(explored_endpoints.len(), 2);
 
-    let mut explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
-    let mut machines =
-        db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
-            .await
-            .unwrap();
+    let mut explored_managed_hosts =
+        db::explored_managed_host::find_all(&mut env.db_reader()).await?;
+    let mut machines = db::machine::find(
+        &mut env.db_reader(),
+        ObjectFilter::All,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap();
 
     // There should be no managed host
     assert_eq!(explored_managed_hosts.len(), 0);
@@ -1461,10 +1466,12 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     // Now update expected_machine entry with fallback_dpu_serial
     let mut txn = env.pool.begin().await?;
-    let mut host1_expected_machine =
-        db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), HOST1_MAC.parse().unwrap())
-            .await?
-            .expect("Expected machine not found");
+    let mut host1_expected_machine = db::expected_machine::find_by_bmc_mac_address(
+        &mut txn.as_db_reader(),
+        HOST1_MAC.parse().unwrap(),
+    )
+    .await?
+    .expect("Expected machine not found");
     host1_expected_machine.data = ExpectedMachineData {
         bmc_username: "user1".to_string(),
         bmc_password: "pw".to_string(),
@@ -1481,10 +1488,14 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     txn.commit().await?;
 
     explorer.run_single_iteration().await.unwrap();
-    explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
-    machines = db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
-        .await
-        .unwrap();
+    explored_managed_hosts = db::explored_managed_host::find_all(&mut env.db_reader()).await?;
+    machines = db::machine::find(
+        &mut env.db_reader(),
+        ObjectFilter::All,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap();
 
     // We should see one explored_managed host && 2 machines
     assert_eq!(
@@ -1700,7 +1711,7 @@ async fn test_fetch_host_primary_interface_mac(
 
         assert!(!response.address.is_empty());
         let oob_interface =
-            db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+            db::machine_interface::find_by_mac_address(&mut txn.as_db_reader(), oob_mac).await?;
         assert!(oob_interface[0].primary_interface);
         oob_interfaces.push(oob_interface[0].clone());
 
@@ -2054,8 +2065,11 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
             let mac_address = *mock.managed_host.non_dpu_macs.first().unwrap();
             async move {
                 let mut txn = pool.begin().await?;
-                let interfaces =
-                    db::machine_interface::find_by_mac_address(txn.as_mut(), mac_address).await?;
+                let interfaces = db::machine_interface::find_by_mac_address(
+                    &mut txn.as_db_reader(),
+                    mac_address,
+                )
+                .await?;
                 assert_eq!(interfaces.len(), 1);
                 // There should be no machine_id yet as site-explorer has not run
                 assert!(interfaces[0].machine_id.is_none());
@@ -2180,7 +2194,7 @@ async fn test_site_explorer_unknown_vendor(
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
     txn.commit().await?;
@@ -2444,7 +2458,7 @@ async fn test_machine_creation_with_sku(
     // Run site explorer
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored_endpoints = db::explored_endpoints::find_all(txn.as_mut())
+    let explored_endpoints = db::explored_endpoints::find_all(&mut txn.as_db_reader())
         .await
         .unwrap();
 
@@ -2456,9 +2470,13 @@ async fn test_machine_creation_with_sku(
 
     assert_eq!(explored_endpoints.len(), 2);
 
-    let machines = db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
-        .await
-        .unwrap();
+    let machines = db::machine::find(
+        &mut env.db_reader(),
+        ObjectFilter::All,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap();
 
     for m in machines {
         if m.is_dpu() {
@@ -2877,7 +2895,9 @@ async fn test_site_explorer_power_shelf_discovery(
     explorer.run_single_iteration().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db_explored_endpoints::find_all(txn.as_mut()).await.unwrap();
+    let explored = db_explored_endpoints::find_all(&mut txn.as_db_reader())
+        .await
+        .unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 1);
 
@@ -3419,7 +3439,9 @@ async fn test_site_explorer_power_shelf_error_handling(
     explorer.run_single_iteration().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db_explored_endpoints::find_all(txn.as_mut()).await.unwrap();
+    let explored = db_explored_endpoints::find_all(&mut txn.as_db_reader())
+        .await
+        .unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 1);
 
@@ -4460,7 +4482,9 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
     explorer.run_single_iteration().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db_explored_endpoints::find_all(txn.as_mut()).await.unwrap();
+    let explored = db_explored_endpoints::find_all(&mut txn.as_db_reader())
+        .await
+        .unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 1);
 
@@ -4511,7 +4535,7 @@ async fn test_get_machine_position_info(
 
     // Get the existing explored endpoint (created by create_managed_host) and update it with position info
     let mut txn = env.pool.begin().await?;
-    let existing = db::explored_endpoints::find_by_ips(txn.as_mut(), vec![bmc_ip])
+    let existing = db::explored_endpoints::find_by_ips(&mut txn.as_db_reader(), vec![bmc_ip])
         .await?
         .pop()
         .unwrap();

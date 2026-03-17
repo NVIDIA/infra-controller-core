@@ -23,6 +23,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::Utc;
 use config_version::Versioned;
+use db::db_read::AsDbReader;
 use db::machine::find_machine_ids;
 use db::managed_host::load_by_machine_ids;
 use db::nvl_logical_partition::{IdColumn as LpIdColumn, LogicalPartition};
@@ -748,12 +749,17 @@ impl NvlPartitionMonitor {
             &managed_host_snapshots.keys().copied().collect::<Vec<_>>(),
         )
         .await?;
-        let db_nvl_partitions =
-            db::nvl_partition::find_by(&mut txn, ObjectColumnFilter::<IdColumn>::All).await?;
+        let db_nvl_partitions = db::nvl_partition::find_by(
+            &mut txn.as_db_reader(),
+            ObjectColumnFilter::<IdColumn>::All,
+        )
+        .await?;
 
-        let db_nvl_logical_partitions =
-            db::nvl_logical_partition::find_by(&mut txn, ObjectColumnFilter::<LpIdColumn>::All)
-                .await?;
+        let db_nvl_logical_partitions = db::nvl_logical_partition::find_by(
+            &mut txn.as_db_reader(),
+            ObjectColumnFilter::<LpIdColumn>::All,
+        )
+        .await?;
 
         // Don't hold the transaction across unrelated awaits
         txn.commit().await?;
@@ -1911,7 +1917,7 @@ impl NvlPartitionMonitor {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let mnvvl_machine_ids = find_machine_ids(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             MachineSearchConfig {
                 mnnvl_only: true,
                 include_predicted_host: true,
@@ -1920,7 +1926,7 @@ impl NvlPartitionMonitor {
         )
         .await?;
         load_by_machine_ids(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             mnvvl_machine_ids.as_slice(),
             LoadSnapshotOptions {
                 include_history: false,

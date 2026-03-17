@@ -95,10 +95,7 @@ pub async fn get_all_for_machine_id(
     get_measurement_reports_for_machine_id(txn, machine_id).await
 }
 
-pub async fn get_all<DB>(txn: &mut DB) -> DatabaseResult<Vec<MeasurementReport>>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+pub async fn get_all(txn: &mut DbReader<'_>) -> DatabaseResult<Vec<MeasurementReport>> {
     get_all_measurement_reports(txn).await
 }
 
@@ -204,10 +201,9 @@ pub async fn create_measurement_report(
 /// get_measurement_reports returns all MeasurementReport
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
-pub async fn get_all_measurement_reports<DB>(txn: &mut DB) -> DatabaseResult<Vec<MeasurementReport>>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+pub async fn get_all_measurement_reports(
+    txn: &mut DbReader<'_>,
+) -> DatabaseResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(&mut *txn).await?;
     let mut report_values: Vec<MeasurementReportValueRecord> = common::get_all_objects(txn).await?;
 
@@ -267,7 +263,7 @@ pub async fn get_measurement_reports_for_machine_id(
     machine_id: MachineId,
 ) -> DatabaseResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> =
-        common::get_objects_where_id(&mut *txn, machine_id).await?;
+        common::get_objects_where_id(&mut txn.into(), machine_id).await?;
     let mut res = Vec::<MeasurementReport>::new();
     for report_record in report_records.iter() {
         let values =
@@ -470,7 +466,7 @@ async fn same_as_previous_one(
     values: &[PcrRegisterValue],
 ) -> DatabaseResult<SameOrNot> {
     let latest_journal =
-        match crate::measured_boot::journal::get_latest_journal_for_id(&mut *txn, machine_id)
+        match crate::measured_boot::journal::get_latest_journal_for_id(&mut txn.into(), machine_id)
             .await?
         {
             Some(journal) => journal,

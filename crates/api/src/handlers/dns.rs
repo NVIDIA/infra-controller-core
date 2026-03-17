@@ -37,7 +37,7 @@ impl From<DnsResourceRecordLookupResponse> for protos::dns::DnsResourceRecordLoo
 }
 
 async fn lookup_soa_record(
-    db: impl DbReader<'_>,
+    db: &mut DbReader<'_>,
     query_name: &str,
 ) -> Result<DnsResourceRecordReply, tonic::Status> {
     tracing::debug!("Looking up SOA record for {}", query_name);
@@ -61,7 +61,7 @@ async fn lookup_soa_record(
 
 /// Returns ALL record types (A, AAAA, CNAME, etc.) - PowerDNS filters to requested type
 async fn lookup_records_by_qname(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     query_name: &str,
 ) -> Result<Vec<DnsResourceRecordReply>, tonic::Status> {
     tracing::debug!("Looking up records for {}", query_name);
@@ -114,13 +114,10 @@ async fn lookup_records_by_qname(
 /// 2. If the qname matches a domain we're authoritative for, includes the SOA record
 /// 3. Returns everything - PowerDNS decides what to include in the final packet
 ///
-async fn lookup_any_record<DB>(
-    txn: &mut DB,
+async fn lookup_any_record(
+    txn: &mut DbReader<'_>,
     query_name: &str,
-) -> Result<Vec<DnsResourceRecordReply>, Status>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> Result<Vec<DnsResourceRecordReply>, Status> {
     let mut dns_records: Vec<DnsResourceRecordReply> = Vec::new();
 
     tracing::debug!("Looking up ANY records for {}", query_name);
@@ -194,7 +191,7 @@ pub async fn get_all_domains(
     log_request_data(&_request);
 
     let domains = db::dns::domain::find_by(
-        &api.database_connection,
+        &mut api.db_reader(),
         db::ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
@@ -234,7 +231,7 @@ pub async fn get_all_domain_metadata(
     let domain_name = db::dns::normalize_domain(&metadata_request.domain);
 
     let domains = db::dns::domain::find_by(
-        &api.database_connection,
+        &mut api.db_reader(),
         db::ObjectColumnFilter::<db::dns::domain::NameColumn>::One(
             db::dns::domain::NameColumn,
             &domain_name.as_str(),
@@ -290,12 +287,12 @@ pub async fn lookup_record(
         DnsResourceRecordType::SOA => {
             // SOA queries: only return SOA record for the domain
             let normalized = db::dns::normalize_domain(&qname);
-            let record = lookup_soa_record(&api.database_connection, &normalized).await?;
+            let record = lookup_soa_record(&mut api.db_reader(), &normalized).await?;
             vec![record]
         }
         _ => {
             // For all other types (A, AAAA, MX, CNAME, etc.):
-            lookup_records_by_qname(&api.database_connection, &qname).await?
+            lookup_records_by_qname(&mut api.db_reader(), &qname).await?
         }
     };
 
@@ -388,7 +385,7 @@ pub async fn lookup_record_legacy_compat(
     // Try to find the domain this record belongs to
     // Find all domains and match the longest suffix
     let domains = db::dns::domain::find_by(
-        &api.database_connection,
+        &mut api.db_reader(),
         db::ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;

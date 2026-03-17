@@ -21,6 +21,7 @@ use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use db::{DatabaseError, WithTransaction, extension_service, network_security_group};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
@@ -185,7 +186,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::InstanceSearchFilter = request.into_inner();
 
-    let instance_ids = db::instance::find_ids(&api.database_connection, filter).await?;
+    let instance_ids = db::instance::find_ids(&mut api.db_reader(), filter).await?;
 
     Ok(tonic::Response::new(rpc::InstanceIdList { instance_ids }))
 }
@@ -238,7 +239,7 @@ pub(crate) async fn find_by_machine_id(
     let mut txn = api.txn_begin().await?;
 
     let mh_snapshot = match db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
@@ -626,7 +627,7 @@ pub(crate) async fn release(
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, delete_instance.instance_id)
+    let instance = db::instance::find_by_id(&mut txn.as_db_reader(), delete_instance.instance_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
@@ -647,7 +648,7 @@ pub(crate) async fn release(
 
         // Get machine details for repair tenant workflow
         let machine = db::machine::find_one(
-            &mut txn,
+            &mut txn.as_db_reader(),
             &instance.machine_id,
             MachineSearchConfig {
                 for_update: false,
@@ -713,7 +714,7 @@ pub(crate) async fn update_phone_home_last_contact(
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::find_by_id(&mut txn.as_db_reader(), instance_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
@@ -770,7 +771,7 @@ pub(crate) async fn invoke_power(
         log_machine_id(machine_id);
 
         let snapshot = db::managed_host::load_snapshot(
-            &mut txn,
+            &mut txn.as_db_reader(),
             machine_id,
             LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
         )
@@ -975,7 +976,7 @@ pub(crate) async fn update_operating_system(
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::find_by_id(&mut txn.as_db_reader(), instance_id)
         .await?
         .ok_or(CarbideError::NotFoundError {
             kind: "instance",
@@ -1000,7 +1001,7 @@ pub(crate) async fn update_operating_system(
     db::instance::update_os(&mut txn, instance.id, expected_version, os).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
@@ -1059,7 +1060,7 @@ pub(crate) async fn update_instance_config(
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::find_by_id(&mut txn.as_db_reader(), instance_id)
         .await?
         .ok_or(CarbideError::NotFoundError {
             kind: "instance",
@@ -1070,7 +1071,7 @@ pub(crate) async fn update_instance_config(
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
     let mh_snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
@@ -1223,7 +1224,7 @@ pub(crate) async fn update_instance_config(
     db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
@@ -1289,7 +1290,7 @@ async fn update_instance_network_config(
         .map_err(CarbideError::from)?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &instance.machine_id,
         LoadSnapshotOptions::default(),
     )
@@ -1442,7 +1443,7 @@ pub async fn force_delete_instance(
     api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
 ) -> CarbideResult<()> {
-    let instance = db::instance::find_by_id(&api.database_connection, instance_id)
+    let instance = db::instance::find_by_id(&mut api.db_reader(), instance_id)
         .await?
         .ok_or_else(|| {
             CarbideError::internal(format!("Could not find an instance for {instance_id}"))
@@ -1515,7 +1516,7 @@ pub async fn force_delete_instance(
     }
 
     let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &instance.machine_id,
         LoadSnapshotOptions::default(),
     )

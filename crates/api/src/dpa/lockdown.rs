@@ -111,7 +111,8 @@ async fn build_kdf_context(
     pg_pool: &PgPool,
     dpa_interface_id: DpaInterfaceId,
 ) -> Result<KdfContext, eyre::Report> {
-    let interfaces = db::dpa_interface::find_by_ids(pg_pool, &[dpa_interface_id], false).await?;
+    let interfaces =
+        db::dpa_interface::find_by_ids(&mut pg_pool.into(), &[dpa_interface_id], false).await?;
     let dpa_interface = interfaces
         .into_iter()
         .next()

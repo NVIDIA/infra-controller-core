@@ -106,7 +106,7 @@ pub async fn redfish_list_actions(
 
     let request = request.into_inner();
 
-    let result = list_requests(request, &api.database_connection).await?;
+    let result = list_requests(request, &mut api.db_reader()).await?;
 
     Ok(tonic::Response::new(
         rpc::forge::RedfishListActionsResponse {

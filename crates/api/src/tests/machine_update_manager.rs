@@ -22,6 +22,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_test_env;
+use db::db_read::AsDbReader;
 use figment::Figment;
 use figment::providers::{Format, Toml};
 use model::dpu_machine_update::DpuMachineUpdate;
@@ -191,11 +192,14 @@ async fn test_remove_machine_update_markers(
         .await
         .unwrap();
 
-    let managed_host =
-        db::managed_host::load_snapshot(txn.as_mut(), &host_machine_id, Default::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let managed_host = db::managed_host::load_snapshot(
+        &mut txn.as_db_reader(),
+        &host_machine_id,
+        Default::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(
         !managed_host
             .host_snapshot

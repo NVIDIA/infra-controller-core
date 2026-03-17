@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use db::db_read::AsDbReader;
 use libredfish::SystemPowerControl;
 use model::machine::{
     FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
@@ -42,7 +43,7 @@ pub(crate) async fn handle_machine_validation_state(
             // Handle reboot host case
             handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart).await?;
             let machine_validation =
-                db::machine_validation::find_by_id(&mut ctx.services.db_reader, validation_id)
+                db::machine_validation::find_by_id(&mut ctx.services.db_reader(), validation_id)
                     .await
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
@@ -100,9 +101,10 @@ pub(crate) async fn handle_machine_validation_state(
                     },
                 )
                 .await?;
-                let machine_validation = db::machine_validation::find_by_id(txn.as_mut(), id)
-                    .await
-                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+                let machine_validation =
+                    db::machine_validation::find_by_id(&mut txn.as_db_reader(), id)
+                        .await
+                        .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
                 *ctx.metrics
                     .last_machine_validation_list
@@ -131,7 +133,7 @@ pub(crate) async fn handle_machine_validation_state(
                         mh_snapshot.host_snapshot.id
                     );
                     let machine_validation =
-                        db::machine_validation::find_by_id(&mut ctx.services.db_reader, id)
+                        db::machine_validation::find_by_id(&mut ctx.services.db_reader(), id)
                             .await
                             .map_err(|err| StateHandlerError::GenericError(err.into()))?;
                     let status = machine_validation.status.clone().unwrap_or_default();
@@ -178,7 +180,7 @@ pub(crate) async fn handle_machine_validation_requested(
         }
         let machine_validation =
             match db::machine_validation::find_active_machine_validation_by_machine_id(
-                txn.as_mut(),
+                &mut txn.as_db_reader(),
                 &mh_snapshot.host_snapshot.id,
             )
             .await

@@ -127,7 +127,7 @@ pub async fn rename_profile_for_profile_name(
 
 /// get_all_measurement_profile_records gets all system profile records.
 pub async fn get_all_measurement_profile_records(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -141,7 +141,7 @@ pub async fn get_measurement_profile_record_by_id(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
-    common::get_object_for_id(txn, profile_id)
+    common::get_object_for_id(&mut txn.into(), profile_id)
         .await
         .map_err(|e| e.with_op_name("get_measurement_profile_record_by_id"))
 }
@@ -153,7 +153,7 @@ pub async fn get_measurement_profile_record_by_name(
     txn: &mut PgConnection,
     val: String,
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
-    common::get_object_for_unique_column(txn, "name", val)
+    common::get_object_for_unique_column(&mut txn.into(), "name", val)
         .await
         .map_err(|e| e.with_op_name("get_measurement_profile_record_by_name"))
 }
@@ -280,7 +280,7 @@ fn where_attr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &HashMap<Str
 /// get_measurement_profile_attrs_for_profile_id returns all profile attribute
 /// records associated with the provided MeasurementSystemProfileId.
 pub async fn get_measurement_profile_attrs_for_profile_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_objects_where_id(txn, profile_id)
@@ -442,7 +442,7 @@ pub async fn import_measurement_system_profiles_attr(
 ///
 /// This is used by the site exporter, as well as for listing all profiles.
 pub async fn export_measurement_profile_records(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -455,7 +455,7 @@ pub async fn export_measurement_profile_records(
 /// This is specifically used by the site exporter, since we simply dump all
 /// attributes when doing a site export.
 pub async fn export_measurement_system_profiles_attrs(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -467,7 +467,7 @@ pub async fn export_measurement_system_profiles_attrs(
 pub async fn get_all_measurement_profile_attr_records(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
-    common::get_all_objects(txn)
+    common::get_all_objects(&mut txn.into())
         .await
         .map_err(|e| e.with_op_name("get_all_measurement_profile_attr_records"))
 }

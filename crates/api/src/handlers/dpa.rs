@@ -20,6 +20,7 @@ use std::borrow::Cow;
 use ::rpc::protos::mlx_device as mlx_device_pb;
 use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use db::dpa_interface;
 use eyre::eyre;
 use libmlx::device::report::MlxDeviceReport;
@@ -115,7 +116,7 @@ pub(crate) async fn delete(
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
     let mut txn = api.txn_begin().await?;
 
-    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
+    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn.as_db_reader(), &[id], false).await?;
 
     let dpa_if_int = match dpa_ifs_int.len() {
         1 => dpa_ifs_int[0].clone(),
@@ -140,7 +141,7 @@ pub(crate) async fn get_all_ids(
 ) -> Result<Response<::rpc::forge::DpaInterfaceIdList>, Status> {
     log_request_data(&request);
 
-    let ids = db::dpa_interface::find_ids(&api.database_connection).await?;
+    let ids = db::dpa_interface::find_ids(&mut api.db_reader()).await?;
 
     Ok(Response::new(::rpc::forge::DpaInterfaceIdList { ids }))
 }
@@ -169,8 +170,7 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
     }
 
     let dpa_ifs_int =
-        db::dpa_interface::find_by_ids(&api.database_connection, &req.ids, req.include_history)
-            .await?;
+        db::dpa_interface::find_by_ids(&mut api.db_reader(), &req.ids, req.include_history).await?;
 
     let rpc_dpa_ifs = dpa_ifs_int
         .into_iter()
@@ -200,7 +200,7 @@ pub(crate) async fn set_dpa_network_observation_status(
     // Prepare our txn to grab the dpa interfaces from the DB
     let mut txn = api.txn_begin().await?;
 
-    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
+    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn.as_db_reader(), &[id], false).await?;
 
     if dpa_ifs_int.len() != 1 {
         return Err(CarbideError::InvalidArgument(
@@ -236,7 +236,7 @@ pub(crate) async fn process_scout_req(
         return Ok((Action::Noop, None));
     }
     let dpa_snapshots =
-        db::dpa_interface::find_by_machine_id(&api.database_connection, machine_id).await?;
+        db::dpa_interface::find_by_machine_id(&mut api.db_reader(), machine_id).await?;
 
     if dpa_snapshots.is_empty() {
         tracing::error!(
@@ -518,7 +518,8 @@ async fn process_mlx_observation(
         )));
     };
 
-    let dpa_snapshots = db::dpa_interface::find_by_machine_id(&mut txn, machine_id).await?;
+    let dpa_snapshots =
+        db::dpa_interface::find_by_machine_id(&mut txn.as_db_reader(), machine_id).await?;
 
     if dpa_snapshots.is_empty() {
         tracing::error!(

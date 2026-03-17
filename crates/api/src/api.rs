@@ -32,7 +32,7 @@ use ::rpc::protos::dns::{
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use db::db_read::PgPoolReader;
+use db::db_read::{AsDbReader, DbReader};
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
 use forge_secrets::certificates::CertificateProvider;
@@ -2993,8 +2993,8 @@ impl Api {
         db::Transaction::begin_with_location(&self.database_connection, loc)
     }
 
-    pub fn db_reader(&self) -> PgPoolReader {
-        self.database_connection.clone().into()
+    pub fn db_reader(&self) -> DbReader<'_> {
+        DbReader::from(&self.database_connection)
     }
 
     // This function can just async when
@@ -3012,22 +3012,25 @@ impl Api {
             let mut txn =
                 db::Transaction::begin_with_location(&self.database_connection, loc).await?;
 
-            let machine = match db::machine::find_one(&mut txn, &machine_id, search_config).await {
-                Err(err) => {
-                    tracing::warn!(%machine_id, error = %err, "failed loading machine");
-                    return Err(CarbideError::InvalidArgument(
-                        "err loading machine".to_string(),
-                    ));
-                }
-                Ok(None) => {
-                    tracing::info!(%machine_id, "machine not found");
-                    return Err(CarbideError::NotFoundError {
-                        kind: "machine",
-                        id: machine_id.to_string(),
-                    });
-                }
-                Ok(Some(m)) => m,
-            };
+            let machine =
+                match db::machine::find_one(&mut txn.as_db_reader(), &machine_id, search_config)
+                    .await
+                {
+                    Err(err) => {
+                        tracing::warn!(%machine_id, error = %err, "failed loading machine");
+                        return Err(CarbideError::InvalidArgument(
+                            "err loading machine".to_string(),
+                        ));
+                    }
+                    Ok(None) => {
+                        tracing::info!(%machine_id, "machine not found");
+                        return Err(CarbideError::NotFoundError {
+                            kind: "machine",
+                            id: machine_id.to_string(),
+                        });
+                    }
+                    Ok(Some(m)) => m,
+                };
             Ok((machine, txn))
         }
     }

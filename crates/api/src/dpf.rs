@@ -341,11 +341,8 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
     };
 
     let host = {
-        let mut conn = db_pool.acquire().await.map_err(|e| {
-            DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
-        })?;
         db::machine::find_one(
-            &mut *conn,
+            &mut db_pool.into(),
             &host_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )

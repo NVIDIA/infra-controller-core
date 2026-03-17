@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;
@@ -68,8 +69,11 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
         return Err(CarbideError::NotImplemented.into());
     }
 
-    let machine_ids =
-        db::machine::find_machine_ids_by_sku_ids(&mut txn, std::slice::from_ref(&sku.id)).await?;
+    let machine_ids = db::machine::find_machine_ids_by_sku_ids(
+        &mut txn.as_db_reader(),
+        std::slice::from_ref(&sku.id),
+    )
+    .await?;
     if machine_ids
         .get(&sku.id)
         .is_some_and(|machine_ids| !machine_ids.is_empty())
@@ -95,7 +99,7 @@ pub(crate) async fn generate_from_machine(
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let sku = db::sku::generate_sku_from_machine(&api.database_connection, &machine_id).await?;
+    let sku = db::sku::generate_sku_from_machine(&mut api.db_reader(), &machine_id).await?;
 
     Ok(Response::new(sku.into()))
 }
@@ -110,8 +114,12 @@ pub(crate) async fn assign_to_machine(
     let sku_machine_pair = request.into_inner();
     let machine_id = convert_and_log_machine_id(sku_machine_pair.machine_id.as_ref())?;
 
-    let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+    let machine = db::machine::find_one(
+        &mut txn.as_db_reader(),
+        &machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -179,8 +187,12 @@ pub(crate) async fn verify_for_machine(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+    let machine = db::machine::find_one(
+        &mut txn.as_db_reader(),
+        &machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -218,8 +230,12 @@ pub(crate) async fn remove_sku_association(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+    let machine = db::machine::find_one(
+        &mut txn.as_db_reader(),
+        &machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -253,7 +269,7 @@ pub(crate) async fn get_all_ids(
     request: Request<()>,
 ) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
     log_request_data(&request);
-    let sku_ids = db::sku::get_sku_ids(&api.database_connection).await?;
+    let sku_ids = db::sku::get_sku_ids(&mut api.db_reader()).await?;
 
     Ok(Response::new(::rpc::forge::SkuIdList {
         ids: sku_ids.into_iter().collect(),
@@ -287,7 +303,7 @@ pub(crate) async fn find_skus_by_ids(
         skus.into_iter().map(std::convert::Into::into).collect();
 
     let mut machine_ids_by_sku_ids =
-        db::machine::find_machine_ids_by_sku_ids(&mut txn, &sku_ids).await?;
+        db::machine::find_machine_ids_by_sku_ids(&mut txn.as_db_reader(), &sku_ids).await?;
     txn.commit().await?;
 
     for rpc_sku in rpc_skus.iter_mut() {

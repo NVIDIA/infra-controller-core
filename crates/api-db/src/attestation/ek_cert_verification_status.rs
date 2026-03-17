@@ -60,7 +60,7 @@ pub async fn get_by_issuer(
 }
 
 pub async fn get_by_machine_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: MachineId,
 ) -> DatabaseResult<Option<EkCertVerificationStatus>> {
     let query = "SELECT * FROM ek_cert_verification_status WHERE machine_id = ($1)";

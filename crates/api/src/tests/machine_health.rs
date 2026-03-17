@@ -17,6 +17,7 @@
 
 use std::str::FromStr;
 
+use db::db_read::AsDbReader;
 use db::machine::update_dpu_agent_health_report;
 use db::{self};
 use health_report::OverrideMode;
@@ -626,7 +627,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
 
     let mut txn = env.pool.begin().await?;
     let machine_ids = db::machine::find_machine_ids(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
@@ -642,7 +643,8 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         },
     };
     let all_machines =
-        db::managed_host::load_by_machine_ids(txn.as_mut(), &machine_ids, options).await?;
+        db::managed_host::load_by_machine_ids(&mut txn.as_db_reader(), &machine_ids, options)
+            .await?;
 
     assert_eq!(
         db::machine::count_healthy_unhealthy_host_machines(&all_machines),
@@ -673,7 +675,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
 
     let mut txn = env.pool.begin().await?;
     let machine_ids = db::machine::find_machine_ids(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
@@ -689,7 +691,8 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         },
     };
     let all_machines =
-        db::managed_host::load_by_machine_ids(txn.as_mut(), &machine_ids, options).await?;
+        db::managed_host::load_by_machine_ids(&mut txn.as_db_reader(), &machine_ids, options)
+            .await?;
 
     assert_eq!(
         db::machine::count_healthy_unhealthy_host_machines(&all_machines),

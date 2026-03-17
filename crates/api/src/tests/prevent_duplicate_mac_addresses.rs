@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use db::db_read::AsDbReader;
 use db::{self, ObjectColumnFilter, network_segment};
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::machine::machine_id::from_hardware_info;
@@ -32,7 +33,7 @@ async fn prevent_duplicate_mac_addresses(
     let mut txn = env.pool.begin().await?;
 
     let network_segment = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )

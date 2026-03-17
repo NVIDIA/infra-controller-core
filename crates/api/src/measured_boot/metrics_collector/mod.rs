@@ -28,6 +28,7 @@ use crate::cfg::file::MeasuredBootMetricsCollectorConfig;
 
 pub(crate) mod metrics;
 use carbide_uuid::measured_boot::MeasurementBundleId;
+use db::db_read::AsDbReader;
 use metrics::MeasuredBootMetricsCollectorMetrics;
 
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.
@@ -98,7 +99,7 @@ impl MeasuredBootMetricsCollector {
 
         let mut txn = db::Transaction::begin(&self.database_connection).await?;
 
-        let profiles = db::measured_boot::profile::get_all(&mut txn).await?;
+        let profiles = db::measured_boot::profile::get_all(&mut txn.as_db_reader()).await?;
         for system_profile in profiles.iter() {
             let machines =
                 db::measured_boot::profile::get_machines(system_profile, &mut txn).await?;
@@ -108,7 +109,7 @@ impl MeasuredBootMetricsCollector {
         }
         metrics.num_profiles = profiles.len();
 
-        let bundles = db::measured_boot::bundle::get_all(&mut txn).await?;
+        let bundles = db::measured_boot::bundle::get_all(&mut txn.as_db_reader()).await?;
         let bundle_map: HashMap<MeasurementBundleId, MeasurementBundleState> = bundles
             .iter()
             .map(|bundle| (bundle.bundle_id, bundle.state))
@@ -128,7 +129,7 @@ impl MeasuredBootMetricsCollector {
         }
         metrics.num_bundles = bundles.len();
 
-        let machines = db::measured_boot::machine::get_all(&mut txn).await?;
+        let machines = db::measured_boot::machine::get_all(&mut txn.as_db_reader()).await?;
         for machine in machines.iter() {
             let bundle_state = get_bundle_state(&bundle_map, &machine.journal);
             *metrics

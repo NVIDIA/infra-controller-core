@@ -20,6 +20,7 @@ use carbide_uuid::machine::{MachineId, MachineType};
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
 use common::api_fixtures::{create_managed_host, create_test_env};
+use db::db_read::AsDbReader;
 use db::machine_interface::associate_interface_with_dpu_machine;
 use db::machine_topology::test_helpers::{HardwareInfoV1, TopologyDataV1};
 use db::{self, ObjectColumnFilter, network_segment};
@@ -63,7 +64,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
     let segment = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -215,7 +216,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let mut txn = env.pool.begin().await?;
     let segment = db::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -379,7 +380,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
         common::api_fixtures::create_managed_host(&env).await.into();
     let mut txn = env.pool.begin().await.unwrap();
     let host = db::machine::find_one(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &host_machine_id,
         MachineSearchConfig::default(),
     )
@@ -405,7 +406,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
         MachineId::from_str("fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg").unwrap();
     let mut txn = env.pool.begin().await.unwrap();
     let host = db::machine::find_one(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &host_machine_id,
         MachineSearchConfig::default(),
     )
@@ -413,10 +414,14 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     .unwrap();
     assert!(host.is_none());
 
-    let host = db::machine::find_one(txn.as_mut(), &m_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = db::machine::find_one(
+        &mut txn.as_db_reader(),
+        &m_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(host.hardware_info.as_ref().is_some());
 }

@@ -16,6 +16,7 @@
  */
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use db::db_read::AsDbReader;
 use model::ConfigValidationError;
 use model::metadata::Metadata;
 use model::tenant::RoutingProfileType;
@@ -188,7 +189,7 @@ pub(crate) async fn update(
     // and easy to loosen later if we find we need it.
     if current_tenant.routing_profile_type != routing_profile_type
         && !db::vpc::find_ids(
-            &mut txn,
+            &mut txn.as_db_reader(),
             rpc::VpcSearchFilter {
                 tenant_org_id: Some(organization_id.clone()),
                 ..Default::default()
@@ -268,7 +269,7 @@ pub(crate) async fn find_tenant_organization_ids(
     crate::api::log_request_data(&request);
     let search_config = request.into_inner();
     let tenant_org_ids =
-        db::tenant::find_tenant_organization_ids(&api.database_connection, search_config).await?;
+        db::tenant::find_tenant_organization_ids(&mut api.db_reader(), search_config).await?;
     Ok(tonic::Response::new(rpc::TenantOrganizationIdList {
         tenant_organization_ids: tenant_org_ids.into_iter().collect(),
     }))

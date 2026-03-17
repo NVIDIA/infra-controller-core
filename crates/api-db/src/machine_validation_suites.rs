@@ -209,7 +209,7 @@ fn build_select_query(
 }
 
 pub async fn find(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     req: rpc::forge::MachineValidationTestsGetRequest,
 ) -> DatabaseResult<Vec<MachineValidationTest>> {
     let query = build_select_query(req, "machine_validation_tests")?;

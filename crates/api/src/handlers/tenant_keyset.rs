@@ -68,7 +68,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
-    let keyset_ids = db::tenant_keyset::find_ids(&api.database_connection, filter).await?;
+    let keyset_ids = db::tenant_keyset::find_ids(&mut api.db_reader(), filter).await?;
 
     Ok(Response::new(rpc::TenantKeysetIdList {
         keyset_ids: keyset_ids
@@ -103,8 +103,7 @@ pub(crate) async fn find_by_ids(
     }
 
     let keysets =
-        db::tenant_keyset::find_by_ids(&api.database_connection, keyset_ids, include_key_data)
-            .await;
+        db::tenant_keyset::find_by_ids(&mut api.db_reader(), keyset_ids, include_key_data).await;
 
     let result = keysets
         .map(|vpc| rpc::TenantKeySetList {

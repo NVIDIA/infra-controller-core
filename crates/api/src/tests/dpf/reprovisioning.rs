@@ -27,6 +27,7 @@ use std::time::Duration;
 
 use carbide_dpf::DpuPhase;
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use model::machine::{
     DpfState, DpuReprovisionStates, InstanceState, ManagedHostState, ReprovisionState,
 };
@@ -149,7 +150,7 @@ async fn dpu_device_names(pool: &sqlx::PgPool, mh: &TestManagedHost) -> HashSet<
     let mut txn = pool.begin().await.unwrap();
     let mut names = HashSet::new();
     for dpu_id in &mh.dpu_ids {
-        let dpu = db::machine::find_one(txn.as_mut(), dpu_id, Default::default())
+        let dpu = db::machine::find_one(&mut txn.as_db_reader(), dpu_id, Default::default())
             .await
             .unwrap()
             .unwrap();

@@ -105,7 +105,7 @@ pub async fn get_updated_machines(
     host_health_config: HostHealthConfig,
 ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
     let machine_ids = crate::machine::find_machine_ids(
-        &mut *txn,
+        &mut txn.into(),
         MachineSearchConfig {
             include_predicted_host: true,
             ..Default::default()
@@ -113,7 +113,7 @@ pub async fn get_updated_machines(
     )
     .await?;
     let snapshots = crate::managed_host::load_by_machine_ids(
-        txn,
+        &mut txn.into(),
         &machine_ids,
         LoadSnapshotOptions {
             include_history: false,

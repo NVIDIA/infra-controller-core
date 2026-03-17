@@ -262,7 +262,7 @@ impl NewLogicalPartition {
 /// * `txn` - A reference to a currently open database transaction
 ///
 pub async fn for_tenant(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     tenant_organization_id: String,
 ) -> Result<Vec<LogicalPartition>, DatabaseError> {
     let results: Vec<LogicalPartition> = {
@@ -284,7 +284,7 @@ pub async fn for_tenant(
 }
 
 pub async fn find_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: rpc::NvLinkLogicalPartitionSearchFilter,
 ) -> Result<Vec<NvLinkLogicalPartitionId>, DatabaseError> {
     // build query
@@ -304,7 +304,7 @@ pub async fn find_ids(
 }
 
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = LogicalPartition>>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<LogicalPartition>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(

@@ -36,6 +36,7 @@ use common::api_fixtures::{
     create_managed_host_with_dpf, create_test_env, create_test_env_with_overrides, get_config,
     get_instance_type_fixture_id,
 };
+use db::db_read::AsDbReader;
 use model::hardware_info::TpmEkCertificate;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -72,7 +73,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &dpu_machine_id,
         MachineSearchConfig::default(),
     )
@@ -349,10 +350,14 @@ async fn validate_machine_deletion(
     // And it should also be gone on the DB layer
     let mut txn = env.pool.begin().await.unwrap();
     assert!(
-        db::machine::find_one(txn.as_mut(), machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .is_none()
+        db::machine::find_one(
+            &mut txn.as_db_reader(),
+            machine_id,
+            MachineSearchConfig::default()
+        )
+        .await
+        .unwrap()
+        .is_none()
     );
     assert!(
         db::machine_topology::find_by_machine_ids(&mut txn, &[*machine_id])

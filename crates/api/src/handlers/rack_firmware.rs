@@ -362,7 +362,7 @@ pub async fn get(
 ) -> Result<Response<RackFirmware>, Status> {
     let req = request.into_inner();
 
-    let db_config = DbRackFirmware::find_by_id(&api.database_connection, &req.id)
+    let db_config = DbRackFirmware::find_by_id(&mut api.db_reader(), &req.id)
         .await
         .map_err(CarbideError::from)?;
 
@@ -952,7 +952,7 @@ pub async fn apply(
     );
 
     // Get the RackFirmware configuration from the database
-    let fw_config = DbRackFirmware::find_by_id(&api.database_connection, &req.firmware_id)
+    let fw_config = DbRackFirmware::find_by_id(&mut api.db_reader(), &req.firmware_id)
         .await
         .map_err(|e| Status::internal(format!("Failed to get firmware configuration: {}", e)))?;
 
@@ -972,7 +972,7 @@ pub async fn apply(
             serde_json::json!({})
         });
 
-    let rack = db::rack::get(&api.database_connection, rack_id)
+    let rack = db::rack::get(&mut api.db_reader(), rack_id)
         .await
         .map_err(|e| Status::internal(format!("Failed to get rack: {}", e)))?;
 

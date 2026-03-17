@@ -37,7 +37,7 @@ pub async fn create(
 }
 
 pub async fn find_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: rpc::forge::TenantKeysetSearchFilter,
 ) -> Result<Vec<TenantKeysetId>, DatabaseError> {
     // build query
@@ -58,7 +58,7 @@ pub async fn find_ids(
 }
 
 pub async fn find_by_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     ids: Vec<rpc::forge::TenantKeysetIdentifier>,
     include_key_data: bool,
 ) -> Result<Vec<TenantKeyset>, DatabaseError> {

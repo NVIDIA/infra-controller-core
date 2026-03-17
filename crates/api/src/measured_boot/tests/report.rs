@@ -25,10 +25,11 @@
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Borrow;
     use std::collections::{HashMap, HashSet};
 
     use carbide_uuid::measured_boot::MeasurementReportId;
-    use db::db_read::PgPoolReader;
+    use db::db_read::AsDbReader;
     use db::measured_boot::interface::common::pcr_register_values_to_map;
     use db::measured_boot::interface::report::{
         get_all_measurement_report_records, get_all_measurement_report_value_records,
@@ -209,7 +210,7 @@ mod tests {
         }
 
         // And then get everything thus far.
-        let reports = db::measured_boot::report::get_all(txn.as_mut()).await?;
+        let reports = db::measured_boot::report::get_all(&mut txn.as_db_reader()).await?;
         assert_eq!(reports.len(), 2);
 
         // And now lets do some database record checks.
@@ -375,7 +376,7 @@ mod tests {
         // and make sure everything gets updated accordingly.
         let bundle_full =
             db::measured_boot::report::create_active_bundle(&mut txn, &report, &None).await?;
-        let bundles = db::measured_boot::bundle::get_all(txn.as_mut()).await?;
+        let bundles = db::measured_boot::bundle::get_all(&mut txn.as_db_reader()).await?;
         assert_eq!(bundles.len(), 1);
         let journals =
             db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
@@ -397,7 +398,7 @@ mod tests {
         let bundle_partial =
             db::measured_boot::report::create_active_bundle(&mut txn, &report, &Some(pcr_set))
                 .await?;
-        let bundles = db::measured_boot::bundle::get_all(txn.as_mut()).await?;
+        let bundles = db::measured_boot::bundle::get_all(&mut txn.as_db_reader()).await?;
         assert_eq!(bundles.len(), 2);
         let journals =
             db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
@@ -461,7 +462,7 @@ mod tests {
         )
         .await?;
 
-        let bundles = db::measured_boot::bundle::get_all(txn.as_mut()).await?;
+        let bundles = db::measured_boot::bundle::get_all(&mut txn.as_db_reader()).await?;
         assert_eq!(bundles.len(), 3);
         let journals =
             db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
@@ -551,7 +552,7 @@ mod tests {
         let bundle_partial =
             db::measured_boot::report::create_revoked_bundle(&mut txn, &report, &Some(pcr_set))
                 .await?;
-        let bundles = db::measured_boot::bundle::get_all(txn.as_mut()).await?;
+        let bundles = db::measured_boot::bundle::get_all(&mut txn.as_db_reader()).await?;
         assert_eq!(bundles.len(), 1);
         let journals =
             db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
@@ -646,7 +647,7 @@ mod tests {
         }
 
         // make sure 520 reports have been stored
-        let inserted_reports = db::measured_boot::report::get_all(txn.as_mut()).await?;
+        let inserted_reports = db::measured_boot::report::get_all(&mut txn.as_db_reader()).await?;
         assert_eq!(inserted_reports.len(), 520);
 
         // since the trim operation happens in a separate transaction, we need to commit
@@ -664,7 +665,7 @@ mod tests {
 
         // make sure 500 are remaining
         let remaining_reports =
-            db::measured_boot::report::get_all(&mut PgPoolReader::from(pool)).await?;
+            db::measured_boot::report::get_all(&mut pool.borrow().into()).await?;
         assert_eq!(remaining_reports.len(), 500);
 
         // now make sure the first 20 reports are already gone and the rest are still in

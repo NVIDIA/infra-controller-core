@@ -20,6 +20,7 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
+use db::db_read::AsDbReader;
 use db::dhcp_entry::DhcpEntry;
 use db::{self, ObjectColumnFilter};
 use itertools::Itertools;
@@ -176,7 +177,7 @@ async fn find_all_interfaces_test_cases(
 
     let network_segment = db::network_segment::admin(&mut txn).await?;
     let domain_ids = db::dns::domain::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
@@ -258,7 +259,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let network_segment = db::network_segment::admin(&mut txn).await?;
     let domain_ids = db::dns::domain::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
@@ -457,7 +458,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let _interface = db::machine_interface::find_one(txn.as_mut(), interface_id).await;
+    let _interface = db::machine_interface::find_one(&mut txn.as_db_reader(), interface_id).await;
     assert!(matches!(
         DatabaseError::FindOneReturnedNoResultsError(interface_id.into()),
         _interface

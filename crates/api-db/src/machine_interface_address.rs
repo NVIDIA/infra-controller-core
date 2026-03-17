@@ -42,7 +42,7 @@ pub async fn find_ipv4_for_interface(
 }
 
 pub async fn find_by_address(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     address: IpAddr,
 ) -> Result<Option<MachineInterfaceSearchResult>, DatabaseError> {
     let query = "SELECT mi.id, mi.machine_id, ns.name, ns.network_segment_type

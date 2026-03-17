@@ -17,6 +17,7 @@
 use std::default::Default;
 
 use common::api_fixtures::create_test_env;
+use db::db_read::AsDbReader;
 use db::{self};
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -34,7 +35,7 @@ use crate::{CarbideError, DatabaseError};
 async fn get_expected_machine_1(txn: &mut PgConnection) -> Option<ExpectedMachine> {
     let fixture_mac_address = "0a:0b:0c:0d:0e:0f".parse().unwrap();
 
-    db::expected_machine::find_by_bmc_mac_address(txn, fixture_mac_address)
+    db::expected_machine::find_by_bmc_mac_address(&mut txn.as_db_reader(), fixture_mac_address)
         .await
         .unwrap()
 }
@@ -862,22 +863,31 @@ async fn test_with_dpu_serial_numbers(
         .await
         .expect("unable to create transaction on database pool");
 
-    let em0 = db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), fixture_mac_address_0)
-        .await
-        .unwrap()
-        .expect("Expected machine not found");
+    let em0 = db::expected_machine::find_by_bmc_mac_address(
+        &mut txn.as_db_reader(),
+        fixture_mac_address_0,
+    )
+    .await
+    .unwrap()
+    .expect("Expected machine not found");
     assert!(em0.data.fallback_dpu_serial_numbers.is_empty());
 
-    let em3 = db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), fixture_mac_address_3)
-        .await
-        .unwrap()
-        .expect("Expected machine not found");
+    let em3 = db::expected_machine::find_by_bmc_mac_address(
+        &mut txn.as_db_reader(),
+        fixture_mac_address_3,
+    )
+    .await
+    .unwrap()
+    .expect("Expected machine not found");
     assert_eq!(em3.data.fallback_dpu_serial_numbers, vec!["dpu_serial1"]);
 
-    let em4 = db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), fixture_mac_address_4)
-        .await
-        .unwrap()
-        .expect("Expected machine not found");
+    let em4 = db::expected_machine::find_by_bmc_mac_address(
+        &mut txn.as_db_reader(),
+        fixture_mac_address_4,
+    )
+    .await
+    .unwrap()
+    .expect("Expected machine not found");
 
     assert_eq!(
         em4.data.fallback_dpu_serial_numbers,

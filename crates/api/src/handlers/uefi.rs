@@ -16,6 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use db::WithTransaction;
+use db::db_read::AsDbReader;
 use futures_util::FutureExt;
 use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
@@ -65,7 +66,7 @@ pub(crate) async fn clear_host_uefi_password(
     }
 
     let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &machine_id,
         LoadSnapshotOptions {
             include_history: false,
@@ -141,7 +142,7 @@ pub(crate) async fn set_host_uefi_password(
     }
 
     let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut txn.as_db_reader(),
         &machine_id,
         LoadSnapshotOptions {
             include_history: false,

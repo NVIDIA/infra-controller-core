@@ -134,7 +134,7 @@ pub async fn delete(txn: &mut PgConnection, sku_id: &str) -> Result<String, Data
     Ok(id)
 }
 
-pub async fn get_sku_ids(txn: impl DbReader<'_>) -> Result<Vec<String>, DatabaseError> {
+pub async fn get_sku_ids(txn: &mut DbReader<'_>) -> Result<Vec<String>, DatabaseError> {
     let query = "SELECT id FROM machine_skus";
 
     let skus: Vec<(String,)> = sqlx::query_as(query)
@@ -255,14 +255,14 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
 }
 
 pub async fn generate_sku_from_machine(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Sku, DatabaseError> {
     generate_sku_from_machine_at_version(txn, machine_id, CURRENT_SKU_VERSION).await
 }
 
 pub async fn generate_sku_from_machine_at_version(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
     schema_version: u32,
 ) -> Result<Sku, DatabaseError> {
@@ -279,7 +279,7 @@ pub async fn generate_sku_from_machine_at_version(
 }
 
 pub async fn generate_sku_from_machine_at_version_0_or_1(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
     schema_version: u32,
 ) -> Result<Sku, DatabaseError> {
@@ -535,7 +535,7 @@ pub fn generate_base_sku_from_hardware(
 }
 
 pub async fn generate_sku_from_machine_at_version_2(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Sku, DatabaseError> {
     let Some(machine) = crate::machine::find(
@@ -588,7 +588,7 @@ pub async fn generate_sku_from_machine_at_version_2(
 }
 
 pub async fn generate_sku_from_machine_at_version_3(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Sku, DatabaseError> {
     let Some(machine) = crate::machine::find(
@@ -637,7 +637,7 @@ pub async fn generate_sku_from_machine_at_version_3(
 }
 
 pub async fn generate_sku_from_machine_at_version_4(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Sku, DatabaseError> {
     let Some(machine) = machine::find(

@@ -94,7 +94,7 @@ pub async fn get_measurement_journal_record_by_id(
     txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
-    common::get_object_for_id(txn, journal_id)
+    common::get_object_for_id(&mut txn.into(), journal_id)
         .await
         .map_err(|e| e.with_op_name("get_measurement_journal_record_by_id"))
 }
@@ -107,7 +107,7 @@ pub async fn get_measurement_journal_record_by_report_id(
     txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
-    common::get_object_for_id(txn, report_id)
+    common::get_object_for_id(&mut txn.into(), report_id)
         .await
         .map_err(|e| e.with_op_name("get_measurement_journal_record_by_report_id"))
 }
@@ -118,7 +118,7 @@ pub async fn get_measurement_journal_record_by_report_id(
 pub async fn get_measurement_journal_records(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
-    common::get_all_objects(txn)
+    common::get_all_objects(&mut txn.into())
         .await
         .map_err(|e| e.with_op_name("get_measurement_journal_records"))
 }
@@ -130,7 +130,7 @@ pub async fn get_measurement_journal_records_for_machine_id(
     txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
-    common::get_objects_where_id(txn, machine_id)
+    common::get_objects_where_id(&mut txn.into(), machine_id)
         .await
         .map_err(|e| e.with_op_name("get_measurement_journal_records_for_machine_id"))
 }

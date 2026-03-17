@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use db::db_read::DbReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, WithTransaction};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
@@ -164,7 +165,8 @@ impl PreingestionManager {
     /// Returns true if we stopped early due to a timeout.
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = PreingestionMetrics::new();
-        let db = self.database_connection.clone();
+        let mut db_reader = DbReader::from(&self.database_connection);
+        let db = &mut db_reader;
 
         let _work_lock = match self
             .static_info
@@ -184,7 +186,7 @@ impl PreingestionManager {
             }
         };
 
-        let items = db::explored_endpoints::find_preingest_not_waiting_not_error(&db)
+        let items = db::explored_endpoints::find_preingest_not_waiting_not_error(db)
             .boxed()
             .await?;
 
@@ -211,13 +213,13 @@ impl PreingestionManager {
         for endpoint in items.into_iter() {
             let permit = limit_sem.clone().acquire_owned().await.unwrap();
             let static_info = self.static_info.clone();
-            let db = db.clone();
+            let pool = self.database_connection.clone();
             let _abort_handle = task_set
                 .build_task()
                 .name(&format!("preingestion {}", endpoint.address))
                 .spawn(async move {
                     let _permit = permit; // retain semaphore until we're done
-                    one_endpoint(&db, &endpoint, static_info).await
+                    one_endpoint(&pool, &endpoint, static_info).await
                 });
         }
 
@@ -240,10 +242,10 @@ impl PreingestionManager {
         }
 
         metrics.machines_in_preingestion =
-            db::explored_endpoints::find_preingest_not_waiting_not_error(&db)
+            db::explored_endpoints::find_preingest_not_waiting_not_error(db)
                 .await?
                 .len();
-        metrics.waiting_for_installation = db::explored_endpoints::find_preingest_installing(&db)
+        metrics.waiting_for_installation = db::explored_endpoints::find_preingest_installing(db)
             .await?
             .len();
 
@@ -1494,7 +1496,8 @@ impl PreingestionManagerStatic {
         let upgrade_script_state = self.upgrade_script_state.clone();
         let (username, password) = if let Some(credential_reader) = &self.credential_reader {
             // We need to backtrack from the IP address to get the MAC address, which is what the credentials database is keyed on
-            let interface = db::machine_interface::find_by_ip(db, endpoint_address).await?;
+            let interface =
+                db::machine_interface::find_by_ip(&mut db.into(), endpoint_address).await?;
             let Some(interface) = interface else {
                 tracing::warn!(
                     "Unable to run update script for {address}: MAC address not retrievable"

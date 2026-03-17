@@ -263,7 +263,7 @@ pub async fn handle_match_measurement_report(
     req: MatchMeasurementReportRequest,
 ) -> Result<MatchMeasurementReportResponse, Status> {
     let pcr_register = PcrRegisterValue::from_pb_vec(req.pcr_values);
-    let mut reports = match_latest_reports(&api.database_connection, &pcr_register)
+    let mut reports = match_latest_reports(&mut api.db_reader(), &pcr_register)
         .await
         .map_err(|e| Status::internal(format!("failure during report matching: {e}")))?;
 

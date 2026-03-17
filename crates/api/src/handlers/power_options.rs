@@ -19,6 +19,7 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use db::DatabaseError;
+use db::db_read::AsDbReader;
 use mac_address::MacAddress;
 use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
@@ -81,7 +82,7 @@ pub(crate) async fn update_power_option(
     // if desired_state == Off, maintenance must be set.
     if matches!(desired_power_state, rpc::PowerState::Off) {
         let snapshot = db::managed_host::load_snapshot(
-            &mut txn,
+            &mut txn.as_db_reader(),
             &machine_id,
             LoadSnapshotOptions {
                 include_history: false,
@@ -186,9 +187,11 @@ pub(crate) async fn determine_machine_ingestion_state(
     };
 
     // now check if we have an entry in explored_managed_hosts
-    let explored_managed_hosts =
-        db::explored_managed_host::find_by_ips(txn.as_mut(), vec![explored_endpoint.address])
-            .await?;
+    let explored_managed_hosts = db::explored_managed_host::find_by_ips(
+        &mut txn.as_db_reader(),
+        vec![explored_endpoint.address],
+    )
+    .await?;
 
     if !explored_managed_hosts.is_empty() {
         let machine_created = db::machine::find_id_by_bmc_ip(&mut txn, &explored_endpoint.address)
@@ -267,7 +270,8 @@ async fn find_explored_endpoint(
     txn: &mut sqlx::PgConnection,
     mac_address: &MacAddress,
 ) -> Result<FindExploredEndpoint, CarbideError> {
-    let explored_endpoints = db::explored_endpoints::find_by_mac_address(txn, *mac_address).await?;
+    let explored_endpoints =
+        db::explored_endpoints::find_by_mac_address(&mut txn.as_db_reader(), *mac_address).await?;
 
     let explored_endpoint = match explored_endpoints.len() {
         0 => return Ok(FindExploredEndpoint::NotFound),

@@ -220,7 +220,7 @@ pub async fn handle_list_measurement_bundles(
     _req: ListMeasurementBundlesRequest,
 ) -> Result<ListMeasurementBundlesResponse, Status> {
     let bundles: Vec<MeasurementBundleRecordPb> =
-        get_measurement_bundle_records(&api.database_connection)
+        get_measurement_bundle_records(&mut api.db_reader())
             .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .into_iter()

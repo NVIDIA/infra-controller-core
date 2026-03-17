@@ -19,6 +19,7 @@
 
 use carbide_uuid::network::NetworkSegmentId;
 use config_version::{ConfigVersion, Versioned};
+use db::db_read::AsDbReader;
 use db::{self, DatabaseError, ObjectColumnFilter};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
@@ -60,7 +61,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         segment_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
         let mut segments = db::network_segment::find_by(
-            txn,
+            &mut txn.as_db_reader(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, segment_id),
             model::network_segment::NetworkSegmentSearchConfig {
                 include_num_free_ips: true,

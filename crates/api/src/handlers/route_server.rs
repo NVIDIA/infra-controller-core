@@ -32,7 +32,7 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::RouteServerEntries>, Status> {
     log_request_data(&request);
 
-    let route_servers = db::route_servers::get(&api.database_connection).await?;
+    let route_servers = db::route_servers::get(&mut api.db_reader()).await?;
 
     Ok(tonic::Response::new(rpc::RouteServerEntries {
         route_servers: route_servers.into_iter().map(Into::into).collect(),

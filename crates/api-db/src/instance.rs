@@ -59,7 +59,7 @@ impl ColumnInfo<'_> for IdColumn {
 pub struct InstanceTable {}
 
 pub async fn find_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: rpc::InstanceSearchFilter,
 ) -> Result<Vec<InstanceId>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
@@ -135,7 +135,7 @@ WHERE vpc_id = ",
 }
 
 pub async fn find(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'_, IdColumn>,
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT row_to_json(i.*) FROM instances i")
@@ -148,7 +148,7 @@ pub async fn find(
 }
 
 pub async fn find_by_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     id: InstanceId,
 ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
     let query = "SELECT row_to_json(i.*) from instances i WHERE id = $1";
@@ -226,7 +226,7 @@ pub async fn find_by_extension_service(
 /// Returns true if any non-deleted instance has this logical partition ID in
 /// config.nvlink.gpu_configs[].logical_partition_id.
 pub async fn any_instance_referencing_nvlink_logical_partition(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     logical_partition_id: &NvLinkLogicalPartitionId,
 ) -> Result<bool, DatabaseError> {
     let query = r#"SELECT EXISTS (

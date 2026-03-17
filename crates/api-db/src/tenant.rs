@@ -135,7 +135,7 @@ pub async fn increment_version<S: AsRef<str>>(
 }
 
 pub async fn find_tenant_organization_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     search_config: rpc::TenantSearchFilter,
 ) -> Result<Vec<OrganizationID>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT organization_id FROM tenants");
@@ -161,7 +161,7 @@ pub async fn validate_public_key(
     request: &TenantPublicKeyValidationRequest,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let instance = crate::instance::find_by_id(&mut *txn, request.instance_id)
+    let instance = crate::instance::find_by_id(&mut txn.into(), request.instance_id)
         .await?
         .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "instance",

@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use db::DatabaseError;
+use db::db_read::AsDbReader;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;
@@ -83,7 +84,7 @@ async fn create_machines(
 pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, ManagedHostStateSnapshot> {
     let mut txn = test_env.pool.begin().await.unwrap();
     let machine_ids = db::machine::find_machine_ids(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         MachineSearchConfig {
             include_predicted_host: true,
             ..Default::default()
@@ -93,7 +94,7 @@ pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, Managed
     .unwrap();
 
     db::managed_host::load_by_machine_ids(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &machine_ids,
         LoadSnapshotOptions {
             include_history: false,
@@ -255,7 +256,7 @@ async fn test_find_available_outdated_dpus_multidpu(
     }
 
     let snapshots = db::managed_host::load_by_machine_ids(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &[mh.host().id],
         LoadSnapshotOptions {
             include_history: false,
@@ -301,7 +302,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
 
     let mut txn = env.pool.begin().await?;
     let snapshots = db::managed_host::load_by_machine_ids(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &[mh.host().id],
         LoadSnapshotOptions {
             include_history: false,
@@ -364,7 +365,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     let mut txn = env.pool.begin().await?;
     let snapshots = db::managed_host::load_by_machine_ids(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &[mh.host().id],
         LoadSnapshotOptions {
             include_history: false,

@@ -16,6 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use db::db_read::AsDbReader;
 use db::{self};
 use mac_address::MacAddress;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -147,14 +148,16 @@ exit ||
 
         let mut console = "ttyS0";
         let mut qcow_imager_url = "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
-        let interface = db::machine_interface::find_one(&mut *txn, target.interface_id).await?;
+        let interface =
+            db::machine_interface::find_one(&mut txn.as_db_reader(), target.interface_id).await?;
 
         // This custom pxe is different from a customer instance of pxe. It is more for testing one off
         // changes until a real dev env is established and we can just override our existing code to test
         // It is possible for the pxe to be null if we are only trying to test the user data, and this will
         // follow the same code path and retrieve the non customer pxe
         if let Some(machine_boot_override) =
-            db::machine_boot_override::find_optional(&mut *txn, target.interface_id).await?
+            db::machine_boot_override::find_optional(&mut txn.as_db_reader(), target.interface_id)
+                .await?
             && let Some(custom_pxe) = machine_boot_override.custom_pxe
         {
             return Ok(custom_pxe);
@@ -189,12 +192,13 @@ exit ||
             // - If it's X86 and we have an exploration report, assume it's a Host.
             // - If it's ARM and we have an exploration report, check if the report is a bluefield
             //   model.
-            let Some(endpoint) =
-                db::explored_endpoints::find_by_mac_address(&mut *txn, interface.mac_address)
-                    .await?
-                    .into_iter()
-                    .next()
-            else {
+            let Some(endpoint) = db::explored_endpoints::find_by_mac_address(
+                &mut txn.as_db_reader(),
+                interface.mac_address,
+            )
+            .await?
+            .into_iter()
+            .next() else {
                 // This only happens if someone powered on a host manually before we ingested it,
                 // which is unlikely but possible.
                 tracing::info!(interface = ?interface, "Request for PXE instructions for unknown interface, skipping PXE boot");
@@ -221,12 +225,16 @@ exit ||
             ));
         };
 
-        let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
-            .await
-            .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
-            .ok_or(CarbideError::InvalidArgument(
-                "Invalid machine id. Not found in db.".to_string(),
-            ))?;
+        let machine = db::machine::find_one(
+            &mut txn.as_db_reader(),
+            &machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await
+        .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
+        .ok_or(CarbideError::InvalidArgument(
+            "Invalid machine id. Not found in db.".to_string(),
+        ))?;
 
         tracing::info!(machine_id = %machine.id, interface_id = %target.interface_id, state=%machine.current_state(), "Found existing machine for pxe instructions");
         // DPUs need to boot twice during initial discovery. Both reboots require

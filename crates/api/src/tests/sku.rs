@@ -18,6 +18,7 @@ pub mod tests {
     use std::time::Duration;
 
     use carbide_uuid::machine::MachineId;
+    use db::db_read::AsDbReader;
     use db::sku::CURRENT_SKU_VERSION;
     use db::{self, DatabaseError, ObjectFilter, WithTransaction};
     use futures_util::FutureExt;
@@ -314,7 +315,7 @@ pub mod tests {
         machine_id: &MachineId,
     ) -> Result<model::machine::Machine, eyre::Error> {
         db::machine::find(
-            txn,
+            &mut txn.as_db_reader(),
             ObjectFilter::One(*machine_id),
             MachineSearchConfig::default(),
         )
@@ -351,7 +352,7 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
         let machine = db::machine::find(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -371,7 +372,7 @@ pub mod tests {
 
         // create an older version sku from new topology data will create a backwards compatible sku
         let old_sku = db::sku::generate_sku_from_machine_at_version(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             &machine_id,
             old_schema_version,
         )
@@ -459,7 +460,8 @@ pub mod tests {
 
         let expected_sku: Sku = serde_json::de::from_str::<rpc::forge::Sku>(SKU_DATA)?.into();
 
-        let mut actual_sku = db::sku::generate_sku_from_machine(&pool, &machine_id).await?;
+        let mut actual_sku =
+            db::sku::generate_sku_from_machine(&mut env.db_reader(), &machine_id).await?;
         // cheat the created timestamp and id
         actual_sku.id = "sku id".to_string();
         actual_sku.created = expected_sku.created;
@@ -480,14 +482,15 @@ pub mod tests {
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
         let mut txn = pool.begin().await?;
 
-        let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        let actual_sku =
+            db::sku::generate_sku_from_machine(&mut txn.as_db_reader(), &machine_id).await?;
         db::sku::create(&mut txn, &actual_sku).await?;
         let actual_sku = db::sku::find(&mut txn, &[actual_sku.id]).await?.remove(0);
 
         db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
         let machine = db::machine::find(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -499,7 +502,7 @@ pub mod tests {
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
         let machine = db::machine::find(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -543,7 +546,7 @@ pub mod tests {
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let machine = db::machine::find(
-            &pool,
+            &mut env.db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -578,7 +581,7 @@ pub mod tests {
         let (machine_id, _dpu_id) = mh.into();
 
         let machine = db::machine::find(
-            &pool,
+            &mut env.db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -668,7 +671,8 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        let actual_sku =
+            db::sku::generate_sku_from_machine(&mut txn.as_db_reader(), &machine_id).await?;
         db::sku::create(&mut txn, &actual_sku).await?;
 
         db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
@@ -819,7 +823,8 @@ pub mod tests {
             }
         ));
 
-        let mut sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        let mut sku =
+            db::sku::generate_sku_from_machine(&mut txn.as_db_reader(), &machine_id).await?;
         sku.id = "no-sku".to_string();
 
         db::sku::create(&mut txn, &sku).await?;
@@ -1107,7 +1112,8 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        let actual_sku =
+            db::sku::generate_sku_from_machine(&mut txn.as_db_reader(), &machine_id).await?;
         db::sku::create(&mut txn, &actual_sku).await?;
 
         db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
@@ -1514,7 +1520,8 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        let actual_sku =
+            db::sku::generate_sku_from_machine(&mut txn.as_db_reader(), &machine_id).await?;
         db::sku::create(&mut txn, &actual_sku).await?;
 
         db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
@@ -1562,7 +1569,7 @@ pub mod tests {
 
         // The SKU should have been auto-created and assigned by create_managed_host when BOM validation is enabled
         let machine = db::machine::find(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -1591,7 +1598,7 @@ pub mod tests {
         txn.commit().await?;
 
         let machine = db::machine::find(
-            &pool,
+            &mut env.db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -1606,7 +1613,7 @@ pub mod tests {
         env.run_machine_state_controller_iteration().await;
 
         let machine = db::machine::find(
-            &pool,
+            &mut env.db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -1646,7 +1653,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
         let machine = db::machine::find(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -1676,7 +1683,7 @@ pub mod tests {
         let mut txn = pool.begin().await?;
 
         let machine = db::machine::find(
-            txn.as_mut(),
+            &mut txn.as_db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -1726,7 +1733,7 @@ pub mod tests {
         .await;
 
         let machine = db::machine::find(
-            &pool,
+            &mut env.db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -1781,7 +1788,7 @@ pub mod tests {
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let machine = db::machine::find(
-            &pool,
+            &mut env.db_reader(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
         )
@@ -1812,7 +1819,7 @@ pub mod tests {
 
         let sku_ids = vec![assigned_sku_id.clone(), unassigned_sku.id.clone()];
         let machine_ids_by_sku_ids =
-            db::machine::find_machine_ids_by_sku_ids(&pool, &sku_ids).await?;
+            db::machine::find_machine_ids_by_sku_ids(&mut env.db_reader(), &sku_ids).await?;
 
         assert_eq!(machine_ids_by_sku_ids.len(), 2);
 

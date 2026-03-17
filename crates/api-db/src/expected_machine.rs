@@ -28,7 +28,7 @@ use crate::{DatabaseError, DatabaseResult};
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
 pub async fn find_by_bmc_mac_address(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     bmc_mac_address: MacAddress,
 ) -> Result<Option<ExpectedMachine>, DatabaseError> {
     let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=$1";
@@ -40,7 +40,7 @@ pub async fn find_by_bmc_mac_address(
 }
 
 pub async fn find_by_id(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     id: Uuid,
 ) -> Result<Option<ExpectedMachine>, DatabaseError> {
     let sql = "SELECT * FROM expected_machines WHERE id=$1";
@@ -124,7 +124,7 @@ FROM expected_machines em
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
-pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<ExpectedMachine>> {
+pub async fn find_all(txn: &mut DbReader<'_>) -> DatabaseResult<Vec<ExpectedMachine>> {
     let sql = "SELECT * FROM expected_machines";
     sqlx::query_as(sql)
         .fetch_all(txn)
@@ -132,7 +132,7 @@ pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<ExpectedMach
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
-pub async fn find_all_linked(txn: impl DbReader<'_>) -> DatabaseResult<Vec<LinkedExpectedMachine>> {
+pub async fn find_all_linked(txn: &mut DbReader<'_>) -> DatabaseResult<Vec<LinkedExpectedMachine>> {
     let sql = r#"
  SELECT
  em.serial_number,
@@ -226,7 +226,7 @@ pub async fn create(
 
 /// find returns an expected machine by id if provided, otherwise by bmc_mac_address.
 pub async fn find(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     req: &ExpectedMachineRequest,
 ) -> DatabaseResult<Option<ExpectedMachine>> {
     if let Some(id) = req.id {
@@ -359,7 +359,7 @@ pub async fn create_missing_from(
     txn: &mut PgConnection,
     expected_machines: &[ExpectedMachine],
 ) -> DatabaseResult<()> {
-    let existing_machines = find_all(&mut *txn).await?;
+    let existing_machines = find_all(&mut txn.into()).await?;
     let existing_map: BTreeMap<String, ExpectedMachine> = existing_machines
         .into_iter()
         .map(|machine| (machine.bmc_mac_address.to_string(), machine))

@@ -20,6 +20,7 @@ use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
@@ -34,7 +35,7 @@ pub(crate) async fn find_explored_endpoint_ids(
 
     let filter: ::rpc::site_explorer::ExploredEndpointSearchFilter = request.into_inner();
 
-    let endpoint_ips = db::explored_endpoints::find_ips(&api.database_connection, filter).await?;
+    let endpoint_ips = db::explored_endpoints::find_ips(&mut api.db_reader(), filter).await?;
 
     Ok(Response::new(
         ::rpc::site_explorer::ExploredEndpointIdList {
@@ -69,7 +70,7 @@ pub(crate) async fn find_explored_endpoints_by_ids(
         );
     }
 
-    let result = db::explored_endpoints::find_by_ips(&api.database_connection, ips)
+    let result = db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
         .await
         .map(|ep| ::rpc::site_explorer::ExploredEndpointList {
             endpoints: ep
@@ -89,7 +90,7 @@ pub(crate) async fn find_explored_managed_host_ids(
 
     let filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter = request.into_inner();
 
-    let host_ips = db::explored_managed_host::find_ips(&api.database_connection, filter).await?;
+    let host_ips = db::explored_managed_host::find_ips(&mut api.db_reader(), filter).await?;
 
     Ok(Response::new(
         ::rpc::site_explorer::ExploredManagedHostIdList {
@@ -124,7 +125,7 @@ pub(crate) async fn find_explored_managed_hosts_by_ids(
         );
     }
 
-    let result = db::explored_managed_host::find_by_ips(&api.database_connection, ips)
+    let result = db::explored_managed_host::find_by_ips(&mut api.db_reader(), ips)
         .await
         .map(|ep| ::rpc::site_explorer::ExploredManagedHostList {
             managed_hosts: ep
@@ -242,7 +243,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
     // Check if a machine exists for this endpoint
     let in_managed_host =
-        crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, txn.as_pgconn())
+        crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, &mut txn.as_db_reader())
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
 
@@ -281,7 +282,7 @@ pub(crate) async fn is_bmc_in_managed_host(
     };
 
     let in_managed_host =
-        crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &api.database_connection)
+        crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &mut api.db_reader())
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
 
@@ -313,7 +314,7 @@ pub(crate) async fn delete_explored_endpoint(
 
     // Check if a machine exists for this endpoint
     let in_managed_host =
-        crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, txn.as_pgconn())
+        crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, &mut txn.as_db_reader())
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
 

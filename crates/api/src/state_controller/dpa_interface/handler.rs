@@ -374,7 +374,7 @@ async fn send_set_vni_command<'a>(
     };
 
     let vni = if needs_vni {
-        match get_dpa_vni(state, &mut services.db_reader).await {
+        match get_dpa_vni(state, &mut services.db_reader()).await {
             Ok(dv) => dv,
             Err(e) => {
                 return Err(StateHandlerError::GenericError(eyre!(

@@ -19,6 +19,7 @@ pub mod measured_boot;
 
 pub mod tpm_ca_cert;
 use carbide_uuid::machine::MachineId;
+use db::db_read::AsDbReader;
 use db::{ObjectFilter, Transaction};
 pub use measured_boot::*;
 use model::hardware_info::TpmEkCertificate;
@@ -34,7 +35,7 @@ pub async fn get_ek_cert_by_machine_id(
 ) -> CarbideResult<TpmEkCertificate> {
     // fetch machine from the db
     let machine = db::machine::find_one(
-        txn,
+        &mut txn.into(),
         machine_id,
         MachineSearchConfig {
             include_dpus: true,
@@ -66,12 +67,15 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
 
     let mut txn = Transaction::begin(db_pool).await?;
 
-    let machines: Vec<::carbide_uuid::machine::MachineId> =
-        db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
-            .await?
-            .iter()
-            .map(|machine| machine.id)
-            .collect();
+    let machines: Vec<::carbide_uuid::machine::MachineId> = db::machine::find(
+        &mut txn.as_db_reader(),
+        ObjectFilter::All,
+        MachineSearchConfig::default(),
+    )
+    .await?
+    .iter()
+    .map(|machine| machine.id)
+    .collect();
 
     if !machines.is_empty() {
         let topologies =

@@ -97,7 +97,7 @@ pub async fn from_id(
                 ))),
             }?;
 
-            let journal = get_latest_journal_for_id(txn, machine_id).await?;
+            let journal = get_latest_journal_for_id(&mut txn.into(), machine_id).await?;
             let state = machine_state_from_journal(&journal);
 
             Ok(CandidateMachine {
@@ -116,10 +116,7 @@ pub async fn from_id(
     }
 }
 
-pub async fn get_all<DB>(txn: &mut DB) -> DatabaseResult<Vec<CandidateMachine>>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+pub async fn get_all(txn: &mut DbReader<'_>) -> DatabaseResult<Vec<CandidateMachine>> {
     get_candidate_machines(txn).await
 }
 
@@ -147,7 +144,7 @@ pub fn bundle_state_to_machine_state(
 /// machine ID by checking its most recent bundle (or lack thereof), and
 /// using that result to give it a corresponding MeasurementMachineState.
 pub async fn get_measurement_machine_state(
-    db_reader: impl DbReader<'_>,
+    db_reader: &mut DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<MeasurementMachineState, DatabaseError> {
     get_candidate_machine_state(db_reader, machine_id).await
@@ -155,13 +152,10 @@ pub async fn get_measurement_machine_state(
 
 /// get_measurement_bundle_state returns the state of the current bundle
 /// associated with the machine, if one exists.
-pub async fn get_measurement_bundle_state<DB>(
-    db_reader: &mut DB,
+pub async fn get_measurement_bundle_state(
+    db_reader: &mut DbReader<'_>,
     machine_id: &MachineId,
-) -> eyre::Result<Option<MeasurementBundleState>>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> eyre::Result<Option<MeasurementBundleState>> {
     let result = get_latest_journal_for_id(&mut *db_reader, *machine_id).await?;
     if let Some(journal_record) = result
         && let Some(bundle_id) = journal_record.bundle_id
@@ -173,10 +167,7 @@ where
 }
 
 /// get_candidate_machines returns all populated CandidateMachine instances.
-async fn get_candidate_machines<DB>(txn: &mut DB) -> DatabaseResult<Vec<CandidateMachine>>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+async fn get_candidate_machines(txn: &mut DbReader<'_>) -> DatabaseResult<Vec<CandidateMachine>> {
     let mut res: Vec<CandidateMachine> = Vec::new();
     let mut records = get_candidate_machine_records(&mut *txn).await?;
 

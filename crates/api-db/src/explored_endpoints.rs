@@ -115,7 +115,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
 }
 
 pub async fn find_ips(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     // filter is currently is empty, so it is a placeholder for the future
     _filter: ::rpc::site_explorer::ExploredEndpointSearchFilter,
 ) -> Result<Vec<IpAddr>, DatabaseError> {
@@ -133,7 +133,7 @@ pub async fn find_ips(
 }
 
 pub async fn find_by_ips(
-    db: impl DbReader<'_>,
+    db: &mut DbReader<'_>,
     ips: Vec<IpAddr>,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints WHERE address=ANY($1)";
@@ -147,7 +147,7 @@ pub async fn find_by_ips(
 }
 
 /// find_all returns all explored endpoints that site explorer has been able to probe
-pub async fn find_all(txn: impl DbReader<'_>) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+pub async fn find_all(txn: &mut DbReader<'_>) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints";
 
     sqlx::query_as::<_, DbExploredEndpoint>(query)
@@ -159,7 +159,7 @@ pub async fn find_all(txn: impl DbReader<'_>) -> Result<Vec<ExploredEndpoint>, D
 
 /// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again and isn't in an error state.
 pub async fn find_preingest_not_waiting_not_error(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints
                         WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"')
@@ -175,7 +175,7 @@ pub async fn find_preingest_not_waiting_not_error(
 
 /// find_preingest_installing returns the endpoints where wew are waiting for firmware installs
 pub async fn find_preingest_installing(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"upgradefirmwarewait\"'";
 
@@ -217,7 +217,7 @@ pub async fn find_all_by_ip(
 
 pub async fn lookup_vendor_by_ip(
     address: IpAddr,
-    db_reader: impl DbReader<'_>,
+    db_reader: &mut DbReader<'_>,
 ) -> Result<Option<String>, DatabaseError> {
     let query = "SELECT exploration_report ->> 'Vendor' AS vendor FROM explored_endpoints WHERE address = $1";
 
@@ -514,7 +514,7 @@ pub async fn delete_many(
 /// explored_endpoints_mac_addresses_idx, to avoid a full scan of all endpoint reports. Do NOT
 /// change this query without changing the index to match!
 pub async fn find_by_mac_address(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     mac: MacAddress,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = r#"

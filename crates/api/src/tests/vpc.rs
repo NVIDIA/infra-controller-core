@@ -21,6 +21,7 @@ use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::vpc::VpcId;
 use common::api_fixtures::{create_test_env, populate_network_security_groups};
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter};
 use model::metadata::Metadata;
@@ -380,7 +381,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
 
     let mut vpcs = db::vpc::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
     .await?;
@@ -403,7 +404,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
 
     let mut vpcs = db::vpc::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
     .await?;
@@ -435,7 +436,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     // Check that the data was indeed not touched
     let mut vpcs = db::vpc::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
     .await?;
@@ -462,7 +463,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(updated_vpc.version.version_nr(), 5);
 
     let mut vpcs = db::vpc::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
     .await?;
@@ -475,7 +476,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert!(vpc.deleted.is_some());
 
     let vpcs = db::vpc::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(vpc::IdColumn, &vpc.id),
     )
     .await?;
@@ -485,7 +486,11 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert!(vpcs.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = db::vpc::find_by(txn.as_mut(), ObjectColumnFilter::<vpc::IdColumn>::All).await?;
+    let vpcs = db::vpc::find_by(
+        &mut txn.as_db_reader(),
+        ObjectColumnFilter::<vpc::IdColumn>::All,
+    )
+    .await?;
     assert_eq!(vpcs.len(), 1);
     let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id");
     assert_eq!(vpcs[0].id, forge_vpc_id);
@@ -495,7 +500,11 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = db::vpc::find_by(txn.as_mut(), ObjectColumnFilter::<vpc::IdColumn>::All).await?;
+    let vpcs = db::vpc::find_by(
+        &mut txn.as_db_reader(),
+        ObjectColumnFilter::<vpc::IdColumn>::All,
+    )
+    .await?;
     assert!(vpcs.is_empty());
     txn.commit().await?;
 
@@ -707,7 +716,7 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
     "#).bind(vpc_id).execute(txn.deref_mut()).await?;
 
     let some_vpc = db::vpc::find_by(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
     )
     .await?;

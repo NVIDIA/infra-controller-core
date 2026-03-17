@@ -17,6 +17,7 @@
 
 use ::rpc::forge as rpc;
 use db::ObjectFilter;
+use db::db_read::AsDbReader;
 use db::managed_host::load_snapshot;
 use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -40,12 +41,16 @@ pub(crate) async fn modify_dpf_state(
     }
 
     let mut txn = api.txn_begin().await?;
-    let machine_snapshot = load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "snapshot",
-            id: machine_id.to_string(),
-        })?;
+    let machine_snapshot = load_snapshot(
+        &mut txn.as_db_reader(),
+        &machine_id,
+        LoadSnapshotOptions::default(),
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "snapshot",
+        id: machine_id.to_string(),
+    })?;
 
     db::machine::modify_dpf_state(&mut txn, &machine_id, request.dpf_enabled).await?;
 
@@ -79,7 +84,12 @@ pub(crate) async fn get_dpf_state(
         ObjectFilter::List(&request.machine_ids)
     };
 
-    let dpf_states = db::machine::find(&mut txn, filter, MachineSearchConfig::default()).await?;
+    let dpf_states = db::machine::find(
+        &mut txn.as_db_reader(),
+        filter,
+        MachineSearchConfig::default(),
+    )
+    .await?;
     txn.commit().await?;
 
     Ok(Response::new(rpc::DpfStateResponse {

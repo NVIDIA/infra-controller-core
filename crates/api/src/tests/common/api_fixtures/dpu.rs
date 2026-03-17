@@ -349,9 +349,13 @@ pub async fn dpu_discover_machine(
 
 // Convenience method for the tests to get a machine's loopback IP
 pub async fn loopback_ip(txn: &mut PgConnection, dpu_machine_id: &MachineId) -> IpAddr {
-    let dpu = db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = db::machine::find_one(
+        &mut txn.into(),
+        dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     dpu.network_config.loopback_ip.unwrap()
 }

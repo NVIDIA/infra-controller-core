@@ -58,7 +58,7 @@ async fn find_vpc_id_by_name(
     env: &TestEnv,
     vpc_name: &str,
 ) -> Result<VpcId, Box<dyn std::error::Error>> {
-    let vpc_id = db::vpc::find_by_name(&env.pool, vpc_name)
+    let vpc_id = db::vpc::find_by_name(&mut env.db_reader(), vpc_name)
         .await?
         .into_iter()
         .next()

@@ -20,6 +20,7 @@ use config_version::ConfigVersion;
 use db::attestation::spdm::{
     insert_or_update_machine_attestation_request, load_details_for_machine_ids,
 };
+use db::db_read::AsDbReader;
 use itertools::Itertools;
 use model::attestation::spdm::SpdmMachineAttestation;
 use tonic::{Request, Response, Status};
@@ -193,8 +194,12 @@ pub(crate) async fn attest_quote(
     // - if enabled and not successful, send response without certs
     // - else send response with certs
     let attestation_failed = if api.runtime_config.attestation_enabled {
-        !crate::attestation::has_passed_attestation(&mut txn, &machine_id, &report.report_id)
-            .await?
+        !crate::attestation::has_passed_attestation(
+            &mut txn.as_db_reader(),
+            &machine_id,
+            &report.report_id,
+        )
+        .await?
     } else {
         false
     };

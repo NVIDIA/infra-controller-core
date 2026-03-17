@@ -16,6 +16,7 @@
  */
 
 use chrono::Utc;
+use db::db_read::AsDbReader;
 use health_report::HealthReport;
 use model::machine::{
     BomValidating, BomValidatingContext, MachineState, MachineValidatingState, ManagedHostState,
@@ -91,8 +92,11 @@ async fn match_sku_for_machine(
             })
         })
     {
-        let machine_sku =
-            db::sku::generate_sku_from_machine(&mut *txn, &mh_snapshot.host_snapshot.id).await?;
+        let machine_sku = db::sku::generate_sku_from_machine(
+            &mut txn.as_db_reader(),
+            &mh_snapshot.host_snapshot.id,
+        )
+        .await?;
         let matching_sku = db::sku::find_matching(txn, &machine_sku).await?;
         if matching_sku.is_none() {
             // only update the last attempt if there is no match
@@ -128,7 +132,7 @@ async fn generate_missing_sku_for_machine(
     };
 
     // if there's no expected machine, no SKU in it, or the SKU doesn't match what's assigned to the machine, don't generate a SKU
-    if db::expected_machine::find_by_bmc_mac_address(&mut *txn, bmc_mac_address)
+    if db::expected_machine::find_by_bmc_mac_address(&mut txn.as_db_reader(), bmc_mac_address)
         .await
         .ok()
         .flatten()
@@ -162,7 +166,7 @@ async fn generate_missing_sku_for_machine(
         );
     } else {
         let generated_sku = match db::sku::generate_sku_from_machine(
-            &mut *txn,
+            &mut txn.as_db_reader(),
             &mh_snapshot.host_snapshot.id,
         )
         .await
@@ -556,7 +560,7 @@ pub(crate) async fn handle_bom_validation_state(
                 };
 
                 let actual_sku = db::sku::generate_sku_from_machine_at_version(
-                    txn.as_mut(),
+                    &mut txn.as_db_reader(),
                     &mh_snapshot.host_snapshot.id,
                     expected_sku.schema_version,
                 )

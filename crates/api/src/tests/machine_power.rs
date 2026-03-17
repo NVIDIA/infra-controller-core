@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use db::db_read::AsDbReader;
 use db::managed_host::load_snapshot;
 use db::{self};
 use model::machine::LoadSnapshotOptions;
@@ -137,7 +138,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
     let mh_snapshot = load_snapshot(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &host_machine_id,
         LoadSnapshotOptions::default(),
     )
@@ -205,7 +206,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
     let mh_snapshot = load_snapshot(
-        txn.as_mut(),
+        &mut txn.as_db_reader(),
         &host_machine_id,
         LoadSnapshotOptions::default(),
     )

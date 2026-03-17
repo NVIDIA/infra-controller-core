@@ -87,7 +87,7 @@ pub async fn persist(
 }
 
 pub async fn find_ids(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: rpc::VpcSearchFilter,
 ) -> Result<Vec<VpcId>, DatabaseError> {
     // build query
@@ -163,7 +163,7 @@ pub async fn find_ids(
 // Note: Following find function should not be used to search based on vpc labels.
 // Recommended approach to filter by labels is to first find VPC ids.
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Vpc>>(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<Vpc>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM vpcs").filter(&filter);
@@ -186,12 +186,12 @@ pub async fn find_by_vni(txn: &mut PgConnection, vni: i32) -> Result<Vec<Vpc>, D
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-pub async fn find_by_name(txn: impl DbReader<'_>, name: &str) -> Result<Vec<Vpc>, DatabaseError> {
+pub async fn find_by_name(txn: &mut DbReader<'_>, name: &str) -> Result<Vec<Vpc>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
 }
 
 pub async fn find_by_segment(
-    txn: impl DbReader<'_>,
+    txn: &mut DbReader<'_>,
     segment_id: NetworkSegmentId,
 ) -> Result<Vpc, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(
@@ -230,8 +230,11 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult
     let current_version = match value.if_version_match {
         Some(version) => version,
         None => {
-            let vpcs =
-                find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &value.id)).await?;
+            let vpcs = find_by(
+                &mut txn.into(),
+                ObjectColumnFilter::One(vpc::IdColumn, &value.id),
+            )
+            .await?;
             if vpcs.len() != 1 {
                 return Err(DatabaseError::FindOneReturnedManyResultsError(
                     value.id.into(),
@@ -288,7 +291,7 @@ pub async fn update_virtualization(
         Some(version) => version,
         None => {
             let vpcs = find_by(
-                txn.as_mut(),
+                &mut txn.into(),
                 ObjectColumnFilter::One(vpc::IdColumn, &value.id),
             )
             .await?;
@@ -326,7 +329,7 @@ pub async fn update_virtualization(
 
     // Update SVI IP for stretchable segments.
     let network_segments = crate::network_segment::find_by(
-        txn.as_mut(),
+        &mut txn.into(),
         ObjectColumnFilter::One(network_segment::VpcColumn, &vpc.id),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )

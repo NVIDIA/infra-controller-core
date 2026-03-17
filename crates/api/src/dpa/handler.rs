@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use ::rpc::protos::dpa_rpc::{DpaMetadata, Pfvni, SetVni};
 use config_version::ConfigVersion;
+use db::db_read::AsDbReader;
 use mac_address::MacAddress;
 use model::dpa_interface::DpaInterfaceNetworkStatusObservation;
 use mqttea::client::{ClientOptions, MqtteaClient};
@@ -76,13 +77,14 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
         }
     };
 
-    let mut dpa_ifs = match db::dpa_interface::find_by_mac_addr(txn.as_mut(), &macaddr).await {
-        Ok(ifs) => ifs,
-        Err(e) => {
-            error!("handle_dpa_message -  Error from find_by_mac_addr {e}");
-            return;
-        }
-    };
+    let mut dpa_ifs =
+        match db::dpa_interface::find_by_mac_addr(&mut txn.as_db_reader(), &macaddr).await {
+            Ok(ifs) => ifs,
+            Err(e) => {
+                error!("handle_dpa_message -  Error from find_by_mac_addr {e}");
+                return;
+            }
+        };
 
     if dpa_ifs.len() != 1 {
         error!(

@@ -107,7 +107,7 @@ pub async fn handle_list_candidate_machines(
     _req: ListCandidateMachinesRequest,
 ) -> Result<ListCandidateMachinesResponse, Status> {
     Ok(ListCandidateMachinesResponse {
-        machines: get_candidate_machine_records(&api.database_connection)
+        machines: get_candidate_machine_records(&mut api.db_reader())
             .await
             .map_err(|e| Status::internal(format!("failed to read records: {e}")))?
             .into_iter()

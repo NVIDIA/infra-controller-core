@@ -22,6 +22,7 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcPrefixId;
+use db::db_read::AsDbReader;
 use model::instance::config::network::DeviceLocator;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::snapshot::InstanceSnapshot;
@@ -154,7 +155,7 @@ type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl<'a, 'b> TestInstance<'a, 'b> {
     pub async fn db_instance(&self, txn: &mut Txn<'_>) -> InstanceSnapshot {
-        db::instance::find_by_id(txn.as_mut(), self.id)
+        db::instance::find_by_id(&mut txn.as_db_reader(), self.id)
             .await
             .unwrap()
             .unwrap()

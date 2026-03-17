@@ -58,13 +58,10 @@ pub fn extra_logfmt_logging_fields() -> Vec<String> {
 /// ComposedState type of thing where I can join across the journal
 /// and bundle to do a single query + return a single ComposedState
 /// that has everything I want.
-async fn get_measurement_failure_cause<DB>(
-    db: &mut DB,
+async fn get_measurement_failure_cause(
+    db: &mut DbReader<'_>,
     machine_id: &MachineId,
-) -> Result<FailureCause, StateHandlerError>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> Result<FailureCause, StateHandlerError> {
     let (_, ek_cert_status) = get_measuring_prerequisites(machine_id, &mut *db).await?;
     if !ek_cert_status.signing_ca_found {
         return Ok(FailureCause::MeasurementsCAValidationFailed {
@@ -107,13 +104,10 @@ pub enum MeasuringOutcome {
     Unsuccessful((FailureDetails, MachineId)),
 }
 
-async fn get_measuring_prerequisites<DB>(
+async fn get_measuring_prerequisites(
     machine_id: &MachineId,
-    db_reader: &mut DB,
-) -> Result<(MeasurementMachineState, EkCertVerificationStatus), StateHandlerError>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+    db_reader: &mut DbReader<'_>,
+) -> Result<(MeasurementMachineState, EkCertVerificationStatus), StateHandlerError> {
     let machine_state = get_measurement_machine_state(&mut *db_reader, *machine_id)
         .await
         .map_err(StateHandlerError::DBError)?;
@@ -136,15 +130,12 @@ where
     Ok((machine_state, ek_cert_verification_status))
 }
 
-pub(crate) async fn handle_measuring_state<DB>(
+pub(crate) async fn handle_measuring_state(
     measuring_state: &MeasuringState,
     machine_id: &MachineId,
-    db: &mut DB,
+    db: &mut DbReader<'_>,
     attestation_enabled: bool,
-) -> Result<MeasuringOutcome, StateHandlerError>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
+) -> Result<MeasuringOutcome, StateHandlerError> {
     if !attestation_enabled {
         return Ok(MeasuringOutcome::PassedOk);
     }

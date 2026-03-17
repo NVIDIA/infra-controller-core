@@ -33,7 +33,7 @@ pub(crate) async fn find_ids(
         log_tenant_organization_id(tenant_org_id_str);
     }
 
-    let partition_ids = db::nvl_partition::find_ids(&api.database_connection, filter).await?;
+    let partition_ids = db::nvl_partition::find_ids(&mut api.db_reader(), filter).await?;
 
     Ok(Response::new(rpc::NvLinkPartitionIdList { partition_ids }))
 }
@@ -59,7 +59,7 @@ pub(crate) async fn find_by_ids(
     }
 
     let partitions = db::nvl_partition::find_by(
-        &api.database_connection,
+        &mut api.db_reader(),
         ObjectColumnFilter::List(nvl_partition::IdColumn, &partition_ids),
     )
     .await?;
@@ -92,8 +92,7 @@ pub(crate) async fn for_tenant(
 
     log_tenant_organization_id(&tenant_org_id_str);
 
-    let results =
-        db::nvl_partition::for_tenant(&api.database_connection, tenant_org_id_str).await?;
+    let results = db::nvl_partition::for_tenant(&mut api.db_reader(), tenant_org_id_str).await?;
 
     let mut partitions = Vec::with_capacity(results.len());
 

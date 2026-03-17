@@ -23,6 +23,7 @@ use carbide_uuid::machine::MachineInterfaceId;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
 };
+use db::db_read::AsDbReader;
 use db::{self, ObjectColumnFilter, dhcp_entry};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -300,7 +301,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         );
 
         // Also check via the MachineInterface API
-        let iface = db::machine_interface::find_one(txn.as_mut(), *interface_id)
+        let iface = db::machine_interface::find_one(&mut txn.as_db_reader(), *interface_id)
             .await
             .unwrap();
         assert_eq!(iface.vendors, expected);
@@ -408,7 +409,8 @@ async fn test_dhcp_record_address_family(
     // Insert an IPv6 address for the same interface, simulating dual-stack.
     let mut txn = pool.begin().await?;
     let parsed_mac: MacAddress = mac_address.parse().unwrap();
-    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), parsed_mac).await?;
+    let interfaces =
+        db::machine_interface::find_by_mac_address(&mut txn.as_db_reader(), parsed_mac).await?;
     let interface = &interfaces[0];
 
     let ipv6_addr: IpAddr = "fd00::42".parse().unwrap();

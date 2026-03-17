@@ -188,7 +188,7 @@ impl RackFirmware {
     }
 
     /// Find a Rack firmware configuration by ID
-    pub async fn find_by_id(txn: impl DbReader<'_>, id: &str) -> DatabaseResult<Self> {
+    pub async fn find_by_id(txn: &mut DbReader<'_>, id: &str) -> DatabaseResult<Self> {
         let query = "SELECT * FROM rack_firmware WHERE id = $1";
         let ret = sqlx::query_as(query).bind(id).fetch_one(txn).await;
         ret.map_err(|e| match e {
