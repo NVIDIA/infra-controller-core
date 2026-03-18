@@ -781,7 +781,7 @@ impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBoun
             algorithm: mi.algorithm,
             encryption_key_id: mi.current_encryption_key_id.expect(
                 "current_encryption_key_id is required when machine identity is enabled; \
-                 statup validation in parse_carbide_config failed",
+                 startup validation in parse_carbide_config failed",
             ),
             trust_domain_allowlist: mi.trust_domain_allowlist,
         }
