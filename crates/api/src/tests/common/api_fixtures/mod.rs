@@ -1310,7 +1310,6 @@ pub async fn create_test_env_with_overrides(
         &mut join_set,
         db_pool.clone(),
         work_lock_manager::KeepaliveConfig::default(),
-        cancel_token.clone(),
     )
     .await
     .expect("work_lock_manager failed to start: no availble connections?");

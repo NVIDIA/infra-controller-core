@@ -21,7 +21,6 @@ use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
-use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 use crate::{DatabaseError, DatabaseResult};
@@ -86,7 +85,6 @@ pub async fn start(
     join_set: &mut JoinSet<()>,
     pool: PgPool,
     keepalive_config: KeepaliveConfig,
-    cancel_token: CancellationToken,
 ) -> DatabaseResult<WorkLockManagerHandle> {
     // Use a single long-running postgres connection for the duration of the process, so that we can
     // always do our work, even if the connection pool fills up. But keep the `pool` so that we can
@@ -105,7 +103,7 @@ pub async fn start(
         // Note: don't inherit the callers span, since child spans can't outlive their parent.
         // This prevents a crash in tracing-subscriber.
         .spawn(
-            run_loop(pool, db, cmd_rx, keepalive_timeout, cancel_token)
+            run_loop(pool, db, cmd_rx, keepalive_timeout)
                 .instrument(tracing::debug_span!(parent: None, "WorklockManager::run_loop")),
         )
         .expect("failed to start work manager");
@@ -125,9 +123,8 @@ async fn run_loop(
     mut db: PoolConnection<Postgres>,
     mut cmd_rx: mpsc::Receiver<WorkLockManagerCommand>,
     keepalive_timeout: Duration,
-    cancel_token: CancellationToken,
 ) {
-    while let Some(Some(command)) = cancel_token.run_until_cancelled(cmd_rx.recv()).await {
+    while let Some(command) = cmd_rx.recv().await {
         if let Err(e) = db.ping().await {
             tracing::warn!("WorkLockManager database connection closed, trying to re-acquire: {e}");
             db = match pool.acquire().await {
@@ -191,7 +188,7 @@ async fn run_loop(
             },
         }
     }
-    tracing::info!("WorkLockManager: shutting down");
+    tracing::info!("WorkLockManager: all handles dropped, shutting down");
 }
 
 /// A lock representing exclusive ownership of a logical, named unit of work. Upon drop, the lock
@@ -485,45 +482,39 @@ mod tests {
     #[crate::sqlx_test]
     async fn test_exclusivity(pool: PgPool) {
         let mut join_set = JoinSet::new();
-        let cancel_token = CancellationToken::new();
-        let manager = start(
-            &mut join_set,
-            pool,
-            Default::default(),
-            cancel_token.clone(),
-        )
-        .await
-        .unwrap();
+        {
+            let manager = start(&mut join_set, pool, Default::default())
+                .await
+                .unwrap();
 
-        let lock_1 = manager.try_acquire_lock("work_key_1".into()).await.unwrap();
-        assert!(
-            manager.try_acquire_lock("work_key_1".into()).await.is_err(),
-            "Should not be able to acquire another lock while one is active"
-        );
-        std::mem::drop(lock_1);
+            let lock_1 = manager.try_acquire_lock("work_key_1".into()).await.unwrap();
+            assert!(
+                manager.try_acquire_lock("work_key_1".into()).await.is_err(),
+                "Should not be able to acquire another lock while one is active"
+            );
+            std::mem::drop(lock_1);
 
-        let _lock_1 = manager
-            .try_acquire_lock("work_key_1".into())
-            .await
-            .expect("Should be able to acquire a lock again if the other has gone out of scope");
-        let _lock_2 = manager.try_acquire_lock("work_key_2".into()).await.expect(
-            "Should be able to acquire a lock with a different key while another is active",
-        );
+            let _lock_1 = manager.try_acquire_lock("work_key_1".into()).await.expect(
+                "Should be able to acquire a lock again if the other has gone out of scope",
+            );
+            let _lock_2 = manager.try_acquire_lock("work_key_2".into()).await.expect(
+                "Should be able to acquire a lock with a different key while another is active",
+            );
 
-        // Make sure drops release locks in-order, before acquires are seen, and that the command
-        // buffer doesn't become full over the course (we should be awaiting the replies, which
-        // should not cause it to grow.)
-        for i in 0..(COMMAND_BUFFER_SIZE * 2) {
-            if manager.try_acquire_lock("work_key_3".into()).await.is_err() {
-                panic!(
-                    "Lock failed to be acquired after the previous was dropped, after {i} iterations"
-                )
+            // Make sure drops release locks in-order, before acquires are seen, and that the command
+            // buffer doesn't become full over the course (we should be awaiting the replies, which
+            // should not cause it to grow.)
+            for i in 0..(COMMAND_BUFFER_SIZE * 2) {
+                if manager.try_acquire_lock("work_key_3".into()).await.is_err() {
+                    panic!(
+                        "Lock failed to be acquired after the previous was dropped, after {i} iterations"
+                    )
+                }
+                // lock is already dropped
             }
-            // lock is already dropped
         }
 
         // Test cooperative cancellation
-        cancel_token.cancel();
         tokio::select! {
             _ = join_set.join_all() => {}
             _ = tokio::time::sleep(Duration::from_secs(3)) => {
@@ -543,7 +534,6 @@ mod tests {
                 interval: Duration::from_millis(100),
                 timeout: Duration::from_millis(500),
             },
-            CancellationToken::new(),
         )
         .await
         .unwrap();
@@ -592,7 +582,6 @@ WHERE datname = $1 AND pid <> pg_backend_pid()"#,
                 interval: Duration::from_millis(500),
                 timeout: Duration::from_millis(100),
             },
-            CancellationToken::new(),
         )
         .await
         .unwrap();
