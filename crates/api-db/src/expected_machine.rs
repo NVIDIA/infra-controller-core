@@ -162,7 +162,7 @@ pub async fn update_bmc_credentials<'a>(
 ) -> DatabaseResult<&'a mut ExpectedMachine> {
     let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2 WHERE bmc_mac_address=$3 RETURNING bmc_mac_address";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(&bmc_username)
         .bind(&bmc_password)
         .bind(value.bmc_mac_address)

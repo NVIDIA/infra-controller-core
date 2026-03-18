@@ -248,7 +248,7 @@ pub async fn save(
         &test_id,
         "User",
     )?;
-    let _: () = sqlx::query_as(&query)
+    sqlx::query_as::<_, ()>(&query)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(&query, e))?;
@@ -278,7 +278,7 @@ pub async fn update(
         "User",
     )?;
 
-    let _: () = sqlx::query_as(&query)
+    sqlx::query_as::<_, ()>(&query)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(&query, e))?;

@@ -2076,7 +2076,7 @@ pub async fn update_sku_status_last_match_attempt(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_match_attempt}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
@@ -2092,7 +2092,7 @@ pub async fn update_sku_status_last_generate_attempt(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_generate_attempt}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
@@ -2108,7 +2108,7 @@ pub async fn update_sku_status_verify_request_time(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{verify_request_time}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
