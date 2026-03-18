@@ -283,10 +283,7 @@ async fn test_delete_expected_power_shelf_error(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        format!(
-            "Failed to delete expected power shelf: expected_power_shelf not found: {}",
-            bmc_mac_address
-        )
+        format!("expected_power_shelf not found: {}", bmc_mac_address)
     );
 }
 
@@ -756,7 +753,7 @@ async fn test_delete_expected_power_shelf_by_id(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        format!("Expected power shelf not found: {}", provided_id)
+        format!("expected_power_shelf not found: {}", provided_id)
     );
 }
 
@@ -923,6 +920,6 @@ async fn test_get_expected_power_shelf_by_id_not_found(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        format!("Expected power shelf not found: {}", non_existent_id)
+        format!("expected_power_shelf not found: {}", non_existent_id)
     );
 }

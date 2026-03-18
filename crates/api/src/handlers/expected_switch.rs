@@ -28,10 +28,13 @@ pub async fn add_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
-    let switch: ExpectedSwitch = request
-        .into_inner()
-        .try_into()
-        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+    let switch: ExpectedSwitch =
+        request
+            .into_inner()
+            .try_into()
+            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                CarbideError::InvalidArgument(e.to_string())
+            })?;
 
     let rack_id = switch.rack_id;
     let bmc_mac_address = switch.bmc_mac_address;
@@ -40,11 +43,13 @@ pub async fn add_expected_switch(
         .database_connection
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
 
     db_expected_switch::create(&mut txn, switch)
         .await
-        .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;
+        .map_err(CarbideError::from)?;
 
     if let Some(rack_id) = rack_id {
         let adopted = db_rack::adopt_expected_switch(&mut txn, rack_id, bmc_mac_address)
@@ -52,16 +57,16 @@ pub async fn add_expected_switch(
             .map_err(CarbideError::from)?;
         if !adopted {
             tracing::debug!(
-                "rack {} does not exist yet, switch {} will be adopted later.",
-                rack_id,
-                bmc_mac_address
+                %rack_id,
+                %bmc_mac_address,
+                "rack does not exist yet, switch will be adopted later"
             );
         }
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {}", e),
+    })?;
 
     Ok(Response::new(()))
 }
@@ -70,24 +75,29 @@ pub async fn delete_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitchRequest>,
 ) -> Result<Response<()>, Status> {
-    let req: ExpectedSwitchRequest = request
-        .into_inner()
-        .try_into()
-        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+    let req: ExpectedSwitchRequest =
+        request
+            .into_inner()
+            .try_into()
+            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                CarbideError::InvalidArgument(e.to_string())
+            })?;
 
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
 
     db_expected_switch::delete(&mut txn, &req)
         .await
-        .map_err(|e| Status::internal(format!("Failed to delete expected switch: {}", e)))?;
+        .map_err(CarbideError::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {}", e),
+    })?;
 
     Ok(Response::new(()))
 }
@@ -96,24 +106,29 @@ pub async fn update_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
-    let switch: ExpectedSwitch = request
-        .into_inner()
-        .try_into()
-        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+    let switch: ExpectedSwitch =
+        request
+            .into_inner()
+            .try_into()
+            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                CarbideError::InvalidArgument(e.to_string())
+            })?;
 
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
 
     db_expected_switch::update(&mut txn, &switch)
         .await
-        .map_err(|e| Status::internal(format!("Failed to update expected switch: {}", e)))?;
+        .map_err(CarbideError::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {}", e),
+    })?;
 
     Ok(Response::new(()))
 }
@@ -122,33 +137,37 @@ pub async fn get_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitchRequest>,
 ) -> Result<Response<rpc::ExpectedSwitch>, Status> {
-    let req: ExpectedSwitchRequest = request
-        .into_inner()
-        .try_into()
-        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+    let req: ExpectedSwitchRequest =
+        request
+            .into_inner()
+            .try_into()
+            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                CarbideError::InvalidArgument(e.to_string())
+            })?;
 
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
 
     let expected_switch = db_expected_switch::find(&mut txn, &req)
         .await
-        .map_err(|e| Status::internal(format!("Failed to find expected switch: {}", e)))?
-        .ok_or_else(|| {
-            Status::not_found(format!(
-                "Expected switch not found: {}",
-                req.expected_switch_id
-                    .map(|u| u.to_string())
-                    .or(req.bmc_mac_address.map(|m| m.to_string()))
-                    .unwrap_or_default()
-            ))
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "expected_switch",
+            id: req
+                .expected_switch_id
+                .map(|u| u.to_string())
+                .or(req.bmc_mac_address.map(|m| m.to_string()))
+                .unwrap_or_default(),
         })?;
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {}", e),
+    })?;
 
     let response = rpc::ExpectedSwitch::from(expected_switch);
     Ok(Response::new(response))
@@ -162,15 +181,17 @@ pub async fn get_all_expected_switches(
         .database_connection
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
 
     let expected_switches = db_expected_switch::find_all(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("Failed to find expected switches: {}", e)))?;
+        .map_err(CarbideError::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {}", e),
+    })?;
 
     let expected_switches: Vec<rpc::ExpectedSwitch> = expected_switches
         .into_iter()
@@ -190,26 +211,33 @@ pub async fn replace_all_expected_switches(
         .database_connection
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
 
     // Clear all existing expected switches
     db_expected_switch::clear(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("Failed to clear expected switches: {}", e)))?;
+        .map_err(CarbideError::from)?;
 
     // Add all new expected switches
     for expected_switch in req.expected_switches {
-        let switch: ExpectedSwitch = expected_switch
-            .try_into()
-            .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+        let switch: ExpectedSwitch =
+            expected_switch
+                .try_into()
+                .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                    CarbideError::InvalidArgument(e.to_string())
+                })?;
         db_expected_switch::create(&mut txn, switch)
             .await
-            .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;
+            .map_err(|e| CarbideError::Internal {
+                message: format!("Failed to create expected switch: {}", e),
+            })?;
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {}", e),
+    })?;
 
     Ok(Response::new(()))
 }
@@ -222,15 +250,17 @@ pub async fn delete_all_expected_switches(
         .database_connection
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
 
     db_expected_switch::clear(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("Failed to clear expected switches: {}", e)))?;
+        .map_err(CarbideError::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {}", e),
+    })?;
 
     Ok(Response::new(()))
 }
@@ -243,15 +273,17 @@ pub async fn get_all_expected_switches_linked(
         .database_connection
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
 
     let linked_expected_switches = db_expected_switch::find_all_linked(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("Failed to find linked expected switches: {}", e)))?;
+        .map_err(CarbideError::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {}", e),
+    })?;
 
     let linked_expected_switches: Vec<rpc::LinkedExpectedSwitch> = linked_expected_switches
         .into_iter()

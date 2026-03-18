@@ -239,6 +239,12 @@ pub enum CarbideError {
 
     #[error("DPF error: {0}")]
     DpfError(#[from] carbide_dpf::DpfError),
+
+    #[error("Service unavailable: {0}")]
+    UnavailableError(String),
+
+    #[error("Permission denied: {0}")]
+    PermissionDeniedError(String),
 }
 
 impl From<ModelError> for CarbideError {
@@ -380,6 +386,8 @@ impl From<CarbideError> for tonic::Status {
             error @ CarbideError::ClientCertificateMissingInformation(_) => {
                 Status::unauthenticated(error.to_string())
             }
+            CarbideError::UnavailableError(msg) => Status::unavailable(msg),
+            CarbideError::PermissionDeniedError(msg) => Status::permission_denied(msg),
             other => Status::internal(other.to_string()),
         }
     }
@@ -407,4 +415,18 @@ fn test_dhcp_error_maps_to_resource_exhausted_status() {
     ));
     let status: tonic::Status = err.into();
     assert_eq!(status.code(), tonic::Code::ResourceExhausted);
+}
+
+#[test]
+fn test_unavailable_error_maps_to_unavailable_status() {
+    let err = CarbideError::UnavailableError("service down".into());
+    let status: tonic::Status = err.into();
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+}
+
+#[test]
+fn test_permission_denied_error_maps_to_permission_denied_status() {
+    let err = CarbideError::PermissionDeniedError("not allowed".into());
+    let status: tonic::Status = err.into();
+    assert_eq!(status.code(), tonic::Code::PermissionDenied);
 }

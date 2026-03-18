@@ -66,7 +66,7 @@ pub(crate) async fn identify_uuid(
     let req = request.into_inner();
 
     let Some(u) = req.uuid else {
-        return Err(tonic::Status::invalid_argument("UUID missing from query"));
+        return Err(CarbideError::InvalidArgument("UUID missing from query".to_string()).into());
     };
     match by_uuid(api, &u).await {
         Ok(Some(object_type)) => Ok(tonic::Response::new(rpc::IdentifyUuidResponse {
@@ -90,12 +90,12 @@ pub(crate) async fn identify_mac(
     let req = request.into_inner();
 
     if req.mac_address.is_empty() {
-        return Err(tonic::Status::invalid_argument("MAC missing from query"));
+        return Err(CarbideError::InvalidArgument("MAC missing from query".to_string()).into());
     };
     let Ok(mac) = mac_address::MacAddress::from_str(&req.mac_address) else {
-        return Err(tonic::Status::invalid_argument(
-            "Could not parse MAC address",
-        ));
+        return Err(
+            CarbideError::InvalidArgument("Could not parse MAC address".to_string()).into(),
+        );
     };
     match by_mac(api, mac).await {
         Ok(Some((primary_key, object_type))) => {

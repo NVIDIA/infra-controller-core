@@ -60,15 +60,16 @@ pub(crate) async fn mark_machine_validation_complete(
         Some(machine) => machine,
         None => {
             tracing::error!(%uuid, "validation id not found");
-            return Err(Status::invalid_argument("wrong validation ID"));
+            return Err(CarbideError::InvalidArgument("wrong validation ID".to_string()).into());
         }
     };
 
     if machine.id != machine_id {
         tracing::error!(validation_id = %uuid, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
-        return Err(Status::invalid_argument(
-            "Validation ID does not belong to provided Machine ID",
-        ));
+        return Err(CarbideError::InvalidArgument(
+            "Validation ID does not belong to provided Machine ID".to_string(),
+        )
+        .into());
     }
 
     let mut state = MachineValidationState::Success;
@@ -184,7 +185,9 @@ pub(crate) async fn persist_validation_result(
             Some(machine) => machine,
             None => {
                 tracing::error!(%validation_result.validation_id, "validation id not found");
-                return Err(Status::invalid_argument("wrong validation ID"));
+                return Err(
+                    CarbideError::InvalidArgument("wrong validation ID".to_string()).into(),
+                );
             }
         };
     // Check state
@@ -199,7 +202,9 @@ pub(crate) async fn persist_validation_result(
         }
         _ => {
             tracing::error!("invalid host machine state {}", machine.current_state());
-            return Err(Status::invalid_argument("wrong host machine state"));
+            return Err(
+                CarbideError::InvalidArgument("wrong host machine state".to_string()).into(),
+            );
         }
     }
 
@@ -392,7 +397,7 @@ pub(crate) async fn on_demand_machine_validation(
             )
             .await?
             .ok_or_else(|| {
-                Status::invalid_argument(format!("Machine id {machine_id} not found."))
+                CarbideError::InvalidArgument(format!("Machine id {machine_id} not found."))
             })?;
             if machine
                 .on_demand_machine_validation_request
@@ -401,7 +406,7 @@ pub(crate) async fn on_demand_machine_validation(
                 let msg =
                     format!("On demand machine validation for {machine_id} is already scheduled.");
                 tracing::error!(msg);
-                return Err(Status::invalid_argument(msg));
+                return Err(CarbideError::InvalidArgument(msg).into());
             }
             // Check state
             match machine.current_state() {
@@ -415,7 +420,7 @@ pub(crate) async fn on_demand_machine_validation(
                             "On demand machine validation for {machine_id} is already scheduled."
                         );
                         tracing::error!(msg);
-                        return Err(Status::invalid_argument(msg));
+                        return Err(CarbideError::InvalidArgument(msg).into());
                     }
                     let allowed_tests: Vec<String> = req
                         .allowed_tests
@@ -455,13 +460,16 @@ pub(crate) async fn on_demand_machine_validation(
                         machine.current_state()
                     );
                     tracing::warn!(msg);
-                    Err(Status::invalid_argument(msg))
+                    Err(CarbideError::InvalidArgument(msg).into())
                 }
             }
         }
-        rpc::machine_validation_on_demand_request::Action::Stop => Err(Status::invalid_argument(
-            "Cannot stop an on-demand validation request",
-        )),
+        rpc::machine_validation_on_demand_request::Action::Stop => {
+            Err(CarbideError::InvalidArgument(
+                "Cannot stop an on-demand validation request".to_string(),
+            )
+            .into())
+        }
     }
 }
 
@@ -549,7 +557,7 @@ pub(crate) async fn add_machine_validation_test(
     )
     .await?;
     if !tests.is_empty() {
-        return Err(Status::invalid_argument("Name already exists"));
+        return Err(CarbideError::InvalidArgument("Name already exists".to_string()).into());
     }
     let version = ConfigVersion::initial();
     let test_id = machine_validation_suites::save(&mut txn, model_req, version).await?;
@@ -690,7 +698,7 @@ pub(crate) async fn update_machine_validation_run(
         &validation_id,
         req.total
             .try_into()
-            .map_err(|_e| Status::invalid_argument("total"))?,
+            .map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?,
         req.duration_to_complete.unwrap_or_default().seconds,
     )
     .await?;

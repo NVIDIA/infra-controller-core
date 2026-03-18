@@ -21,7 +21,6 @@ use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest};
 use regex::Regex;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::CarbideError;
@@ -41,7 +40,7 @@ pub(crate) async fn get(
     let req: ExpectedMachineRequest = request
         .into_inner()
         .try_into()
-        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("{}", e)))?;
 
     let target_id = req
         .id
@@ -136,7 +135,7 @@ pub(crate) async fn delete(
     let req: ExpectedMachineRequest = request
         .into_inner()
         .try_into()
-        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("{}", e)))?;
 
     let mut txn = api.txn_begin().await?;
 

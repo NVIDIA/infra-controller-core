@@ -621,7 +621,7 @@ pub(crate) async fn publish_mlx_device_report(
     if let Some(report_pb) = req.report {
         let report: MlxDeviceReport = report_pb
             .try_into()
-            .map_err(|e: String| Status::internal(e))?;
+            .map_err(|e: String| CarbideError::Internal { message: e })?;
         tracing::info!(
             "received MlxDeviceReport hostname={} device_count={}",
             report.hostname,

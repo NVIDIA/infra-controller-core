@@ -77,9 +77,11 @@ pub(crate) async fn create(
             // is less than <max_partition_per_tenant> by using a sub-select query in a WHERE clause.
             // The 'RowNotFound' error means that the number of existing partitions exceeded the limit
             // and no insert was performed.
-            Status::invalid_argument("Maximum Limit of Infiniband partitions had been reached")
+            CarbideError::InvalidArgument(
+                "Maximum Limit of Infiniband partitions had been reached".into(),
+            )
         } else {
-            CarbideError::from(e).into()
+            CarbideError::from(e)
         }
     })?;
     let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;

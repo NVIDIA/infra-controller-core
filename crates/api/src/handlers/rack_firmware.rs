@@ -266,20 +266,24 @@ pub async fn create(
 
     // Validate that config_json is valid JSON
     let config: serde_json::Value = serde_json::from_str(&req.config_json)
-        .map_err(|e| Status::invalid_argument(format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid JSON: {}", e)))?;
 
     // Extract ID from JSON - use "Id" field (UUID)
     let id = config
         .get("Id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            Status::invalid_argument("JSON must contain 'Id' field to use as identifier")
+            CarbideError::InvalidArgument(
+                "JSON must contain 'Id' field to use as identifier".into(),
+            )
         })?
         .to_string();
 
     // Validate token is provided
     if req.artifactory_token.is_empty() {
-        return Err(Status::invalid_argument("Artifactory token is required"));
+        return Err(
+            CarbideError::InvalidArgument("Artifactory token is required".to_string()).into(),
+        );
     }
 
     // Parse firmware components from the JSON
@@ -290,9 +294,11 @@ pub async fn create(
                 parsed.board_skus.len(),
                 id
             );
-            Some(serde_json::to_value(parsed).map_err(|e| {
-                Status::internal(format!("Failed to serialize parsed components: {}", e))
-            })?)
+            Some(
+                serde_json::to_value(parsed).map_err(|e| CarbideError::Internal {
+                    message: format!("Failed to serialize parsed components: {}", e),
+                })?,
+            )
         }
         Err(e) => {
             tracing::warn!(
@@ -318,7 +324,9 @@ pub async fn create(
             },
         )
         .await
-        .map_err(|e| Status::internal(format!("Failed to store token in Vault: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Failed to store token in Vault: {}", e),
+        })?;
 
     let mut txn = api
         .database_connection
@@ -941,7 +949,7 @@ pub async fn apply(
     let req = request.into_inner();
     let rack_id = req
         .rack_id
-        .ok_or_else(|| Status::invalid_argument("rack_id is required"))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("rack_id is required".to_string()))?;
 
     tracing::info!(
         rack_id = %rack_id,
@@ -953,13 +961,16 @@ pub async fn apply(
     // Get the RackFirmware configuration from the database
     let fw_config = rack_firmware_db::find_by_id(&api.database_connection, &req.firmware_id)
         .await
-        .map_err(|e| Status::internal(format!("Failed to get firmware configuration: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Failed to get firmware configuration: {}", e),
+        })?;
 
     if !fw_config.available {
-        return Err(Status::failed_precondition(format!(
+        return Err(CarbideError::FailedPrecondition(format!(
             "Firmware configuration '{}' is not marked as available",
             req.firmware_id
-        )));
+        ))
+        .into());
     }
 
     let parsed_components: serde_json::Value = fw_config
@@ -973,7 +984,9 @@ pub async fn apply(
 
     let rack = db::rack::get(&api.database_connection, rack_id)
         .await
-        .map_err(|e| Status::internal(format!("Failed to get rack: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Failed to get rack: {}", e),
+        })?;
 
     // Convert rack to proto to get device IDs
     let rack_proto: rpc::forge::Rack = rack.into();
@@ -983,10 +996,11 @@ pub async fn apply(
     let has_switches = !rack_proto.expected_nvlink_switches.is_empty();
 
     if !has_compute_trays && !has_power_shelves && !has_switches {
-        return Err(Status::failed_precondition(format!(
+        return Err(CarbideError::FailedPrecondition(format!(
             "Rack '{}' contains no devices",
             rack_id
-        )));
+        ))
+        .into());
     }
 
     tracing::info!(
@@ -1312,13 +1326,13 @@ pub async fn get_job_status(
     let req = request.into_inner();
 
     if req.job_id.is_empty() {
-        return Err(Status::invalid_argument("job_id is required"));
+        return Err(CarbideError::InvalidArgument("job_id is required".to_string()).into());
     }
 
     let rms_client = api
         .rms_client
         .as_ref()
-        .ok_or_else(|| Status::failed_precondition("RMS client not configured"))?;
+        .ok_or_else(|| CarbideError::FailedPrecondition("RMS client not configured".to_string()))?;
 
     let rms_request = librms::protos::rack_manager::GetFirmwareJobStatusRequest {
         metadata: None,
@@ -1328,7 +1342,9 @@ pub async fn get_job_status(
     let rms_response = rms_client
         .get_firmware_job_status(rms_request)
         .await
-        .map_err(|e| Status::internal(format!("RMS API error: {}", e)))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("RMS API error: {}", e),
+        })?;
 
     // Map FirmwareJobState enum to human-readable string
     let state = match rms_response.job_state {

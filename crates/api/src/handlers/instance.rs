@@ -124,9 +124,10 @@ pub(crate) async fn batch_allocate(
     let batch_request = request.into_inner();
 
     if batch_request.instance_requests.is_empty() {
-        return Err(Status::invalid_argument(
-            "Batch request must contain at least one instance",
-        ));
+        return Err(CarbideError::InvalidArgument(
+            "Batch request must contain at least one instance".to_string(),
+        )
+        .into());
     }
 
     tracing::info!(
@@ -678,7 +679,9 @@ pub(crate) async fn release(
             instance.config.tenant.tenant_organization_id.as_str(),
         )
         .await
-        .map_err(|e| Status::internal(e.to_string()))?;
+        .map_err(|e| CarbideError::Internal {
+            message: e.to_string(),
+        })?;
     } else if let Some(issue) = &delete_instance.issue {
         // Instance Release called from the regular tenant (not the Repair tenant) and has an issue to report.
         let auto_repair_enabled = api.runtime_config.auto_machine_repair_plugin.enabled;
@@ -691,7 +694,9 @@ pub(crate) async fn release(
             instance.config.tenant.tenant_organization_id.as_str(),
         )
         .await
-        .map_err(|e| Status::internal(e.to_string()))?;
+        .map_err(|e| CarbideError::Internal {
+            message: e.to_string(),
+        })?;
     }
 
     if instance.deleted.is_some() {
@@ -770,10 +775,11 @@ pub(crate) async fn invoke_power(
         if let Some(machine_id) = &request.machine_id
             && *machine_id != snapshot.host_snapshot.id
         {
-            return Err(Status::invalid_argument(format!(
+            return Err(CarbideError::InvalidArgument(format!(
                 "Instance {} is not hosted on machine {}",
                 instance_id, machine_id
-            )));
+            ))
+            .into());
         }
 
         snapshot
@@ -791,9 +797,10 @@ pub(crate) async fn invoke_power(
             id: machine_id.to_string(),
         })?;
         if snapshot.instance.is_none() {
-            return Err(Status::invalid_argument(format!(
+            return Err(CarbideError::InvalidArgument(format!(
                 "Supplied machine ID does not match an instance: {machine_id}"
-            )));
+            ))
+            .into());
         }
 
         snapshot

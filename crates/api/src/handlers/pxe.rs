@@ -56,7 +56,7 @@ pub(crate) async fn get_cloud_init_instructions(
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str
         .parse()
-        .map_err(|e| Status::invalid_argument(format!("Failed parsing IP '{ip_str}': {e}")))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("Failed parsing IP '{ip_str}': {e}")))?;
 
     // Note that this code path supports IPv6 at the *API layer*, but won't be
     // able to be exercised until DHCPv6 is working, which is a whole other thing

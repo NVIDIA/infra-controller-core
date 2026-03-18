@@ -274,10 +274,11 @@ pub(crate) async fn is_bmc_in_managed_host(
 
     let mut addrs = lookup_host(address).await?;
     let Some(bmc_addr) = addrs.next() else {
-        return Err(tonic::Status::invalid_argument(format!(
+        return Err(CarbideError::InvalidArgument(format!(
             "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
             req.ip_address
-        )));
+        ))
+        .into());
     };
 
     let in_managed_host =

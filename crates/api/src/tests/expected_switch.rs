@@ -437,7 +437,7 @@ async fn test_delete_expected_switch_by_id(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        format!("Expected switch not found: {}", explicit_id)
+        format!("expected_switch not found: {}", explicit_id)
     );
 }
 
@@ -608,7 +608,7 @@ async fn test_get_expected_switch_by_id_not_found(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        format!("Expected switch not found: {}", nonexistent_id)
+        format!("expected_switch not found: {}", nonexistent_id)
     );
 }
 
@@ -651,10 +651,7 @@ async fn test_delete_expected_switch_error(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        format!(
-            "Failed to delete expected switch: expected_switch not found: {}",
-            bmc_mac_address
-        )
+        format!("expected_switch not found: {}", bmc_mac_address)
     );
 }
 

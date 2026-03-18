@@ -73,9 +73,7 @@ pub(crate) async fn create(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Prepare the metadata
@@ -190,9 +188,7 @@ pub(crate) async fn find_ids(
         .map(|i| i.parse::<InstanceTypeId>())
         .transpose()
         .map_err(|e| {
-            Status::from(CarbideError::from(
-                RpcDataConversionError::InvalidInstanceTypeId(e.to_string()),
-            ))
+            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
         })?
         .map(|i| vec![i]);
 
@@ -203,9 +199,7 @@ pub(crate) async fn find_ids(
             .map(|t| t.parse::<TenantOrganizationId>())
             .transpose()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?
             .as_ref(),
         instance_type_ids.as_deref(),
@@ -329,9 +323,7 @@ pub(crate) async fn update(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Look up the ComputeAllocation.  We'll need to check the current
@@ -542,9 +534,7 @@ pub(crate) async fn delete(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Make our DB query for the ComputeAllocation.
