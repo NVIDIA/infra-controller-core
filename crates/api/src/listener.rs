@@ -263,6 +263,10 @@ pub async fn start(
 
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
+        .nest(
+            "/firmware/files",
+            crate::web::firmware_files_router(api_service.clone()),
+        )
         .route_service(
             "/forge.Forge/{*rpc}",
             rpc::forge_server::ForgeServer::from_arc(api_service.clone()),

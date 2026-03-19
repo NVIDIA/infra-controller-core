@@ -32,7 +32,7 @@ ansi-to-html = "0.2.2"
 
 tokio = { version = "1", features = ["full", "tracing"] }
 tokio-rustls = { version = "0.26" }
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["io"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 tonic = { version = "0.14", features = ["tls-ring"] }

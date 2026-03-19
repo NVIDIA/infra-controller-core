@@ -61,6 +61,7 @@ mod dpu_versions;
 mod expected_machine;
 mod explored_endpoint;
 mod filters;
+mod firmware_files;
 mod health;
 mod health_history;
 mod ib_fabric;
@@ -140,6 +141,10 @@ pub(crate) struct Oauth2Layer {
     private_cookiejar_key: Key,
     allowed_access_groups_filter: String,
     allowed_access_groups_ids_to_name: HashMap<String, String>,
+}
+
+pub fn firmware_files_router(api: Arc<Api>) -> Router {
+    firmware_files::router(api)
 }
 
 /// All the URLs in the admin interface. Nested under /admin in api.rs.
