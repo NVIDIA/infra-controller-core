@@ -62,17 +62,17 @@ use model::machine::LockdownMode::{self, Enable};
 use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
-    BomValidating, BomValidatingContext, CleanupState, CreateBossVolumeContext,
-    CreateBossVolumeState, DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver,
-    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
-    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, Machine, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState, ManagedHostState,
-    ManagedHostStateSnapshot, MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport,
-    PerformPowerOperation, PowerDrainState, ReprovisionState, RetryInfo,     BiosConfigInfo, BiosConfigState, SecureEraseBossContext,
-    SecureEraseBossState, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState,
-    dpf_based_dpu_provisioning_possible, get_display_ids,
+    BiosConfigInfo, BiosConfigState, BomValidating, BomValidatingContext, CleanupState,
+    CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuDiscoveringStates,
+    DpuInitNextStateResolver, DpuInitState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState, Machine,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
+    MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
+    SetBootOrderState, SetSecureBootState, StateMachineArea, UefiSetupInfo, UefiSetupState,
+    ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::resource_pool::common::CommonPools;
@@ -4814,22 +4814,16 @@ impl StateHandler for HostMachineStateHandler {
                     )
                     .await?
                     {
-                        BiosConfigOutcome::Done => {
-                            Ok(StateHandlerOutcome::transition(
-                                ManagedHostState::HostInit {
-                                    machine_state: MachineState::PollingBiosSetup,
-                                },
-                            ))
-                        }
-                        BiosConfigOutcome::WaitingForBiosJob(bios_config_info) => {
-                            Ok(StateHandlerOutcome::transition(
-                                ManagedHostState::HostInit {
-                                    machine_state: MachineState::WaitingForBiosJob {
-                                        bios_config_info,
-                                    },
-                                },
-                            ))
-                        }
+                        BiosConfigOutcome::Done => Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::PollingBiosSetup,
+                            },
+                        )),
+                        BiosConfigOutcome::WaitingForBiosJob(bios_config_info) => Ok(
+                            StateHandlerOutcome::transition(ManagedHostState::HostInit {
+                                machine_state: MachineState::WaitingForBiosJob { bios_config_info },
+                            }),
+                        ),
                         BiosConfigOutcome::WaitingForReboot(reason) => {
                             Ok(StateHandlerOutcome::wait(reason))
                         }
@@ -4848,22 +4842,18 @@ impl StateHandler for HostMachineStateHandler {
                     )
                     .await?
                     {
-                        BiosConfigJobAdvanceOutcome::Continue(updated) => {
-                            Ok(StateHandlerOutcome::transition(
-                                ManagedHostState::HostInit {
-                                    machine_state: MachineState::WaitingForBiosJob {
-                                        bios_config_info: updated,
-                                    },
+                        BiosConfigJobAdvanceOutcome::Continue(updated) => Ok(
+                            StateHandlerOutcome::transition(ManagedHostState::HostInit {
+                                machine_state: MachineState::WaitingForBiosJob {
+                                    bios_config_info: updated,
                                 },
-                            ))
-                        }
-                        BiosConfigJobAdvanceOutcome::Done => {
-                            Ok(StateHandlerOutcome::transition(
-                                ManagedHostState::HostInit {
-                                    machine_state: MachineState::PollingBiosSetup,
-                                },
-                            ))
-                        }
+                            }),
+                        ),
+                        BiosConfigJobAdvanceOutcome::Done => Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::PollingBiosSetup,
+                            },
+                        )),
                         BiosConfigJobAdvanceOutcome::Wait(reason) => {
                             Ok(StateHandlerOutcome::wait(reason))
                         }
@@ -8940,9 +8930,7 @@ async fn call_machine_setup_and_handle_no_dpu_error(
             );
             Ok(None)
         }
-        (Ok(maybe_jid), _, _) => {
-            Ok(maybe_jid)
-        }
+        (Ok(maybe_jid), _, _) => Ok(maybe_jid),
         (Err(e), _, _) => Err(e),
     };
     out
@@ -9280,9 +9268,7 @@ async fn handle_instance_host_platform_config(
                 )
                 .await?
                 {
-                    BiosConfigOutcome::Done => {
-                        HostPlatformConfigurationState::PollingBiosSetup
-                    }
+                    BiosConfigOutcome::Done => HostPlatformConfigurationState::PollingBiosSetup,
                     BiosConfigOutcome::WaitingForBiosJob(bios_config_info) => {
                         HostPlatformConfigurationState::ConfigureBios {
                             bios_config_info: Some(bios_config_info),
@@ -9451,7 +9437,8 @@ async fn configure_host_bios(
             // As of July 2024, Josh Price said there's an NBU FR to fix
             // this, but it wasn't target to a release yet.
             let reboot_status = if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
-                handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart).await?;
+                handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
+                    .await?;
 
                 RebootStatus {
                     increase_retry_count: true,
@@ -9510,9 +9497,17 @@ async fn advance_bios_config_job(
                         error: e,
                     }
                 })?;
-                if matches!(job_state, libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors) {
+                if matches!(
+                    job_state,
+                    libredfish::JobState::ScheduledWithErrors
+                        | libredfish::JobState::CompletedWithErrors
+                ) {
                     let failure = format!("BIOS job {} failed with state {job_state:#?}", job_id);
-                    tracing::warn!("{} for {}, transitioning to HandleBiosJobFailure (power cycle + BMC reset)", failure, mh_snapshot.host_snapshot.id);
+                    tracing::warn!(
+                        "{} for {}, transitioning to HandleBiosJobFailure (power cycle + BMC reset)",
+                        failure,
+                        mh_snapshot.host_snapshot.id
+                    );
                     return Ok(BiosConfigJobAdvanceOutcome::Continue(BiosConfigInfo {
                         bios_job_id: info.bios_job_id.clone(),
                         bios_config_state: BiosConfigState::HandleBiosJobFailure {
@@ -9558,8 +9553,15 @@ async fn advance_bios_config_job(
                                 error: e,
                             });
                         }
-                        let failure = format!("BIOS config job {} lookup failed after {} min: {}", job_id, minutes_since_state_change, e);
-                        tracing::warn!("{} for {}, transitioning to HandleBiosJobFailure (power cycle + BMC reset)", failure, mh_snapshot.host_snapshot.id);
+                        let failure = format!(
+                            "BIOS config job {} lookup failed after {} min: {}",
+                            job_id, minutes_since_state_change, e
+                        );
+                        tracing::warn!(
+                            "{} for {}, transitioning to HandleBiosJobFailure (power cycle + BMC reset)",
+                            failure,
+                            mh_snapshot.host_snapshot.id
+                        );
                         return Ok(BiosConfigJobAdvanceOutcome::Continue(BiosConfigInfo {
                             bios_job_id: info.bios_job_id.clone(),
                             bios_config_state: BiosConfigState::HandleBiosJobFailure {
@@ -9570,12 +9572,13 @@ async fn advance_bios_config_job(
                     }
                 };
                 match job_state {
-                    libredfish::JobState::Completed => {
-                        Ok(BiosConfigJobAdvanceOutcome::Done)
-                    }
+                    libredfish::JobState::Completed => Ok(BiosConfigJobAdvanceOutcome::Done),
                     libredfish::JobState::ScheduledWithErrors
                     | libredfish::JobState::CompletedWithErrors => {
-                        let failure = format!("BIOS config job {} failed with state {job_state:#?}", job_id);
+                        let failure = format!(
+                            "BIOS config job {} failed with state {job_state:#?}",
+                            job_id
+                        );
                         tracing::warn!(
                             "{} for {}, transitioning to HandleBiosJobFailure (power cycle + BMC reset)",
                             failure,
