@@ -1,6 +1,0 @@
-apiVersion: v2
-name: machine-a-tron
-description: Local-only Helm chart for machine-a-tron in DevSpace workflows
-type: application
-version: 0.1.0
-appVersion: "dev"

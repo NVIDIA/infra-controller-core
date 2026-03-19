@@ -5,6 +5,15 @@ vars:
   LOCAL_DEV_NAMESPACE:
     source: env
     default: forge-system
+  LOCAL_DEV_CERT_ISSUER_KIND:
+    source: env
+    default: Issuer
+  LOCAL_DEV_CERT_ISSUER_NAME:
+    source: env
+    default: local-ca-issuer
+  LOCAL_DEV_CERT_ISSUER_GROUP:
+    source: env
+    default: cert-manager.io
 
 images:
   carbide-api:
@@ -60,15 +69,29 @@ deployments:
         - dev/deployment/devspace/values.generated.yaml
   machine-a-tron-local:
     namespace: ${LOCAL_DEV_NAMESPACE}
-    updateImageTags: false
-    helm:
-      chart:
-        path: ./dev/deployment/devspace/charts/machine-a-tron
-      values:
-        image:
-          repository: ${runtime.images.machine-a-tron.image}
-          tag: ${runtime.images.machine-a-tron.tag}
-          pullPolicy: IfNotPresent
-      valuesFiles:
-        - dev/deployment/devspace/values.machine-a-tron.yaml
-        - dev/deployment/devspace/values.generated.yaml
+    updateImageTags: true
+    kubectl:
+      manifests:
+        - dev/deployment/devspace/machine-a-tron.yaml
+      patches:
+        - target:
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            name: machine-a-tron-certificate
+          op: replace
+          path: spec.issuerRef.kind
+          value: ${LOCAL_DEV_CERT_ISSUER_KIND}
+        - target:
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            name: machine-a-tron-certificate
+          op: replace
+          path: spec.issuerRef.name
+          value: ${LOCAL_DEV_CERT_ISSUER_NAME}
+        - target:
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            name: machine-a-tron-certificate
+          op: replace
+          path: spec.issuerRef.group
+          value: ${LOCAL_DEV_CERT_ISSUER_GROUP}

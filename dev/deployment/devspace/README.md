@@ -87,7 +87,7 @@ DevSpace will:
 
 - build the local runtime images from [`Dockerfile.api`](Dockerfile.api) and [`Dockerfile.machine-a-tron`](Dockerfile.machine-a-tron)
 - deploy the Helm chart in [`helm/`](../../../helm)
-- deploy the local-only `machine-a-tron` chart in [`charts/machine-a-tron`](charts/machine-a-tron)
+- apply the local-only `machine-a-tron` Kubernetes objects from [`machine-a-tron.yaml`](machine-a-tron.yaml) with `kubectl`
 - inject the built image names and DevSpace-generated tags into both deployments at runtime
 
 The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). Both Dockerfiles are multi-stage builds: the builder stage compiles the Rust binary inside Docker from the local `build-container-localdev` image, and the runtime stage copies only the finished binary and required runtime assets. DevSpace first checks whether `build-container-localdev` already exists locally and reuses it if present; otherwise it builds it from [`dev/docker/Dockerfile.build-container-x86_64`](../../../dev/docker/Dockerfile.build-container-x86_64). BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
@@ -96,7 +96,7 @@ The DevSpace images also use Dockerfile-specific ignore files: [`Dockerfile.api.
 
 DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfile to decide when the image needs rebuilding.
 
-The production Helm chart is still only responsible for the product services. `machine-a-tron` is deployed separately as a local-only chart, and the local API site config in [`values.base.yaml`](values.base.yaml) points BMC traffic at `machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266`.
+The production Helm chart is still only responsible for the product services. `machine-a-tron` is deployed separately as plain local-only Kubernetes objects in [`machine-a-tron.yaml`](machine-a-tron.yaml), with DevSpace wiring in the local image tag and certificate issuer from [`devspace.yaml`](../../../devspace.yaml). The local API site config in [`values.base.yaml`](values.base.yaml) points BMC traffic at `machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266`.
 
 Common usage:
 
@@ -116,7 +116,7 @@ docker build -t "carbide-api:<devspace-generated-tag>" -f dev/deployment/devspac
 docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.machine-a-tron .
 ```
 
-DevSpace then deploys the Helm chart with the built `carbide-api` image wired into `global.image.repository` and `global.image.tag`, and deploys the local-only `machine-a-tron` chart with its image wired into `image.repository` and `image.tag`.
+DevSpace then deploys the Helm chart with the built `carbide-api` image wired into `global.image.repository` and `global.image.tag`, and applies the local-only `machine-a-tron` manifest with its image wired into the `Deployment` spec.
 
 ## Re-initializing  ncx-infra-controller-core to a clean slate
 
@@ -148,5 +148,4 @@ devspace deploy -n forge-system
 - [`devspace.yaml`](../../../devspace.yaml)
 - [`values.base.yaml`](values.base.yaml)
 - [`values.generated.yaml`](values.generated.yaml)
-- [`values.machine-a-tron.yaml`](values.machine-a-tron.yaml)
 - [`nuke-postgres.sh`](nuke-postgres.sh)

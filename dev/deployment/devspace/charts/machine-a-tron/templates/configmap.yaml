@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: machine-a-tron-config
-  namespace: {{ include "machine-a-tron.namespace" . }}
-data:
-  mat.toml: |
-{{ .Values.config.contents | indent 4 }}
