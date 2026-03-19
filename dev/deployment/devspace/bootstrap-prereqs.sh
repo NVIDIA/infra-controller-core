@@ -217,7 +217,7 @@ metadata:
   name: ${VAULT_NAMESPACE}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: vault
   namespace: ${VAULT_NAMESPACE}
@@ -267,10 +267,10 @@ spec:
       targetPort: 8200
 EOF
 
-  kubectl rollout status deployment/vault -n "${VAULT_NAMESPACE}" --timeout=180s >/dev/null
+  kubectl rollout status statefulset/vault -n "${VAULT_NAMESPACE}" --timeout=180s >/dev/null
 
   log "Configuring Vault mounts and local role"
-  kubectl exec -n "${VAULT_NAMESPACE}" deploy/vault -- sh -lc "
+  kubectl exec -n "${VAULT_NAMESPACE}" statefulset/vault -- sh -lc "
     set -euo pipefail
     export VAULT_ADDR=http://127.0.0.1:8200
     export VAULT_TOKEN='${VAULT_TOKEN}'
