@@ -29,8 +29,8 @@ use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState};
 use model::metadata::Metadata;
 use model::power_shelf::PowerShelfControllerState;
 use model::rack::{
-    Rack, RackConfig, RackFirmwareUpgradeState, RackMaintenanceState, RackPowerState, RackState,
-    RackValidationState,
+    MachineRvLabels, Rack, RackConfig, RackFirmwareUpgradeState, RackMaintenanceState,
+    RackPowerState, RackState, RackValidationState,
 };
 use model::rack_type::RackCapabilitiesSet;
 use model::switch::SwitchControllerState;
@@ -60,29 +60,6 @@ pub struct RackPartitionSummary {
 
 //------------------------------------------------------------------------------
 
-/// Machine metadata labels set by RVS to communicate validation state.
-enum MachineRvLabels {
-    /// Partition ID grouping nodes into validation partitions.
-    PartitionId,
-    /// Run correlation ID -- must match rack's current_run_id.
-    RunId,
-    /// Per-node validation status.
-    State,
-    /// Failure description (only when status is `fail`).
-    FailDesc,
-}
-
-impl MachineRvLabels {
-    fn as_str(&self) -> &'static str {
-        match self {
-            MachineRvLabels::PartitionId => "rv.part-id",
-            MachineRvLabels::RunId => "rv.run-id",
-            MachineRvLabels::State => "rv.st",
-            MachineRvLabels::FailDesc => "rv.fail-desc",
-        }
-    }
-}
-
 /// Per-machine rack-validation state, derived from machine metadata labels.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum MachineRvState {
@@ -99,11 +76,15 @@ impl TryFrom<Metadata> for MachineRvState {
         let st_label = MachineRvLabels::State.as_str();
         let fail_label = MachineRvLabels::FailDesc.as_str();
 
-        let st = metadata.labels.get(st_label).ok_or_else(|| {
-            StateHandlerError::InvalidState(format!("missing required label '{}'", st_label))
-        })?;
+        let st = metadata
+            .labels
+            .get(st_label)
+            .ok_or_else(|| {
+                StateHandlerError::InvalidState(format!("missing required label '{}'", st_label))
+            })?
+            .as_str();
 
-        match st.as_str() {
+        match st {
             "idle" => Ok(MachineRvState::Idle),
             "inp" => Ok(MachineRvState::Inp),
             "pass" => Ok(MachineRvState::Pass),
@@ -125,7 +106,7 @@ impl TryFrom<Metadata> for MachineRvState {
 ///
 /// Only machines that carry the `rv.part-id` label are considered
 /// validation participants. Machines without it are silently skipped.
-/// When a `current_run_id` is provided, machines whose `rv.run-id`
+/// When a `validation_run_id` is provided, machines whose `rv.run-id`
 /// doesn't match are also skipped (stale labels from previous runs).
 struct RvPartitions {
     inner: HashMap<String, Vec<MachineRvState>>,
@@ -135,9 +116,9 @@ impl RvPartitions {
     /// Build from a vec of machines, optionally filtering by run ID.
     fn from_machines(
         machines: Vec<Machine>,
-        current_run_id: Option<String>,
+        validation_run_id: Option<String>,
     ) -> Result<Self, StateHandlerError> {
-        Self::from_meta_iter(machines.into_iter().map(|m| m.metadata), current_run_id)
+        Self::from_meta_iter(machines.into_iter().map(|m| m.metadata), validation_run_id)
     }
 
     /// Core grouping logic over any iterator of Metadata.
@@ -145,7 +126,7 @@ impl RvPartitions {
     /// full Machine values.
     fn from_meta_iter(
         iter: impl Iterator<Item = Metadata>,
-        current_run_id: Option<String>,
+        validation_run_id: Option<String>,
     ) -> Result<Self, StateHandlerError> {
         let mut inner: HashMap<String, Vec<MachineRvState>> = HashMap::new();
         let part_label = MachineRvLabels::PartitionId.as_str();
@@ -160,7 +141,7 @@ impl RvPartitions {
             // Skip machines whose run ID doesn't match the current run
 
             let run_id = meta.labels.remove(run_label);
-            let run_id_curr = current_run_id.as_ref();
+            let run_id_curr = validation_run_id.as_ref();
 
             if let Some(expected) = run_id_curr {
                 // In case we are expecting run-id, we need to reject nodes that
@@ -261,8 +242,8 @@ async fn load_partition_summary(
         machine_ids.len(),
     );
 
-    let current_run_id = &rack.config.current_run_id;
-    let partitions = RvPartitions::from_machines(machines, current_run_id.clone())?;
+    let validation_run_id = &rack.config.validation_run_id;
+    let partitions = RvPartitions::from_machines(machines, validation_run_id.clone())?;
     Ok(partitions.summarize())
 }
 
@@ -862,7 +843,7 @@ impl StateHandler for RackStateHandler {
                             id,
                             run_id
                         );
-                        state.config.current_run_id = Some(run_id);
+                        state.config.validation_run_id = Some(run_id);
                         let mut txn = ctx.services.db_pool.begin().await?;
                         db_rack::update(&mut txn, *id, &state.config).await?;
                         Ok(StateHandlerOutcome::transition(RackState::Validation {

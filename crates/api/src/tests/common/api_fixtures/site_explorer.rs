@@ -1584,7 +1584,7 @@ impl TestRackDbBuilder {
             expected_switches: self.expected_switches.clone(),
             expected_power_shelves: self.expected_power_shelves.clone(),
             rack_type: self.rack_type.clone(),
-            current_run_id: None,
+            validation_run_id: None,
         };
 
         db_rack::update(txn, self.rack_id, &cfg).await?;

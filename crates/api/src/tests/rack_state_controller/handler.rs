@@ -287,7 +287,7 @@ async fn test_expected_counts_match_but_not_linked_stays(
         expected_switches: vec![switch_mac],
         expected_power_shelves: vec![ps_mac],
         rack_type: Some("NVL72".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     db_rack::update(&mut txn, rack_id, &cfg).await?;
 
@@ -355,7 +355,7 @@ async fn test_expected_all_linked_transitions_to_discovering(
         expected_switches: vec![],
         expected_power_shelves: vec![],
         rack_type: Some("Simple".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     db_rack::update(&mut txn, rack_id, &cfg).await?;
 
@@ -427,7 +427,7 @@ async fn test_expected_more_discovered_than_expected_transitions(
         expected_switches: vec![],
         expected_power_shelves: vec![],
         rack_type: Some("Single".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     db_rack::update(&mut txn, rack_id, &cfg).await?;
 
@@ -497,7 +497,7 @@ async fn test_discovering_waits_for_compute_ready(
         expected_switches: vec![],
         expected_power_shelves: vec![],
         rack_type: Some("NVL72".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     db_rack::update(&mut txn, rack_id, &cfg).await?;
 
@@ -555,7 +555,7 @@ async fn test_discovering_empty_rack_transitions_to_maintenance(
         expected_switches: vec![],
         expected_power_shelves: vec![],
         rack_type: Some("NVL72".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     db_rack::update(&mut txn, rack_id, &cfg).await?;
 
@@ -738,7 +738,7 @@ fn test_validate_device_counts_all_match() {
         expected_switches: vec![MacAddress::new([0x01, 0x01, 0x02, 0x03, 0x04, 0x05])],
         expected_power_shelves: vec![MacAddress::new([0x02, 0x01, 0x02, 0x03, 0x04, 0x05])],
         rack_type: Some("NVL72".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     assert!(handler::validate_device_counts(
         &rack_id,
@@ -759,7 +759,7 @@ fn test_validate_device_counts_compute_mismatch() {
         expected_switches: vec![MacAddress::new([0x01, 0x01, 0x02, 0x03, 0x04, 0x05])],
         expected_power_shelves: vec![MacAddress::new([0x02, 0x01, 0x02, 0x03, 0x04, 0x05])],
         rack_type: Some("NVL72".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     assert!(!handler::validate_device_counts(
         &rack_id,
@@ -783,7 +783,7 @@ fn test_validate_device_counts_switch_mismatch() {
         expected_switches: vec![],
         expected_power_shelves: vec![MacAddress::new([0x02, 0x01, 0x02, 0x03, 0x04, 0x05])],
         rack_type: Some("NVL72".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     assert!(!handler::validate_device_counts(
         &rack_id,
@@ -878,7 +878,7 @@ async fn test_expected_unknown_rack_type_stays_parked(
     // Set a rack_type that doesn't exist in the config.
     let cfg = RackConfig {
         rack_type: Some("NonExistentType".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
         ..Default::default()
     };
     db_rack::update(&mut txn, rack_id, &cfg).await?;
@@ -929,7 +929,7 @@ async fn test_expected_config_change_applies_retroactively(
         expected_switches: vec![],
         expected_power_shelves: vec![],
         rack_type: Some("NVL72".to_string()),
-            current_run_id: None,
+        validation_run_id: None,
     };
     db_rack::update(&mut txn, rack_id, &cfg).await?;
     drop(txn);

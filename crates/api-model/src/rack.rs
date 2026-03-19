@@ -127,14 +127,14 @@ impl<'r> FromRow<'r, PgRow> for Rack {
 }
 
 // ============================================================================
-// RACK STATE - Partition-aware validation state machine
+// RACK STATES
 // ============================================================================
 
 /// Overall state of the rack lifecycle.
 ///
-/// The rack progresses through discovery phases, then enters validation where
-/// partitions (groups of nodes) are validated by an external service (RVS).
-/// The state machine aggregates partition validation status from instance metadata.
+/// The rack progresses through discovery and maintenance phases, then enters
+/// validation where partitions (groups of nodes) are validated by an external
+/// service (RVS).
 ///
 /// ## Simplified State Flow
 ///
@@ -193,6 +193,80 @@ pub enum RackState {
     Deleting,
 }
 
+/// Sub-states of rack maintenance.
+///
+/// The rack enters maintenance after discovery (all devices found, all machines
+/// ready) and exits into `Validation(Pending)` once maintenance is complete,
+/// at which point the validation flow takes over.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackMaintenanceState {
+    FirmwareUpgrade {
+        rack_firmware_upgrade: RackFirmwareUpgradeState,
+    },
+    PowerSequence {
+        rack_power: RackPowerState,
+    },
+    Completed,
+}
+
+impl Display for RackMaintenanceState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackMaintenanceState::FirmwareUpgrade {
+                rack_firmware_upgrade,
+            } => {
+                write!(f, "FirmwareUpgrade({})", rack_firmware_upgrade)
+            }
+            RackMaintenanceState::PowerSequence { rack_power } => {
+                write!(f, "PowerSequence({})", rack_power)
+            }
+            RackMaintenanceState::Completed => write!(f, "Completed"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackFirmwareUpgradeState {
+    Compute,
+    Switch,
+    PowerShelf,
+    All,
+}
+
+impl Display for RackFirmwareUpgradeState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackFirmwareUpgradeState::Compute => write!(f, "Compute"),
+            RackFirmwareUpgradeState::Switch => write!(f, "Switch"),
+            RackFirmwareUpgradeState::PowerShelf => write!(f, "PowerShelf"),
+            RackFirmwareUpgradeState::All => write!(f, "All"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackPowerState {
+    PoweringOn,
+    PoweringOff,
+    PowerReset,
+}
+
+impl Display for RackPowerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackPowerState::PoweringOn => write!(f, "PoweringOn"),
+            RackPowerState::PoweringOff => write!(f, "PoweringOff"),
+            RackPowerState::PowerReset => write!(f, "PowerReset"),
+        }
+    }
+}
+
+impl Default for RackState {
+    fn default() -> Self {
+        RackState::Unknown
+    }
+}
+
 /// Sub-states of rack validation.
 ///
 /// The rack enters validation after maintenance completes (starting in
@@ -248,78 +322,6 @@ impl Display for RackValidationState {
     }
 }
 
-/// Sub-states of rack maintenance.
-///
-/// The rack enters maintenance after discovery (all devices found, all machines
-/// ready) and exits into `Validation(Pending)` once maintenance is complete,
-/// at which point the validation flow takes over.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RackMaintenanceState {
-    FirmwareUpgrade {
-        rack_firmware_upgrade: RackFirmwareUpgradeState,
-    },
-    PowerSequence {
-        rack_power: RackPowerState,
-    },
-    Completed,
-}
-
-impl Display for RackMaintenanceState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RackMaintenanceState::FirmwareUpgrade { rack_firmware_upgrade } => {
-                write!(f, "FirmwareUpgrade({})", rack_firmware_upgrade)
-            }
-            RackMaintenanceState::PowerSequence { rack_power } => {
-                write!(f, "PowerSequence({})", rack_power)
-            }
-            RackMaintenanceState::Completed => write!(f, "Completed"),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RackFirmwareUpgradeState {
-    Compute,
-    Switch,
-    PowerShelf,
-    All,
-}
-
-impl Display for RackFirmwareUpgradeState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RackFirmwareUpgradeState::Compute => write!(f, "Compute"),
-            RackFirmwareUpgradeState::Switch => write!(f, "Switch"),
-            RackFirmwareUpgradeState::PowerShelf => write!(f, "PowerShelf"),
-            RackFirmwareUpgradeState::All => write!(f, "All"),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RackPowerState {
-    PoweringOn,
-    PoweringOff,
-    PowerReset,
-}
-
-impl Display for RackPowerState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RackPowerState::PoweringOn => write!(f, "PoweringOn"),
-            RackPowerState::PoweringOff => write!(f, "PoweringOff"),
-            RackPowerState::PowerReset => write!(f, "PowerReset"),
-        }
-    }
-}
-
-impl Default for RackState {
-    fn default() -> Self {
-        RackState::Unknown
-    }
-}
-
 impl Display for RackState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -339,6 +341,28 @@ impl Display for RackState {
     }
 }
 
+/// Machine metadata labels set by RVS to communicate validation state.
+pub enum MachineRvLabels {
+    /// Partition ID grouping nodes into validation partitions.
+    PartitionId,
+    /// Run correlation ID -- must match rack's validation_run_id.
+    RunId,
+    /// Per-node validation status.
+    State,
+    /// Failure description (only when status is `fail`).
+    FailDesc,
+}
+
+impl MachineRvLabels {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MachineRvLabels::PartitionId => "rv.part-id",
+            MachineRvLabels::RunId => "rv.run-id",
+            MachineRvLabels::State => "rv.st",
+            MachineRvLabels::FailDesc => "rv.fail-desc",
+        }
+    }
+}
 
 // ============================================================================
 // RACK CONFIG & HISTORY
@@ -379,7 +403,7 @@ pub struct RackConfig {
     /// Active validation run ID. Set when entering Validation(Pending),
     /// used to filter stale machine labels from previous runs.
     #[serde(default)]
-    pub current_run_id: Option<String>,
+    pub validation_run_id: Option<String>,
 }
 
 // ============================================================================
