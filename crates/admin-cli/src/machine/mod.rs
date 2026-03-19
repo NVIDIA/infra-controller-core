@@ -27,6 +27,7 @@ pub mod nvlink_info;
 pub mod positions;
 pub mod reboot;
 pub mod show;
+pub mod state_history;
 
 #[cfg(test)]
 mod tests;
@@ -80,4 +81,6 @@ pub enum Cmd {
     Positions(positions::Args),
     #[clap(subcommand, about = "Update/show NVLink info for an MNNVL machine")]
     NvlinkInfo(nvlink_info::Args),
+    #[clap(about = "Fetch state transition history for one or more machines")]
+    StateHistory(state_history::Args),
 }
