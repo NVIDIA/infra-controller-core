@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
@@ -140,9 +141,104 @@ struct IpamPlaceholder {
     section: &'static str,
 }
 
-/// DNS placeholder page
-pub async fn dns_html() -> Response {
-    let tmpl = IpamPlaceholder { section: "DNS" };
+#[derive(Template)]
+#[template(path = "ipam_dns.html")]
+struct IpamDns {
+    zones: Vec<DnsZoneDisplay>,
+    records: Vec<DnsRecordDisplay>,
+}
+
+struct DnsZoneDisplay {
+    name: String,
+    soa_serial: String,
+    record_count: usize,
+}
+
+struct DnsRecordDisplay {
+    q_name: String,
+    q_type: String,
+    value: String,
+    ttl: i32,
+    zone: String,
+}
+
+/// DNS records page
+pub async fn dns_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    // Fetch domains.
+    let domains = match db::dns::domain::find_by(
+        &state.database_connection,
+        db::ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+    )
+    .await
+    {
+        Ok(d) => d,
+        Err(err) => {
+            tracing::error!(%err, "fetch domains for DNS");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading DNS zones").into_response();
+        }
+    };
+
+    // Fetch all DNS records.
+    let db_records =
+        match db::dns::resource_record::get_all_records_all_domains(&state.database_connection)
+            .await
+        {
+            Ok(r) => r,
+            Err(err) => {
+                tracing::error!(%err, "fetch DNS records");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Error loading DNS records",
+                )
+                    .into_response();
+            }
+        };
+
+    // Build domain ID -> name map, and count records per zone.
+    let domain_name_map: HashMap<String, String> = domains
+        .iter()
+        .map(|d| (d.id.to_string(), d.name.clone()))
+        .collect();
+
+    let mut record_counts: HashMap<String, usize> = HashMap::new();
+    for r in &db_records {
+        *record_counts.entry(r.domain_id.to_string()).or_default() += 1;
+    }
+
+    let zones: Vec<DnsZoneDisplay> = domains
+        .iter()
+        .map(|d| {
+            let soa_serial = d
+                .soa
+                .as_ref()
+                .map(|s| s.0.serial.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
+            DnsZoneDisplay {
+                name: d.name.clone(),
+                soa_serial,
+                record_count: record_counts.get(&d.id.to_string()).copied().unwrap_or(0),
+            }
+        })
+        .collect();
+
+    let records: Vec<DnsRecordDisplay> = db_records
+        .into_iter()
+        .map(|r| {
+            let zone = domain_name_map
+                .get(&r.domain_id.to_string())
+                .cloned()
+                .unwrap_or_default();
+            DnsRecordDisplay {
+                q_name: r.q_name,
+                q_type: r.q_type,
+                value: r.record,
+                ttl: r.ttl,
+                zone,
+            }
+        })
+        .collect();
+
+    let tmpl = IpamDns { zones, records };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
