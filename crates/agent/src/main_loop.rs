@@ -43,6 +43,7 @@ use tracing::log::error;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
+use crate::command_line::HbnConfigMode;
 use crate::dpu::DpuNetworkInterfaces;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
@@ -191,6 +192,15 @@ pub async fn setup_and_run(
     if let Err(err) = crate::ovs::set_vswitchd_yield().await {
         tracing::warn!(%err, "Failed asking ovs_vswitchd to not use 100% of a CPU core. Non-fatal.");
         // We have eight cores. Letting ovs_vswitchd have one is OK.
+    };
+
+    let nvue_client = match options.hbn_config_mode {
+        HbnConfigMode::ContainerExec => None,
+        HbnConfigMode::NvueRest => {
+            let server_address = nvue_client::client::NvueServerAddress::https_from_env()
+                .wrap_err("Couldn't initialize NVUE client")?;
+            Some(nvue_client::NvueClient::new(server_address))
+        }
     };
 
     let build_version = carbide_version::v!(build_version).to_string();
@@ -357,6 +367,7 @@ pub async fn setup_and_run(
         close_sender,
         network_monitor_handle,
         extension_service_manager: extension_services::ExtensionServiceManager::default(),
+        nvue_client,
     };
 
     main_loop.run().await
@@ -388,6 +399,7 @@ struct MainLoop {
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
     extension_service_manager: extension_services::ExtensionServiceManager,
+    nvue_client: Option<nvue_client::NvueClient>,
 }
 
 struct IterationResult {
@@ -535,7 +547,19 @@ impl MainLoop {
                 if self.is_hbn_up {
                     // First thing is to read the existing HBN version and properly set the hbn device names
                     // associated with that version.
-                    let hbn_version = hbn::read_version().await?;
+                    let hbn_version = match self.nvue_client.as_mut() {
+                        None => hbn::read_version().await?,
+                        Some(nvue_client) => {
+                            let nvue_system_build = nvue_client.system_build_info().await?;
+                            match nvue_system_build.strip_prefix("HBN ") {
+                                Some(hbn_version) => Ok(hbn_version.into()),
+                                None => Err(eyre::format_err!(
+                                    "Couldn't parse HBN version from NVUE system build (\"{nvue_system_build}\")"
+                                )),
+                            }?
+                        }
+                    };
+
                     let hbn_version = Version::from(hbn_version.as_str())
                         .ok_or(eyre::eyre!("Unable to convert string to version"))?;
                     // HBN changed their naming scheme in HBN 2.3 from _sf to _if so we will pass that little bit around
@@ -551,14 +575,18 @@ impl MainLoop {
                     }
 
                     // Now issue a one time per container runtime hack in the event the hack is needed for new DPU hardware
-                    if let Err(err) = nvue::hack_platform_config_for_nvue().await {
+                    if self.options.hbn_config_mode.is_container_exec()
+                        && let Err(err) = nvue::hack_platform_config_for_nvue().await
+                    {
                         tracing::error!(
                             error = format!("{err:#}"),
                             "Hacking the container platform config."
                         );
                     };
 
-                    if let Err(e) = self.hbn_file_configs.ensure_configs().await {
+                    if self.options.hbn_config_mode.is_container_exec()
+                        && let Err(e) = self.hbn_file_configs.ensure_configs().await
+                    {
                         tracing::error!(
                             "Error from HBNContainerFileConfigs::ensure_configs(): {e}"
                         );

@@ -16,6 +16,7 @@
  */
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::machine::MachineId;
@@ -304,6 +305,39 @@ pub struct RunOptions {
                 When set, the agent sends config updates via gRPC instead of running embedded FMDS."
     )]
     pub fmds_grpc_server: Option<String>,
+    #[clap(
+        default_value = "container-exec",
+        help = "Set the configuration mode for HBN. Specify \"container-exec\" or \"nvue-rest\".",
+        env = "HBN_CONFIG_MODE"
+    )]
+    pub hbn_config_mode: HbnConfigMode,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub enum HbnConfigMode {
+    // ContainerExec: The old default, where we use crictl to exec into the HBN container.
+    ContainerExec,
+    // NvueRest: We use the NVUE REST API to manage HBN configuration.
+    NvueRest,
+}
+
+impl HbnConfigMode {
+    pub fn is_container_exec(&self) -> bool {
+        matches!(self, Self::ContainerExec)
+    }
+}
+
+impl FromStr for HbnConfigMode {
+    type Err = eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use HbnConfigMode::*;
+        match s {
+            "container-exec" => Ok(ContainerExec),
+            "nvue-rest" => Ok(NvueRest),
+            unknown_mode => Err(eyre::eyre!("Unknown HBN config mode \"{unknown_mode}\"")),
+        }
+    }
 }
 
 #[derive(Parser, Debug)]

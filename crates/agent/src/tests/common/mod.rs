@@ -115,6 +115,7 @@ pub fn setup_agent_run_env(
             skip_upgrade_check: false,
             dhcp_grpc_server: None,
             fmds_grpc_server: None,
+            hbn_config_mode: crate::command_line::HbnConfigMode::ContainerExec,
         }))),
     };
 
