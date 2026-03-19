@@ -796,9 +796,13 @@ async fn test_multiple_state_controllers_schedule_object_only_once(
             .unwrap();
     }
 
+    std::mem::drop(work_lock_manager_handle); // Won't actually cancel until all controllers are dropped
+
     tokio::time::sleep(TEST_TIME).await;
     cancel_token.cancel();
-    join_set.join_all().await;
+    tokio::time::timeout(Duration::from_secs(10), join_set.join_all())
+        .await
+        .expect("Tasks did not complete after a timeout");
 
     let count = state_handler.count.load(Ordering::SeqCst) as f64;
     assert!(
@@ -937,7 +941,10 @@ async fn test_state_handler_metrics_are_stable(pool: sqlx::PgPool) -> eyre::Resu
         );
     }
     cancel_token.cancel();
-    join_set.join_all().await;
+    std::mem::drop(work_lock_manager_handle);
+    tokio::time::timeout(Duration::from_secs(10), join_set.join_all())
+        .await
+        .expect("Tasks did not complete after a timeout");
 
     Ok(())
 }
