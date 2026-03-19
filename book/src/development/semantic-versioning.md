@@ -64,9 +64,6 @@ Within a given major version, the team guarantees:
 
 1. At the end of each four-week cycle, a **release candidate (RC)** is tagged after development stabilizes.
 2. A **release branch** is created from the RC tag to isolate the release from ongoing development on `main`.
-3. QA performs full validation against the RC.
-4. Bug fixes found during QA are applied to `main` first, then **cherry-picked** to the release branch.
-5. Once QA signs off, the **final release tag** is created on the release branch.
 
 ### Pre-Release Tags
 
