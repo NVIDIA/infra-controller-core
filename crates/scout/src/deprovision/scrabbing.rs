@@ -63,6 +63,7 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
 static NVME_CLI_PROG: &str = "/usr/sbin/nvme";
 static HDPARM_CLI_PROG: &str = "/usr/sbin/hdparm";
 static SG_SANITIZE_CLI_PROG: &str = "/usr/bin/sg_sanitize";
+static DD_CLI_PROG: &str = "/usr/bin/dd";
 static LENOVO_NVMI_CLI_PROG_CANDIDATES: [&str; 4] = [
     "/opt/forge/bin/mnv_cli",
     "/opt/forge/mnv_cli",
@@ -553,7 +554,13 @@ async fn try_ata_secure_erase(devpath: &str) -> Result<(), CarbideClientError> {
 }
 
 async fn try_scsi_sanitize(devpath: &str) -> Result<(), CarbideClientError> {
-    cmdrun::run_prog(SG_SANITIZE_CLI_PROG, ["--block", "-w", devpath]).await?;
+    cmdrun::run_prog(SG_SANITIZE_CLI_PROG, ["-Q", "-w", "-C", devpath]).await?;
+    // Some drives leave LBA 0 as random bytes after a crypto erase rather than zeroing it.
+    // Random data can accidentally match the AHDI (Atari HDD) partition signature, causing
+    // the Linux kernel to create phantom partition entries. Writing one sector of zeros with
+    // oflag=direct bypasses the SAS HBA cache and ensures LBA 0 is clean.
+    let of_arg = format!("of={devpath}");
+    cmdrun::run_prog(DD_CLI_PROG, ["if=/dev/zero", &of_arg, "count=1", "oflag=direct"]).await?;
     Ok(())
 }
 
