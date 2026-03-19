@@ -19,7 +19,7 @@ use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
 use mac_address::MacAddress;
-use model::rack::{RackConfig, RackState};
+use model::rack::{RackConfig, RackState, RackValidationState};
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
     RackTypeConfig,
@@ -630,10 +630,10 @@ async fn test_error_state_does_nothing(
     Ok(())
 }
 
-/// test_maintenance_completed_transitions_to_ready verifies that
-/// Maintenance::Completed transitions to Ready::Full.
+/// test_maintenance_completed_transitions_to_validation verifies that
+/// Maintenance::Completed transitions to Validation(Pending).
 #[crate::sqlx_test]
-async fn test_maintenance_completed_transitions_to_ready(
+async fn test_maintenance_completed_transitions_to_validation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
@@ -666,9 +666,11 @@ async fn test_maintenance_completed_transitions_to_ready(
             assert!(
                 matches!(
                     next_state,
-                    RackState::Ready
+                    RackState::Validation {
+                        rack_validation: RackValidationState::Pending,
+                    }
                 ),
-                "Maintenance::Completed should transition to Ready, got {:?}",
+                "Maintenance::Completed should transition to Validation(Pending), got {:?}",
                 next_state
             );
         }

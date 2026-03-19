@@ -202,7 +202,8 @@ async fn test_can_retrieve_rack_state_history(
         "{\"state\": \"discovering\"}",
         "{\"state\": \"maintenance\", \"rack_maintenance\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Compute\"}}}",
         "{\"state\": \"maintenance\", \"rack_maintenance\": \"Completed\"}",
-        "{\"state\": \"discovered\"}",
+        "{\"state\": \"validation\", \"rack_validation\": \"Pending\"}",
+        "{\"state\": \"validation\", \"rack_validation\": \"Validated\"}",
         "{\"state\": \"ready\"}",
     ];
     assert!(validate_state_change_history(&records, &expected));
