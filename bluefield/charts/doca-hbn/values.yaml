@@ -1,0 +1,155 @@
+### DPF contract ###
+
+# configuration for the service
+serviceDaemonSet:
+  # selects nodes on which this service will run by label. Can be set in DPUService `.spec.serviceDaemonSet.nodeSelector`
+  # nodeSelector:
+  #   nodeSelectorTerms:
+  #   - matchExpressions:
+  #       - key: dpu
+  #         operator: In
+  #         values:
+  #           - dpu
+  # labels on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.labels`
+  labels: {}
+  # annotations on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.annotations`
+  annotations: {}
+  # updateStrategy on the DaemonSet. Can be set in DPUService `.spec.serviceDaemonSet.updateStrategy.`
+  updateStrategy: {}
+  #  type: RollingUpdate
+  #  rollingUpdate:
+  #    maxUnavailable: 1
+
+# Service configuration
+service:
+  # NodePort configuration (optional)
+  nodePort: null  # Set this value to expose the service via NodePort
+  # Service type (ClusterIP or NodePort)
+  type: ClusterIP
+
+### App sepcific values ###
+
+# resources required by the main HBN container
+resources: {}
+  # memory: 6Gi
+  # nvidia.com/bf_sf: 3
+
+imagePullSecrets: []
+
+# default image settings
+# this image will be used for all containers if they don't have explicit
+# image settings
+image:
+  repository: nvcr.io/nvidia/doca/doca_hbn
+  tag: "" # if not set the .Chart.AppVersion is used
+
+# configuration for docaHbn container.
+docaHbn:
+  image:
+    repository: ""
+    tag: ""
+  imagePullPolicy: IfNotPresent
+  containerSecurityContext:
+    privileged: true
+
+# configurations for hbnInit container.
+hbnInit:
+  image:
+    repository: ""
+    tag: ""
+  imagePullPolicy: IfNotPresent
+  containerSecurityContext:
+    privileged: true
+
+# configuration for hbnSidecar container.
+hbnSidecar:
+  image:
+    repository: ""
+    tag: ""
+  imagePullPolicy: IfNotPresent
+  containerSecurityContext:
+    privileged: true
+
+configuration:
+  # User configuration
+  user:
+    # Enable user creation
+    create: false
+    # Username for the new user
+    username: "hbn"
+    # Password configuration
+    password:
+      # Name of the Kubernetes Secret containing the password
+      secretName: "hbn-user-password"
+      # Key in the secret that contains the password
+      secretKey: "password"
+    # User's shell (optional)
+    shell: "/bin/bash"
+    # User's home directory (optional)
+    homeDir: "/home/hbn"
+    # Additional groups to add the user to (optional)
+    additionalGroups: []
+    # User ID (optional)
+    uid: ""
+    # Group ID (optional)
+    gid: ""
+  # The "perDPUValuesYAML" field should contain a string with a YAML list.
+  # This list is used to compute template values for a specific DPU.
+  # The elements of the list should be sorted by priority, with the first element having
+  # the lowest priority and the last element having the highest priority.
+  # The resulting values for the DPU are computed by traversing the list from the beginning to the end.
+  # Typically, the first element will match all hosts (*) and should contain default values.
+  # More specific selectors should be placed closer to the end of the list.
+  # The resulting values for the hostname will include merged values from all matching patterns,
+  # with values from patterns closer to the end of the list taking precedence.
+  perDPUValuesYAML: ""
+  # perDPUValuesYAML: |
+  #   - hostnamePattern: "*" # match all hosts
+  #     values:
+  #       bgp_peer_group: hbn
+  #       vlan: 100
+  #       bgp_as: 65100
+  #   - hostnamePattern: "*-rack1-dc1-*"
+  #     values:
+  #       vlan: 101
+  #   - hostnamePattern: "*-rack2-dc1-*"
+  #     values:
+  #       vlan: 102
+  #   - hostnamePattern: "*-dc1-*"
+  #     values:
+  #       bgp_as: 65113
+  #   - hostnamePattern: "host1-rack1-dc1-0000-3f-00" # match specific hostname
+  #     values:
+  #       bgp_as: 65200
+  #       vlan: 200
+
+  # JINJA2 template for startup configuration, DPU-specific values computed from `perDPUValuesYAML`
+  # are injected to the template
+  startupYAMLJ2: ""
+  # startupYAMLJ2: |
+  #   - header:
+  #       model: BLUEFIELD
+  #       nvue-api-version: nvue_v1
+  #       rev-id: 1.0
+  #       version: HBN x.x.x
+  #   - set:
+  #       bridge:
+  #         domain:
+  #           br_default:
+  #             vlan:
+  #               '{{ config.vlan }}': {}
+  # Environment variable for skipping startup generation
+  skipGenerateStartup: false
+
+extraInitContainers: []
+# - name: my-init
+#   image: busybox:latest
+#   command: ["sh", "-c", "echo hello"]
+
+extraVolumeMounts: []
+# - name: my-volume
+#   mountPath: /mnt/my-volume
+
+extraVolumes: []
+# - name: my-volume
+#   emptyDir: {}

@@ -1,0 +1,6 @@
+apiVersion: v2
+appVersion: 3.2.1-doca3.2.1
+description: A Helm chart for DOCA Host-based Networking (HBN) Service
+name: doca-hbn
+type: application
+version: 1.0.5

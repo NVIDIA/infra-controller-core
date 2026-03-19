@@ -1,0 +1,227 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "hbn.fullname" . }}-ds
+  labels:
+    {{- include "hbn.labels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.serviceDaemonSet.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+    {{- include "hbn.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hbn.selectorLabels" . | nindent 8 }}
+        {{- with .Values.serviceDaemonSet.labels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.serviceDaemonSet.annotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with toYaml .Values.serviceDaemonSet.nodeSelector }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- . | nindent 12 }}
+      {{- end }}
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      initContainers:
+      {{- /* Carbide: allow injecting arbitrary init containers via values */ -}}
+      {{- with .Values.extraInitContainers }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      - command: ["/bin/sh", "-c"]
+        args:
+        - |
+          /initbootstrap.sh && \
+          python3 /ovs-cached-mac-flush.py --chroot=/host && \
+          mount -o rw,remount /sys
+          # /sys is mounted in read-only mode therefore we are using remount to change it to read-write mode
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: IPAM_IPADDRESS_PATH
+          value: /tmp/init-container-data/ipam-ipaddresses.json
+        - name: HBN_MGMT_INTERFACE_CONFIG_CREATE
+          value: "true"
+        - name: SKIP_GENERATE_STARTUP
+          value: {{ .Values.configuration.skipGenerateStartup | default false | quote }}
+        image: {{ .Values.hbnInit.image.repository | default .Values.image.repository }}:{{ .Values.hbnInit.image.tag | default .Values.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.hbnInit.imagePullPolicy }}
+        name: hbn-init
+        resources: {}
+        securityContext: {{- toYaml .Values.hbnInit.containerSecurityContext | nindent 10 }}
+        volumeMounts:
+        - mountPath: /host
+          name: host
+        - mountPath: /tmp/config-data
+          name: config-volume
+        - mountPath: /tmp/init-container-data
+          name: init-container-data
+        - mountPath: /var/run/openvswitch
+          name: openvswitch
+      containers:
+      - name: doca-hbn
+        image: {{ .Values.docaHbn.image.repository | default .Values.image.repository }}:{{ .Values.docaHbn.image.tag | default .Values.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.docaHbn.imagePullPolicy }}
+        ports:
+        - containerPort: 8765
+          name: hbn-port
+          protocol: TCP
+        {{- with toYaml .Values.resources }}
+        resources:
+          limits:
+            {{- . | nindent 12 }}
+          requests:
+            {{- . | nindent 12 }}
+        {{- end }}
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: IPAM_IPADDRESS_PATH
+          value: /tmp/init-container-data/ipam-ipaddresses.json
+        {{- if .Values.configuration.user.create }}
+        - name: HBN_CREATE_USER
+          value: "true"
+        - name: HBN_USER_NAME
+          value: {{ .Values.configuration.user.username | quote }}
+        - name: HBN_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.configuration.user.password.secretName | quote }}
+              key: {{ .Values.configuration.user.password.secretKey | quote }}
+        {{- if .Values.configuration.user.shell }}
+        - name: HBN_USER_SHELL
+          value: {{ .Values.configuration.user.shell | quote }}
+        {{- end }}
+        {{- if .Values.configuration.user.homeDir }}
+        - name: HBN_USER_HOME
+          value: {{ .Values.configuration.user.homeDir | quote }}
+        {{- end }}
+        {{- if .Values.configuration.user.additionalGroups }}
+        - name: HBN_USER_GROUPS
+          value: {{ join "," .Values.configuration.user.additionalGroups | quote }}
+        {{- end }}
+        {{- if .Values.configuration.user.uid }}
+        - name: HBN_USER_UID
+          value: {{ .Values.configuration.user.uid | quote }}
+        {{- end }}
+        {{- if .Values.configuration.user.gid }}
+        - name: HBN_USER_GID
+          value: {{ .Values.configuration.user.gid | quote }}
+        {{- end }}
+        {{- end }}
+        - name: SKIP_GENERATE_STARTUP
+          value: {{ .Values.configuration.skipGenerateStartup | default false | quote }}
+        securityContext: {{- toYaml .Values.docaHbn.containerSecurityContext
+          | nindent 10 }}
+        volumeMounts:
+        - mountPath: /etc/network
+          name: eni
+        - mountPath: /etc/frr
+          name: frr
+        - mountPath: /var/lib/nvue
+          name: nvue
+        - mountPath: /etc/supervisor/conf.d/
+          name: supervisor
+        - mountPath: /etc/nvue.d
+          name: nvuestartup
+        - mountPath: /var/log/hbn
+          name: hbnlogs
+        - mountPath: /var/support
+          name: support
+        - mountPath: /etc/cumulus
+          name: etccumulus
+        - mountPath: /tmp/config-data
+          name: config-volume
+        - mountPath: /tmp/init-container-data
+          name: init-container-data
+        - mountPath: /var/run/openvswitch
+          name: openvswitch
+          readOnly: true
+        {{- /* Carbide: allow injecting arbitrary volume mounts via values */ -}}
+        {{- with .Values.extraVolumeMounts }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      - name: hbn-sidecar
+        command: ["python3", "-u", "/ovs-watcher.py", "--chroot=/host"]
+        image: {{ .Values.hbnSidecar.image.repository | default .Values.image.repository }}:{{ .Values.hbnSidecar.image.tag | default .Values.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.hbnSidecar.imagePullPolicy }}
+        securityContext: {{- toYaml .Values.hbnSidecar.containerSecurityContext | nindent 10 }}
+        volumeMounts:
+        - mountPath: /host
+          name: host
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /var/lib/hbn/etc/network
+          type: DirectoryOrCreate
+        name: eni
+      - hostPath:
+          path: /var/lib/hbn/etc/frr
+          type: DirectoryOrCreate
+        name: frr
+      - hostPath:
+          path: /var/lib/hbn/var/lib/nvue
+          type: DirectoryOrCreate
+        name: nvue
+      - hostPath:
+          path: /var/lib/hbn/etc/supervisor/conf.d
+          type: DirectoryOrCreate
+        name: supervisor
+      - hostPath:
+          path: /var/lib/hbn/etc/nvue.d
+          type: DirectoryOrCreate
+        name: nvuestartup
+      - hostPath:
+          path: /var/log/doca/hbn
+          type: DirectoryOrCreate
+        name: hbnlogs
+      - hostPath:
+          path: /var/lib/hbn/var/support/
+          type: DirectoryOrCreate
+        name: support
+      - hostPath:
+          path: /var/lib/hbn/etc/cumulus
+          type: DirectoryOrCreate
+        name: etccumulus
+      - hostPath:
+          path: /var/lib/hbn
+          type: DirectoryOrCreate
+        name: var-lib-hbn
+      - hostPath:
+          path: /var/run/openvswitch
+          type: Directory
+        name: openvswitch
+      - hostPath:
+          path: /
+        name: host
+      - configMap:
+          name: {{ include "hbn.fullname" . }}-config-data
+        name: config-volume
+      - emptyDir: {}
+        name: init-container-data
+      {{- /* Carbide: allow injecting arbitrary volumes via values */ -}}
+      {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
