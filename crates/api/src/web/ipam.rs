@@ -136,12 +136,6 @@ async fn fetch_interfaces(api: Arc<Api>) -> Result<Vec<forgerpc::MachineInterfac
 }
 
 #[derive(Template)]
-#[template(path = "ipam_placeholder.html")]
-struct IpamPlaceholder {
-    section: &'static str,
-}
-
-#[derive(Template)]
 #[template(path = "ipam_dns.html")]
 struct IpamDns {
     zones: Vec<DnsZoneDisplay>,
