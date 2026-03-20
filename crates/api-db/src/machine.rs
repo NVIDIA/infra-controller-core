@@ -1714,6 +1714,11 @@ pub async fn find_machine_ids(
         qb.push_bind(ovrrd_str);
         qb.push("->'alerts') > 0");
     }
+    if search_config.mnnvl_only {
+        qb.push(
+            " AND mt.topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' LIKE '%GB200%'",
+        );
+    }
 
     if let Some(id) = search_config.instance_type_id {
         qb.push(" AND instance_type_id = ");
