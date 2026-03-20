@@ -54,7 +54,7 @@ async fn test_find_power_shelf_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let found_power_shelf = &power_shelf_list.power_shelves[0];
     assert_eq!(
         found_power_shelf.id.as_ref().unwrap().to_string(),
-        power_shelf_id.clone().to_string()
+        power_shelf_id.to_string()
     );
     assert_eq!(
         found_power_shelf.config.as_ref().unwrap().name,

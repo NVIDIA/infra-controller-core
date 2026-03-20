@@ -46,7 +46,7 @@ async fn test_find_switch_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     let found_switch = &switch_list.switches[0];
     assert_eq!(
         found_switch.id.as_ref().unwrap().to_string(),
-        switch_id.clone().to_string()
+        switch_id.to_string()
     );
     assert_eq!(
         found_switch.config.as_ref().unwrap().name,

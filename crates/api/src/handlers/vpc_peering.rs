@@ -60,7 +60,7 @@ pub async fn create(
                 vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
             let vpc1 = vpcs1.first().ok_or_else(|| CarbideError::NotFoundError {
                 kind: "VPC",
-                id: vpc_id.clone().to_string(),
+                id: vpc_id.to_string(),
             })?;
             let vpcs2 = vpc::find_by(
                 &mut txn,
@@ -69,7 +69,7 @@ pub async fn create(
             .await?;
             let vpc2 = vpcs2.first().ok_or_else(|| CarbideError::NotFoundError {
                 kind: "VPC",
-                id: peer_vpc_id.clone().to_string(),
+                id: peer_vpc_id.to_string(),
             })?;
             // If nvue_enabled, then ETHERNET_VIRTUALIZER = ETHERNET_VIRTUALIZER_WITH_NVUE and
             // only type of peering not allowed is between Fnn <-> ETV/ETV_WITH_NVUE
