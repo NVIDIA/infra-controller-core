@@ -1500,7 +1500,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     );
 
     // Make sure they are the machines we just created
-    let mut bmc_ip_addresses = vec![explored_managed_hosts[0].host_bmc_ip.clone().to_string()];
+    let mut bmc_ip_addresses = vec![explored_managed_hosts[0].host_bmc_ip.to_string()];
     for dpu in explored_managed_hosts[0].clone().dpus {
         bmc_ip_addresses.push(dpu.bmc_ip.to_string())
     }
