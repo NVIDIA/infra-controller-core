@@ -234,6 +234,7 @@ async fn load_partition_summary(
         MachineSearchConfig::default(),
     )
     .await?;
+    txn.commit().await?;
 
     tracing::debug!(
         "Rack {} has {} machines for {} compute trays",
