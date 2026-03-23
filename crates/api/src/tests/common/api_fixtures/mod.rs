@@ -396,7 +396,9 @@ impl TestEnv {
             ManagedHostState::HostInit { machine_state } => {
                 let mc = match machine_state {
                     model::machine::MachineState::Init => machine_state,
-                    model::machine::MachineState::WaitingForPlatformConfiguration => machine_state,
+                    model::machine::MachineState::WaitingForPlatformConfiguration { .. } => {
+                        machine_state
+                    }
                     model::machine::MachineState::PollingBiosSetup => machine_state,
                     model::machine::MachineState::SetBootOrder { .. } => machine_state,
                     model::machine::MachineState::UefiSetup { .. } => machine_state,

@@ -1677,7 +1677,11 @@ pub enum PerformPowerOperation {
 pub enum MachineState {
     Init,
     EnableIpmiOverLan,
-    WaitingForPlatformConfiguration,
+    WaitingForPlatformConfiguration {
+        /// Retries after BIOS job failure remediation; re-run machine_setup from this state.
+        #[serde(default)]
+        machine_setup_retry_count: u32,
+    },
     /// Wait for BIOS config job (Dell) to complete before PollingBiosSetup / SetBootOrder.
     WaitingForBiosJob {
         bios_config_info: BiosConfigInfo,
@@ -1741,6 +1745,12 @@ pub struct BiosConfigInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bios_job_id: Option<String>,
     pub bios_config_state: BiosConfigState,
+    /// Retry counter for BIOS config job failure remediation (HandleBiosJobFailure). Defaults to 0 for backwards compatibility.
+    #[serde(default)]
+    pub retry_count: u32,
+    /// Count of full machine_setup re-attempts after successful failure remediation (power/BMC reset).
+    #[serde(default)]
+    pub machine_setup_retry_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
@@ -1919,10 +1929,17 @@ pub enum HostPlatformConfigurationState {
     },
     CheckHostConfig,
     UnlockHost,
-    /// When bios_config_info is Some, we are waiting for the BIOS job to complete (Dell).
+    /// Run `machine_setup` / BIOS PATCH; on job ID, transition to [`WaitingForBiosJob`].
     ConfigureBios {
+        /// Legacy only: persisted `Some` is migrated to `WaitingForBiosJob` on next handle. New flows use [`WaitingForBiosJob`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bios_config_info: Option<BiosConfigInfo>,
+        #[serde(default)]
+        machine_setup_retry_count: u32,
+    },
+    /// Wait for Dell (etc.) BIOS config Redfish job to complete before `PollingBiosSetup` (mirrors HostInit `WaitingForBiosJob`).
+    WaitingForBiosJob {
+        bios_config_info: BiosConfigInfo,
     },
     PollingBiosSetup,
     SetBootOrder {
