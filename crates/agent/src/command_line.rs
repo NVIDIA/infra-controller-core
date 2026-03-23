@@ -304,6 +304,31 @@ pub struct RunOptions {
                 When set, the agent sends config updates via gRPC instead of running embedded FMDS."
     )]
     pub fmds_grpc_server: Option<String>,
+    #[clap(
+        long,
+        help = "Address of the NVUE REST API (e.g. https://localhost:8765). \
+                When set, the agent applies NVUE config via the REST API instead of \
+                exec'ing into the HBN container."
+    )]
+    pub nvue_api_address: Option<String>,
+    #[clap(
+        long,
+        help = "Username for NVUE REST API basic auth. \
+                Format: env:<VAR>, file:<path>, or value:<literal> (plain string treated as value)."
+    )]
+    pub nvue_api_user: Option<String>,
+    #[clap(
+        long,
+        help = "Password for NVUE REST API basic auth. \
+                Format: env:<VAR>, file:<path>, or value:<literal> (plain string treated as value)."
+    )]
+    pub nvue_api_passwd: Option<String>,
+    #[clap(
+        long,
+        default_value = "false",
+        help = "Skip TLS certificate verification for the NVUE REST API."
+    )]
+    pub nvue_api_insecure: bool,
 }
 
 #[derive(Parser, Debug)]

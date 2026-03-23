@@ -331,6 +331,30 @@ pub async fn setup_and_run(
     // used in the event that hbn crashes and can no longer read the actual version of hbn
     let hbn_device_names = HBNDeviceNames::hbn_23();
 
+    let nvue_applier: Box<dyn crate::nvue_applier::NvueApplier> =
+        if let Some(ref addr) = options.nvue_api_address {
+            tracing::info!(
+                nvue_api_address = addr,
+                "Using NVUE REST API for config application"
+            );
+            Box::new(
+                crate::nvue_applier::ApiApplier::new(
+                    addr,
+                    options.nvue_api_user.as_deref(),
+                    options.nvue_api_passwd.as_deref(),
+                    options.nvue_api_insecure,
+                    agent_config.hbn.root_dir.clone(),
+                    agent_config.hbn.skip_reload,
+                )
+                .wrap_err("Failed to create NVUE API client")?,
+            )
+        } else {
+            Box::new(crate::nvue_applier::ContainerApplier::new(
+                agent_config.hbn.root_dir.clone(),
+                agent_config.hbn.skip_reload,
+            ))
+        };
+
     let mut main_loop = MainLoop {
         forge_client_config,
         build_version,
@@ -355,6 +379,7 @@ pub async fn setup_and_run(
         factory_mac_address,
         service_addrs,
         close_sender,
+        nvue_applier,
         network_monitor_handle,
         extension_service_manager: extension_services::ExtensionServiceManager::default(),
     };
@@ -385,6 +410,7 @@ struct MainLoop {
     fmds_minimum_hbn_version: Version<'static>,
     nvue_minimum_hbn_version: Version<'static>,
     service_addrs: ServiceAddresses,
+    nvue_applier: Box<dyn crate::nvue_applier::NvueApplier>,
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
     extension_service_manager: extension_services::ExtensionServiceManager,
@@ -643,10 +669,9 @@ impl MainLoop {
 
                             if bridging_result.is_ok() {
                                 ethernet_virtualization::update_nvue(
+                                    self.nvue_applier.as_ref(),
                                     virtualization_type,
-                                    &self.agent_config.hbn.root_dir,
                                     &conf,
-                                    self.agent_config.hbn.skip_reload,
                                     self.hbn_device_names.clone(),
                                 )
                                 .await

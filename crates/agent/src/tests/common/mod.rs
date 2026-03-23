@@ -115,6 +115,10 @@ pub fn setup_agent_run_env(
             skip_upgrade_check: false,
             dhcp_grpc_server: None,
             fmds_grpc_server: None,
+            nvue_api_address: None,
+            nvue_api_user: None,
+            nvue_api_passwd: None,
+            nvue_api_insecure: false,
         }))),
     };
 

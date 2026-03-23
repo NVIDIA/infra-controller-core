@@ -94,6 +94,10 @@ opentelemetry_sdk = { workspace = true, features = [
 prometheus = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
+reqwest = { default-features = false, features = [
+  "rustls-tls",
+  "json",
+], workspace = true }
 resolv-conf = { workspace = true }
 rtnetlink = { workspace = true }
 rustls = { workspace = true }
@@ -111,6 +115,7 @@ prost = { workspace = true }
 tower = { workspace = true }
 tower-http = { features = ["trace"], workspace = true }
 tracing = { workspace = true }
+urlencoding = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 uzers = { workspace = true }
 version-compare = { workspace = true }
@@ -123,10 +128,6 @@ tonic-prost-build = { workspace = true }
 [dev-dependencies]
 ctor = { workspace = true }
 prost = { workspace = true }
-reqwest = { default-features = false, features = [
-  "rustls-tls",
-  "stream",
-], workspace = true }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 

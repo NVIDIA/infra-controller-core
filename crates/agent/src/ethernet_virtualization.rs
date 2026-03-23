@@ -48,7 +48,7 @@ use crate::{
 const MAX_EXPECTED_SIZE: u64 = 1048576; // 1 MiB
 
 /// ACL to prevent access to nvued's API
-const NVUED_BLOCK_RULE: &str = r"
+pub(crate) const NVUED_BLOCK_RULE: &str = r"
 [iptables]
 # Block access to nvued API
 -A INPUT -p tcp --dport 8765 -j DROP
@@ -122,7 +122,7 @@ impl InterfaceState {
     }
 }
 
-struct EthernetVirtualizerPaths {
+pub(crate) struct EthernetVirtualizerPaths {
     interfaces: FPath,
     frr: FPath,
     daemons: FPath,
@@ -164,7 +164,7 @@ struct PostAction {
     path: FPath,
 }
 
-fn paths(hbn_root: &Path) -> EthernetVirtualizerPaths {
+pub(crate) fn paths(hbn_root: &Path) -> EthernetVirtualizerPaths {
     let ps = EthernetVirtualizerPaths {
         interfaces: FPath(hbn_root.join(interfaces::PATH)),
         frr: FPath(hbn_root.join(frr::PATH)),
@@ -177,13 +177,12 @@ fn paths(hbn_root: &Path) -> EthernetVirtualizerPaths {
 
 // Update network config using nvue (`nv`). Return Ok(true) if the config change, Ok(false) if not.
 pub async fn update_nvue(
+    nvue_applier: &dyn crate::nvue_applier::NvueApplier,
     vpc_virtualization_type: VpcVirtualizationType,
-    hbn_root: &Path,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    // if true don't run the `nv` commands after writing the file
-    skip_post: bool,
     hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
+    let hbn_root = nvue_applier.hbn_root();
     let hbn_version = hbn::read_version().await?;
 
     let l_ip_str = match &nc.managed_host_config {
@@ -437,6 +436,10 @@ pub async fn update_nvue(
         },
     };
 
+    // Static file housekeeping that applies regardless of applier type.
+    // These files live on the HBN container filesystem and are not part of the
+    // NVUE config that gets applied via `nv config replace` or the REST API.
+
     // Cleanup any left over non-NVUE temp files
     let _ = paths(hbn_root);
 
@@ -451,7 +454,7 @@ pub async fn update_nvue(
     rules.push_str(acl_rules::ARP_SUPPRESSION_RULE);
     match write(rules, &path_acl, "NVUE ACL", false) {
         Ok(true) => {
-            if !skip_post {
+            if !nvue_applier.skip_reload() {
                 let cmd = acl_rules::RELOAD_CMD;
                 if let Err(err) = hbn::run_in_container_shell(cmd).await {
                     tracing::error!("running nvue extra acl post '{}': {err:#}", cmd);
@@ -465,44 +468,15 @@ pub async fn update_nvue(
         Err(err) => tracing::error!("write nvue extra ACL: {err:#}"),
     }
 
-    // nvue can save a copy of the config here. If that exists nvue uses it on boot.
-    // We always want to use the most recent `nv config apply`, so ensure this doesn't exist.
-    let saved_config = hbn_root.join(nvue::SAVE_PATH);
-    if saved_config.exists()
-        && let Err(err) = fs::remove_file(&saved_config)
-    {
-        tracing::warn!(
-            "Failed removing old startup.yaml at {}: {err:#}",
-            saved_config.display()
-        );
+    // If switching to the admin network, force the write even if the config
+    // appears unchanged or exceeds MAX_EXPECTED_SIZE. Workaround for a past
+    // incident where an oversized tenant config blocked the admin transition.
+    if nc.use_admin_network {
+        nvue_applier.set_force_next_write(true);
     }
 
-    // Write the config we're going to apply
     let next_contents = nvue::build(conf)?;
-    let path = FPath(hbn_root.join(nvue::PATH));
-    path.cleanup();
-    // If switching to the admin network, we want to just force the write.
-    // We've seen a past incident where a tenant managed to create a config
-    // that exceeded MAX_EXPECTED_SIZE.  Because of the diff check failing, it
-    // also prevented a successful termination because the NVUE config couldn't
-    // be switched to the admin network.
-    if !write(
-        next_contents,
-        &path,
-        "NVUE",
-        nc.use_admin_network && path.0.exists() && path.0.metadata()?.len() > MAX_EXPECTED_SIZE,
-    )
-    .wrap_err(format!("NVUE config at {path}"))?
-    {
-        // config didn't change OR we are switching to the admin network.
-        return Ok(false);
-    };
-
-    if !skip_post {
-        // Make it so
-        nvue::apply(hbn_root, &path).await?;
-    }
-    Ok(true)
+    nvue_applier.apply(next_contents).await
 }
 
 // Update internal bridge configuration for traffic-intercept routing and bridging.
@@ -1491,7 +1465,7 @@ fn instance_interface_acls_by_name(
 
 // Update configuration file
 // Returns true if the file has changes, false otherwise.
-fn write(
+pub(crate) fn write(
     // What to write into the file
     next_contents: String,
     // The file to write to
@@ -1752,7 +1726,7 @@ impl fmt::Display for FPath {
 
 /// Delete the non-NVUE ACL rules so that they don't interfere with NVUE.
 /// Also delete the very old VPC migration ACL rules, which used a non-standard naming convention
-fn cleanup_old_acls(hbn_root: &Path) {
+pub(crate) fn cleanup_old_acls(hbn_root: &Path) {
     let old_acls = hbn_root.join(acl_rules::PATH);
 
     let mut old_acls_test = old_acls.clone();
@@ -1910,11 +1884,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1946,11 +1922,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1993,11 +1971,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -2040,11 +2020,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -2077,11 +2059,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -2120,11 +2104,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -2166,11 +2152,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -2220,11 +2208,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -2265,11 +2255,13 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        let skip_reload = true;
+        let applier =
+            crate::nvue_applier::ContainerApplier::new(hbn_root.to_path_buf(), skip_reload);
         let has_changes = super::update_nvue(
+            &applier,
             virtualization_type,
-            hbn_root,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;

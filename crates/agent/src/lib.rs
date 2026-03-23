@@ -70,6 +70,7 @@ mod mtu;
 pub mod netlink;
 pub mod network_monitor;
 pub mod nvue; // pub so that integration tests can read nvue::PATH
+pub mod nvue_applier;
 mod ovs;
 mod periodic_config_fetcher;
 mod sysfs;

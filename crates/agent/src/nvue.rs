@@ -16,7 +16,6 @@
  */
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use ::rpc::forge as rpc;
@@ -739,54 +738,8 @@ pub async fn hack_platform_config_for_nvue() -> eyre::Result<()> {
     Ok(())
 }
 
-// Apply the config at `config_path`.
-pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<()> {
-    match run_apply(hbn_root, &config_path.0).await {
-        Ok(_) => {
-            config_path.del("BAK");
-            Ok(())
-        }
-        Err(err) => {
-            tracing::error!("update_nvue post command failed: {err:#}");
-
-            // If the config apply failed, we won't be using it, so move it out
-            // of the way to an .error file for others to enjoy (while attempting
-            // to remove any previous .error file in the process).
-            let path_error = config_path.with_ext("error");
-            if path_error.exists()
-                && let Err(e) = fs::remove_file(path_error.clone())
-            {
-                tracing::warn!(
-                    "Failed to remove previous error file ({}): {e}",
-                    path_error.display()
-                );
-            }
-
-            if let Err(err) = fs::rename(config_path, &path_error) {
-                eyre::bail!(
-                    "rename {config_path} to {} on error: {err:#}",
-                    path_error.display()
-                );
-            }
-            // .. and copy the old one back.
-            // This also ensures that we retry writing the config on subsequent runs.
-            let path_bak = config_path.backup();
-            if path_bak.exists()
-                && let Err(err) = fs::rename(&path_bak, config_path)
-            {
-                eyre::bail!(
-                    "rename {} to {config_path}, reverting on error: {err:#}",
-                    path_bak.display(),
-                );
-            }
-
-            Err(err)
-        }
-    }
-}
-
-// Ask NVUE to use the config at `path`
-async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
+// Ask NVUE to use the config at `path` by exec'ing into the HBN container.
+pub(crate) async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
     let mut in_container_path = path
         .strip_prefix(hbn_root)
         .wrap_err("Stripping hbn_root prefix from path to make in-container path")?
