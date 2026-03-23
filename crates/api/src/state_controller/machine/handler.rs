@@ -8832,14 +8832,20 @@ async fn restart_dpu(
     let dpu_redfish_client = services.create_redfish_client_from_machine(machine).await?;
 
     // We have seen the boot order be reset on DPUs in some edge cases (for example, after upgrading the BMC and CEC on BF3s)
-    // This should take care of handling such cases. It is a no-op most of the time
-    if let Err(e) = dpu_redfish_client
-        .boot_once(libredfish::Boot::UefiHttp)
-        .await
-    {
-        // We use a Dell to mock our BMC responses in the integration tests. UefiHttp boot is not implemented
-        // for Dells, so this call is failing in our tests. Regardless, it is ok to not make this call blocking.
-        tracing::error!(%e, "Failed to configure DPU {} to boot once", machine.id);
+    // This should take care of handling such cases. It is a no-op most of the time.
+    // Skip for DPUs that get their BFB installed via redfish or DPF, they don't need to HTTP boot.
+    let redfish_install = machine.bmc_info.supports_bfb_install()
+        && services.site_config.dpu_config.dpu_enable_secure_boot;
+
+    if !redfish_install && !services.site_config.dpf.enabled {
+        let _ = dpu_redfish_client
+            .boot_once(libredfish::Boot::UefiHttp)
+            .await
+            .map_err(|e| {
+                // We use a Dell to mock our BMC responses in the integration tests. UefiHttp boot is not implemented
+                // for Dells, so this call is failing in our tests. Regardless, it is ok to not make this call blocking.
+                tracing::error!(%e, "Failed to configure DPU {} to boot once", machine.id);
+            });
     }
 
     if let Err(e) = dpu_redfish_client
