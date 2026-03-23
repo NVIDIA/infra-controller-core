@@ -50,6 +50,39 @@ pub enum HostHardwareType {
     DellPowerEdgeR750,
     #[serde(rename = "wiwynn_gb200_nvl")]
     WiwynnGB200Nvl,
+    #[serde(rename = "liteon_power_shelf")]
+    LiteOnPowerShelf,
+    #[serde(rename = "nvidia_switch_nd5200_ld")]
+    NvidiaSwitchNd5200Ld,
+    #[serde(rename = "nvidia_dgx_h100")]
+    NvidiaDgxH100,
+}
+
+impl fmt::Display for HostHardwareType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::DellPowerEdgeR750 => "Dell PowerEdge R750".fmt(f),
+            Self::WiwynnGB200Nvl => "WIWYNN GB200 NVL".fmt(f),
+            Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
+            Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
+            Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
+        }
+    }
+}
+
+impl HostHardwareType {
+    // This function returns how many DPUs must be attached to the
+    // platform. If None than platform can support variable number of
+    // DPUs.
+    pub fn fixed_number_of_dpu(&self) -> Option<u8> {
+        match self {
+            Self::DellPowerEdgeR750 => None,
+            Self::WiwynnGB200Nvl => Some(2),
+            Self::LiteOnPowerShelf => Some(0),
+            Self::NvidiaSwitchNd5200Ld => Some(0),
+            Self::NvidiaDgxH100 => Some(1),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Default)]

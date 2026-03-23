@@ -304,6 +304,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub machine_validation_config: MachineValidationConfig,
 
+    /// Machine identity (SPIFFE JWT-SVID) config. Section `[machine_identity]`.
+    #[serde(default)]
+    pub machine_identity: MachineIdentityConfig,
+
     #[serde(default)]
     pub bypass_rbac: bool,
 
@@ -409,6 +413,14 @@ pub struct CarbideConfig {
     // rms_api_url is the URL to the Rack Manager Service API.
     pub rms_api_url: Option<String>,
 
+    /// rack_types contains the rack type definitions. When expected racks
+    /// are created, they are given a rack_type name to reference. This maps
+    /// those names to the actual RackTypeConfig. This may eventually change,
+    /// and/or co-exist with a DCIM providing us an entire config as part of
+    /// the ingestion call.
+    #[serde(default)]
+    pub rack_types: model::rack_type::RackTypeConfig,
+
     /// Whether to use the host NIC instead of the DPUs on the compute trays.
     /// This is used to test the host NIC functionality.
     #[serde(
@@ -470,6 +482,9 @@ pub struct CarbideConfig {
     /// ```
     #[serde(default)]
     pub supernic_firmware_profiles: HashMap<String, HashMap<String, FirmwareFlasherProfile>>,
+
+    #[serde(default)]
+    pub component_manager: Option<component_manager::config::ComponentManagerConfig>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -489,6 +504,77 @@ pub enum ComputeAllocationEnforcement {
 pub struct DpfConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub bfb_url: String,
+    #[serde(default)]
+    pub deployment_name: Option<String>,
+    #[serde(default)]
+    pub services: Option<Vec<DpfServiceConfig>>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfServiceConfig {
+    pub name: String,
+    pub helm_repo_url: String,
+    pub helm_chart: String,
+    pub helm_version: String,
+}
+
+/// Machine identity (SPIFFE JWT-SVID) configuration.
+/// Loaded from `[machine_identity]` section in config.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MachineIdentityConfig {
+    /// Master switch. If false, SetIdentityConfiguration and SignMachineIdentity return 503.
+    #[serde(default = "machine_identity_default_enabled")]
+    pub enabled: bool,
+    /// Signing algorithm for per-org keys (e.g. ES256).
+    #[serde(default = "machine_identity_default_algorithm")]
+    pub algorithm: String,
+    /// Min token TTL permitted in seconds.
+    #[serde(default = "machine_identity_default_token_ttl_min_sec")]
+    pub token_ttl_min_sec: u32,
+    /// Max token TTL permitted in seconds.
+    #[serde(default = "machine_identity_default_token_ttl_max_sec")]
+    pub token_ttl_max_sec: u32,
+    /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
+    #[serde(default)]
+    pub token_endpoint_http_proxy: Option<String>,
+}
+
+fn machine_identity_default_enabled() -> bool {
+    true
+}
+fn machine_identity_default_algorithm() -> String {
+    "ES256".to_string()
+}
+fn machine_identity_default_token_ttl_min_sec() -> u32 {
+    60
+}
+fn machine_identity_default_token_ttl_max_sec() -> u32 {
+    86400
+}
+
+impl Default for MachineIdentityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: machine_identity_default_enabled(),
+            algorithm: machine_identity_default_algorithm(),
+            token_ttl_min_sec: machine_identity_default_token_ttl_min_sec(),
+            token_ttl_max_sec: machine_identity_default_token_ttl_max_sec(),
+            token_endpoint_http_proxy: None,
+        }
+    }
+}
+
+impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBounds {
+    fn from(mi: MachineIdentityConfig) -> Self {
+        Self {
+            token_ttl_min_sec: mi.token_ttl_min_sec,
+            token_ttl_max_sec: mi.token_ttl_max_sec,
+            algorithm: mi.algorithm,
+            encryption_key_id: "placeholder-encryption-key".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -655,13 +741,14 @@ impl CarbideConfig {
         self.supernic_firmware_profiles.get(part_number)?.get(psid)
     }
 
-    // Given a device_type, return the profile that needs to be applied
-    // to configure the DPA.
-    pub fn get_dpa_profile(&self, _device_type: String) -> String {
-        // XXX TODO XXX
-        // Figure out profile that needs to be applied to the given device type
-        // XXX TODO XXX
-        "bf3-spx-enabled".to_string()
+    // get_mlxconfig_profile looks up an MlxConfigProfile by name from
+    // the mlx-config-profiles config map. Returns None if the map is
+    // not configured or the name is not found.
+    pub fn get_mlxconfig_profile(
+        &self,
+        name: &str,
+    ) -> Option<&libmlx::profile::profile::MlxConfigProfile> {
+        self.mlxconfig_profiles.as_ref()?.get(name)
     }
 
     pub fn max_concurrent_machine_updates(&self) -> MaxConcurrentUpdates {
@@ -823,6 +910,13 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub scout_reporting_timeout: Duration,
+    /// How long to wait for UEFI boot to complete after rebooting a host
+    #[serde(
+        default = "MachineStateControllerConfig::uefi_boot_wait_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub uefi_boot_wait: Duration,
 }
 
 impl MachineStateControllerConfig {
@@ -845,6 +939,10 @@ impl MachineStateControllerConfig {
     fn scout_reporting_timeout_default() -> Duration {
         Duration::minutes(5)
     }
+
+    pub fn uefi_boot_wait_default() -> Duration {
+        Duration::minutes(5)
+    }
 }
 
 impl Default for MachineStateControllerConfig {
@@ -857,6 +955,7 @@ impl Default for MachineStateControllerConfig {
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
             scout_reporting_timeout: MachineStateControllerConfig::scout_reporting_timeout_default(
             ),
+            uefi_boot_wait: MachineStateControllerConfig::uefi_boot_wait_default(),
         }
     }
 }
@@ -2824,6 +2923,7 @@ mod tests {
             failure_retry_time: Duration::minutes(90),
             dpu_up_threshold: Duration::weeks(1),
             scout_reporting_timeout: Duration::minutes(5),
+            uefi_boot_wait: Duration::minutes(5),
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -2866,6 +2966,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
     }
@@ -2885,6 +2986,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
     }
@@ -3129,6 +3231,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -3287,6 +3390,16 @@ mod tests {
         );
 
         assert_eq!(
+            config.host_health,
+            HostHealthConfig {
+                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
+                dpu_agent_version_staleness_threshold: Duration::days(1),
+                prevent_allocations_on_stale_dpu_agent_version: true,
+                prevent_allocations_on_scout_heartbeat_timeout: true,
+                suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
+        assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
                 controller: StateControllerConfig {
@@ -3303,6 +3416,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(31),
                 dpu_up_threshold: Duration::minutes(33),
                 scout_reporting_timeout: Duration::minutes(20),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -3566,6 +3680,16 @@ mod tests {
         );
 
         assert_eq!(
+            config.host_health,
+            HostHealthConfig {
+                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
+                dpu_agent_version_staleness_threshold: Duration::days(1),
+                prevent_allocations_on_stale_dpu_agent_version: true,
+                prevent_allocations_on_scout_heartbeat_timeout: true,
+                suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
+        assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
                 controller: StateControllerConfig {
@@ -3582,6 +3706,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(20),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -4097,6 +4222,42 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             .get_supernic_firmware_profile("900-9D3B4-00CV-TA0", "MT_0000000999")
             .unwrap();
         assert_eq!(p2.firmware_spec.version, "32.44.0000");
+    }
+
+    #[test]
+    fn get_mlxconfig_profile_lookup() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .extract()
+            .unwrap();
+
+        // Profile exists in config.
+        let profile = config
+            .get_mlxconfig_profile("test-profile")
+            .expect("should find test-profile");
+        assert_eq!(profile.name, "test-profile");
+        assert_eq!(profile.registry.name, "mlx_generic");
+
+        // Second profile also exists.
+        let profile2 = config
+            .get_mlxconfig_profile("test-profile2")
+            .expect("should find test-profile2");
+        assert_eq!(profile2.name, "test-profile2");
+
+        // Non-existent profile returns None.
+        assert!(config.get_mlxconfig_profile("nonexistent").is_none());
+    }
+
+    #[test]
+    fn get_mlxconfig_profile_none_when_unconfigured() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+
+        // No mlx-config-profiles section at all.
+        assert!(config.mlxconfig_profiles.is_none());
+        assert!(config.get_mlxconfig_profile("anything").is_none());
     }
 
     #[test]

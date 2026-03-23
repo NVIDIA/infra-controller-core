@@ -46,9 +46,6 @@ impl UpdateCredentials {
                 CredentialPurpose::Hbn => CredentialKey::DpuHbn {
                     machine_id: self.machine_id,
                 },
-                CredentialPurpose::LoginUser => CredentialKey::DpuSsh {
-                    machine_id: self.machine_id,
-                },
                 CredentialPurpose::Bmc => CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::BmcRoot {
                         bmc_mac_address: self

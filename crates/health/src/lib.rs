@@ -73,6 +73,9 @@ pub enum HealthError {
 
     #[error("BMC Error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("HTTP(S) error: {0}")]
+    HttpError(String),
 }
 
 impl From<String> for HealthError {
@@ -114,6 +117,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             source_cfg.client_key.clone(),
             &source_cfg.api_url,
             config.collectors.nmxt.is_enabled(),
+            config.collectors.nvue.is_enabled(),
         ));
         sources.push(api_client as Arc<dyn EndpointSource>);
     }
@@ -212,7 +216,10 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let join_discovery: tokio::task::JoinHandle<Result<(), HealthError>> = tokio::spawn({
         let config = config_arc.clone();
-        let shard_manager = ShardManager::new(config.shard, config.shards_count);
+        let shard_manager = ShardManager {
+            shard: config.shard,
+            shards_count: config.shards_count,
+        };
         let limiter: Arc<dyn RateLimiter> =
             if let Configurable::Enabled(rate_limit) = &config.rate_limit {
                 Arc::new(BucketLimiter::new(

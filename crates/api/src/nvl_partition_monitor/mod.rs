@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,8 +25,8 @@ use chrono::Utc;
 use config_version::Versioned;
 use db::machine::find_machine_ids;
 use db::managed_host::load_by_machine_ids;
-use db::nvl_logical_partition::{IdColumn as LpIdColumn, LogicalPartition};
-use db::nvl_partition::{IdColumn, NvlPartition, NvlPartitionName};
+use db::nvl_logical_partition::IdColumn as LpIdColumn;
+use db::nvl_partition::IdColumn;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, ObjectColumnFilter, machine};
 use metrics::{AppliedChange, NmxmPartitionOperationStatus, NvlPartitionMonitorMetrics};
@@ -35,8 +36,11 @@ use model::instance::status::nvlink::InstanceNvLinkStatus;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkStatusObservation};
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::nvl_logical_partition::LogicalPartition;
+use model::nvl_partition::{NvlPartition, NvlPartitionName};
 use sqlx::PgPool;
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 use crate::api::TransactionVending;
@@ -158,7 +162,7 @@ impl PartitionProcessingContext {
         if let Some(matching_logical_partition) =
             self.db_nvl_logical_partitions.get(logical_partition_id)
         {
-            if db::nvl_logical_partition::is_marked_as_deleted(matching_logical_partition) {
+            if model::nvl_logical_partition::is_marked_as_deleted(matching_logical_partition) {
                 tracing::error!(
                     "logical partition already marked as deleted, cannot modify physical partition"
                 );
@@ -638,19 +642,22 @@ impl NvlPartitionMonitor {
         }
     }
 
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
         if self.config.enabled {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("nvl-partition-monitor")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         }
 
-        Ok(stop_sender)
+        Ok(())
     }
 
-    pub async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    pub async fn run(&self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.config.monitor_run_interval);
         loop {
             let mut tick = timer.tick();
@@ -668,7 +675,7 @@ impl NvlPartitionMonitor {
 
             tokio::select! {
                 _ = tick.sleep() => {},
-                _ = &mut stop_receiver => {
+                _ = cancel_token.cancelled() => {
                     tracing::info!("NvlPartitionMonitor stop was requested");
                     return;
                 }
@@ -853,18 +860,18 @@ impl NvlPartitionMonitor {
         &self,
         machine_nvlink_info: HashMap<MachineId, Option<MachineNvLinkInfo>>,
         nmx_m_gpus: &[libnmxm::nmxm_model::Gpu],
-        db_nvl_partitions: Vec<db::nvl_partition::NvlPartition>,
+        db_nvl_partitions: Vec<NvlPartition>,
         nmx_m_partitions: &[libnmxm::nmxm_model::Partition],
         metrics: &mut NvlPartitionMonitorMetrics,
     ) -> CarbideResult<(
         HashMap<MachineId, Option<MachineNvLinkInfo>>,
-        Vec<db::nvl_partition::NvlPartition>,
+        Vec<NvlPartition>,
     )> {
-        // Only run validation once per hour.
+        // Only run once every 15 minutes.
         {
             let last_validation = self.last_nvlink_info_validation.lock().unwrap();
             if let Some(last_time) = *last_validation
-                && last_time.elapsed() < std::time::Duration::from_secs(3600)
+                && last_time.elapsed() < std::time::Duration::from_secs(900)
             {
                 return Ok((machine_nvlink_info, db_nvl_partitions));
             }
@@ -1842,7 +1849,7 @@ impl NvlPartitionMonitor {
                 match operation.operation_type {
                     NmxmPartitionOperationType::Create => {
                         // Create the nvl partition in the database
-                        let new_partition = db::nvl_partition::NewNvlPartition {
+                        let new_partition = model::nvl_partition::NewNvlPartition {
                             id: NvLinkPartitionId::new(),
                             logical_partition_id,
                             name: NvlPartitionName::try_from(operation.name.clone())?,
@@ -1866,7 +1873,7 @@ impl NvlPartitionMonitor {
                                 }
                             },
                         };
-                        let _partition = new_partition.create(txn).await?;
+                        let _partition = db::nvl_partition::create(&new_partition, txn).await?;
                     }
                     NmxmPartitionOperationType::Remove(_) => {
                         db::nvl_partition::final_delete(
@@ -1892,7 +1899,7 @@ impl NvlPartitionMonitor {
 
         // walk the logical partition list and check if any logical partitions need to be cleaned up
         for lp in db_nvl_logical_partitions {
-            if db::nvl_logical_partition::is_marked_as_deleted(lp) {
+            if model::nvl_logical_partition::is_marked_as_deleted(lp) {
                 tracing::info!(logical_partition_id = %lp.id, "Deleting logical partition");
                 db::nvl_logical_partition::final_delete(lp.id, txn).await?;
             }

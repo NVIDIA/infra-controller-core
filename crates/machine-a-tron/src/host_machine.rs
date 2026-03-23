@@ -154,7 +154,11 @@ impl HostMachine {
         let mut dpu_dhcp_rx = Some(dpu_dhcp_rx);
         let dpus_in_nic_mode = config.dpus_in_nic_mode;
 
-        let dpu_machines = (1..=config.dpu_per_host_count as u8)
+        let num_dpu = config
+            .hw_type
+            .fixed_number_of_dpu()
+            .unwrap_or(config.dpu_per_host_count as u8);
+        let dpu_machines = (1..=num_dpu)
             .map(|index| {
                 DpuMachine::new(
                     config.hw_type,
@@ -416,6 +420,7 @@ impl HostMachine {
 
         HostDetails {
             mat_id: self.mat_id,
+            hw_type: Some(self.host_info.hw_type),
             machine_id: self
                 .live_state
                 .read()

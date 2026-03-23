@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::panic::Location;
 use std::sync::Arc;
@@ -55,7 +56,8 @@ use model::site_explorer::{
 };
 use model::switch::{NewSwitch, SwitchConfig};
 use sqlx::PgPool;
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use version_compare::Cmp;
 
@@ -179,19 +181,22 @@ impl SiteExplorer {
     }
 
     /// Start the SiteExplorer and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the SiteExplorer when dropped.
-    pub fn start(mut self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        mut self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
         if self.enabled {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("site_explorer")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         }
 
-        Ok(stop_sender)
+        Ok(())
     }
 
-    async fn run(&mut self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&mut self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
             let tick = timer.tick();
@@ -206,7 +211,7 @@ impl SiteExplorer {
 
             tokio::select! {
                 _ = tick.sleep() => {},
-                _ = &mut stop_receiver => {
+                _ = cancel_token.cancelled() => {
                     tracing::info!("SiteExplorer stop was requested");
                     return;
                 }
@@ -322,8 +327,8 @@ impl SiteExplorer {
 
         // Grab them all because we care about everything,
         // not just the subset in the current run.
-        let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await?;
-        let explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
+        let explored_endpoints = db::explored_endpoints::find_all(txn.as_pgconn()).await?;
+        let explored_managed_hosts = db::explored_managed_host::find_all(txn.as_pgconn()).await?;
 
         txn.rollback().await?;
 
@@ -718,7 +723,7 @@ impl SiteExplorer {
 
         let mac_addresses = report.all_mac_addresses();
         for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut txn, mac_address).await?;
+            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
             if let Some(interface) = mi.first() {
                 db::machine_interface::associate_interface_with_machine(
                     &interface.id,
@@ -731,7 +736,7 @@ impl SiteExplorer {
 
         let mac_addresses = report.all_mac_addresses();
         for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut txn, mac_address).await?;
+            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
             if let Some(interface) = mi.first() {
                 db::machine_interface::associate_interface_with_machine(
                     &interface.id,
@@ -742,7 +747,7 @@ impl SiteExplorer {
             }
         }
 
-        if let Some(rack_id) = expected_shelf.rack_id {
+        if let Some(ref rack_id) = expected_shelf.rack_id {
             let rack = match db::rack::get(txn.as_mut(), rack_id).await {
                 Ok(rack) => rack,
                 Err(_) => db::rack::create(
@@ -774,7 +779,7 @@ impl SiteExplorer {
 
         // Register the power shelf with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
-            if let Some(rack_id) = expected_shelf.rack_id {
+            if let Some(ref rack_id) = expected_shelf.rack_id {
                 let new_node_info = NewNodeInfo {
                     rack_id: rack_id.to_string(),
                     node_id: power_shelf_id.to_string(),
@@ -836,7 +841,7 @@ impl SiteExplorer {
             .map_err(|e| CarbideError::InvalidArgument(format!("Invalid MAC address: {}", e)))?;
 
         let interface =
-            db::machine_interface::find_by_mac_address(&mut txn, host_mac_address).await?;
+            db::machine_interface::find_by_mac_address(&mut *txn, host_mac_address).await?;
 
         let (host_nvos_mac_addresses, host_nvos_ip_addresses) =
             if let Some(interface) = interface.first() {
@@ -905,7 +910,7 @@ impl SiteExplorer {
 
         let mac_addresses = explored_endpoint.report.all_mac_addresses();
         for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut txn, mac_address).await?;
+            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
             if let Some(interface) = mi.first() {
                 db::machine_interface::associate_interface_with_machine(
                     &interface.id,
@@ -929,7 +934,7 @@ impl SiteExplorer {
 
         // Register the switch with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
-            if let Some(rack_id) = expected_switch.rack_id {
+            if let Some(ref rack_id) = expected_switch.rack_id {
                 let bmc_mac_address = expected_switch.bmc_mac_address;
                 let new_node_info = NewNodeInfo {
                     rack_id: rack_id.to_string(),
@@ -1453,7 +1458,7 @@ impl SiteExplorer {
             db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
                 .await?;
         let interfaces = db::machine_interface::find_all(&mut txn).await?;
-        let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+        let explored_endpoints = db::explored_endpoints::find_all(txn.as_pgconn()).await?;
         let expected_switches = db::expected_switch::find_all(&mut txn).await?;
         let expected_machines = db::expected_machine::find_all(&mut txn).await?;
         let expected_power_shelves = db::expected_power_shelf::find_all(&mut txn).await?;
@@ -2226,7 +2231,7 @@ impl SiteExplorer {
         let mut txn = self.txn_begin().await?;
 
         let is_endpoint_in_managed_host =
-            is_endpoint_in_managed_host(bmc_ip_address, &mut txn).await?;
+            is_endpoint_in_managed_host(bmc_ip_address, txn.as_pgconn()).await?;
 
         txn.commit().await?;
 
@@ -2725,7 +2730,9 @@ pub async fn get_machine_state_by_bmc_ip(
 ) -> Result<String, DatabaseError> {
     let mut txn = Transaction::begin(database_connection).await?;
 
-    let state = match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip).await? {
+    let state = match db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), bmc_ip)
+        .await?
+    {
         Some(machine_id) => {
             match machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await? {
                 Some(machine) => machine.current_state().to_string(),

@@ -48,7 +48,9 @@ use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::ServiceAddresses;
-use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
+use crate::fmds_client::FmdsUpdater;
+use crate::health::HealthCheckParams;
+use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -119,17 +121,34 @@ pub async fn setup_and_run(
     let agent_meter = get_dpu_agent_meter();
     let metrics = create_metrics(agent_meter);
 
-    if options.enable_metadata_service {
-        crate::metadata_service::spawn_metadata_service(
-            agent_config.metadata_service.address.clone(),
-            agent_config.telemetry.metrics_address.clone(),
-            metrics.clone(),
-            instance_metadata_state.clone(),
-        )
-        .unwrap_or_else(|e| {
-            tracing::warn!("Failed to run metadata service: {:#}", e);
-        });
-    }
+    // And now set up our FMDS updater, which will either be our original
+    // embedded server (which spins up a local listener within the DPU agent)
+    // or will talk to an external FMDS server via gRPC (which is colocated
+    // with the agent on the DPU).
+    let fmds_updater = if let Some(ref fmds_addr) = options.fmds_grpc_server {
+        tracing::info!(
+            fmds_address = fmds_addr,
+            "Using FmdsUpdater::External FMDS service"
+        );
+        let fmds_client = crate::fmds_client::FmdsGrpcClient::connect(fmds_addr)
+            .await
+            .wrap_err("Failed to connect to external FMDS service")?;
+        FmdsUpdater::External(fmds_client)
+    } else {
+        if options.enable_metadata_service {
+            crate::metadata_service::spawn_metadata_service(
+                agent_config.metadata_service.address.clone(),
+                agent_config.telemetry.metrics_address.clone(),
+                metrics.clone(),
+                instance_metadata_state.clone(),
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to run metadata service: {:#}", e);
+            });
+        }
+        tracing::info!("Using FmdsUpdater::Embedded FMDS service");
+        FmdsUpdater::Embedded(instance_metadata_state.clone())
+    };
 
     // Some of these metrics only need to be set once, let's take care of them
     // now.
@@ -188,6 +207,21 @@ pub async fn setup_and_run(
     )
     .await;
 
+    let host_machine_id = match get_host_machine_id_retry(
+        &agent_config,
+        &periodic_config_fetcher,
+        Arc::clone(&forge_client_config),
+        &forge_api_server,
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+            return Err(e);
+        }
+    };
+
     let duppet_options = SyncOptions {
         dry_run: false,
         quiet: false,
@@ -195,7 +229,7 @@ pub async fn setup_and_run(
         summary_format: SummaryFormat::PlainText,
     };
 
-    managed_files::main_sync(duppet_options, &machine_id, &periodic_config_fetcher);
+    managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
 
     if let Err(e) = lldp::set_lldp_system_description(&machine_id) {
         tracing::warn!("Couldn't update LLDP system description: {e}")
@@ -302,7 +336,7 @@ pub async fn setup_and_run(
         build_version,
         machine_id,
         periodic_config_reader,
-        instance_metadata_state,
+        fmds_updater,
         client_cert_renewer,
         hbn_device_names,
         is_hbn_up: false,
@@ -334,7 +368,7 @@ struct MainLoop {
     factory_mac_address: MacAddress,
     build_version: String,
     periodic_config_reader: Box<periodic_config_fetcher::PeriodicConfigFetcherReader>,
-    instance_metadata_state: Arc<InstanceMetadataRouterStateImpl>,
+    fmds_updater: FmdsUpdater,
     client_cert_renewer: ClientCertRenewer,
     hbn_device_names: HBNDeviceNames,
     is_hbn_up: bool,
@@ -359,6 +393,45 @@ struct MainLoop {
 struct IterationResult {
     stop_agent: bool,
     loop_period: std::time::Duration,
+}
+
+/// Returns the last DHCP request timestamps for all known host interfaces.
+///
+/// When `dhcp_grpc_server` is `Some`, fetches timestamps from the dhcp-server
+/// control service via gRPC.  This is required when the DHCP server runs in a
+/// separate container where the timestamps file on the DPU filesystem is not
+/// accessible.
+///
+/// When `dhcp_grpc_server` is `None`, reads the timestamps file directly from
+/// the DPU filesystem (`DhcpTimestampsFilePath::Dpu`).
+///
+/// Errors on either path are logged as warnings and an empty list is returned
+/// so the caller can degrade gracefully.
+async fn fetch_last_dhcp_requests(dhcp_grpc_server: Option<&str>) -> Vec<rpc::LastDhcpRequest> {
+    if let Some(addr) = dhcp_grpc_server {
+        return match crate::dhcp_server_grpc_client::get_dhcp_timestamps(addr).await {
+            Ok(requests) => requests,
+            Err(e) => {
+                tracing::warn!("Failed to fetch DHCP timestamps via gRPC: {e:#}");
+                vec![]
+            }
+        };
+    }
+
+    let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
+    if let Err(e) = dhcp_timestamps.read() {
+        tracing::warn!(
+            "Failed to read from {}: {e}",
+            DhcpTimestampsFilePath::Dpu.path_str()
+        );
+    }
+    dhcp_timestamps
+        .into_iter()
+        .map(|(host_interface_id, timestamp)| rpc::LastDhcpRequest {
+            host_interface_id: Some(host_interface_id),
+            timestamp,
+        })
+        .collect()
 }
 
 impl MainLoop {
@@ -441,25 +514,15 @@ impl MainLoop {
             dpu_extension_services: vec![],
         };
 
-        let mut last_dhcp_requests = vec![];
-        let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
-        if let Err(e) = dhcp_timestamps.read() {
-            tracing::warn!(
-                "Failed to read from {}: {e}",
-                DhcpTimestampsFilePath::Dpu.path_str()
-            );
-        }
-        for (host_interface_id, timestamp) in dhcp_timestamps.into_iter() {
-            last_dhcp_requests.push(rpc::LastDhcpRequest {
-                host_interface_id: Some(host_interface_id),
-                timestamp: timestamp.to_string(),
-            });
-        }
-        status_out.last_dhcp_requests = last_dhcp_requests;
-
         // `read` does not block
         match self.periodic_config_reader.net_conf_read() {
             Some(conf) => {
+                // DHCP server only runs on the primary dpu or when using the tenant network
+                if !conf.use_admin_network || conf.is_primary_dpu {
+                    status_out.last_dhcp_requests =
+                        fetch_last_dhcp_requests(self.options.dhcp_grpc_server.as_deref()).await;
+                }
+
                 let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
                 let proposed_routes: Vec<_> = conf
@@ -525,6 +588,7 @@ impl MainLoop {
                         self.agent_config.hbn.skip_reload,
                         &self.service_addrs,
                         self.hbn_device_names.clone(),
+                        self.options.dhcp_grpc_server.clone(),
                     )
                     .await;
 
@@ -701,25 +765,25 @@ impl MainLoop {
                 // It will guarantee that the Instance Config that is acknowledged to
                 // carbide via the status message is actually visible to the tenant via
                 // FMDS
-                self.instance_metadata_state
-                    .update_instance_data(instance_data.clone());
-                self.instance_metadata_state
-                    .update_network_configuration(Some(conf.clone()));
+                self.fmds_updater
+                    .update(instance_data.clone(), Some(conf.clone()))
+                    .await;
                 status_out.instance_config_version = instance_data
                     .as_ref()
                     .map(|instance| instance.config_version.version_string());
                 current_instance_config_version = status_out.instance_config_version.clone();
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
-                let health_report = health::health_check(
-                    &self.agent_config.hbn.root_dir,
-                    &tenant_peers,
+                let health_report = health::health_check(HealthCheckParams {
+                    hbn_root: &self.agent_config.hbn.root_dir,
+                    host_routes: &tenant_peers,
                     has_changed_configs,
-                    conf.min_dpu_functioning_links.unwrap_or(2),
-                    &conf.route_servers,
-                    self.hbn_device_names.clone(),
-                    !conf.use_admin_network || conf.is_primary_dpu,
-                )
+                    min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
+                    route_servers: &conf.route_servers,
+                    hbn_device_names: self.hbn_device_names.clone(),
+                    include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
+                    run_restricted_mode_check: false,
+                })
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);

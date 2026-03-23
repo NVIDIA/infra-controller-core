@@ -176,7 +176,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                ResourcePool => resource_pool::list(&ctx.api_client).await?,
+                ResourcePool => resource_pool::list(Default::default(), &ctx.api_client).await?,
                 DpaInterface =>  {
                     dpa::show(
                         &ShowDpa {

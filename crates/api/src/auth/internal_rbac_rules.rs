@@ -130,8 +130,6 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Agent, Machineatron, SiteAgent],
         );
         x.perm("RecordDpuNetworkStatus", vec![Agent, Machineatron]);
-        x.perm("RecordHardwareHealthReport", vec![Health]);
-        x.perm("GetHardwareHealthReport", vec![]);
         x.perm(
             "ListHealthReportOverrides",
             vec![ForgeAdminCLI, Health, Ssh, SshRs],
@@ -170,7 +168,7 @@ impl InternalRBACRules {
         x.perm("CleanupMachineCompleted", vec![Machineatron, Scout]);
         x.perm("ReportForgeScoutError", vec![Scout]);
         x.perm("DiscoverDhcp", vec![Dhcp, Machineatron]);
-        x.perm("FindInterfaces", vec![ForgeAdminCLI]);
+        x.perm("FindInterfaces", vec![ForgeAdminCLI, Agent]);
         x.perm("DeleteInterface", vec![ForgeAdminCLI]);
         x.perm("FindIpAddress", vec![ForgeAdminCLI]);
         x.perm(
@@ -219,7 +217,7 @@ impl InternalRBACRules {
         x.perm("UpdateTenantKeyset", vec![SiteAgent]);
         x.perm("DeleteTenantKeyset", vec![SiteAgent]);
         x.perm("ValidateTenantPublicKey", vec![SiteAgent, Ssh, SshRs]);
-        x.perm("GetDpuSSHCredential", vec![ForgeAdminCLI]);
+        x.perm("GetBmcCredentials", vec![Health]);
         x.perm("GetAllManagedHostNetworkStatus", vec![ForgeAdminCLI]);
         x.perm(
             "GetSiteExplorationReport",
@@ -282,6 +280,15 @@ impl InternalRBACRules {
         );
         x.perm("AttestQuote", vec![Anonymous]);
         x.perm("SignMachineIdentity", vec![Agent]);
+        x.perm("GetIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("SetIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "DeleteIdentityConfiguration",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm("GetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("SetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("RenameMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
@@ -379,6 +386,7 @@ impl InternalRBACRules {
         x.perm("GetRackFirmware", vec![ForgeAdminCLI]);
         x.perm("ApplyRackFirmware", vec![ForgeAdminCLI]);
         x.perm("GetRackFirmwareJobStatus", vec![ForgeAdminCLI]);
+        x.perm("GetRackFirmwareHistory", vec![ForgeAdminCLI]);
         x.perm("RebootCompleted", vec![Machineatron, Scout]);
         x.perm("PersistValidationResult", vec![Scout]);
         x.perm("GetMachineValidationResults", vec![ForgeAdminCLI, Scout]);
@@ -636,6 +644,28 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Rla],
         );
         x.perm(
+            "AddExpectedRack",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
+        x.perm(
+            "DeleteExpectedRack",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
+        x.perm(
+            "UpdateExpectedRack",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
+        x.perm(
+            "GetExpectedRack",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+        );
+        x.perm(
+            "GetAllExpectedRacks",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+        );
+        x.perm("ReplaceAllExpectedRacks", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("DeleteAllExpectedRacks", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
             "FindSwitchStateHistories",
             vec![ForgeAdminCLI, Machineatron, Rla],
         );
@@ -703,6 +733,11 @@ impl InternalRBACRules {
         );
         x.perm("UpdateComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("ComponentPowerControl", vec![ForgeAdminCLI, Rla]);
+        x.perm("GetComponentInventory", vec![ForgeAdminCLI, Rla]);
+        x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Rla]);
+        x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Rla]);
+        x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Rla]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

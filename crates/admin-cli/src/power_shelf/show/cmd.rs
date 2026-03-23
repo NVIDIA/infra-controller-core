@@ -15,9 +15,6 @@
  * limitations under the License.
  */
 
-use std::str::FromStr;
-
-use carbide_uuid::power_shelf::PowerShelfId;
 use color_eyre::Result;
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::PowerShelf;
@@ -171,30 +168,7 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let query = match args.identifier {
-        Some(id) if !id.is_empty() => {
-            // Try to parse as PowerShelfId, otherwise treat as name.
-            match PowerShelfId::from_str(&id) {
-                Ok(power_shelf_id) => rpc::forge::PowerShelfQuery {
-                    name: None,
-                    power_shelf_id: Some(power_shelf_id),
-                },
-                Err(_) => rpc::forge::PowerShelfQuery {
-                    name: Some(id),
-                    power_shelf_id: None,
-                },
-            }
-        }
-        _ => {
-            // No identifier provided, list all
-            rpc::forge::PowerShelfQuery {
-                name: None,
-                power_shelf_id: None,
-            }
-        }
-    };
-
-    let response = api_client.0.find_power_shelves(query).await?;
+    let response = api_client.0.find_power_shelves(args).await?;
     let power_shelves = response.power_shelves;
 
     show_power_shelves(power_shelves, output_format).ok();

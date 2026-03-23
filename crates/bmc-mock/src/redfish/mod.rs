@@ -35,6 +35,7 @@ pub mod secure_boot;
 pub mod sensor;
 pub mod service_root;
 pub mod software_inventory;
+pub mod storage;
 pub mod task_service;
 pub mod update_service;
 
