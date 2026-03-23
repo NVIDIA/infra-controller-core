@@ -2823,6 +2823,17 @@ async fn handle_dpu_reprovision(
                 )));
             }
 
+            // For Supermicro ARS-121L-DNR machines, perform DPU power cycle sequence
+            // before powering the host back on.
+            if let Err(e) =
+                reprovision_dpu_power_cycle_supermicro(state, dpu_snapshot, ctx).await
+            {
+                return Ok(StateHandlerOutcome::wait(format!(
+                    "DPU power cycle sequence failed for host {}: {e}",
+                    state.host_snapshot.id
+                )));
+            }
+
             // Mark all re-provisioned DPUs for topology update.
             let dpus_snapshots_for_reprov = &state
                 .dpu_snapshots
@@ -3036,6 +3047,61 @@ async fn handle_dpu_reprovision(
 }
 
 // Returns true if update_manager flagged this managed host as needing its firmware examined
+
+/// For Supermicro ARS-121L-DNR machines, issue a DPU power cycle followed by an ERoT graceful
+/// restart to all DPUs after the host is powered off during DPU reprovision. This is needed as
+/// as Grace-Grace's DPU has power sources from both nodes in the chassis. Shutting down a host
+/// does not necessarily shutdown the DPU.
+async fn reprovision_dpu_power_cycle_supermicro(
+    state: &ManagedHostStateSnapshot,
+    dpu_snapshot: &Machine,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<(), StateHandlerError> {
+    let is_grace_grace = state
+        .host_snapshot
+        .hardware_info
+        .as_ref()
+        .and_then(|hi| hi.dmi_data.as_ref())
+        .is_some_and(|dmi| {
+            bmc_vendor::BMCVendor::from_udev_dmi(&dmi.sys_vendor).is_supermicro()
+                && dmi.product_name == "ARS-121L-DNR"
+        });
+    if !is_grace_grace {
+        return Ok(());
+    }
+    for dpu in &state.dpu_snapshots {
+        let bmc_ip = dpu
+            .bmc_addr()
+            .map_or_else(|| "unknown".to_string(), |a| a.to_string());
+        let dpu_bmc_client = ctx
+            .services
+            .create_redfish_client_from_machine(dpu)
+            .await?;
+        dpu_bmc_client
+            .power(SystemPowerControl::PowerCycle)
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "power_cycle_dpu failed for DPU {} (BMC: {}): {e}",
+                    dpu.id,
+                    bmc_ip,
+                ))
+            })?;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        dpu_bmc_client
+            .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "chassis_reset_dpu failed for DPU {} (BMC: {}): {e}",
+                    dpu.id,
+                    bmc_ip,
+                ))
+            })?;
+    }
+    Ok(())
+}
+
 fn host_reprovisioning_requested(state: &ManagedHostStateSnapshot) -> bool {
     state.host_snapshot.host_reprovision_requested.is_some()
 }
