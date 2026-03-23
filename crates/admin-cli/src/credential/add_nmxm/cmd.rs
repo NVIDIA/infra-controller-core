@@ -16,13 +16,11 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn add_nmxm(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req: forgerpc::CredentialCreationRequest = data.into();
-    api_client.0.create_credential(req).await?;
+    api_client.0.create_credential(data).await?;
     Ok(())
 }

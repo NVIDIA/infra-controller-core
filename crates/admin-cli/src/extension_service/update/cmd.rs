@@ -17,7 +17,6 @@
 
 use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::forge::UpdateDpuExtensionServiceRequest;
 
 use super::super::show::cmd::convert_extension_services_to_table;
 use super::args::Args;
@@ -30,7 +29,7 @@ pub async fn handle_update(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let req: UpdateDpuExtensionServiceRequest = args.try_into()?;
+    let req: ::rpc::forge::UpdateDpuExtensionServiceRequest = args.try_into()?;
     let extension_service = api_client.0.update_dpu_extension_service(req).await?;
 
     if is_json {

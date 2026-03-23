@@ -16,9 +16,7 @@
  */
 
 use std::borrow::Cow;
-use std::str::FromStr;
 
-use carbide_uuid::switch::SwitchId;
 use color_eyre::Result;
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::Switch;
@@ -134,30 +132,7 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let query = match args.identifier {
-        Some(id) if !id.is_empty() => {
-            // Try to parse as SwitchId, otherwise treat as name
-            match SwitchId::from_str(&id) {
-                Ok(switch_id) => rpc::forge::SwitchQuery {
-                    name: None,
-                    switch_id: Some(switch_id),
-                },
-                Err(_) => rpc::forge::SwitchQuery {
-                    name: Some(id),
-                    switch_id: None,
-                },
-            }
-        }
-        _ => {
-            // No identifier provided, list all
-            rpc::forge::SwitchQuery {
-                name: None,
-                switch_id: None,
-            }
-        }
-    };
-
-    let response = api_client.0.find_switches(query).await?;
+    let response = api_client.0.find_switches(args).await?;
     let switches = response.switches;
 
     show_switches(switches, output_format).ok();

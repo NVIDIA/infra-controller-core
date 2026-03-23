@@ -16,13 +16,11 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use rpc::forge::VpcPrefixDeletionRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req: VpcPrefixDeletionRequest = args.into();
-    api_client.0.delete_vpc_prefix(req).await?;
+    api_client.0.delete_vpc_prefix(args).await?;
     Ok(())
 }

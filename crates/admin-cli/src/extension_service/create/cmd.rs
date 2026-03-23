@@ -17,7 +17,6 @@
 
 use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::forge::CreateDpuExtensionServiceRequest;
 
 use super::super::show::cmd::convert_extension_services_to_table;
 use super::args::Args;
@@ -30,7 +29,7 @@ pub async fn handle_create(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let req: CreateDpuExtensionServiceRequest = args.try_into()?;
+    let req: ::rpc::forge::CreateDpuExtensionServiceRequest = args.try_into()?;
     let extension_service = api_client.0.create_dpu_extension_service(req).await?;
 
     if is_json {

@@ -1312,7 +1312,6 @@ pub async fn create_test_env_with_overrides(
         &mut join_set,
         db_pool.clone(),
         work_lock_manager::KeepaliveConfig::default(),
-        cancel_token.clone(),
     )
     .await
     .expect("work_lock_manager failed to start: no availble connections?");
@@ -2072,6 +2071,17 @@ pub async fn network_configured_with_health(
     dpu_machine_id: &MachineId,
     dpu_health: Option<rpc::health::HealthReport>,
 ) {
+    network_configured_with_health_and_ext_services(env, dpu_machine_id, dpu_health, None).await
+}
+
+/// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back.
+/// When reporting back, the health and extension services statuses reported by the DPU can be overrridden
+pub async fn network_configured_with_health_and_ext_services(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+    dpu_health: Option<rpc::health::HealthReport>,
+    extension_services_state: Option<rpc::forge::DpuExtensionServiceDeploymentStatus>,
+) {
     let network_config = env
         .api
         .get_managed_host_network_config(Request::new(
@@ -2162,9 +2172,9 @@ pub async fn network_configured_with_health(
                     service_type: extension_service.service_type,
                     service_name: "".to_string(),
                     version: extension_service.version.to_string(),
-                    state:
-                        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning
-                            as i32,
+                    state: extension_services_state.unwrap_or(
+                        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning,
+                    ) as i32,
                     components: vec![],
                     message: "".to_string(),
                     removed: extension_service.removed.clone(),

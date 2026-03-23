@@ -17,7 +17,6 @@
 
 use ::rpc::admin_cli::output::{FormattedOutput, OutputFormat};
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::VpcPrefixCreationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -28,11 +27,9 @@ pub async fn create(
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let req: VpcPrefixCreationRequest = args.into();
-
     let output = api_client
         .0
-        .create_vpc_prefix(req)
+        .create_vpc_prefix(args)
         .await
         .map(ShowOutput::One)?;
 

@@ -22,7 +22,9 @@ use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn add_ufm(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req: forgerpc::CredentialCreationRequest = data.try_into()?;
-    api_client.0.create_credential(req).await?;
+    api_client
+        .0
+        .create_credential(forgerpc::CredentialCreationRequest::try_from(data)?)
+        .await?;
     Ok(())
 }

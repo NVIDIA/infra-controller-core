@@ -22,3 +22,11 @@ pub struct Args {
     #[clap(help = "Rack ID or name to show (leave empty for all)")]
     pub identifier: Option<String>,
 }
+
+impl From<Args> for ::rpc::forge::GetRackRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            id: args.identifier,
+        }
+    }
+}

@@ -20,8 +20,8 @@ use std::collections::HashMap;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
-    self as rpc, BmcEndpointRequest, CreateNetworkSecurityGroupRequest,
-    FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest, GetDpfStateRequest,
+    self as rpc, BmcEndpointRequest, FindInstanceTypesByIdsRequest,
+    FindNetworkSecurityGroupsByIdsRequest, GetDpfStateRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
     IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
     ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
@@ -339,20 +339,6 @@ impl ApiClient {
             }),
         };
         Ok(self.0.insert_health_report_override(request).await?)
-    }
-
-    pub async fn bmc_reset(
-        &self,
-        bmc_endpoint_request: Option<BmcEndpointRequest>,
-        machine_id: Option<String>,
-        use_ipmitool: bool,
-    ) -> CarbideCliResult<rpc::AdminBmcResetResponse> {
-        let request = rpc::AdminBmcResetRequest {
-            bmc_endpoint_request,
-            machine_id,
-            use_ipmitool,
-        };
-        Ok(self.0.admin_bmc_reset(request).await?)
     }
 
     pub async fn admin_power_control(
@@ -1508,31 +1494,6 @@ impl ApiClient {
         Ok(self.0.update_machine_metadata(request).await?)
     }
 
-    pub async fn create_network_security_group(
-        &self,
-        id: Option<String>,
-        tenant_organization_id: String,
-        metadata: rpc::Metadata,
-        stateful_egress: bool,
-        rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
-    ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
-        let request = CreateNetworkSecurityGroupRequest {
-            id,
-            tenant_organization_id,
-            metadata: Some(metadata),
-            network_security_group_attributes: Some(NetworkSecurityGroupAttributes {
-                stateful_egress,
-                rules,
-            }),
-        };
-
-        let response = self.0.create_network_security_group(request).await?;
-
-        response
-            .network_security_group
-            .ok_or(CarbideCliError::Empty)
-    }
-
     pub async fn get_single_network_security_group(
         &self,
         id: String,
@@ -1832,57 +1793,6 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    pub async fn create_bmc_user(
-        &self,
-        ip_address: Option<String>,
-        mac_address: Option<MacAddress>,
-        machine_id: Option<String>,
-        create_username: String,
-        create_password: String,
-        create_role_id: Option<String>,
-    ) -> CarbideCliResult<rpc::CreateBmcUserResponse> {
-        let bmc_endpoint_request = if ip_address.is_some() || mac_address.is_some() {
-            Some(rpc::BmcEndpointRequest {
-                ip_address: ip_address.unwrap_or_default(),
-                mac_address: mac_address.map(|mac| mac.to_string()),
-            })
-        } else {
-            None
-        };
-
-        let request = rpc::CreateBmcUserRequest {
-            bmc_endpoint_request,
-            machine_id,
-            create_username,
-            create_password,
-            create_role_id,
-        };
-        Ok(self.0.create_bmc_user(request).await?)
-    }
-    pub async fn delete_bmc_user(
-        &self,
-        ip_address: Option<String>,
-        mac_address: Option<MacAddress>,
-        machine_id: Option<String>,
-        delete_username: String,
-    ) -> CarbideCliResult<rpc::DeleteBmcUserResponse> {
-        let bmc_endpoint_request = if ip_address.is_some() || mac_address.is_some() {
-            Some(rpc::BmcEndpointRequest {
-                ip_address: ip_address.unwrap_or_default(),
-                mac_address: mac_address.map(|mac| mac.to_string()),
-            })
-        } else {
-            None
-        };
-
-        let request = rpc::DeleteBmcUserRequest {
-            bmc_endpoint_request,
-            machine_id,
-            delete_username,
-        };
-        Ok(self.0.delete_bmc_user(request).await?)
-    }
-
     pub async fn enable_infinite_boot(
         &self,
         bmc_endpoint_request: Option<BmcEndpointRequest>,
@@ -1893,18 +1803,6 @@ impl ApiClient {
             machine_id,
         };
         Ok(self.0.enable_infinite_boot(request).await?)
-    }
-
-    pub async fn is_infinite_boot_enabled(
-        &self,
-        bmc_endpoint_request: Option<BmcEndpointRequest>,
-        machine_id: Option<String>,
-    ) -> CarbideCliResult<rpc::IsInfiniteBootEnabledResponse> {
-        let request = rpc::IsInfiniteBootEnabledRequest {
-            bmc_endpoint_request,
-            machine_id,
-        };
-        Ok(self.0.is_infinite_boot_enabled(request).await?)
     }
 
     pub async fn lockdown(
@@ -1919,18 +1817,6 @@ impl ApiClient {
             action: Some(action as i32),
         };
         Ok(self.0.lockdown(request).await?)
-    }
-
-    pub async fn lockdown_status(
-        &self,
-        bmc_endpoint_request: Option<BmcEndpointRequest>,
-        machine_id: MachineId,
-    ) -> CarbideCliResult<::rpc::site_explorer::LockdownStatus> {
-        let request = rpc::LockdownStatusRequest {
-            bmc_endpoint_request,
-            machine_id: Some(machine_id),
-        };
-        Ok(self.0.lockdown_status(request).await?)
     }
 
     pub async fn get_remediation(

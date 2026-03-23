@@ -212,10 +212,10 @@ service Forge {
 
   rpc ValidateTenantPublicKey(ValidateTenantPublicKeyRequest) returns (ValidateTenantPublicKeyResponse);
 
-  // Admin CLI actions
+  // Query for BMC Credentials
+  rpc GetBmcCredentials(GetBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
 
-  // Query Vault for the DPU's SSH admin password
-  rpc GetDpuSSHCredential(CredentialRequest) returns (CredentialResponse);
+  // Admin CLI actions
 
   // List all machines network status (HBN), as reported by `forge-dpu-agent`
   rpc GetAllManagedHostNetworkStatus(ManagedHostNetworkStatusRequest) returns (ManagedHostNetworkStatusResponse);
@@ -2903,6 +2903,8 @@ message Machine {
   optional MachineNVLinkInfo nvlink_info = 43;
 
   optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
+
+  optional common.RackId rack_id = 45;
 }
 
 message InstanceNetworkRestrictions {
@@ -3157,13 +3159,19 @@ message SSHKeyValidationResponse {
   UserRoles role = 2;
 }
 
-message CredentialRequest {
-  string host_id = 1; // UUID, IP address, host name or MAC address
+message GetBmcCredentialsRequest {
+  string mac_addr = 1;
 }
 
-message CredentialResponse {
-  string username = 1;
-  string password = 2;
+message GetBmcCredentialsResponse {
+  BmcCredentials credentials = 1;
+}
+
+message BmcCredentials {
+  oneof type {
+    UsernamePassword username_password = 1;
+    SessionToken session_token = 2;
+  }
 }
 
 message GetSiteExplorationRequest {
@@ -3806,7 +3814,6 @@ message BMCMetaDataGetResponse {
 message MachineCredentialsUpdateRequest {
   enum CredentialPurpose {
     HBN = 0;
-    LOGIN_USER = 1;
     BMC = 2;
   }
 
@@ -6348,6 +6355,10 @@ message UsernamePassword {
   string password = 2;
 }
 
+message SessionToken {
+  string token = 1;
+}
+
 message DpuExtensionServiceCredential {
   string registry_url = 1;
 
@@ -6833,7 +6844,7 @@ message RackFirmwareJobStatusResponse {
 }
 
 message RackFirmwareHistoryRequest {
-  string firmware_id = 1;      // Optional: filter by firmware ID. Empty string means no filter.
+  string firmware_id = 1; // Optional: filter by firmware ID. Empty string means no filter.
   repeated string rack_ids = 2; // Optional: filter by rack IDs. Empty list returns all racks.
 }
 

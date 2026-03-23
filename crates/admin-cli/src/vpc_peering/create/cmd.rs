@@ -17,7 +17,6 @@
 
 use ::rpc::admin_cli::output::OutputFormat;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::VpcPeeringCreationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -29,9 +28,8 @@ pub async fn create(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    let req: VpcPeeringCreationRequest = args.into();
 
-    let vpc_peering = api_client.0.create_vpc_peering(req).await?;
+    let vpc_peering = api_client.0.create_vpc_peering(args).await?;
 
     if is_json {
         println!(

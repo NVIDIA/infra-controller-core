@@ -16,14 +16,12 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::SetHostUefiPasswordRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn set_uefi_password(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req: SetHostUefiPasswordRequest = data.into();
-    let response = api_client.0.set_host_uefi_password(req).await?;
+    let response = api_client.0.set_host_uefi_password(data).await?;
     println!(
         "successfully set UEFI password for host (jid: {:#?})",
         response.job_id

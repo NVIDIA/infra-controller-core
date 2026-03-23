@@ -217,7 +217,7 @@ impl InternalRBACRules {
         x.perm("UpdateTenantKeyset", vec![SiteAgent]);
         x.perm("DeleteTenantKeyset", vec![SiteAgent]);
         x.perm("ValidateTenantPublicKey", vec![SiteAgent, Ssh, SshRs]);
-        x.perm("GetDpuSSHCredential", vec![ForgeAdminCLI]);
+        x.perm("GetBmcCredentials", vec![Health]);
         x.perm("GetAllManagedHostNetworkStatus", vec![ForgeAdminCLI]);
         x.perm(
             "GetSiteExplorationReport",

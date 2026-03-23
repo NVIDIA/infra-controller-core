@@ -214,14 +214,10 @@ fn test_start(pool: sqlx::PgPool) {
     let test_module = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
-    let work_lock_manager_handle = db::work_lock_manager::start(
-        &mut join_set,
-        pool.clone(),
-        Default::default(),
-        cancel_token.clone(),
-    )
-    .await
-    .unwrap();
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default())
+            .await
+            .unwrap();
 
     let mut config: Arc<CarbideConfig> = Arc::new(
         Figment::new()

@@ -17,7 +17,7 @@
 
 use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::forge::{FindInstancesByDpuExtensionServiceRequest, InstanceDpuExtensionServiceInfo};
+use ::rpc::forge::InstanceDpuExtensionServiceInfo;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -30,10 +30,9 @@ pub async fn handle_show_instances(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let req: FindInstancesByDpuExtensionServiceRequest = args.into();
     let response = api_client
         .0
-        .find_instances_by_dpu_extension_service(req)
+        .find_instances_by_dpu_extension_service(args)
         .await?;
 
     if is_json {

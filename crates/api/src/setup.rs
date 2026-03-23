@@ -223,7 +223,6 @@ pub async fn start_api(
         join_set,
         db_pool.clone(),
         work_lock_manager::KeepaliveConfig::default(),
-        cancel_token.clone(),
     )
     .await?;
 

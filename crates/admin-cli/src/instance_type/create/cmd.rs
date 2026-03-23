@@ -16,7 +16,6 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::CreateInstanceTypeRequest;
 
 use super::args::Args;
 use crate::instance_type::common::convert_itypes_to_table;
@@ -32,8 +31,7 @@ pub async fn create(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let req: CreateInstanceTypeRequest = args.try_into()?;
-
+    let req: ::rpc::forge::CreateInstanceTypeRequest = args.try_into()?;
     let itype = api_client
         .0
         .create_instance_type(req)

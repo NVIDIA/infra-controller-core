@@ -16,13 +16,11 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn delete_nmxm(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req: forgerpc::CredentialDeletionRequest = data.into();
-    api_client.0.delete_credential(req).await?;
+    api_client.0.delete_credential(data).await?;
     Ok(())
 }

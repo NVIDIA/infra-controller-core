@@ -78,6 +78,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+          volumeMounts:
+            - name: forge-certs
+              mountPath: /opt/forge
+      volumes:
+        - name: forge-certs
+          hostPath:
+            path: /opt/forge
+            type: DirectoryOrCreate
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

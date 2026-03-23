@@ -21,10 +21,7 @@ use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn show_rack(api_client: &ApiClient, show_opts: Args) -> Result<()> {
-    let query = rpc::forge::GetRackRequest {
-        id: show_opts.identifier,
-    };
-    let response = api_client.0.get_rack(query).await?;
+    let response = api_client.0.get_rack(show_opts).await?;
     let racks = response.rack;
     if racks.is_empty() {
         println!("No racks found");

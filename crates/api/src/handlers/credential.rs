@@ -30,9 +30,6 @@ use crate::api::Api;
 use crate::credentials::UpdateCredentials;
 use crate::handlers::utils::convert_and_log_machine_id;
 
-/// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
-const DPU_ADMIN_USERNAME: &str = "forge";
-
 /// Default Username for the admin BMC account.
 const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
 
@@ -352,71 +349,40 @@ pub(crate) async fn update_machine_credentials(
         .map(Response::new)?)
 }
 
-pub(crate) async fn get_dpu_ssh_credential(
+/// As for now we only support UsernamePassword credentials type,
+/// in future this function should support SessionToken if available
+pub(crate) async fn get_bmc_credentals(
     api: &Api,
-    request: tonic::Request<rpc::CredentialRequest>,
-) -> Result<Response<rpc::CredentialResponse>, tonic::Status> {
+    request: tonic::Request<rpc::GetBmcCredentialsRequest>,
+) -> Result<Response<rpc::GetBmcCredentialsResponse>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    let query = request.into_inner().host_id;
+    let req = request.into_inner();
 
-    let mut txn = api.txn_begin().await?;
+    let bmc_mac_address: mac_address::MacAddress = req
+        .mac_addr
+        .parse()
+        .map_err(CarbideError::MacAddressParseError)?;
 
-    let machine_id = match db::machine::find_by_query(&mut txn, &query).await? {
-        Some(machine) => {
-            crate::api::log_machine_id(&machine.id);
-            if !machine.is_dpu() {
-                return Err(CarbideError::NotFoundError {
-                    kind: "dpu",
-                    id: format!(
-                        "Searching for machine {} was found for '{query}', but it is not a DPU",
-                        &machine.id
-                    ),
-                }
-                .into());
-            }
-            machine.id
-        }
-        None => {
-            return Err(CarbideError::NotFoundError {
-                kind: "machine",
-                id: query,
-            }
-            .into());
-        }
-    };
-
-    // We don't need this transaction
-    txn.rollback().await?;
-
-    // Load credentials from Vault
     let credentials = api
         .credential_manager
-        .get_credentials(&CredentialKey::DpuSsh { machine_id })
+        .get_credentials(&CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+        })
         .await
-        .map_err(|err| CarbideError::internal(format!("Secret manager error: {err}")))?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "dpu-ssh-cred",
-            id: machine_id.to_string(),
-        })?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?
+        .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
 
     let (username, password) = match credentials {
         Credentials::UsernamePassword { username, password } => (username, password),
     };
 
-    // UpdateMachineCredentials only allows a single account currently so warn if it's
-    // not the correct one.
-    if username != DPU_ADMIN_USERNAME {
-        tracing::warn!(
-            expected = DPU_ADMIN_USERNAME,
-            found = username,
-            "Unexpected username in Vault"
-        );
-    }
-
-    Ok(Response::new(rpc::CredentialResponse {
-        username,
-        password,
+    Ok(Response::new(rpc::GetBmcCredentialsResponse {
+        credentials: Some(rpc::BmcCredentials {
+            r#type: Some(rpc::bmc_credentials::Type::UsernamePassword(
+                rpc::UsernamePassword { username, password },
+            )),
+        }),
     }))
 }
 

@@ -26,12 +26,7 @@ pub async fn history(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let request = rpc::forge::RackFirmwareHistoryRequest {
-        firmware_id: opts.firmware_id.unwrap_or_default(),
-        rack_ids: opts.rack_id,
-    };
-
-    let result = api_client.0.get_rack_firmware_history(request).await?;
+    let result = api_client.0.get_rack_firmware_history(opts).await?;
 
     if format == OutputFormat::Json {
         // Flatten to map<rack_id, Vec<record>> for serialization
