@@ -61,9 +61,11 @@ fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String
 
 pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
     // Sanitize rack ID for HTML content and links (it can contain arbitrary content)
+    let id = id.to_string();
+    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+
     let mut rack_id = String::new();
-    let link_path: String = url::form_urlencoded::byte_serialize(rack_id.as_bytes()).collect();
-    askama_escape::Html.write_escaped(&mut rack_id, &id.to_string())?;
+    askama_escape::Html.write_escaped(&mut rack_id, &id)?;
 
     let short_id = if rack_id.len() < 10 {
         &rack_id
