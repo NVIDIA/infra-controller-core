@@ -306,6 +306,7 @@ impl HostMachine {
                 }
             }
             Some(cmd) = self.bmc_control_rx.recv() => {
+                tracing::debug!("HOST set_system_power request: {cmd:?}");
                 match cmd {
                     BmcCommand::SetSystemPower { request, reply } => {
                         let response = self.set_system_power(request);
@@ -428,7 +429,7 @@ impl HostMachine {
                 .observed_machine_id
                 .as_ref()
                 .map(|m| m.to_string()),
-            mat_state: self.state_machine.to_string(),
+            mat_state: self.state_machine.live_state.read().unwrap().state_string,
             api_state: self.api_state.clone(),
             oob_ip: live_state
                 .bmc_ip
