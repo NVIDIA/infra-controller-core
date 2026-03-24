@@ -567,6 +567,7 @@ pub async fn batch_allocate_instances(
                 )),
                 NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
                 NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
+                NotAllocatableReason::Quarantine => CarbideError::QuarantinedHost,
             });
         }
     }

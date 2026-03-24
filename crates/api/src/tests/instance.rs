@@ -66,7 +66,9 @@ use model::network_security_group::NetworkSecurityGroupStatusObservation;
 use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentSearchFilter};
 use model::vpc::UpdateVpcVirtualization;
 use model::vpc_prefix::VpcPrefixConfig;
-use rpc::forge::{DpuExtensionService, Issue, IssueCategory, TpmCaCert, TpmCaCertId};
+use rpc::forge::{
+    DpuExtensionService, Issue, IssueCategory, ManagedHostQuarantineMode, TpmCaCert, TpmCaCertId,
+};
 use rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp};
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -6270,4 +6272,57 @@ async fn test_allocate_instance_with_invalid_ib_partition(
     );
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_can_not_create_instances_with_machine_in_qurantine(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id))
+        .rpc();
+
+    let instance_id: InstanceId = uuid::Uuid::new_v4().into();
+
+    env.api
+        .set_managed_host_quarantine_state(tonic::Request::new(
+            rpc::forge::SetManagedHostQuarantineStateRequest {
+                machine_id: Some(host_machine_id),
+                quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
+                    mode: ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                    reason: Some("test".to_string()),
+                }),
+            },
+        ))
+        .await
+        .unwrap();
+
+    let result = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .instance_id(instance_id)
+                .machine_id(host_machine_id)
+                .config(config.clone())
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await;
+
+    // TODO: Do not leak the full database error to users
+    let err = result.expect_err("Expect instance creation to fail");
+    assert!(
+        err.message()
+            .contains("Host is not available for allocation since it is in quarantine")
+    );
 }

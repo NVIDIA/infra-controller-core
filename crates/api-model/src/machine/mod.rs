@@ -221,6 +221,8 @@ pub enum NotAllocatableReason {
     MaintenanceMode,
     #[error("A Health Alert prevents the Machine from being allocated: {0:?}")]
     HealthAlert(Box<health_report::HealthProbeAlert>),
+    #[error("The Machine is in Quarantine")]
+    Quarantine,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -298,6 +300,10 @@ impl ManagedHostStateSnapshot {
             )
         {
             return Err(NotAllocatableReason::HealthAlert(Box::new(alert.clone())));
+        }
+
+        if self.host_snapshot.network_config.quarantine_state.is_some() {
+            return Err(NotAllocatableReason::Quarantine);
         }
 
         Ok(())

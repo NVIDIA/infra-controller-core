@@ -190,6 +190,9 @@ pub enum CarbideError {
     #[error("Host is not available for allocation due to health probe alert")]
     UnhealthyHost,
 
+    #[error("Host is not available for allocation since it is in quarantine")]
+    QuarantinedHost,
+
     #[error("Lldp handling error: {0}")]
     LldpError(#[from] LldpError),
 
@@ -375,6 +378,7 @@ impl From<CarbideError> for tonic::Status {
             }
             e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
             CarbideError::UnhealthyHost => Status::failed_precondition(from.to_string()),
+            CarbideError::QuarantinedHost => Status::failed_precondition(from.to_string()),
             CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
             error @ CarbideError::ConcurrentModificationError(_, _) => {
                 Status::failed_precondition(error.to_string())
