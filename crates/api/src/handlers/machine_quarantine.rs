@@ -49,12 +49,14 @@ pub(crate) async fn set_managed_host_quarantine_state(
             .await?
             .map(Into::into);
 
-    match super::health::remove_by_source(
+    match db::machine::remove_health_report_override(
         &mut txn,
-        machine_id,
-        HealthReport::QUARANTINE_SOURCE.to_string(),
+        &machine_id,
+        health_report::OverrideMode::Merge,
+        HealthReport::QUARANTINE_SOURCE,
     )
     .await
+    .map_err(CarbideError::from)
     {
         Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
         Err(e) => return Err(e.into()),
@@ -100,10 +102,8 @@ pub(crate) async fn clear_managed_host_quarantine_state(
 ) -> Result<Response<rpc::ClearManagedHostQuarantineStateResponse>, Status> {
     log_request_data(&request);
 
-    let rpc::ClearManagedHostQuarantineStateRequest {
-        machine_id: machine_id_proto,
-    } = request.into_inner();
-    let machine_id = convert_and_log_machine_id(machine_id_proto.as_ref())?;
+    let rpc::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
+    let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -111,7 +111,19 @@ pub(crate) async fn clear_managed_host_quarantine_state(
         .await?
         .map(Into::into);
 
-    super::health::remove_by_source(&mut txn, machine_id, "quarantine".to_string()).await?;
+    match db::machine::remove_health_report_override(
+        &mut txn,
+        &machine_id,
+        health_report::OverrideMode::Merge,
+        HealthReport::QUARANTINE_SOURCE,
+    )
+    .await
+    .map_err(CarbideError::from)
+    {
+        // For older implementation, this override is not set yet.
+        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Err(e) => return Err(e.into()),
+    };
 
     txn.commit().await?;
 
