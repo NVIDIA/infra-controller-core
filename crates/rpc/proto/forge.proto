@@ -915,7 +915,8 @@ message IdentityConfig {
   string default_audience = 3;
   repeated string allowed_audiences = 4;
   uint32 token_ttl_sec = 5;
-  string subject_prefix = 6;
+  // When unset or empty, defaults to spiffe://<trust-domain-from-issuer>/
+  optional string subject_prefix = 6;
   bool rotate_key = 7;
 }
 
@@ -1004,10 +1005,23 @@ message OpenIdConfiguration {
   repeated string subject_types_supported = 4;
   repeated string id_token_signing_alg_values_supported = 5;
   uint32 version = 6;
+  // SPIFFE trust-domain style JWKS URL: `{issuer}/.well-known/spiffe/jwks.json` (GetJWKS with Spiffe kind).
+  string spiffe_jwks_uri = 7;
+}
+
+// Which JWKS document GetJWKS should return.
+enum JwksKind {
+  Unspecified = 0;  // Same as Oidc: tenant OIDC-style JWT signing JWKS (current default).
+  // Keys for verifying JWTs from this org issuer (e.g. machine identity ES256 public key).
+  Oidc = 1;
+  // SPIFFE trust-domain bundle keys (federation / SVID validation); distinct from OIDC OP JWKS above.
+  Spiffe = 2;
 }
 
 message JwksRequest {
   string organization_id = 1;
+  // When omitted, treated as Unspecified / Oidc behavior.
+  optional JwksKind kind = 2;
 }
 
 message OpenIdConfigRequest {

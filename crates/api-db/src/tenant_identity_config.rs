@@ -254,7 +254,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec!["api".to_string(), "audience2".to_string()],
             token_ttl_sec: 3600,
-            subject_prefix: "spiffe://example.com/org-x".to_string(),
+            subject_prefix: "spiffe://issuer.example.com/org-x".to_string(),
             enabled: true,
             rotate_key: false,
             algorithm: "ES256".to_string(),
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(cfg.default_audience, "api");
         assert_eq!(cfg.allowed_audiences.0, ["api", "audience2"]);
         assert_eq!(cfg.token_ttl_sec, 3600);
-        assert_eq!(cfg.subject_prefix, "spiffe://example.com/org-x");
+        assert_eq!(cfg.subject_prefix, "spiffe://issuer.example.com/org-x");
         assert!(cfg.enabled);
         assert_eq!(cfg.algorithm, "ES256");
         assert_eq!(cfg.encryption_key_id, "test-master");
@@ -308,7 +308,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec!["api".to_string()],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: "spiffe://issuer.example.com/".to_string(),
             enabled: true,
             rotate_key: false,
             algorithm: "ES256".to_string(),

@@ -121,8 +121,25 @@ impl fmt::Display for JwkBuildError {
 
 impl std::error::Error for JwkBuildError {}
 
-/// RFC 7517 `use` for public keys used to verify JWT signatures (e.g. SPIFFE JWT-SVID with ES256).
-const JWKS_KEY_USE: &str = "sig";
+/// JWK `use` (RFC 7517 / SPIFFE bundle) for the tenant signing public key in `GetJWKS`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum JwkPublicKeyUse {
+    /// RFC 7517 `sig` — OIDC-style JWT signature verification (`/.well-known/jwks.json`).
+    OidcSignature,
+    /// SPIFFE bundle `jwt-svid` — JWT-SVID validation (SPIFFE Trust Domain and Bundle §4.2.2).
+    SpiffeJwtSvid,
+}
+
+impl JwkPublicKeyUse {
+    /// Wire value for the JWK `use` parameter.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OidcSignature => "sig",
+            Self::SpiffeJwtSvid => "jwt-svid",
+        }
+    }
+}
 
 /// Maps `tenant_identity_config.signing_key_public` (SPKI PEM) into a single JWKS key.
 pub fn public_pem_to_jwk(
@@ -130,6 +147,7 @@ pub fn public_pem_to_jwk(
     kid: &str,
     algorithm: &str,
     material_updated_at: DateTime<Utc>,
+    jwk_key_use: JwkPublicKeyUse,
 ) -> Result<Jwk, JwkBuildError> {
     if algorithm != TENANT_IDENTITY_SIGNING_JWT_ALG {
         return Err(JwkBuildError(format!(
@@ -151,7 +169,7 @@ pub fn public_pem_to_jwk(
 
     Ok(Jwk {
         kty: "EC".into(),
-        r#use: JWKS_KEY_USE.into(),
+        r#use: jwk_key_use.as_str().to_string(),
         crv: "P-256".into(),
         kid: kid.to_string(),
         x: b64.encode(x),
@@ -255,13 +273,34 @@ mod tests {
             "test-kid",
             TENANT_IDENTITY_SIGNING_JWT_ALG,
             Utc::now(),
+            JwkPublicKeyUse::OidcSignature,
         )
         .expect("jwk");
         assert_eq!(jwk.kty, "EC");
-        assert_eq!(jwk.r#use, JWKS_KEY_USE);
+        assert_eq!(jwk.r#use, JwkPublicKeyUse::OidcSignature.as_str());
         assert_eq!(jwk.crv, "P-256");
         assert_eq!(jwk.kid, "test-kid");
         assert_eq!(jwk.alg, TENANT_IDENTITY_SIGNING_JWT_ALG);
         assert!(!jwk.x.is_empty() && !jwk.y.is_empty());
+    }
+
+    #[test]
+    fn public_pem_to_jwk_spiffe_uses_jwt_svid_key_use() {
+        let key_pair = rcgen::KeyPair::generate().expect("generate test key pair");
+        let private_pem = key_pair.serialize_pem();
+        let sk = SecretKey::from_pkcs8_pem(&private_pem).expect("parse PKCS#8 private PEM");
+        let pk = sk.public_key();
+        let pem = pk
+            .to_public_key_pem(p256::pkcs8::LineEnding::LF)
+            .expect("public key PEM");
+        let jwk = public_pem_to_jwk(
+            &pem,
+            "test-kid",
+            TENANT_IDENTITY_SIGNING_JWT_ALG,
+            Utc::now(),
+            JwkPublicKeyUse::SpiffeJwtSvid,
+        )
+        .expect("jwk");
+        assert_eq!(jwk.r#use, JwkPublicKeyUse::SpiffeJwtSvid.as_str());
     }
 }

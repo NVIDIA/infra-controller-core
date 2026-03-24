@@ -148,7 +148,7 @@ pub(crate) async fn get_identity_configuration(
             default_audience: cfg.default_audience.clone(),
             allowed_audiences: cfg.allowed_audiences.0.clone(),
             token_ttl_sec: cfg.token_ttl_sec as u32,
-            subject_prefix: cfg.subject_prefix.clone(),
+            subject_prefix: Some(cfg.subject_prefix.clone()),
             rotate_key: false,
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
@@ -219,18 +219,16 @@ pub(crate) async fn set_identity_configuration(
     }
 
     let req = request.into_inner();
-    let config: IdentityConfig = req
+    let proto = req
         .config
-        .ok_or_else(|| CarbideError::InvalidArgument("IdentityConfig is required".to_string()))
-        .and_then(|c| {
-            IdentityConfig::try_from_proto(
-                c,
-                &model::tenant::IdentityConfigValidationBounds::from(
-                    api.runtime_config.machine_identity.clone(),
-                ),
-            )
-            .map_err(|e: IdentityConfigValidationError| CarbideError::InvalidArgument(e.0))
-        })?;
+        .ok_or_else(|| CarbideError::InvalidArgument("IdentityConfig is required".to_string()))?;
+    let config = IdentityConfig::try_from_proto(
+        proto,
+        &model::tenant::IdentityConfigValidationBounds::from(
+            api.runtime_config.machine_identity.clone(),
+        ),
+    )
+    .map_err(|e: IdentityConfigValidationError| CarbideError::InvalidArgument(e.0))?;
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
@@ -295,7 +293,7 @@ pub(crate) async fn set_identity_configuration(
             default_audience: cfg.default_audience.clone(),
             allowed_audiences: cfg.allowed_audiences.0.clone(),
             token_ttl_sec: cfg.token_ttl_sec as u32,
-            subject_prefix: cfg.subject_prefix.clone(),
+            subject_prefix: Some(cfg.subject_prefix.clone()),
             rotate_key: false,
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),

@@ -18,8 +18,10 @@
 //! gRPC handlers for machine identity: JWT-SVID signing, JWKS, and OpenID discovery.
 //! PEM/JWK encoding helpers live in `crate::machine_identity`; persisted config in `tenant_identity_config`.
 
+use std::convert::TryFrom;
+
 use ::rpc::forge::{
-    self as rpc, Jwks, JwksRequest, MachineIdentityResponse, OpenIdConfigRequest,
+    self as rpc, Jwks, JwksKind, JwksRequest, MachineIdentityResponse, OpenIdConfigRequest,
     OpenIdConfiguration,
 };
 use db::{WithTransaction, tenant, tenant_identity_config};
@@ -44,6 +46,11 @@ pub(crate) fn require_machine_identity_site_enabled(api: &Api) -> Result<(), Sta
 fn jwks_uri_for_issuer(issuer: &str) -> String {
     let base = issuer.trim_end_matches('/');
     format!("{base}/.well-known/jwks.json")
+}
+
+fn spiffe_jwks_uri_for_issuer(issuer: &str) -> String {
+    let base = issuer.trim_end_matches('/');
+    format!("{base}/.well-known/spiffe/jwks.json")
 }
 
 async fn load_enabled_identity_for_well_known(
@@ -153,6 +160,20 @@ pub(crate) async fn get_jwks(
         .parse()
         .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
 
+    let jwks_kind = match req.kind {
+        None => JwksKind::Unspecified,
+        Some(raw) => JwksKind::try_from(raw).map_err(|_| {
+            CarbideError::InvalidArgument(format!("invalid JwksRequest.kind enum value: {raw}"))
+        })?,
+    };
+
+    let jwk_key_use = match jwks_kind {
+        JwksKind::Unspecified | JwksKind::Oidc => {
+            crate::machine_identity::JwkPublicKeyUse::OidcSignature
+        }
+        JwksKind::Spiffe => crate::machine_identity::JwkPublicKeyUse::SpiffeJwtSvid,
+    };
+
     let (cfg, version) = load_enabled_identity_for_well_known(api, &org_id).await?;
 
     if cfg.signing_key_public.trim().is_empty() || cfg.key_id.trim().is_empty() {
@@ -168,6 +189,7 @@ pub(crate) async fn get_jwks(
         &cfg.key_id,
         &cfg.algorithm,
         cfg.updated_at,
+        jwk_key_use,
     )
     .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
 
@@ -209,6 +231,7 @@ pub(crate) async fn get_open_id_configuration(
     Ok(Response::new(OpenIdConfiguration {
         issuer: cfg.issuer.clone(),
         jwks_uri: jwks_uri_for_issuer(&cfg.issuer),
+        spiffe_jwks_uri: spiffe_jwks_uri_for_issuer(&cfg.issuer),
         response_types_supported: vec!["token".into()],
         subject_types_supported: vec!["public".into()],
         id_token_signing_alg_values_supported: vec![cfg.algorithm.clone()],

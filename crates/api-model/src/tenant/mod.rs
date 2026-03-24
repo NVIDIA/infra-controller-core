@@ -33,6 +33,8 @@ use sqlx::{FromRow, Row};
 
 use crate::metadata::Metadata;
 
+mod spiffe_subject_prefix;
+
 #[derive(Clone, Debug, Default)]
 pub struct TenantSearchFilter {
     pub tenant_organization_name: Option<String>,
@@ -525,7 +527,9 @@ pub const TENANT_IDENTITY_SIGNING_JWT_ALG: &str = "ES256";
 pub struct IdentityConfigValidationError(pub String);
 
 impl IdentityConfig {
-    /// Validates proto and converts to IdentityConfig, using bounds for token_ttl and injected fields.
+    /// Validates gRPC `IdentityConfig` and converts to `IdentityConfig`, including SPIFFE
+    /// `subject_prefix` resolution against `issuer` (optional proto field defaults to
+    /// `spiffe://<trust-domain-from-issuer>/`).
     pub fn try_from_proto(
         value: rpc_forge::IdentityConfig,
         bounds: &IdentityConfigValidationBounds,
@@ -546,11 +550,13 @@ impl IdentityConfig {
                 "default_audience is required".to_string(),
             ));
         }
-        if value.subject_prefix.is_empty() {
-            return Err(IdentityConfigValidationError(
-                "subject_prefix is required".to_string(),
-            ));
-        }
+        let issuer_td = spiffe_subject_prefix::trust_domain_from_issuer(&value.issuer)
+            .map_err(IdentityConfigValidationError)?;
+        let subject_prefix = spiffe_subject_prefix::resolve_subject_prefix(
+            &issuer_td,
+            value.subject_prefix.as_deref(),
+        )
+        .map_err(IdentityConfigValidationError)?;
         if value.token_ttl_sec == 0 {
             return Err(IdentityConfigValidationError(format!(
                 "token_ttl_sec is required (must be between {} and {} seconds)",
@@ -570,7 +576,7 @@ impl IdentityConfig {
             default_audience: value.default_audience,
             allowed_audiences: value.allowed_audiences,
             token_ttl_sec: value.token_ttl_sec,
-            subject_prefix: value.subject_prefix,
+            subject_prefix,
             enabled: value.enabled,
             rotate_key: value.rotate_key,
             algorithm: bounds.algorithm.clone(),
@@ -972,7 +978,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec!["api".to_string(), "other".to_string()],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -986,7 +992,7 @@ mod tests {
         assert_eq!(config.default_audience, "api");
         assert_eq!(config.allowed_audiences, vec!["api", "other"]);
         assert_eq!(config.token_ttl_sec, 3600);
-        assert_eq!(config.subject_prefix, "example.com");
+        assert_eq!(config.subject_prefix, "spiffe://issuer.example.com/");
         assert!(config.enabled);
         assert!(!config.rotate_key);
         assert_eq!(config.algorithm, "ES256");
@@ -1001,7 +1007,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec!["api".to_string()],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1023,7 +1029,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1044,7 +1050,7 @@ mod tests {
             default_audience: String::new(),
             allowed_audiences: vec![],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1058,14 +1064,59 @@ mod tests {
     }
 
     #[test]
-    fn identity_config_try_from_proto_empty_subject_domain() {
+    fn identity_config_try_from_proto_accepts_custom_subject_prefix_in_proto() {
         let proto = rpc_forge::IdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 3600,
-            subject_prefix: String::new(),
+            subject_prefix: Some("spiffe://issuer.example.com/workloads".to_string()),
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+        };
+        let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
+        assert_eq!(
+            config.subject_prefix,
+            "spiffe://issuer.example.com/workloads"
+        );
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_empty_optional_subject_prefix_defaults() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://issuer.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: Some(String::new()),
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+        };
+        let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
+        assert_eq!(config.subject_prefix, "spiffe://issuer.example.com/");
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_rejects_non_spiffe_subject_prefix() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://issuer.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: Some("https://issuer.example.com/p".to_string()),
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1075,7 +1126,28 @@ mod tests {
             encryption_key_id: "test".to_string(),
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("subject_prefix is required"));
+        assert!(err.0.contains("spiffe://"));
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_rejects_subject_prefix_trust_domain_mismatch() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://issuer.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: Some("spiffe://other.example/wl".to_string()),
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+        };
+        let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
+        assert!(err.0.contains("does not match"));
     }
 
     #[test]
@@ -1086,7 +1158,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 0,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1107,7 +1179,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 30,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1128,7 +1200,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 100000,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
