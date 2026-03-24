@@ -3235,6 +3235,9 @@ message SshRequest {
 message CopyBfbToDpuRshimRequest {
   SshRequest ssh_request = 1;
   reserved 2;
+  // Optional host BMC IP; if provided, the host will be power-cycled
+  // before BFB copy to ensure the DPU has rshim control.
+  optional string host_bmc_ip = 3;
 }
 
 message UpdateMachineHardwareInfoRequest {

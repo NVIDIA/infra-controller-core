@@ -372,6 +372,21 @@ pub enum PreingestionState {
     Initial,
     RecheckVersions,
     ScriptRunning,
+    BfbRecoveryNeeded {
+        reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        host_bmc_ip: Option<IpAddr>,
+    },
+    BfbHostPowerCycleWait {
+        host_bmc_ip: IpAddr,
+        started_at: DateTime<Utc>,
+    },
+    BfbCopyInProgress {
+        started_at: DateTime<Utc>,
+    },
+    BfbInstallationWait {
+        started_at: DateTime<Utc>,
+    },
     InitialReset {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,

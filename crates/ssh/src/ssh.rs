@@ -79,7 +79,7 @@ where
         russh_client_config(),
     )
     .await?;
-    let timeout_secs = 20 * 60; // i'm seeing transfer speeds of 1.3MiB/sec with a 1.3GiB file, so....
+    let timeout_secs = 30 * 60; // 30 min - allows for slower networks (~0.7 MiB/s for 1.3 GiB file)
     let buffer_size_bytes = 1024 * 1024; // this needs to be fairly large for a large file.
     let show_progress = true;
     client

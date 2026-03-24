@@ -16,7 +16,6 @@
  */
 
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
@@ -550,34 +549,89 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     api: &Api,
     request: Request<rpc::CopyBfbToDpuRshimRequest>,
 ) -> Result<Response<()>, Status> {
+    use db::WithTransaction;
+    use model::site_explorer::PreingestionState;
+
     log_request_data(&request);
     let req = request.into_inner();
 
-    let bmc_endpoint_request = match req.ssh_request {
-        Some(ssh_req) => match ssh_req.endpoint_request {
-            Some(bmc_request) => {
-                // Port 22 is the default SSH port--carbide-api assumes port :4443
-                let ip_address: String = if bmc_request.ip_address.contains(':') {
-                    bmc_request.ip_address
-                } else {
-                    format!("{}:22", bmc_request.ip_address)
-                };
-
-                rpc::BmcEndpointRequest {
-                    ip_address,
-                    mac_address: bmc_request.mac_address,
-                }
-            }
-            None => {
-                return Err(CarbideError::MissingArgument("bmc_endpoint_request").into());
-            }
+    let ip_str = match &req.ssh_request {
+        Some(ssh_req) => match &ssh_req.endpoint_request {
+            Some(bmc_request) => bmc_request.ip_address.clone(),
+            None => return Err(CarbideError::MissingArgument("bmc_endpoint_request").into()),
         },
-        None => {
-            return Err(CarbideError::MissingArgument("ssh_request").into());
-        }
+        None => return Err(CarbideError::MissingArgument("ssh_request").into()),
     };
 
-    do_copy_bfb_to_dpu_rshim(api, &bmc_endpoint_request).await?;
+    let ip_str_clean = ip_str.split(':').next().unwrap_or(&ip_str);
+    let dpu_ip: std::net::IpAddr = ip_str_clean
+        .parse()
+        .map_err(|_| CarbideError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
+
+    let host_bmc_ip: Option<std::net::IpAddr> = req
+        .host_bmc_ip
+        .map(|s| {
+            s.parse()
+                .map_err(|_| CarbideError::InvalidArgument(format!("Invalid host BMC IP: {s}")))
+        })
+        .transpose()?;
+
+    let dpu_endpoints = db::explored_endpoints::find_by_ips(&api.database_connection, vec![dpu_ip])
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    let dpu_endpoint = dpu_endpoints.first().ok_or(CarbideError::NotFoundError {
+        kind: "explored_endpoint",
+        id: dpu_ip.to_string(),
+    })?;
+
+    match &dpu_endpoint.preingestion_state {
+        PreingestionState::Initial
+        | PreingestionState::Complete
+        | PreingestionState::Failed { .. } => {}
+        other => {
+            return Err(CarbideError::InvalidArgument(format!(
+                "Cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
+                 Wait for it to complete or fail first.",
+            ))
+            .into());
+        }
+    }
+
+    if let Some(host_ip) = host_bmc_ip {
+        let host_endpoints =
+            db::explored_endpoints::find_by_ips(&api.database_connection, vec![host_ip])
+                .await
+                .map_err(|e| CarbideError::internal(e.to_string()))?;
+        if let Some(host_ep) = host_endpoints.first() {
+            match &host_ep.preingestion_state {
+                PreingestionState::Initial
+                | PreingestionState::Complete
+                | PreingestionState::Failed { .. } => {}
+                other => {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "Cannot power-cycle host: host {host_ip} is in state {other:?}. \
+                         Retry after host preingestion completes.",
+                    ))
+                    .into());
+                }
+            }
+        }
+    }
+
+    api.database_connection
+        .with_txn(|txn| {
+            Box::pin(
+                db::explored_endpoints::set_preingestion_bfb_recovery_needed(
+                    dpu_ip,
+                    "Triggered via CLI".to_string(),
+                    host_bmc_ip,
+                    txn,
+                ),
+            )
+        })
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -616,55 +670,6 @@ async fn resolve_bmc_interface(
     };
 
     Ok((bmc_addr, bmc_mac_address))
-}
-
-async fn do_copy_bfb_to_dpu_rshim(
-    api: &Api,
-    request: &rpc::BmcEndpointRequest,
-) -> Result<Response<()>, Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    // Create a separate address for Redfish probing (port 443) since bmc_addr uses SSH port 22
-    let redfish_addr = SocketAddr::new(bmc_addr.ip(), 443);
-
-    // Periodically probe the redfish endpoint until the DPU BMC is reachable (if host was powercycled)
-    const MAX_PROBE_ATTEMPTS: u32 = 20; // 20 attempts
-    const PROBE_INTERVAL: Duration = Duration::from_secs(30); // 30 seconds between attempts
-
-    for attempt in 0..MAX_PROBE_ATTEMPTS {
-        match api
-            .endpoint_explorer
-            .probe_redfish_endpoint(redfish_addr)
-            .await
-        {
-            Ok(_) => {
-                tracing::info!("DPU BMC is online, continuing...");
-                break;
-            }
-            Err(_) if attempt == MAX_PROBE_ATTEMPTS - 1 => {
-                return Err(Status::deadline_exceeded(
-                    "DPU BMC did not come back online after host powercycle",
-                ));
-            }
-            Err(_) => {
-                tracing::info!(
-                    "DPU BMC not yet reachable (attempt {}/{}), retrying in {} seconds...",
-                    attempt + 1,
-                    MAX_PROBE_ATTEMPTS,
-                    PROBE_INTERVAL.as_secs()
-                );
-                tokio::time::sleep(PROBE_INTERVAL).await;
-            }
-        }
-    }
-
-    api.endpoint_explorer
-        .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(()))
 }
 
 pub(crate) async fn create_bmc_user(
