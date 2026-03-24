@@ -20,10 +20,10 @@ type Config struct {
 	ScrapeInterval time.Duration `mapstructure:"scrape_interval"`
 }
 
-// ensure that Config implements the component.Config interface
+// ensure that Config implements the `component.Config` interface
 var _ component.Config = (*Config)(nil)
 
-// Validate implements the component.Config interface by checking whether the
+// Validate implements the `component.Config` interface by checking whether the
 // configuration is valid.
 func (cfg *Config) Validate() error {
 	if cfg.FilePath == "" {
