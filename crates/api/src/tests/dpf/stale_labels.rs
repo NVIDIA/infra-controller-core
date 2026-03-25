@@ -44,8 +44,7 @@ fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: None,
-        services: None,
+        ..Default::default()
     }
 }
 

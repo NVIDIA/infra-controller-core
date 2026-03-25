@@ -758,8 +758,7 @@ async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
     config.dpf = crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: None,
-        services: None,
+        ..Default::default()
     };
 
     let env = create_test_env_with_overrides(

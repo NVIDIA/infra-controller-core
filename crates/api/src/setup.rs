@@ -391,7 +391,11 @@ pub async fn start_api(
             &carbide_dpf::services::ServiceRegistryConfig::default(),
         )];
 
-        let rendered_bfcfg = crate::dpf::render_bfcfg(&carbide_config)?;
+        let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
+            Some(crate::dpf::render_bfcfg(&carbide_config)?)
+        } else {
+            None
+        };
 
         let bfb_url = if carbide_config.dpf.bfb_url.is_empty() {
             crate::dpf::resolve_bfb_url().await?
@@ -401,18 +405,16 @@ pub async fn start_api(
 
         let init_config = carbide_dpf::InitDpfResourcesConfig {
             bfb_url,
-            deployment_name: carbide_config
-                .dpf
-                .deployment_name
-                .clone()
-                .unwrap_or_else(|| "carbide-deployment-v2".to_string()),
-            flavor_name: "carbide-dpu-flavor-v2".to_string(),
+            deployment_name: carbide_config.dpf.deployment_name.clone(),
+            flavor_name: carbide_config.dpf.flavor_name.clone(),
             services,
-            bfcfg_template: Some(rendered_bfcfg),
+            bfcfg_template,
         };
 
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
-            .with_labeler(crate::dpf::CarbideDPFLabeler)
+            .with_labeler(crate::dpf::CarbideDPFLabeler::new(
+                carbide_config.dpf.node_label_key.clone(),
+            ))
             .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
             .with_join_set(join_set)
             .initialize(&init_config)

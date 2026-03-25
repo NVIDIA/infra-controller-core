@@ -132,7 +132,15 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
 ///   `dpuNodeSelector` to match nodes, and also propagate to DPU CRs.
 /// - DPUNode contextual labels (`node_context_labels`) are only set at
 ///   creation and propagate to DPU CRs, but are not part of selectors.
-pub struct CarbideDPFLabeler;
+pub struct CarbideDPFLabeler {
+    node_label_key: String,
+}
+
+impl CarbideDPFLabeler {
+    pub fn new(node_label_key: String) -> Self {
+        Self { node_label_key }
+    }
+}
 
 impl ResourceLabeler for CarbideDPFLabeler {
     fn device_labels(&self, info: &DpuDeviceInfo) -> BTreeMap<String, String> {
@@ -158,10 +166,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
 
     fn node_labels(&self) -> BTreeMap<String, String> {
         BTreeMap::from([
-            (
-                "carbide.nvidia.com/controlled.node.v2".to_string(),
-                "true".to_string(),
-            ),
+            (self.node_label_key.clone(), "true".to_string()),
             (
                 "feature.node.kubernetes.io/dpu-enabled".to_string(),
                 "true".to_string(),
