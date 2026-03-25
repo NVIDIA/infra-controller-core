@@ -33,3 +33,6 @@ command = "mdbook-plantuml"
 [output]
 [output.html]
 additional-js = ["svg-pan-zoom.js", "mermaid.min.js", "mermaid-init.js"]
+
+[output.pdf]
+
