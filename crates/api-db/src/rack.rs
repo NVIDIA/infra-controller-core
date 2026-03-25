@@ -192,20 +192,21 @@ pub async fn try_update_controller_state(
     txn: &mut PgConnection,
     rack_id: &RackId,
     expected_version: ConfigVersion,
+    new_version: ConfigVersion,
     new_state: &RackState,
-) -> DatabaseResult<()> {
-    let _query_result = sqlx::query_as::<_, Rack>(
+) -> DatabaseResult<bool> {
+    let query_result = sqlx::query_as::<_, Rack>(
             "UPDATE racks SET controller_state = $1, controller_state_version = $2 WHERE id = $3 AND controller_state_version = $4 RETURNING *",
         )
             .bind(sqlx::types::Json(new_state))
-            .bind(expected_version)
+            .bind(new_version)
             .bind(rack_id)
             .bind(expected_version)
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new("try_update_controller_state", e))?;
 
-    Ok(())
+    Ok(query_result.is_some())
 }
 
 pub async fn update_controller_state_outcome(

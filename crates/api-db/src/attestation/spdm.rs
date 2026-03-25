@@ -365,7 +365,7 @@ pub async fn persist_controller_state(
     txn: &mut PgConnection,
     object_id: &SpdmObjectId,
     new_state: &SpdmAttestationState,
-) -> Result<(), DatabaseError> {
+) -> Result<bool, DatabaseError> {
     // fetch the existing device attestation to access its ConfigVersion
     let device_attestation =
         load_snapshot_for_machine_and_device_id(txn, &object_id.0, &object_id.1).await?;
@@ -393,10 +393,10 @@ pub async fn persist_controller_state(
         .map_err(|e| DatabaseError::query(query, e))?
         .rows_affected();
 
-    update_history(txn, object_id, new_state).await
+    Ok(true)
 }
 
-async fn update_history(
+pub async fn update_history(
     txn: &mut PgConnection,
     object_id: &SpdmObjectId,
     state_snapshot: &SpdmAttestationState,

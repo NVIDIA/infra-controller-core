@@ -91,15 +91,21 @@ impl StateControllerIO for RackStateControllerIO {
         txn: &mut PgConnection,
         rack_id: &Self::ObjectId,
         old_version: ConfigVersion,
+        new_version: ConfigVersion,
+        new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db_rack::try_update_controller_state(txn, rack_id, old_version, new_version, new_state)
+            .await
+    }
+
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        rack_id: &Self::ObjectId,
+        new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let _updated =
-            db_rack::try_update_controller_state(txn, rack_id, old_version, new_state).await?;
-
-        // Persist state history for debugging purposes
-        let _history =
-            db::rack_state_history::persist(txn, rack_id, new_state, old_version).await?;
-
+        db::rack_state_history::persist(txn, rack_id, new_state, new_version).await?;
         Ok(())
     }
 

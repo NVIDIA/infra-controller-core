@@ -19,8 +19,8 @@ mod model;
 mod sources;
 
 pub use model::{
-    BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
-    SwitchData,
+    BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, CredentialProvider, EndpointMetadata,
+    EndpointSource, MachineData, SwitchData,
 };
 pub use sources::{CompositeEndpointSource, StaticEndpointSource};
 
@@ -36,18 +36,18 @@ mod tests {
     use crate::config::StaticBmcEndpoint;
 
     fn make_test_endpoint(mac: MacAddress) -> BmcEndpoint {
-        BmcEndpoint {
-            addr: BmcAddr {
+        BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
                 ip: "10.0.0.1".parse().unwrap(),
                 port: Some(443),
                 mac,
             },
-            credentials: BmcCredentials {
+            BmcCredentials::UsernamePassword {
                 username: "admin".to_string(),
-                password: "password".to_string(),
+                password: Some("password".to_string()),
             },
-            metadata: None,
-        }
+            None,
+        )
     }
 
     #[tokio::test]
@@ -118,7 +118,7 @@ mod tests {
                 port: Some(443),
                 mac: "00:11:22:33:44:55".to_string(),
                 username: "admin".to_string(),
-                password: "pass".to_string(),
+                password: Some("pass".to_string()),
                 switch_serial: None,
             },
             StaticBmcEndpoint {
@@ -126,7 +126,7 @@ mod tests {
                 port: Some(443),
                 mac: "aa:bb:cc:dd:ee:ff".to_string(),
                 username: "admin".to_string(),
-                password: "pass".to_string(),
+                password: Some("pass".to_string()),
                 switch_serial: None,
             },
         ];
@@ -148,7 +148,7 @@ mod tests {
             port: Some(443),
             mac: "11:22:33:44:55:66".to_string(),
             username: "cumulus".to_string(),
-            password: "pass".to_string(),
+            password: Some("pass".to_string()),
             switch_serial: Some("SN-001".to_string()),
         }];
 
@@ -169,7 +169,7 @@ mod tests {
             port: Some(443),
             mac: "aa:bb:cc:dd:ee:ff".to_string(),
             username: "admin".to_string(),
-            password: "pass".to_string(),
+            password: Some("pass".to_string()),
             switch_serial: None,
         }];
 

@@ -545,3 +545,68 @@ async fn test_rack_deletion_with_state_controller(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_rack_controller_state_version_increment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Create a rack
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+    let mut txn = pool.begin().await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+
+    // Verify initial state
+    let rack = db_rack::get(&mut *txn, &rack_id).await?;
+    assert!(matches!(rack.controller_state.value, RackState::Expected));
+    let initial_version = rack.controller_state.version;
+
+    // Update controller state with correct version
+    let new_version = initial_version.increment();
+    let updated = db_rack::try_update_controller_state(
+        &mut txn,
+        &rack_id,
+        initial_version,
+        new_version,
+        &RackState::Discovering,
+    )
+    .await?;
+    assert!(updated, "update with correct version should succeed");
+
+    // Verify version was incremented
+    let rack = db_rack::get(&mut *txn, &rack_id).await?;
+    assert_eq!(
+        rack.controller_state.version.version_nr(),
+        initial_version.version_nr() + 1,
+        "version should be incremented after update"
+    );
+
+    // Trying to update with the old version should fail (optimistic lock)
+    let stale_update = db_rack::try_update_controller_state(
+        &mut txn,
+        &rack_id,
+        initial_version,
+        initial_version.increment(),
+        &RackState::Ready,
+    )
+    .await?;
+    assert!(
+        !stale_update,
+        "update with stale version should be rejected"
+    );
+
+    // Updating with the current version should succeed
+    let current_version = rack.controller_state.version;
+    let updated_again = db_rack::try_update_controller_state(
+        &mut txn,
+        &rack_id,
+        current_version,
+        current_version.increment(),
+        &RackState::Ready,
+    )
+    .await?;
+    assert!(updated_again, "update with current version should succeed");
+
+    txn.rollback().await?;
+
+    Ok(())
+}

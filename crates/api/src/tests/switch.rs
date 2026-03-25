@@ -315,8 +315,16 @@ async fn test_switch_controller_state_transitions(
     let new_state = SwitchControllerState::Ready;
     let current_version = switch.controller_state.version;
 
-    db_switch::try_update_controller_state(&mut txn, switch_id, current_version, &new_state)
-        .await?;
+    let next_version = current_version.increment();
+    let updated = db_switch::try_update_controller_state(
+        &mut txn,
+        switch_id,
+        current_version,
+        next_version,
+        &new_state,
+    )
+    .await?;
+    assert!(updated, "update with correct version should succeed");
 
     // Verify the state was updated
     let updated_switches = db_switch::find_by(
@@ -332,6 +340,39 @@ async fn test_switch_controller_state_transitions(
         updated_switch.controller_state.value,
         SwitchControllerState::Ready
     ));
+
+    // Version should have been incremented
+    assert_eq!(
+        updated_switch.controller_state.version.version_nr(),
+        current_version.version_nr() + 1,
+        "version should be incremented after update"
+    );
+
+    // Trying to update with the old version should fail (optimistic lock)
+    let stale_update = db_switch::try_update_controller_state(
+        &mut txn,
+        switch_id,
+        current_version,
+        current_version.increment(),
+        &SwitchControllerState::Initializing,
+    )
+    .await?;
+    assert!(
+        !stale_update,
+        "update with stale version should be rejected"
+    );
+
+    // Updating with the new version should succeed
+    let new_version = updated_switch.controller_state.version;
+    let updated_again = db_switch::try_update_controller_state(
+        &mut txn,
+        switch_id,
+        new_version,
+        new_version.increment(),
+        &SwitchControllerState::Initializing,
+    )
+    .await?;
+    assert!(updated_again, "update with current version should succeed");
 
     txn.rollback().await?;
 

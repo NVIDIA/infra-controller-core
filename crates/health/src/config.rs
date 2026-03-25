@@ -98,7 +98,7 @@ pub struct StaticBmcEndpoint {
     pub port: Option<u16>,
     pub mac: String,
     pub username: String,
-    pub password: String,
+    pub password: Option<String>,
     pub switch_serial: Option<String>,
 }
 

@@ -116,8 +116,6 @@ impl HealthOverrideSink {
             config.connection.client_cert.clone(),
             config.connection.client_key.clone(),
             &config.connection.api_url,
-            false,
-            false,
         ));
 
         let pending_reports = Arc::new(PendingReportsStore::new());

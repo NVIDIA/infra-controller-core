@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
@@ -29,20 +29,73 @@ use crate::HealthError;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+pub trait CredentialProvider: Send + Sync {
+    fn fetch_credentials<'a>(
+        &'a self,
+        endpoint: &'a BmcAddr,
+    ) -> BoxFuture<'a, Result<BmcCredentials, HealthError>>;
+}
+
+#[derive(Clone)]
+pub struct FixedCredentialProvider {
+    credentials: BmcCredentials,
+}
+
+impl CredentialProvider for FixedCredentialProvider {
+    fn fetch_credentials<'a>(
+        &'a self,
+        _endpoint: &'a BmcAddr,
+    ) -> BoxFuture<'a, Result<BmcCredentials, HealthError>> {
+        let credentials = self.credentials.clone();
+        Box::pin(async move { Ok(credentials) })
+    }
+}
+
 #[derive(Clone)]
 pub struct BmcEndpoint {
     pub addr: BmcAddr,
-    pub credentials: BmcCredentials,
     pub metadata: Option<EndpointMetadata>,
+    pub(crate) credentials: Arc<RwLock<BmcCredentials>>,
+    pub(crate) provider: Arc<dyn CredentialProvider>,
 }
 
 impl BmcEndpoint {
+    pub fn with_fixed_credentials(
+        addr: BmcAddr,
+        credentials: BmcCredentials,
+        metadata: Option<EndpointMetadata>,
+    ) -> Self {
+        let provider = Arc::new(FixedCredentialProvider {
+            credentials: credentials.clone(),
+        });
+
+        Self {
+            addr,
+            metadata,
+            credentials: Arc::new(RwLock::new(credentials)),
+            provider,
+        }
+    }
+
     pub fn log_identity(&self) -> Cow<'_, str> {
         match &self.metadata {
             Some(EndpointMetadata::Machine(machine)) => Cow::Owned(machine.machine_id.to_string()),
             Some(EndpointMetadata::Switch(switch)) => Cow::Borrowed(&switch.serial),
             None => self.addr.hash_key(),
         }
+    }
+
+    pub fn credentials(&self) -> BmcCredentials {
+        self.credentials.read().expect("lock poisoned").to_owned()
+    }
+
+    pub async fn refresh(&self) -> Result<BmcCredentials, HealthError> {
+        let credentials = self.provider.fetch_credentials(&self.addr).await?;
+        self.credentials
+            .write()
+            .map(|mut current| *current = credentials.clone())
+            .expect("lock poisoned");
+        Ok(credentials)
     }
 }
 
@@ -64,9 +117,14 @@ pub struct SwitchData {
 }
 
 #[derive(Clone)]
-pub struct BmcCredentials {
-    pub username: String,
-    pub password: String,
+pub enum BmcCredentials {
+    UsernamePassword {
+        username: String,
+        password: Option<String>,
+    },
+    SessionToken {
+        token: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -95,7 +153,14 @@ impl BmcAddr {
 
 impl From<BmcCredentials> for nv_redfish::bmc_http::BmcCredentials {
     fn from(value: BmcCredentials) -> Self {
-        nv_redfish::bmc_http::BmcCredentials::new(value.username, value.password)
+        match value {
+            BmcCredentials::UsernamePassword { username, password } => {
+                nv_redfish::bmc_http::BmcCredentials::username_password(username, password)
+            }
+            BmcCredentials::SessionToken { token } => {
+                nv_redfish::bmc_http::BmcCredentials::token(token)
+            }
+        }
     }
 }
 
