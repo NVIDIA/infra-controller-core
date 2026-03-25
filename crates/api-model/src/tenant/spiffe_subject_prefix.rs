@@ -6,7 +6,7 @@
 //! SPIFFE `subject_prefix` validation and defaulting against JWT `issuer` trust domain.
 //!
 //! Character validation is **allowlist-based** (URL-safe ASCII subsets) plus structural checks
-//! (`IpAddr`, DNS trust-domain regex, `Url::parse`, path segment regex) instead of ad hoc deny lists.
+//! (`IpAddr`, DNS trust-domain regex, `Url::parse`, path segment regex).
 
 use std::net::IpAddr;
 
@@ -469,8 +469,7 @@ mod tests {
     #[test]
     fn dns_trust_domain_too_long_rejected() {
         let label = "a".repeat(63);
-        let host = std::iter::repeat(label.as_str())
-            .take(5)
+        let host = std::iter::repeat_n(label.as_str(), 5)
             .collect::<Vec<_>>()
             .join(".");
         assert!(host.len() > MAX_TRUST_DOMAIN_BYTES);
@@ -492,8 +491,7 @@ mod tests {
 
     #[test]
     fn too_many_path_segments_rejected() {
-        let segs = std::iter::repeat("w")
-            .take(MAX_SPIFFE_PATH_SEGMENTS + 1)
+        let segs = std::iter::repeat_n("w", MAX_SPIFFE_PATH_SEGMENTS + 1)
             .collect::<Vec<_>>()
             .join("/");
         let prefix = format!("spiffe://issuer.example/{segs}");
