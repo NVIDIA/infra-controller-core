@@ -901,6 +901,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 device_instance: 0u32,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -910,6 +911,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 device_instance: 0u32,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -1694,6 +1696,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 device_instance: 0u32,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1703,6 +1706,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 device_instance: 0u32,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -2284,6 +2288,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -3158,6 +3163,7 @@ async fn test_network_details_migration(
                                 device_instance: 0,
                                 virtual_function_id: None,
                                 ip_address: None,
+                                ipv6_interface_config: None,
                             }],
                         })
                         .rpc(),
@@ -3232,6 +3238,7 @@ async fn test_network_details_migration(
                 network: Some(rpc::InstanceNetworkConfig {
                     interfaces: vec![rpc::InstanceInterfaceConfig {
                         ip_address: None,
+                        ipv6_interface_config: None,
 
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
@@ -3314,6 +3321,7 @@ async fn test_network_details_migration(
                 network: Some(rpc::InstanceNetworkConfig {
                     interfaces: vec![rpc::InstanceInterfaceConfig {
                         ip_address: None,
+                        ipv6_interface_config: None,
 
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
@@ -3465,6 +3473,7 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
                     network: Some(rpc::InstanceNetworkConfig {
                         interfaces: vec![rpc::InstanceInterfaceConfig {
                             ip_address: Some("192.168.0.1".to_string()),
+                            ipv6_interface_config: None,
 
                             function_type: rpc::InterfaceFunctionType::Physical as i32,
                             network_segment_id: None,
@@ -3540,6 +3549,7 @@ async fn test_allocate_and_update_network_config_instance(
     let new_network_config = rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             ip_address: None,
+            ipv6_interface_config: None,
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: Some(
@@ -3666,6 +3676,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3677,6 +3688,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -3812,6 +3824,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3823,6 +3836,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device_instance: 0,
                 virtual_function_id: Some(0),
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3834,6 +3848,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device_instance: 0,
                 virtual_function_id: Some(1),
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3845,6 +3860,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device_instance: 0,
                 virtual_function_id: Some(2),
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -3911,6 +3927,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3922,6 +3939,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device_instance: 0,
                 virtual_function_id: Some(0),
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             // VF 1 is deleted.
             rpc::InstanceInterfaceConfig {
@@ -3934,6 +3952,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device_instance: 0,
                 virtual_function_id: Some(2),
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -4072,6 +4091,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -4206,6 +4226,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -4253,6 +4274,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4264,6 +4286,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -4400,6 +4423,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: 0,
@@ -4413,6 +4437,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 device_instance: 1,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };

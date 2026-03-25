@@ -209,6 +209,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 device_instance: 0u32,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -218,6 +219,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 device_instance: 0u32,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };

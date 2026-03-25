@@ -1503,7 +1503,7 @@ pub async fn force_delete_instance(
             .new_config
             .interfaces
             .iter()
-            .filter_map(|x| match x.network_details {
+            .filter_map(|x| match &x.network_details {
                 Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
                 _ => None,
             })
@@ -1513,7 +1513,7 @@ pub async fn force_delete_instance(
                 .old_config
                 .interfaces
                 .iter()
-                .filter_map(|x| match x.network_details {
+                .filter_map(|x| match &x.network_details {
                     Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
                     _ => None,
                 }),
@@ -1521,7 +1521,7 @@ pub async fn force_delete_instance(
     }
 
     network_segment_ids_with_vpc.extend(instance.config.network.interfaces.iter().filter_map(
-        |x| match x.network_details {
+        |x| match &x.network_details {
             Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
             _ => None,
         },

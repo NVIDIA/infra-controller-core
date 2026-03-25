@@ -1162,6 +1162,7 @@ impl ApiClient {
                     device_instance,
                     virtual_function_id: None,
                     ip_address: None,
+                    ipv6_interface_config: None,
                 });
 
                 if let Some(vf_network_segment_chunks) = vf_chunk_iter.next() {
@@ -1176,6 +1177,7 @@ impl ApiClient {
                             device_instance,
                             virtual_function_id: Some(vf_function_id),
                             ip_address: None,
+                            ipv6_interface_config: None,
                         });
                         vf_function_id += 1;
                     }
@@ -1209,6 +1211,7 @@ impl ApiClient {
             };
             tracing::debug!("VFs per PF: {vfs_per_pf}");
             let mut vf_chunk_iter = vf_vpc_prefix_ids.chunks(vfs_per_pf);
+            let mut ipv6_vf_chunk_iter = allocate_instance.ipv6_vf_prefix_id.chunks(vfs_per_pf);
             for (map_index, i) in discovery_info
                 .network_interfaces
                 .iter()
@@ -1237,14 +1240,26 @@ impl ApiClient {
                         device: Some(pci_properties.device.clone()),
                         device_instance,
                         virtual_function_id: None,
-                        ip_address: None,
+                        ip_address: allocate_instance.ip_address.get(map_index).cloned(),
+                        ipv6_interface_config: allocate_instance
+                            .ipv6_vpc_prefix_id
+                            .get(map_index)
+                            .copied()
+                            .map(|vpc_prefix_id| rpc::InstanceInterfaceIpv6Config {
+                                vpc_prefix_id: Some(vpc_prefix_id),
+                                ip_address: allocate_instance
+                                    .ipv6_ip_address
+                                    .get(map_index)
+                                    .cloned(),
+                            }),
                     };
                     tracing::debug!("Adding interface: {:?}", new_interface);
 
                     interface_configs.push(new_interface);
 
                     if let Some(vf_prefix_chunks) = vf_chunk_iter.next() {
-                        for vf_vpc_prefix_id in vf_prefix_chunks {
+                        let ipv6_vf_chunk = ipv6_vf_chunk_iter.next();
+                        for (vf_idx, vf_vpc_prefix_id) in vf_prefix_chunks.iter().enumerate() {
                             let new_interface = rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                                 network_segment_id: None,
@@ -1254,7 +1269,19 @@ impl ApiClient {
                                 device: Some(pci_properties.device.clone()),
                                 device_instance,
                                 virtual_function_id: Some(vf_function_id),
-                                ip_address: None,
+                                ip_address: allocate_instance.vf_ip_address.get(vf_idx).cloned(),
+                                ipv6_interface_config: ipv6_vf_chunk
+                                    .and_then(|c| c.get(vf_idx))
+                                    .copied()
+                                    .map(|vpc_prefix_id| rpc::InstanceInterfaceIpv6Config {
+                                        vpc_prefix_id: Some(vpc_prefix_id),
+                                        ip_address: ipv6_vf_chunk.and_then(|_| {
+                                            allocate_instance
+                                                .ipv6_vf_ip_address
+                                                .get(vf_idx)
+                                                .cloned()
+                                        }),
+                                    }),
                             };
                             vf_function_id += 1;
                             tracing::debug!("Adding interface: {:?}", new_interface);

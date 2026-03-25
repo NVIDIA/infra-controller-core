@@ -2158,6 +2158,7 @@ dependencies = [
  "axum 0.8.6",
  "base64 0.22.1",
  "bmc-mock",
+ "carbide-network",
  "carbide-rpc",
  "carbide-tls",
  "carbide-uuid",
