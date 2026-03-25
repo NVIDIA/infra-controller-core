@@ -664,6 +664,14 @@ impl Forge for Api {
         .await?)
     }
 
+    async fn expire_dhcp_lease(
+        &self,
+        request: Request<rpc::ExpireDhcpLeaseRequest>,
+    ) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, Status> {
+        log_request_data(&request);
+        Ok(crate::dhcp::expire::expire_dhcp_lease(self, request).await?)
+    }
+
     async fn find_machine_ids(
         &self,
         request: Request<rpc::MachineSearchConfig>,

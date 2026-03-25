@@ -168,6 +168,7 @@ service Forge {
   // Invoked by forge-scout whenever a certain Machine can not be properly acted on
   rpc ReportForgeScoutError(ForgeScoutErrorReport) returns (ForgeScoutErrorReportResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
+  rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
 
   // PRIVILEGED: Find things
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
@@ -3126,6 +3127,20 @@ message DhcpDiscovery {
   optional string circuit_id = 5;
   optional string remote_id = 6;
   optional string desired_address = 7;
+}
+
+message ExpireDhcpLeaseRequest {
+  string ip_address = 1;
+}
+
+enum ExpireDhcpLeaseStatus {
+  EXPIRE_DHCP_LEASE_STATUS_RELEASED = 0;
+  EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND = 1;
+}
+
+message ExpireDhcpLeaseResponse {
+  string ip_address = 1;
+  ExpireDhcpLeaseStatus status = 2;
 }
 
 message DhcpRecord {
