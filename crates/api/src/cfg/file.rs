@@ -224,11 +224,6 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub site_explorer: SiteExplorerConfig,
 
-    /// DPU agent to use NVUE instead of writing files directly.
-    /// Once we are comfortable with this and all DPUs are HBN 2+ it will become the only option.
-    #[serde(default = "default_to_true")]
-    pub nvue_enabled: bool,
-
     /// The policy to decide whether two VPCs are allowed to peer with each other based on their
     /// network virtualization type during creation
     pub vpc_peering_policy: Option<VpcPeeringPolicy>,
@@ -2679,6 +2674,7 @@ impl From<VpcIsolationBehaviorType> for rpc::forge::VpcIsolationBehaviorType {
     }
 }
 
+#[allow(deprecated)] // nvue_enabled proto field is deprecated but still set for backwards compat
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -2729,7 +2725,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .max_concurrent_machine_updates_absolute
                 .unwrap_or_default(),
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
-            nvue_enabled: value.nvue_enabled,
+            nvue_enabled: true,
             attestation_enabled: value.attestation_enabled,
             auto_host_firmware_update: value.firmware_global.autoupdate,
             host_enable_autoupdate: value.firmware_global.host_enable_autoupdate,
@@ -3309,7 +3305,6 @@ mod tests {
         assert!(config.pools.is_none());
         assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
-        assert!(config.nvue_enabled);
         assert!(config.vpc_peering_policy.is_none());
         assert!(config.site_explorer.enabled);
         assert!(
@@ -3357,7 +3352,6 @@ mod tests {
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
-        assert!(!config.nvue_enabled);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(config.vpc_peering_policy_on_existing, None);
         assert_eq!(
@@ -3501,7 +3495,6 @@ mod tests {
             config.dhcp_servers,
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
         );
-        assert!(config.nvue_enabled);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,

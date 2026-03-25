@@ -1120,7 +1120,8 @@ message RuntimeConfig {
   uint64 machine_update_runtime_interval = 23;
 
   reserved 24;
-  bool nvue_enabled = 25;
+  // Deprecated: NVUE is always enabled. This field is always set to true.
+  bool nvue_enabled = 25 [deprecated = true];
   uint32 max_database_connections = 26;
 
   bool auto_host_firmware_update = 27;

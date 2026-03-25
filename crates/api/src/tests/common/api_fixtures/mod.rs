@@ -1085,7 +1085,6 @@ pub fn get_config() -> CarbideConfig {
             allocate_secondary_vtep_ip: true,
             ..Default::default()
         },
-        nvue_enabled: true,
         vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
         vpc_peering_policy_on_existing: None,
         attestation_enabled: false,

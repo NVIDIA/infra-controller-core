@@ -87,7 +87,6 @@ pub async fn start(
         initial_domain_name = "{DOMAIN_NAME}"
         initial_dpu_agent_upgrade_policy = "off"
         max_concurrent_machine_updates = 1
-        nvue_enabled = true
         attestation_enabled = false
         max_find_by_ids = 100
         internet_l3_vni = 1337
