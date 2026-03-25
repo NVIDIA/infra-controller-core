@@ -26,6 +26,7 @@ pub async fn copy_bfb(args: Args) -> CarbideCliResult<()> {
         args.ssh_args.credentials.bmc_username,
         args.ssh_args.credentials.bmc_password,
         args.bfb_path,
+        args.bf2,
     )
     .await
     .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
