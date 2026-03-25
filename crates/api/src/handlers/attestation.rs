@@ -31,6 +31,7 @@ use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
+#[allow(txn_held_across_await)]
 pub(crate) async fn trigger_machine_attestation(
     api: &Api,
     request: Request<MachineId>,
@@ -89,6 +90,7 @@ pub(crate) async fn trigger_machine_attestation(
     }))
 }
 
+#[allow(txn_held_across_await)]
 pub async fn trigger_attestation(
     txn: &mut sqlx::PgConnection,
     redfish_client: Box<dyn libredfish::Redfish>,
@@ -185,6 +187,7 @@ pub(crate) async fn list_machine_ids_under_attestation(
     Ok(Response::new(MachineIdList { machine_ids }))
 }
 
+#[allow(txn_without_commit)]
 pub(crate) async fn list_attestations_for_machine_id(
     api: &Api,
     request: Request<MachineId>,
