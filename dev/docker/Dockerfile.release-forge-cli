@@ -13,10 +13,17 @@ RUN mkdir /carbide
 WORKDIR ./carbide
 COPY . ./
 
-RUN cd /carbide && \
-export SCCACHE_DIR=/sccache && \
-export RUST_WRAPPER=sccache && \
-cargo build --release -p carbide-admin-cli
+RUN --mount=type=secret,id=sccache_azure \
+  cd /carbide && \
+  if [ -f /run/secrets/sccache_azure ]; then \
+    export SCCACHE_AZURE_CONNECTION_STRING="$(cat /run/secrets/sccache_azure)" && \
+    export SCCACHE_AZURE_BLOB_CONTAINER="sccache-github"; \
+  else \
+    export SCCACHE_DIR=/sccache; \
+  fi && \
+  export RUSTC_WRAPPER=sccache && \
+  cargo build --release -p carbide-admin-cli && \
+  sccache --show-stats
 
 FROM debian:12-slim
 

@@ -72,6 +72,9 @@ on:
       NVCR_TOKEN:
         description: "NVIDIA Container Registry API token"
         required: false
+      SCCACHE_AZURE_CONNECTION_STRING:
+        description: "Azure Blob Storage connection string for sccache"
+        required: false
     outputs:
       image_digest:
         description: 'Image digest'
@@ -107,11 +110,15 @@ jobs:
           pattern: '*-${{ github.run_id }}'
           merge-multiple: true
 
-      - name: Set up Docker Buildx
+      - name: Set up Docker Buildx (with custom config for push)
         if: inputs.push
         uses: docker/setup-buildx-action@v3
         with:
           buildkitd-config: /etc/buildkit/buildkitd.toml
+
+      - name: Set up Docker Buildx
+        if: ${{ !inputs.push }}
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
@@ -171,6 +178,8 @@ jobs:
           load: ${{ inputs.load && !inputs.push }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
+          secrets: |
+            sccache_azure=${{ secrets.SCCACHE_AZURE_CONNECTION_STRING }}
           cache-from: type=gha
           cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
 

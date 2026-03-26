@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+// TODO(chet): Remove this!
+
 pub mod metrics;
 
 use std::collections::HashMap;

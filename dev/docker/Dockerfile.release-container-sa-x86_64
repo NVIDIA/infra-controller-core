@@ -31,10 +31,20 @@ RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
 COPY . ./
 
-RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
+# sccache is configured to use Azure Blob Storage for persistent caching across
+# CI runs. The connection string is passed as a Docker build secret to avoid
+# leaking credentials in image layers. If the secret is not available (e.g.,
+# local builds), sccache falls back to a local directory.
+RUN --mount=type=secret,id=sccache_azure \
+  export CARGO_MAKE_SKIP_CODECOV="true" && \
   export DATABASE_URL="postgresql://%2Fvar%2Frun%2Fpostgresql" && \
-  export SCCACHE_DIR=/sccache && \
-  export RUST_WRAPPER=sccache && \
+  if [ -f /run/secrets/sccache_azure ]; then \
+    export SCCACHE_AZURE_CONNECTION_STRING="$(cat /run/secrets/sccache_azure)" && \
+    export SCCACHE_AZURE_BLOB_CONTAINER="sccache-github"; \
+  else \
+    export SCCACHE_DIR=/sccache; \
+  fi && \
+  export RUSTC_WRAPPER=sccache && \
   /etc/init.d/postgresql start && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \
@@ -49,11 +59,12 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
   cargo xtask check-workspace-deps && \
   echo "$(date): Finished cargo xtask check-workspace-deps\n" && \
   cargo make build-release && \
-  echo "$(date): Finished cargo make build-release\n" && \
+  echo "$(date): Finished cargo make build-release" && \
   cargo make --no-workspace check-licenses && \
   echo "$(date): Finished cargo make check-licenses\n" && \
   cargo make --no-workspace check-bans && \
   echo "$(date): Finished cargo make check-bans\n" && \
+  sccache --show-stats && \
   mkdir -p /carbide/target/bin && \
   find /carbide/target/release -maxdepth 1 -type f -exec cp -t /carbide/target/bin {} + && \
   rm -rf /carbide/target/debug && \
