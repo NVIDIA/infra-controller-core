@@ -43,13 +43,10 @@ use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSou
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{ComponentMetrics, MetricsManager, run_metrics_server};
 use crate::processor::{
-    EventProcessingPipeline, EventProcessor, HealthReportProcessor, InstrumentedEventProcessor,
-    LeakEventProcessor,
+    EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
 };
 use crate::sharding::ShardManager;
-use crate::sink::{
-    DataSink, HealthOverrideSink, InstrumentedDataSink, PrometheusSink, TracingSink,
-};
+use crate::sink::{CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, TracingSink};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -145,48 +142,49 @@ fn build_data_sink(
     let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::new();
 
     if let Configurable::Enabled(_) = &config.sinks.tracing {
-        sinks.push(InstrumentedDataSink::wrap(
-            Arc::new(TracingSink),
-            component_metrics.clone(),
-        ));
+        sinks.push(Arc::new(TracingSink));
     }
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {
-        sinks.push(InstrumentedDataSink::wrap(
-            Arc::new(PrometheusSink::new(
-                metrics_manager,
-                &config.metrics.prefix,
-            )?),
-            component_metrics.clone(),
-        ));
+        sinks.push(Arc::new(PrometheusSink::new(
+            metrics_manager,
+            &config.metrics.prefix,
+        )?));
     }
 
-    // Unconditionally enable HealthReport processor
-    processors.push(InstrumentedEventProcessor::wrap(
-        Arc::new(HealthReportProcessor::new()),
-        component_metrics.clone(),
-    ));
+    // Enable HealthReport processor only if it has consumers
+    if config.sinks.tracing.is_enabled()
+        || config.sinks.health_override.is_enabled()
+        || config.processors.leak_detection.is_enabled()
+    {
+        processors.push(Arc::new(HealthReportProcessor::new()));
+    }
 
     if let Configurable::Enabled(ref leak_detection_cfg) = config.processors.leak_detection {
-        processors.push(InstrumentedEventProcessor::wrap(
-            Arc::new(LeakEventProcessor::new(
-                leak_detection_cfg.minimum_alerts_per_report,
-            )),
-            component_metrics.clone(),
-        ));
+        processors.push(Arc::new(LeakEventProcessor::new(
+            leak_detection_cfg.minimum_alerts_per_report,
+        )));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_override {
-        sinks.push(InstrumentedDataSink::wrap(
-            Arc::new(HealthOverrideSink::new(sink_cfg)?),
-            component_metrics,
-        ));
+        sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)?));
     }
 
     let data_sink = if sinks.is_empty() {
         None
     } else {
-        Some(Arc::new(EventProcessingPipeline::new(processors, sinks)) as Arc<dyn DataSink>)
+        let composite_sink: Arc<dyn DataSink> =
+            Arc::new(CompositeDataSink::new(sinks, component_metrics.clone()));
+
+        if processors.is_empty() {
+            Some(composite_sink)
+        } else {
+            Some(Arc::new(EventProcessingPipeline::new(
+                processors,
+                composite_sink,
+                component_metrics,
+            )) as Arc<dyn DataSink>)
+        }
     };
 
     Ok(data_sink)

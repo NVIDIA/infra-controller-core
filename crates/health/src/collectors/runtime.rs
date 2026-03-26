@@ -226,11 +226,6 @@ impl Collector {
                                 if result.fetch_failures > 0 {
                                     let fetch_failures = result.fetch_failures as u64;
                                     fetch_failures_counter.inc_by(fetch_failures);
-                                    component_metrics.record_fetch_failures(
-                                        ComponentKind::Collector,
-                                        collector_type,
-                                        fetch_failures,
-                                    );
                                 }
                             }
                             Err(e) => {

@@ -25,49 +25,12 @@ mod leak_events;
 pub use health_report::HealthReportProcessor;
 pub use leak_events::LeakEventProcessor;
 
-use crate::metrics::{ComponentKind, ComponentMetrics};
+use crate::metrics::ComponentMetrics;
 use crate::sink::{CollectorEvent, DataSink, EventContext};
 
 pub trait EventProcessor: Send + Sync {
     fn processor_type(&self) -> &'static str;
     fn process_event(&self, context: &EventContext, event: &CollectorEvent) -> Vec<CollectorEvent>;
-}
-
-pub struct InstrumentedEventProcessor {
-    inner: Arc<dyn EventProcessor>,
-    metrics: Arc<ComponentMetrics>,
-    processor_type: &'static str,
-}
-
-impl InstrumentedEventProcessor {
-    pub fn wrap(
-        inner: Arc<dyn EventProcessor>,
-        metrics: Arc<ComponentMetrics>,
-    ) -> Arc<dyn EventProcessor> {
-        Arc::new(Self {
-            processor_type: inner.processor_type(),
-            inner,
-            metrics,
-        })
-    }
-}
-
-impl EventProcessor for InstrumentedEventProcessor {
-    fn processor_type(&self) -> &'static str {
-        self.processor_type
-    }
-
-    fn process_event(&self, context: &EventContext, event: &CollectorEvent) -> Vec<CollectorEvent> {
-        let start = Instant::now();
-        let result = self.inner.process_event(context, event);
-        self.metrics.record_operation(
-            ComponentKind::Processor,
-            self.processor_type,
-            start.elapsed(),
-            true,
-        );
-        result
-    }
 }
 
 struct PendingEvent<'a> {
@@ -77,17 +40,24 @@ struct PendingEvent<'a> {
 
 pub struct EventProcessingPipeline {
     processors: Vec<Arc<dyn EventProcessor>>,
-    sinks: Vec<Arc<dyn DataSink>>,
+    sink: Arc<dyn DataSink>,
+    component_metrics: Arc<ComponentMetrics>,
 }
 
 impl EventProcessingPipeline {
-    pub fn new(processors: Vec<Arc<dyn EventProcessor>>, sinks: Vec<Arc<dyn DataSink>>) -> Self {
-        Self { processors, sinks }
-    }
-
-    fn deliver_to_sinks(&self, context: &EventContext, event: &CollectorEvent) {
-        for sink in &self.sinks {
-            sink.handle_event(context, event);
+    pub fn new(
+        processors: Vec<Arc<dyn EventProcessor>>,
+        sink: Arc<dyn DataSink>,
+        component_metrics: Arc<ComponentMetrics>,
+    ) -> Self {
+        debug_assert!(
+            !processors.is_empty(),
+            "EventProcessingPipeline should only be used when processors are configured"
+        );
+        Self {
+            processors,
+            sink,
+            component_metrics,
         }
     }
 
@@ -103,7 +73,14 @@ impl EventProcessingPipeline {
                 continue;
             }
 
+            let start = Instant::now();
             let emitted = processor.process_event(context, current_event);
+            self.component_metrics.record_operation(
+                crate::metrics::ComponentKind::Processor,
+                processor.processor_type(),
+                start.elapsed(),
+                true,
+            );
             if emitted.is_empty() {
                 continue;
             }
@@ -126,18 +103,13 @@ impl DataSink for EventProcessingPipeline {
     }
 
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        if self.processors.is_empty() {
-            self.deliver_to_sinks(context, event);
-            return;
-        }
-
         let mut queue = VecDeque::from(vec![PendingEvent {
             event: Cow::Borrowed(event),
             blocked_processors: vec![false; self.processors.len()],
         }]);
 
         while let Some(current) = queue.pop_front() {
-            self.deliver_to_sinks(context, &current.event);
+            self.sink.handle_event(context, &current.event);
             self.next_events(
                 context,
                 &current.event,
@@ -159,6 +131,7 @@ mod tests {
 
     use super::*;
     use crate::endpoint::BmcAddr;
+    use crate::metrics::MetricsManager;
 
     struct CountingSink {
         counter: Arc<AtomicUsize>,
@@ -210,13 +183,18 @@ mod tests {
     fn processor_does_not_reconsume_its_own_descendants() {
         let processor_counter = Arc::new(AtomicUsize::new(0));
         let sink_counter = Arc::new(AtomicUsize::new(0));
+        let metrics_manager = Arc::new(MetricsManager::new());
         let pipeline = EventProcessingPipeline::new(
             vec![Arc::new(SelfReemittingProcessor {
                 counter: processor_counter.clone(),
             })],
-            vec![Arc::new(CountingSink {
+            Arc::new(CountingSink {
                 counter: sink_counter.clone(),
-            })],
+            }),
+            Arc::new(
+                ComponentMetrics::new(metrics_manager.global_registry(), "test")
+                    .expect("should create component metrics"),
+            ),
         );
 
         let event = CollectorEvent::Metric(

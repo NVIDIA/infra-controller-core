@@ -22,7 +22,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-use carbide_health::metrics::MetricsManager;
+use carbide_health::metrics::{ComponentMetrics, MetricsManager};
 use carbide_health::sink::{
     CollectorEvent, CompositeDataSink, DataSink, EventContext, FirmwareInfo, LogRecord,
     PrometheusSink, SensorHealthData,
@@ -228,7 +228,12 @@ impl CompositeBuildEmitState {
             sinks.push(Arc::new(CountingSink));
         }
 
-        let sink = CompositeDataSink::new(sinks);
+        let metrics_manager = Arc::new(MetricsManager::new());
+        let component_metrics = Arc::new(
+            ComponentMetrics::new(metrics_manager.global_registry(), "bench_collector")
+                .expect("component metrics should initialize"),
+        );
+        let sink = CompositeDataSink::new(sinks, component_metrics);
 
         Self {
             sink,

@@ -21,9 +21,6 @@ mod health_override;
 mod prometheus;
 mod tracing;
 
-use std::sync::Arc;
-use std::time::Instant;
-
 pub use composite::CompositeDataSink;
 pub use events::{
     Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
@@ -33,40 +30,9 @@ pub use health_override::HealthOverrideSink;
 pub use prometheus::PrometheusSink;
 pub use tracing::TracingSink;
 
-use crate::metrics::{ComponentKind, ComponentMetrics};
-
 pub trait DataSink: Send + Sync {
     fn sink_type(&self) -> &'static str;
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent);
-}
-
-pub struct InstrumentedDataSink {
-    inner: Arc<dyn DataSink>,
-    metrics: Arc<ComponentMetrics>,
-    sink_type: &'static str,
-}
-
-impl InstrumentedDataSink {
-    pub fn wrap(inner: Arc<dyn DataSink>, metrics: Arc<ComponentMetrics>) -> Arc<dyn DataSink> {
-        Arc::new(Self {
-            sink_type: inner.sink_type(),
-            inner,
-            metrics,
-        })
-    }
-}
-
-impl DataSink for InstrumentedDataSink {
-    fn sink_type(&self) -> &'static str {
-        self.sink_type
-    }
-
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        let start = Instant::now();
-        self.inner.handle_event(context, event);
-        self.metrics
-            .record_operation(ComponentKind::Sink, self.sink_type, start.elapsed(), true);
-    }
 }
 
 #[cfg(test)]
@@ -83,7 +49,7 @@ mod tests {
         SensorHealthData,
     };
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-    use crate::metrics::MetricsManager;
+    use crate::metrics::{ComponentMetrics, MetricsManager};
 
     struct CountingSink {
         counter: Arc<AtomicUsize>,
@@ -112,6 +78,7 @@ mod tests {
     #[tokio::test]
     async fn test_composite_sink_fanout_with_noop_sink() {
         let success_counter = Arc::new(AtomicUsize::new(0));
+        let metrics_manager = Arc::new(MetricsManager::new());
 
         let sink_ok_1 = Arc::new(CountingSink {
             counter: success_counter.clone(),
@@ -121,7 +88,13 @@ mod tests {
             counter: success_counter.clone(),
         });
 
-        let composite = CompositeDataSink::new(vec![sink_ok_1, sink_noop, sink_ok_2]);
+        let composite = CompositeDataSink::new(
+            vec![sink_ok_1, sink_noop, sink_ok_2],
+            Arc::new(
+                ComponentMetrics::new(metrics_manager.global_registry(), "test")
+                    .expect("should create component metrics"),
+            ),
+        );
 
         let context = EventContext {
             endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
