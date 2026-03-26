@@ -25,7 +25,7 @@ mod leak_events;
 pub use health_report::HealthReportProcessor;
 pub use leak_events::LeakEventProcessor;
 
-use crate::metrics::ComponentMetrics;
+use crate::metrics::{ComponentMetrics, MetricsManager};
 use crate::sink::{CollectorEvent, DataSink, EventContext};
 
 pub trait EventProcessor: Send + Sync {
@@ -48,7 +48,7 @@ impl EventProcessingPipeline {
     pub fn new(
         processors: Vec<Arc<dyn EventProcessor>>,
         sink: Arc<dyn DataSink>,
-        component_metrics: Arc<ComponentMetrics>,
+        metrics_manager: Arc<MetricsManager>,
     ) -> Self {
         debug_assert!(
             !processors.is_empty(),
@@ -57,7 +57,7 @@ impl EventProcessingPipeline {
         Self {
             processors,
             sink,
-            component_metrics,
+            component_metrics: metrics_manager.component_metrics(),
         }
     }
 
@@ -183,7 +183,8 @@ mod tests {
     fn processor_does_not_reconsume_its_own_descendants() {
         let processor_counter = Arc::new(AtomicUsize::new(0));
         let sink_counter = Arc::new(AtomicUsize::new(0));
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
         let pipeline = EventProcessingPipeline::new(
             vec![Arc::new(SelfReemittingProcessor {
                 counter: processor_counter.clone(),
@@ -191,10 +192,7 @@ mod tests {
             Arc::new(CountingSink {
                 counter: sink_counter.clone(),
             }),
-            Arc::new(
-                ComponentMetrics::new(metrics_manager.global_registry(), "test")
-                    .expect("should create component metrics"),
-            ),
+            metrics_manager,
         );
 
         let event = CollectorEvent::Metric(

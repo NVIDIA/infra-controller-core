@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::{CollectorEvent, DataSink, EventContext};
-use crate::metrics::{ComponentKind, ComponentMetrics};
+use crate::metrics::{ComponentKind, ComponentMetrics, MetricsManager};
 
 pub struct CompositeDataSink {
     sinks: Vec<Arc<dyn DataSink>>,
@@ -27,10 +27,10 @@ pub struct CompositeDataSink {
 }
 
 impl CompositeDataSink {
-    pub fn new(sinks: Vec<Arc<dyn DataSink>>, component_metrics: Arc<ComponentMetrics>) -> Self {
+    pub fn new(sinks: Vec<Arc<dyn DataSink>>, metrics_manager: Arc<MetricsManager>) -> Self {
         Self {
             sinks,
-            component_metrics,
+            component_metrics: metrics_manager.component_metrics(),
         }
     }
 

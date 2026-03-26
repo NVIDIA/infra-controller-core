@@ -33,7 +33,7 @@ use crate::config::{
     NvueCollectorConfig as NvueCollectorOptions, SensorCollectorConfig as SensorCollectorOptions,
 };
 use crate::limiter::RateLimiter;
-use crate::metrics::{ComponentMetrics, MetricsManager, operation_duration_buckets_seconds};
+use crate::metrics::{MetricsManager, operation_duration_buckets_seconds};
 
 pub(crate) type BmcClient = HttpBmc<ReqwestClient>;
 
@@ -152,7 +152,6 @@ pub struct DiscoveryLoopContext {
     pub(crate) client: ReqwestClient,
     pub(crate) limiter: Arc<dyn RateLimiter>,
     pub(crate) metrics_manager: Arc<MetricsManager>,
-    pub(crate) component_metrics: Arc<ComponentMetrics>,
     pub(crate) config: Arc<Config>,
     pub(crate) sensors_config: Configurable<SensorCollectorOptions>,
     pub(crate) logs_config: Configurable<LogsCollectorOptions>,
@@ -165,7 +164,6 @@ impl DiscoveryLoopContext {
     pub fn new(
         limiter: Arc<dyn RateLimiter>,
         metrics_manager: Arc<MetricsManager>,
-        component_metrics: Arc<ComponentMetrics>,
         config: Arc<Config>,
     ) -> Result<Self, HealthError> {
         let registry = metrics_manager.global_registry();
@@ -207,7 +205,6 @@ impl DiscoveryLoopContext {
             client,
             limiter,
             metrics_manager,
-            component_metrics,
             config,
             sensors_config,
             logs_config,

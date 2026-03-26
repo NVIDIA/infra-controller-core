@@ -21,7 +21,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-use carbide_health::metrics::{ComponentMetrics, MetricsManager};
+use carbide_health::metrics::MetricsManager;
 use carbide_health::processor::{
     EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
 };
@@ -96,15 +96,12 @@ fn event_context() -> EventContext {
     }
 }
 
-fn make_composite_sink(
-    count: usize,
-    component_metrics: Arc<ComponentMetrics>,
-) -> Arc<dyn DataSink> {
+fn make_composite_sink(count: usize, metrics_manager: Arc<MetricsManager>) -> Arc<dyn DataSink> {
     let mut sinks: Vec<Arc<dyn DataSink>> = Vec::with_capacity(count);
     for _ in 0..count {
         sinks.push(Arc::new(CountingSink));
     }
-    Arc::new(CompositeDataSink::new(sinks, component_metrics))
+    Arc::new(CompositeDataSink::new(sinks, metrics_manager))
 }
 
 fn metric_events(
@@ -168,12 +165,9 @@ fn bench_pipeline_baseline(c: &mut Criterion) {
     let batch_size = 2_000usize;
     group.throughput(Throughput::Elements(batch_size as u64));
     for (scenario, processor_count) in [("no_processors", 0usize), ("two_noops", 2usize)] {
-        let metrics_manager: Arc<MetricsManager> = Arc::new(MetricsManager::new());
-        let component_metrics = Arc::new(
-            ComponentMetrics::new(metrics_manager.global_registry(), "bench")
-                .expect("component metrics should initialize"),
-        );
-        let sink = make_composite_sink(2, component_metrics.clone());
+        let metrics_manager: Arc<MetricsManager> =
+            Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
+        let sink = make_composite_sink(2, metrics_manager.clone());
         let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::with_capacity(processor_count);
         for _ in 0..processor_count {
             processors.push(Arc::new(NoopProcessor));
@@ -184,7 +178,7 @@ fn bench_pipeline_baseline(c: &mut Criterion) {
             Arc::new(EventProcessingPipeline::new(
                 processors,
                 sink,
-                component_metrics,
+                metrics_manager.clone(),
             ))
         };
         let context = event_context();
@@ -206,11 +200,8 @@ fn bench_pipeline_health_processors(c: &mut Criterion) {
     let mut group = c.benchmark_group("processor_pipeline_health");
     let batch_size = 2_000usize;
     group.throughput(Throughput::Elements(batch_size as u64));
-    let metrics_manager: Arc<MetricsManager> = Arc::new(MetricsManager::new());
-    let component_metrics = Arc::new(
-        ComponentMetrics::new(metrics_manager.global_registry(), "bench")
-            .expect("component metrics should initialize"),
-    );
+    let metrics_manager: Arc<MetricsManager> =
+        Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
     let processors: Vec<Arc<dyn EventProcessor>> = vec![
         Arc::new(HealthReportProcessor::new()),
@@ -218,8 +209,8 @@ fn bench_pipeline_health_processors(c: &mut Criterion) {
     ];
     let pipeline = EventProcessingPipeline::new(
         processors,
-        make_composite_sink(2, component_metrics.clone()),
-        component_metrics,
+        make_composite_sink(2, metrics_manager.clone()),
+        metrics_manager,
     );
     let context = event_context();
 
@@ -241,16 +232,13 @@ fn bench_pipeline_loop_guard(c: &mut Criterion) {
     let mut group = c.benchmark_group("processor_pipeline_loop_guard");
     let batch_size = 2_000usize;
     group.throughput(Throughput::Elements(batch_size as u64));
-    let metrics_manager: Arc<MetricsManager> = Arc::new(MetricsManager::new());
-    let component_metrics = Arc::new(
-        ComponentMetrics::new(metrics_manager.global_registry(), "bench")
-            .expect("component metrics should initialize"),
-    );
+    let metrics_manager: Arc<MetricsManager> =
+        Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
     let pipeline = EventProcessingPipeline::new(
         vec![Arc::new(ReemitProcessor)],
-        make_composite_sink(2, component_metrics.clone()),
-        component_metrics,
+        make_composite_sink(2, metrics_manager.clone()),
+        metrics_manager,
     );
     let context = event_context();
     let events = metric_events(batch_size, 64, false);

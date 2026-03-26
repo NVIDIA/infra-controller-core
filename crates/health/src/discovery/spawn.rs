@@ -60,7 +60,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 limiter: ctx.limiter.clone(),
                 iteration_interval: sensor_cfg.sensor_fetch_interval,
                 collector_registry,
-                component_metrics: ctx.component_metrics.clone(),
+                metrics_manager: ctx.metrics_manager.clone(),
                 client: ctx.client.clone(),
                 health_options: ctx.config.clone(),
             },
@@ -127,7 +127,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                     limiter: ctx.limiter.clone(),
                     iteration_interval: logs_cfg.logs_collection_interval,
                     collector_registry,
-                    component_metrics: ctx.component_metrics.clone(),
+                    metrics_manager: ctx.metrics_manager.clone(),
                     client: ctx.client.clone(),
                     health_options: ctx.config.clone(),
                 },
@@ -168,7 +168,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 limiter: ctx.limiter.clone(),
                 iteration_interval: firmware_cfg.firmware_refresh_interval,
                 collector_registry,
-                component_metrics: ctx.component_metrics.clone(),
+                metrics_manager: ctx.metrics_manager.clone(),
                 client: ctx.client.clone(),
                 health_options: ctx.config.clone(),
             },
@@ -210,7 +210,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 limiter: ctx.limiter.clone(),
                 iteration_interval: nmxt_cfg.scrape_interval,
                 collector_registry,
-                component_metrics: ctx.component_metrics.clone(),
+                metrics_manager: ctx.metrics_manager.clone(),
                 client: ctx.client.clone(),
                 health_options: ctx.config.clone(),
             },
@@ -253,7 +253,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 limiter: ctx.limiter.clone(),
                 iteration_interval: rest_cfg.poll_interval,
                 collector_registry,
-                component_metrics: ctx.component_metrics.clone(),
+                metrics_manager: ctx.metrics_manager.clone(),
                 client: ctx.client.clone(),
                 health_options: ctx.config.clone(),
             },
@@ -346,18 +346,10 @@ mod tests {
         config.collectors.nmxt = Configurable::Disabled;
 
         let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
-        let metrics_manager = Arc::new(MetricsManager::new());
-        let component_metrics = Arc::new(
-            crate::metrics::ComponentMetrics::new(metrics_manager.global_registry(), "test")
-                .expect("component metrics should initialize"),
-        );
-        let mut ctx = DiscoveryLoopContext::new(
-            limiter,
-            metrics_manager,
-            component_metrics,
-            Arc::new(config),
-        )
-        .expect("context should initialize");
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("metrics manager should initialize"));
+        let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, Arc::new(config))
+            .expect("context should initialize");
 
         let endpoint = Arc::new(BmcEndpoint::with_fixed_credentials(
             BmcAddr {

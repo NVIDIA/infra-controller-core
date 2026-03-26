@@ -41,7 +41,7 @@ use crate::api_client::ApiClientWrapper;
 use crate::config::Configurable;
 use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
-use crate::metrics::{ComponentMetrics, MetricsManager, run_metrics_server};
+use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::processor::{
     EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
 };
@@ -136,7 +136,6 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
 fn build_data_sink(
     config: &Config,
     metrics_manager: Arc<MetricsManager>,
-    component_metrics: Arc<ComponentMetrics>,
 ) -> Result<Option<Arc<dyn DataSink>>, HealthError> {
     let mut sinks: Vec<Arc<dyn DataSink>> = Vec::new();
     let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::new();
@@ -147,7 +146,7 @@ fn build_data_sink(
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {
         sinks.push(Arc::new(PrometheusSink::new(
-            metrics_manager,
+            metrics_manager.clone(),
             &config.metrics.prefix,
         )?));
     }
@@ -174,7 +173,7 @@ fn build_data_sink(
         None
     } else {
         let composite_sink: Arc<dyn DataSink> =
-            Arc::new(CompositeDataSink::new(sinks, component_metrics.clone()));
+            Arc::new(CompositeDataSink::new(sinks, metrics_manager.clone()));
 
         if processors.is_empty() {
             Some(composite_sink)
@@ -182,7 +181,7 @@ fn build_data_sink(
             Some(Arc::new(EventProcessingPipeline::new(
                 processors,
                 composite_sink,
-                component_metrics,
+                metrics_manager,
             )) as Arc<dyn DataSink>)
         }
     };
@@ -192,11 +191,7 @@ fn build_data_sink(
 
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
     let metrics_endpoint = config.metrics_addr()?;
-    let metrics_manager = Arc::new(MetricsManager::new());
-    let component_metrics = Arc::new(ComponentMetrics::new(
-        metrics_manager.global_registry(),
-        &config.metrics.prefix,
-    )?);
+    let metrics_manager = Arc::new(MetricsManager::new(&config.metrics.prefix)?);
 
     let join_listener = tokio::spawn(run_metrics_server(
         metrics_endpoint,
@@ -229,7 +224,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         source: endpoint_source,
     } = build_endpoint_wiring(&config)?;
 
-    let data_sink = build_data_sink(&config, metrics_manager.clone(), component_metrics.clone())?;
+    let data_sink = build_data_sink(&config, metrics_manager.clone())?;
 
     let config_arc = Arc::new(config);
 
@@ -255,12 +250,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         let endpoint_source = endpoint_source.clone();
         let data_sink = data_sink.clone();
 
-        let mut ctx = DiscoveryLoopContext::new(
-            limiter,
-            metrics_manager,
-            component_metrics.clone(),
-            config.clone(),
-        )?;
+        let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
 
         async move {
             loop {

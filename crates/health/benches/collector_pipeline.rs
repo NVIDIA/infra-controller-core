@@ -22,7 +22,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-use carbide_health::metrics::{ComponentMetrics, MetricsManager};
+use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
     CollectorEvent, CompositeDataSink, DataSink, EventContext, FirmwareInfo, LogRecord,
     PrometheusSink, SensorHealthData,
@@ -199,7 +199,9 @@ fn bench_collector_build_and_emit_prometheus(c: &mut Criterion) {
     group.throughput(Throughput::Elements(batch_size as u64));
 
     for (scenario, unique_keys) in [("low_cardinality", 64usize), ("high_cardinality", 2_000)] {
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager = Arc::new(
+            MetricsManager::new("bench_collector").expect("metrics manager should initialize"),
+        );
         let sink = PrometheusSink::new(metrics_manager, "bench_collector")
             .expect("prometheus sink should initialize");
         let context = event_context();
@@ -228,12 +230,10 @@ impl CompositeBuildEmitState {
             sinks.push(Arc::new(CountingSink));
         }
 
-        let metrics_manager = Arc::new(MetricsManager::new());
-        let component_metrics = Arc::new(
-            ComponentMetrics::new(metrics_manager.global_registry(), "bench_collector")
-                .expect("component metrics should initialize"),
+        let metrics_manager = Arc::new(
+            MetricsManager::new("bench_collector").expect("metrics manager should initialize"),
         );
-        let sink = CompositeDataSink::new(sinks, component_metrics);
+        let sink = CompositeDataSink::new(sinks, metrics_manager);
 
         Self {
             sink,

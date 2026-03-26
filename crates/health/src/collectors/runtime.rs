@@ -34,7 +34,7 @@ use crate::discovery::BmcClient;
 use crate::endpoint::BmcEndpoint;
 use crate::limiter::RateLimiter;
 use crate::metrics::{
-    CollectorRegistry, ComponentKind, ComponentMetrics, operation_duration_buckets_seconds,
+    CollectorRegistry, ComponentKind, MetricsManager, operation_duration_buckets_seconds,
 };
 
 /// Result of a collector iteration
@@ -76,7 +76,7 @@ pub struct CollectorStartContext {
     pub limiter: Arc<dyn RateLimiter>,
     pub iteration_interval: Duration,
     pub collector_registry: Arc<CollectorRegistry>,
-    pub component_metrics: Arc<ComponentMetrics>,
+    pub metrics_manager: Arc<MetricsManager>,
     pub client: ReqwestClient,
     pub health_options: Arc<AppConfig>,
 }
@@ -91,7 +91,7 @@ impl Collector {
             limiter,
             iteration_interval,
             collector_registry,
-            component_metrics,
+            metrics_manager,
             client,
             health_options,
         } = start_context;
@@ -184,6 +184,8 @@ impl Collector {
             .const_labels(const_labels),
         )?;
         registry.register(Box::new(fetch_failures_counter.clone()))?;
+
+        let component_metrics = metrics_manager.component_metrics();
 
         let handle = tokio::spawn(async move {
             let collector_type = runner.collector_type();

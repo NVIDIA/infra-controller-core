@@ -49,7 +49,7 @@ mod tests {
         SensorHealthData,
     };
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-    use crate::metrics::{ComponentMetrics, MetricsManager};
+    use crate::metrics::MetricsManager;
 
     struct CountingSink {
         counter: Arc<AtomicUsize>,
@@ -78,7 +78,8 @@ mod tests {
     #[tokio::test]
     async fn test_composite_sink_fanout_with_noop_sink() {
         let success_counter = Arc::new(AtomicUsize::new(0));
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
 
         let sink_ok_1 = Arc::new(CountingSink {
             counter: success_counter.clone(),
@@ -88,13 +89,8 @@ mod tests {
             counter: success_counter.clone(),
         });
 
-        let composite = CompositeDataSink::new(
-            vec![sink_ok_1, sink_noop, sink_ok_2],
-            Arc::new(
-                ComponentMetrics::new(metrics_manager.global_registry(), "test")
-                    .expect("should create component metrics"),
-            ),
-        );
+        let composite =
+            CompositeDataSink::new(vec![sink_ok_1, sink_noop, sink_ok_2], metrics_manager);
 
         let context = EventContext {
             endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
@@ -126,7 +122,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_prometheus_sink_only_records_metric_events() {
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
         let sink = PrometheusSink::new(metrics_manager.clone(), "test_sink")
             .expect("sink should initialize");
 
@@ -184,7 +181,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_prometheus_sink_sweeps_stale_metrics_per_collection_window() {
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
         let sink = PrometheusSink::new(metrics_manager.clone(), "test_sink")
             .expect("sink should initialize");
 

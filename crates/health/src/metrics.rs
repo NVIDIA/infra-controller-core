@@ -116,23 +116,26 @@ impl ComponentMetrics {
 
 pub struct MetricsManager {
     global_registry: Registry,
-}
-
-impl Default for MetricsManager {
-    fn default() -> Self {
-        Self::new()
-    }
+    component_metrics: Arc<ComponentMetrics>,
 }
 
 impl MetricsManager {
-    pub fn new() -> Self {
-        Self {
-            global_registry: Registry::new(),
-        }
+    pub fn new(prefix: &str) -> Result<Self, prometheus::Error> {
+        let global_registry = Registry::new();
+        let component_metrics = Arc::new(ComponentMetrics::new(&global_registry, prefix)?);
+
+        Ok(Self {
+            global_registry,
+            component_metrics,
+        })
     }
 
     pub fn global_registry(&self) -> &Registry {
         &self.global_registry
+    }
+
+    pub fn component_metrics(&self) -> Arc<ComponentMetrics> {
+        self.component_metrics.clone()
     }
 
     pub fn create_collector_registry(
