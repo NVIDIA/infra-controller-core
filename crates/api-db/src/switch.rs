@@ -17,15 +17,15 @@
 
 use std::net::IpAddr;
 
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
-use model::switch::{
-    FirmwareUpgradeStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
-};
+use model::rack::RackFirmwareUpgradeStatus;
+use model::switch::{NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -76,7 +76,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
     };
 
     let query = sqlx::query_as::<_, SwitchId>(
-        "INSERT INTO switches (id, name, config, controller_state, controller_state_version, bmc_mac_address, description, labels, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) RETURNING id",
+        "INSERT INTO switches (id, name, config, controller_state, controller_state_version, bmc_mac_address, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10) RETURNING id",
     );
     let id = query
         .bind(new_switch.id)
@@ -88,6 +88,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(version)
+        .bind(&new_switch.rack_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("create switch", e))?;
@@ -107,6 +108,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         firmware_upgrade_status: None,
         metadata,
         version,
+        rack_id: new_switch.rack_id.clone(),
     })
 }
 
@@ -318,7 +320,7 @@ pub async fn clear_switch_reprovisioning_requested(
 pub async fn update_firmware_upgrade_status(
     txn: &mut PgConnection,
     switch_id: SwitchId,
-    status: Option<&FirmwareUpgradeStatus>,
+    status: Option<&RackFirmwareUpgradeStatus>,
 ) -> DatabaseResult<()> {
     let query = "UPDATE switches SET firmware_upgrade_status = $1 WHERE id = $2 RETURNING id";
     sqlx::query_as::<_, SwitchId>(query)

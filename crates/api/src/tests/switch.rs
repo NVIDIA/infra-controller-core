@@ -209,6 +209,7 @@ async fn test_switch_database_operations(
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
     };
 
     let created_switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -261,6 +262,7 @@ async fn test_switch_status_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
     };
 
     let mut switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -306,6 +308,7 @@ async fn test_switch_controller_state_transitions(
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
     };
 
     let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -402,6 +405,7 @@ async fn test_switch_conversion_roundtrip(
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
     };
 
     let mut switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -456,6 +460,7 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             config: config.clone(),
             bmc_mac_address: None,
             metadata: None,
+            rack_id: None,
         };
 
         let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -498,6 +503,7 @@ async fn test_switch_controller_state_outcome(
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch).await?;

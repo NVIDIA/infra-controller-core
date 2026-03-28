@@ -19,8 +19,6 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
 use db::dhcp_entry::DhcpEntry;
 use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
@@ -200,19 +198,10 @@ pub async fn discover_dhcp(
                         .await?
                 {
                     // remember expected machine id for later rack update
-                    let predicted_machine_id = expected_interface.machine_id;
                     machine_interface::move_predicted_machine_interface_to_machine(
                         &mut txn,
                         &expected_interface,
                         relay_ip,
-                    )
-                    .await?;
-                    // replace predicted id saved above in rack table with actual id
-                    update_rack_config_predicted_id_with_actual(
-                        &mut txn,
-                        &parsed_mac,
-                        &predicted_machine_id,
-                        &expected_interface.machine_id,
                     )
                     .await?;
                     Some(expected_interface.machine_id)

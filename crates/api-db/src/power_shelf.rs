@@ -16,6 +16,7 @@
  */
 
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
@@ -80,7 +81,7 @@ pub async fn create(
     };
 
     let query = sqlx::query_as::<_, PowerShelfId>(
-        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, description, labels, version) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id",
+        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
     );
     let _: PowerShelfId = query
         .bind(new_power_shelf.id)
@@ -91,6 +92,7 @@ pub async fn create(
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(version)
+        .bind(&new_power_shelf.rack_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("create power_shelf", e))?;
@@ -107,6 +109,7 @@ pub async fn create(
         controller_state_outcome: None,
         metadata,
         version,
+        rack_id: new_power_shelf.rack_id.clone(),
     })
 }
 
