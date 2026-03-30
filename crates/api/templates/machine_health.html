@@ -152,9 +152,9 @@ const templateMergeOfrMaintenance = {
 const templateMergeBreakfix = {
 	mode: "Merge",
 	health_report: {
-		source: "manual-maintenance",
+		source: "repair-request",
 		successes: [],
-		alerts: [{id: "Maintenance", target: "Break-Fix", message: "Machine is broken, setting Break-Fix tag for automated repair",
+		alerts: [{id: "RequestRepair", target: "RequestRepair", message: "Machine is broken, setting RequestRepair tag for automated repair",
 			tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
 	}
 };
