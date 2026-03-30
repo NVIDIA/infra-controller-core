@@ -2829,13 +2829,16 @@ async fn handle_dpu_reprovision(
             }
 
             // For Supermicro ARS-121L-DNR machines, perform DPU power cycle sequence
-            // before powering the host back on.
-            if let Err(e) = reprovision_dpu_power_cycle_grace_grace(state, ctx).await
-            {
-                return Ok(StateHandlerOutcome::wait(format!(
-                    "DPU power cycle sequence failed for host {}: {e}",
-                    state.host_snapshot.id
-                )));
+            // before powering the host back on. This is split into two phases across
+            // handler invocations to avoid sleeping while holding a DB lock:
+            //   Phase 1: Issue PowerCycle, record timestamp, return Wait.
+            //   Phase 2: After 10s elapsed, issue chassis_reset, then proceed.
+            match reprovision_dpu_power_cycle_grace_grace(state, ctx).await? {
+                GraceGraceDpuPowerCycleOutcome::NotApplicable
+                | GraceGraceDpuPowerCycleOutcome::Done => {}
+                GraceGraceDpuPowerCycleOutcome::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
             }
 
             // Mark all re-provisioned DPUs for topology update.
@@ -3056,10 +3059,21 @@ async fn handle_dpu_reprovision(
 /// restart to all DPUs after the host is powered off during DPU reprovision. This is needed as
 /// as Grace-Grace's DPU has power sources from both nodes in the chassis. Shutting down a host
 /// does not necessarily shutdown the DPU.
+enum GraceGraceDpuPowerCycleOutcome {
+    /// Machine is not a Grace Grace, nothing to do.
+    NotApplicable,
+    /// All DPUs have been power-cycled and chassis-reset. Proceed.
+    Done,
+    /// Waiting for the power cycle delay to elapse before issuing chassis reset.
+    Wait(String),
+}
+
+const GRACE_GRACE_POWER_CYCLE_DELAY: Duration = Duration::seconds(10);
+
 async fn reprovision_dpu_power_cycle_grace_grace(
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-) -> Result<(), StateHandlerError> {
+) -> Result<GraceGraceDpuPowerCycleOutcome, StateHandlerError> {
     let is_grace_grace = state
         .host_snapshot
         .hardware_info
@@ -3070,9 +3084,69 @@ async fn reprovision_dpu_power_cycle_grace_grace(
                 && dmi.product_name == "ARS-121L-DNR"
         });
     if !is_grace_grace {
-        return Ok(());
+        return Ok(GraceGraceDpuPowerCycleOutcome::NotApplicable);
     }
-    for dpu in &state.dpu_snapshots {
+
+    let dpus_for_reprov: Vec<_> = state
+        .dpu_snapshots
+        .iter()
+        .filter(|dpu| dpu.reprovision_requested.is_some())
+        .collect();
+
+    // Phase 2: If power cycle was already issued for all DPUs, check if enough time
+    // has elapsed and then issue the chassis reset.
+    let all_power_cycled = dpus_for_reprov.iter().all(|dpu| {
+        dpu.reprovision_requested
+            .as_ref()
+            .and_then(|r| r.dpu_power_cycle_issued_at)
+            .is_some()
+    });
+
+    if all_power_cycled {
+        // Check if we still need to wait for the delay to elapse.
+        let earliest_issued = dpus_for_reprov
+            .iter()
+            .filter_map(|dpu| {
+                dpu.reprovision_requested
+                    .as_ref()
+                    .and_then(|r| r.dpu_power_cycle_issued_at)
+            })
+            .min();
+
+        if let Some(issued_at) = earliest_issued {
+            if Utc::now() < issued_at + GRACE_GRACE_POWER_CYCLE_DELAY {
+                return Ok(GraceGraceDpuPowerCycleOutcome::Wait(format!(
+                    "Waiting for DPU power cycle delay to elapse for host {}",
+                    state.host_snapshot.id
+                )));
+            }
+        }
+
+        // Delay has elapsed — issue chassis reset for all DPUs.
+        for dpu in &dpus_for_reprov {
+            let bmc_ip = dpu
+                .bmc_addr()
+                .map_or_else(|| "unknown".to_string(), |a| a.to_string());
+            let dpu_bmc_client = ctx.services.create_redfish_client_from_machine(dpu).await?;
+            dpu_bmc_client
+                .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre::eyre!(
+                        "chassis_reset_dpu failed for DPU {} (BMC: {}): {e}",
+                        dpu.id,
+                        bmc_ip,
+                    ))
+                })?;
+        }
+        return Ok(GraceGraceDpuPowerCycleOutcome::Done);
+    }
+
+    // Phase 1: Issue PowerCycle for all DPUs and record the timestamp.
+    let now = Utc::now();
+    let mut txn = ctx.services.db_pool.begin().await?;
+
+    for dpu in &dpus_for_reprov {
         let bmc_ip = dpu
             .bmc_addr()
             .map_or_else(|| "unknown".to_string(), |a| a.to_string());
@@ -3087,19 +3161,15 @@ async fn reprovision_dpu_power_cycle_grace_grace(
                     bmc_ip,
                 ))
             })?;
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-        dpu_bmc_client
-            .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
-            .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "chassis_reset_dpu failed for DPU {} (BMC: {}): {e}",
-                    dpu.id,
-                    bmc_ip,
-                ))
-            })?;
+        db::machine::set_dpu_reprovision_power_cycle_issued_at(&dpu.id, now, &mut txn).await?;
     }
-    Ok(())
+
+    txn.commit().await?;
+
+    Ok(GraceGraceDpuPowerCycleOutcome::Wait(format!(
+        "Issued DPU power cycle for host {}, waiting before chassis reset",
+        state.host_snapshot.id
+    )))
 }
 
 fn host_reprovisioning_requested(state: &ManagedHostStateSnapshot) -> bool {
