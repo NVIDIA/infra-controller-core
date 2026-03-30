@@ -46,7 +46,7 @@ use crate::processor::{
     EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
 };
 use crate::sharding::ShardManager;
-use crate::sink::{DataSink, HealthOverrideSink, PrometheusSink, TracingSink};
+use crate::sink::{CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, TracingSink};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -146,13 +146,18 @@ fn build_data_sink(
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {
         sinks.push(Arc::new(PrometheusSink::new(
-            metrics_manager,
+            metrics_manager.clone(),
             &config.metrics.prefix,
         )?));
     }
 
-    // Unconditionally enable HealthReport processor
-    processors.push(Arc::new(HealthReportProcessor::new()));
+    // Enable HealthReport processor only if it has consumers
+    if config.sinks.tracing.is_enabled()
+        || config.sinks.health_override.is_enabled()
+        || config.processors.leak_detection.is_enabled()
+    {
+        processors.push(Arc::new(HealthReportProcessor::new()));
+    }
 
     if let Configurable::Enabled(ref leak_detection_cfg) = config.processors.leak_detection {
         processors.push(Arc::new(LeakEventProcessor::new(
@@ -167,7 +172,18 @@ fn build_data_sink(
     let data_sink = if sinks.is_empty() {
         None
     } else {
-        Some(Arc::new(EventProcessingPipeline::new(processors, sinks)) as Arc<dyn DataSink>)
+        let composite_sink: Arc<dyn DataSink> =
+            Arc::new(CompositeDataSink::new(sinks, metrics_manager.clone()));
+
+        if processors.is_empty() {
+            Some(composite_sink)
+        } else {
+            Some(Arc::new(EventProcessingPipeline::new(
+                processors,
+                composite_sink,
+                metrics_manager,
+            )) as Arc<dyn DataSink>)
+        }
     };
 
     Ok(data_sink)
@@ -175,7 +191,7 @@ fn build_data_sink(
 
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
     let metrics_endpoint = config.metrics_addr()?;
-    let metrics_manager = Arc::new(MetricsManager::new());
+    let metrics_manager = Arc::new(MetricsManager::new(&config.metrics.prefix)?);
 
     let join_listener = tokio::spawn(run_metrics_server(
         metrics_endpoint,
