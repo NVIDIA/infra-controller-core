@@ -44,9 +44,13 @@ use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::processor::{
     EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
+    RackLeakProcessor,
 };
 use crate::sharding::ShardManager;
-use crate::sink::{CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, TracingSink};
+use crate::sink::{
+    CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, RackHealthOverrideSink,
+    TracingSink,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -165,8 +169,18 @@ fn build_data_sink(
         )));
     }
 
+    if let Configurable::Enabled(ref rack_leak_cfg) = config.processors.rack_leak {
+        processors.push(Arc::new(RackLeakProcessor::new(
+            rack_leak_cfg.leaking_tray_threshold,
+        )));
+    }
+
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_override {
         sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)?));
+    }
+
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.rack_health_override {
+        sinks.push(Arc::new(RackHealthOverrideSink::new(sink_cfg)?));
     }
 
     let data_sink = if sinks.is_empty() {

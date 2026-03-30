@@ -22,8 +22,10 @@ use std::time::Instant;
 
 mod health_report;
 mod leak_events;
+mod rack_leak;
 pub use health_report::HealthReportProcessor;
 pub use leak_events::LeakEventProcessor;
+pub use rack_leak::RackLeakProcessor;
 
 use crate::metrics::{ComponentMetrics, MetricsManager};
 use crate::sink::{CollectorEvent, DataSink, EventContext};
@@ -176,6 +178,7 @@ mod tests {
             },
             collector_type: "test",
             metadata: None,
+            rack_id: None,
         }
     }
 

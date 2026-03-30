@@ -274,6 +274,7 @@ mod tests {
                     .expect("valid machine id"),
                 machine_serial: None,
             })),
+            rack_id: None,
         }
     }
 

@@ -140,6 +140,7 @@ mod tests {
             },
             collector_type: "sensor_collector",
             metadata: None,
+            rack_id: None,
         }
     }
 

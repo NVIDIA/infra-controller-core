@@ -22,6 +22,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 use url::Url;
 
@@ -55,6 +56,7 @@ impl CredentialProvider for FixedCredentialProvider {
 pub struct BmcEndpoint {
     pub addr: BmcAddr,
     pub metadata: Option<EndpointMetadata>,
+    pub rack_id: Option<RackId>,
     pub(crate) credentials: Arc<RwLock<BmcCredentials>>,
     pub(crate) provider: Arc<dyn CredentialProvider>,
 }
@@ -64,6 +66,7 @@ impl BmcEndpoint {
         addr: BmcAddr,
         credentials: BmcCredentials,
         metadata: Option<EndpointMetadata>,
+        rack_id: Option<RackId>,
     ) -> Self {
         let provider = Arc::new(FixedCredentialProvider {
             credentials: credentials.clone(),
@@ -72,6 +75,7 @@ impl BmcEndpoint {
         Self {
             addr,
             metadata,
+            rack_id,
             credentials: Arc::new(RwLock::new(credentials)),
             provider,
         }

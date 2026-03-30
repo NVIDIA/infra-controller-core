@@ -312,6 +312,7 @@ mod tests {
                 password: Some("pass".to_string()),
             },
             None,
+            None,
         );
 
         assert_eq!(endpoint.log_identity().as_ref(), "AA:BB:CC:DD:EE:FF");
@@ -332,6 +333,7 @@ mod tests {
             Some(EndpointMetadata::Switch(SwitchData {
                 serial: "switch-serial-1".to_string(),
             })),
+            None,
         );
 
         assert_eq!(endpoint.log_identity().as_ref(), "switch-serial-1");
@@ -361,6 +363,7 @@ mod tests {
                 username: "user".to_string(),
                 password: Some("pass".to_string()),
             },
+            None,
             None,
         ));
 

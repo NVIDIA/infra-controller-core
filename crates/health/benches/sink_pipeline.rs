@@ -67,6 +67,7 @@ fn event_context_for_machine(machine_id: &str) -> EventContext {
             machine_id: machine_id.parse().expect("valid machine id"),
             machine_serial: None,
         })),
+        rack_id: None,
     }
 }
 

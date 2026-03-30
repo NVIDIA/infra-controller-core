@@ -18,7 +18,9 @@
 mod composite;
 mod events;
 mod health_override;
+mod override_queue;
 mod prometheus;
+mod rack_health_override;
 mod tracing;
 
 pub use composite::CompositeDataSink;
@@ -28,6 +30,7 @@ pub use events::{
 };
 pub use health_override::HealthOverrideSink;
 pub use prometheus::PrometheusSink;
+pub use rack_health_override::RackHealthOverrideSink;
 pub use tracing::TracingSink;
 
 pub trait DataSink: Send + Sync {
@@ -101,6 +104,7 @@ mod tests {
             },
             collector_type: "test",
             metadata: None,
+            rack_id: None,
         };
 
         let event = CollectorEvent::Metric(
@@ -141,6 +145,7 @@ mod tests {
                     .expect("valid machine id"),
                 machine_serial: None,
             })),
+            rack_id: None,
         };
 
         let log_event = CollectorEvent::Log(
@@ -200,6 +205,7 @@ mod tests {
                     .expect("valid machine id"),
                 machine_serial: None,
             })),
+            rack_id: None,
         };
 
         let start_event = CollectorEvent::MetricCollectionStart;
