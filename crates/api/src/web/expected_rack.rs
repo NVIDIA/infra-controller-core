@@ -24,6 +24,7 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
+use super::filters;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -74,13 +75,10 @@ async fn fetch_expected_racks(
         }
     };
 
-    let rack_response = match api
-        .get_rack(tonic::Request::new(rpc::forge::GetRackRequest { id: None }))
-        .await
-    {
-        Ok(response) => response.into_inner(),
+    let rack_response = match super::rack::fetch_racks(api).await {
+        Ok(racks) => racks,
         Err(err) => {
-            tracing::error!(%err, "get_rack");
+            tracing::error!(%err, "fetch_racks");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to list racks".to_string(),
@@ -90,7 +88,7 @@ async fn fetch_expected_racks(
 
     // Index actual racks by their ID for quick lookup.
     let racks_by_id: std::collections::HashMap<String, &rpc::forge::Rack> = rack_response
-        .rack
+        .racks
         .iter()
         .filter_map(|r| r.id.as_ref().map(|id| (id.to_string(), r)))
         .collect();

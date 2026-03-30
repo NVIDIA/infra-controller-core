@@ -1045,7 +1045,12 @@ impl MachineStateHandler {
                     let mut dpus_for_reprov = vec![];
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         if dpu_snapshot.reprovision_requested.is_some() {
-                            handler_restart_dpu(dpu_snapshot, ctx).await?;
+                            handler_restart_dpu(
+                                dpu_snapshot,
+                                ctx,
+                                mh_snapshot.host_snapshot.dpf.used_for_ingestion,
+                            )
+                            .await?;
                             ctx.pending_db_writes.push(
                                 MachineWriteOp::UpdateDpuReprovisionStartTime {
                                     machine_id: dpu_snapshot.id,
@@ -1881,7 +1886,7 @@ impl MachineStateHandler {
                         machine_id: dpu.id,
                         time: Utc::now(),
                     });
-                handler_restart_dpu(dpu, ctx).await?;
+                handler_restart_dpu(dpu, ctx, state.host_snapshot.dpf.used_for_ingestion).await?;
             }
             return Ok(next_state);
         }
@@ -3548,7 +3553,12 @@ impl DpuMachineStateHandler {
                 }
 
                 for dpu_snapshot in &state.dpu_snapshots {
-                    handler_restart_dpu(dpu_snapshot, ctx).await?;
+                    handler_restart_dpu(
+                        dpu_snapshot,
+                        ctx,
+                        state.host_snapshot.dpf.used_for_ingestion,
+                    )
+                    .await?;
                 }
                 let next_state =
                     DpuInitState::Init.next_state_with_all_dpus_updated(&state.managed_state)?;
@@ -3613,7 +3623,12 @@ impl DpuMachineStateHandler {
 
                 // All DPUs are discovered. Reboot them to proceed.
                 for dpu_snapshot in &state.dpu_snapshots {
-                    handler_restart_dpu(dpu_snapshot, ctx).await?;
+                    handler_restart_dpu(
+                        dpu_snapshot,
+                        ctx,
+                        state.host_snapshot.dpf.used_for_ingestion,
+                    )
+                    .await?;
                 }
 
                 let machine_state = DpuInitState::WaitingForPlatformPowercycle {
@@ -3641,19 +3656,7 @@ impl DpuMachineStateHandler {
                     ));
                 }
 
-                // All DPUs are in Off state, turn off the host.
-                let host_redfish_client = ctx
-                    .services
-                    .create_redfish_client_from_machine(&state.host_snapshot)
-                    .await?;
-
-                host_redfish_client
-                    .power(SystemPowerControl::ForceOff)
-                    .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "host_power_off",
-                        error: e,
-                    })?;
+                handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
 
                 let next_state = DpuInitState::WaitingForPlatformPowercycle {
                     substate: PerformPowerOperation::On,
@@ -3665,18 +3668,21 @@ impl DpuMachineStateHandler {
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::On,
             } => {
-                let host_redfish_client = ctx
-                    .services
-                    .create_redfish_client_from_machine(&state.host_snapshot)
-                    .await?;
+                let basetime = state
+                    .host_snapshot
+                    .last_reboot_requested
+                    .as_ref()
+                    .map(|x| x.time)
+                    .unwrap_or(state.host_snapshot.state.version.timestamp());
 
-                host_redfish_client
-                    .power(SystemPowerControl::On)
-                    .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "host_power_on",
-                        error: e,
-                    })?;
+                if wait(&basetime, self.reachability_params.power_down_wait) {
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "Waiting for power_down_wait ({}m) to elapse before powering on host",
+                        self.reachability_params.power_down_wait.num_minutes(),
+                    )));
+                }
+
+                handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
 
                 let next_state = DpuInitState::WaitingForPlatformConfiguration
                     .next_state_with_all_dpus_updated(&state.managed_state)?;
@@ -3791,7 +3797,12 @@ impl DpuMachineStateHandler {
 
                 // We need to reboot the DPU after configuring the BIOS settings appropriately
                 // so that they are applied
-                handler_restart_dpu(dpu_snapshot, ctx).await?;
+                handler_restart_dpu(
+                    dpu_snapshot,
+                    ctx,
+                    state.host_snapshot.dpf.used_for_ingestion,
+                )
+                .await?;
 
                 let next_state = DpuInitState::PollingBiosSetup
                     .next_state(&state.managed_state, dpu_machine_id)?;
@@ -4475,7 +4486,8 @@ pub async fn trigger_reboot_if_needed_with_location(
             } else {
                 // Reboot
                 if target.id.machine_type().is_dpu() {
-                    handler_restart_dpu(target, ctx).await?;
+                    handler_restart_dpu(target, ctx, state.host_snapshot.dpf.used_for_ingestion)
+                        .await?;
                 } else {
                     if let Ok(client) = ctx.services.create_redfish_client_from_machine(host).await
                     {
@@ -5873,7 +5885,12 @@ impl StateHandler for InstanceStateHandler {
                         let mut dpus_for_reprov = vec![];
                         for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                             if dpu_snapshot.reprovision_requested.is_some() {
-                                handler_restart_dpu(dpu_snapshot, ctx).await?;
+                                handler_restart_dpu(
+                                    dpu_snapshot,
+                                    ctx,
+                                    mh_snapshot.host_snapshot.dpf.used_for_ingestion,
+                                )
+                                .await?;
                                 dpus_for_reprov.push(dpu_snapshot);
                             }
                         }
@@ -8262,6 +8279,7 @@ impl AsyncFirmwareUploader {
 fn handler_restart_dpu(
     machine: &Machine,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    dpf_used_for_ingestion: bool,
 ) -> impl Future<Output = Result<(), StateHandlerError>> {
     let trigger_location = std::panic::Location::caller();
     tracing::info!(
@@ -8275,7 +8293,7 @@ fn handler_restart_dpu(
             mode: model::machine::MachineLastRebootRequestedMode::Reboot,
             time: Utc::now(),
         });
-    restart_dpu(machine, ctx.services)
+    restart_dpu(machine, ctx.services, dpf_used_for_ingestion)
 }
 
 pub async fn host_power_state(
@@ -8889,18 +8907,25 @@ pub async fn handler_host_power_control_with_location(
 async fn restart_dpu(
     machine: &Machine,
     services: &CommonStateHandlerServices,
+    dpf_used_for_ingestion: bool,
 ) -> Result<(), StateHandlerError> {
     let dpu_redfish_client = services.create_redfish_client_from_machine(machine).await?;
 
     // We have seen the boot order be reset on DPUs in some edge cases (for example, after upgrading the BMC and CEC on BF3s)
-    // This should take care of handling such cases. It is a no-op most of the time
-    if let Err(e) = dpu_redfish_client
-        .boot_once(libredfish::Boot::UefiHttp)
-        .await
-    {
-        // We use a Dell to mock our BMC responses in the integration tests. UefiHttp boot is not implemented
-        // for Dells, so this call is failing in our tests. Regardless, it is ok to not make this call blocking.
-        tracing::error!(%e, "Failed to configure DPU {} to boot once", machine.id);
+    // This should take care of handling such cases. It is a no-op most of the time.
+    // Skip for DPUs that get their BFB installed via redfish or DPF, they don't need to HTTP boot.
+    let redfish_install = machine.bmc_info.supports_bfb_install()
+        && services.site_config.dpu_config.dpu_enable_secure_boot;
+
+    if !redfish_install && !dpf_used_for_ingestion {
+        let _ = dpu_redfish_client
+            .boot_once(libredfish::Boot::UefiHttp)
+            .await
+            .map_err(|e| {
+                // We use a Dell to mock our BMC responses in the integration tests. UefiHttp boot is not implemented
+                // for Dells, so this call is failing in our tests. Regardless, it is ok to not make this call blocking.
+                tracing::error!(%e, "Failed to configure DPU {} to boot once", machine.id);
+            });
     }
 
     if let Err(e) = dpu_redfish_client

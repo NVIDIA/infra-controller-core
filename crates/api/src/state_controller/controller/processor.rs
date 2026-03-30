@@ -678,8 +678,20 @@ async fn process_object<IO: StateControllerIO>(
             if *next == controller_state.value {
                 tracing::warn!(state=?next, %object_id, "Transition to current state");
             }
-            io.persist_controller_state(&mut txn, &object_id, controller_state.version, next)
-                .await?;
+            let new_version = controller_state.version.increment();
+            if io
+                .persist_controller_state(
+                    &mut txn,
+                    &object_id,
+                    controller_state.version,
+                    new_version,
+                    next,
+                )
+                .await?
+            {
+                io.persist_state_history(&mut txn, &object_id, new_version, next)
+                    .await?;
+            }
         }
 
         let is_success = handler_outcome.is_ok();

@@ -261,6 +261,30 @@ impl ApiClient {
         Ok(self.0.find_instance_ids(request).await?)
     }
 
+    pub async fn get_all_racks(&self, page_size: usize) -> CarbideCliResult<rpc::RackList> {
+        let all_ids = self.get_rack_ids().await?;
+        let mut all_list = rpc::RackList {
+            racks: Vec::with_capacity(all_ids.rack_ids.len()),
+        };
+
+        for ids in all_ids.rack_ids.chunks(page_size) {
+            let list = self.0.find_racks_by_ids(ids.to_vec()).await?;
+            all_list.racks.extend(list.racks);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_rack(&self, rack_id: RackId) -> CarbideCliResult<rpc::RackList> {
+        let racks = self.0.find_racks_by_ids(vec![rack_id]).await?;
+
+        Ok(racks)
+    }
+
+    async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
+        Ok(self.0.find_rack_ids().await?)
+    }
+
     pub async fn get_all_segments(
         &self,
         tenant_org_id: Option<String>,
@@ -550,7 +574,6 @@ impl ApiClient {
 
         Ok(self.0.update_expected_machine(request).await?)
     }
-
     pub async fn replace_all_expected_machines(
         &self,
         expected_machine_list: Vec<ExpectedMachineJson>,
@@ -621,6 +644,11 @@ impl ApiClient {
                     bmc_username: switch.bmc_username,
                     bmc_password: switch.bmc_password,
                     switch_serial_number: switch.switch_serial_number,
+                    nvos_mac_addresses: switch
+                        .nvos_mac_addresses
+                        .iter()
+                        .map(|m| m.to_string())
+                        .collect(),
                     nvos_username: switch.nvos_username,
                     nvos_password: switch.nvos_password,
                     metadata: switch.metadata,

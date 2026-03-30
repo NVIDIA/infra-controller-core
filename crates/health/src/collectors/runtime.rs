@@ -20,8 +20,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use http::header::InvalidHeaderValue;
-use http::{HeaderMap, header};
-use nv_redfish::bmc_http::reqwest::Client as ReqwestClient;
+use http::{HeaderMap, StatusCode, header};
+use nv_redfish::bmc_http::reqwest::{BmcError, Client as ReqwestClient};
 use nv_redfish::bmc_http::{CacheSettings, HttpBmc};
 use nv_redfish::core::Bmc;
 use prometheus::{Counter, Gauge, Histogram, HistogramOpts, Opts};
@@ -102,15 +102,16 @@ impl Collector {
             HeaderMap::new()
         };
 
+        let initial_credentials = endpoint.credentials();
         let bmc = Arc::new(HttpBmc::with_custom_headers(
             client,
             bmc_url,
-            endpoint.credentials.clone().into(),
+            initial_credentials.into(),
             CacheSettings::with_capacity(health_options.cache_size),
             headers,
         ));
 
-        let mut runner = C::new_runner(bmc, endpoint.clone(), config)?;
+        let mut runner = C::new_runner(bmc.clone(), endpoint.clone(), config)?;
 
         let endpoint_key = endpoint.addr.hash_key().to_string();
         let const_labels = HashMap::from([
@@ -156,8 +157,6 @@ impl Collector {
 
         let handle = tokio::spawn(async move {
             let collector_type = runner.collector_type();
-            // We keep to prevent registry clean_up on drop, after handle is dropped,
-            // collector_registry will be dropped and unregister the metrics.
             let _collector_registry = collector_registry;
             loop {
                 tokio::select! {
@@ -169,7 +168,11 @@ impl Collector {
                         limiter.acquire().await;
 
                         let start = Instant::now();
-                        let iteration_result = runner.run_iteration().await;
+                        let iteration_result = run_iteration_with_auth_refresh(
+                            &mut runner,
+                            &endpoint,
+                            &bmc,
+                        ).await;
                         let duration = start.elapsed();
 
                         iteration_histogram.observe(
@@ -200,7 +203,6 @@ impl Collector {
 
                         tokio::time::sleep(iteration_interval).await;
                     } => {
-                        // Iteration completed
                     }
                 }
             }
@@ -216,4 +218,61 @@ impl Collector {
         self.cancel_token.cancel();
         let _ = self.handle.await;
     }
+}
+
+async fn run_iteration_with_auth_refresh<C: PeriodicCollector<BmcClient>>(
+    runner: &mut C,
+    endpoint: &Arc<BmcEndpoint>,
+    bmc: &Arc<BmcClient>,
+) -> Result<IterationResult, HealthError> {
+    match runner.run_iteration().await {
+        Ok(result) => Ok(result),
+        Err(error) if is_auth_error(&error) => {
+            tracing::warn!(
+                error = ?error,
+                endpoint = ?endpoint.addr,
+                "Authentication failed, refreshing BMC credentials and retrying once"
+            );
+
+            let credentials = endpoint.refresh().await.map_err(|refresh_error| {
+                HealthError::GenericError(format!(
+                    "Failed to refresh credentials after auth error: {refresh_error}"
+                ))
+            })?;
+
+            // We set credentials and wait till next iteration, to avoid credential fetch loop.
+            bmc.set_credentials(credentials.into())
+                .map_err(HealthError::GenericError)?;
+            Err(error)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn is_auth_error(error: &HealthError) -> bool {
+    match error {
+        HealthError::HttpError(message) => {
+            message.contains("HTTP 401") || message.contains("HTTP 403")
+        }
+        HealthError::BmcError(inner) => {
+            inner
+                .downcast_ref::<BmcError>()
+                .is_some_and(is_auth_bmc_error)
+                || inner
+                    .downcast_ref::<nv_redfish::Error<BmcClient>>()
+                    .is_some_and(|err| match err {
+                        nv_redfish::Error::Bmc(bmc_error) => is_auth_bmc_error(bmc_error),
+                        _ => false,
+                    })
+        }
+        _ => false,
+    }
+}
+
+fn is_auth_bmc_error(error: &BmcError) -> bool {
+    matches!(
+        error,
+        BmcError::InvalidResponse { status, .. }
+            if *status == StatusCode::UNAUTHORIZED || *status == StatusCode::FORBIDDEN
+    )
 }

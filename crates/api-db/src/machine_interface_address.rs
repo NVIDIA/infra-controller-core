@@ -71,6 +71,21 @@ pub async fn delete(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Delete the IP address allocation for the given address. Returns true if
+/// an allocation was found and deleted, false if no allocation existed.
+pub async fn delete_by_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+) -> Result<bool, DatabaseError> {
+    let query = "DELETE FROM machine_interface_addresses WHERE address = $1::inet";
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map(|r| r.rows_affected() > 0)
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 #[derive(Debug, FromRow)]
 pub struct MachineInterfaceSearchResult {
     pub id: MachineInterfaceId,

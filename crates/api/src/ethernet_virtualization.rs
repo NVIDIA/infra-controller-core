@@ -246,7 +246,6 @@ pub async fn tenant_network(
     iface: &InstanceInterfaceConfig,
     fqdn: String,
     loopback_ip: Option<String>,
-    nvue_enabled: bool,
     network_virtualization_type: VpcVirtualizationType,
     suppress_tenant_security_groups: bool,
     network_security_group_details: Option<(i32, NetworkSecurityGroup)>,
@@ -317,17 +316,7 @@ pub async fn tenant_network(
         match policy {
             VpcPeeringPolicy::Exclusive => {
                 // Under exclusive policy, VPC only allowed to peer with VPC of same network virtualization type.
-                // If nvue_enabled, ETHERNET_VIRTUALIZER is same as ETHERNET_VIRTUALIZER_NVUE.
-                let allowed_network_virtualization_types =
-                    match (nvue_enabled, network_virtualization_type) {
-                        (true, t) if t != VpcVirtualizationType::Fnn => {
-                            vec![
-                                VpcVirtualizationType::EthernetVirtualizer,
-                                VpcVirtualizationType::EthernetVirtualizerWithNvue,
-                            ]
-                        }
-                        _ => vec![network_virtualization_type],
-                    };
+                let allowed_network_virtualization_types = vec![network_virtualization_type];
                 let vpc_peers = db::vpc_peering::get_vpc_peer_vnis(
                     txn,
                     vpc_id,

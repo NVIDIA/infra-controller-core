@@ -386,7 +386,7 @@ impl DpuMachineHandle {
             mat_id: self.0.mat_id,
             hw_type: None,
             machine_id: guard.observed_machine_id.as_ref().map(|m| m.to_string()),
-            mat_state: guard.state_string.clone(),
+            mat_state: guard.state_string,
             api_state: guard.api_state.clone(),
             oob_ip: guard.bmc_ip.map(|ip| ip.to_string()).unwrap_or_default(),
             machine_ip: guard

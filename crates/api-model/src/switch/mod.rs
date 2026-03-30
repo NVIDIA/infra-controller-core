@@ -22,6 +22,7 @@ use ::rpc::forge as rpc;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -36,6 +37,7 @@ pub mod switch_id;
 pub struct NewSwitch {
     pub id: SwitchId,
     pub config: SwitchConfig,
+    pub bmc_mac_address: Option<MacAddress>,
 }
 
 impl TryFrom<rpc::SwitchCreationRequest> for NewSwitch {
@@ -68,6 +70,7 @@ impl TryFrom<rpc::SwitchCreationRequest> for NewSwitch {
         Ok(NewSwitch {
             id,
             config: SwitchConfig::try_from(conf)?,
+            bmc_mac_address: None,
         })
     }
 }
@@ -92,6 +95,25 @@ pub struct SwitchStatus {
     pub health_status: String, // "ok", "warning", "critical"
 }
 
+/// Set by an external entity to request switch reprovisioning. When the switch is in Ready state,
+/// the state controller checks this flag and transitions to ReProvisioning::Start.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwitchReprovisionRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+}
+
+/// Status of the firmware upgrade during ReProvisioning. Set by an external entity (e.g. switch
+/// firmware updater). WaitFirmwareUpdateCompletion waits for Completed or Failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FirmwareUpgradeStatus {
+    Started,
+    InProgress,
+    Completed,
+    Failed { cause: String },
+}
+
 #[derive(Debug, Clone)]
 pub struct Switch {
     pub id: SwitchId,
@@ -101,10 +123,19 @@ pub struct Switch {
 
     pub deleted: Option<DateTime<Utc>>,
 
+    pub bmc_mac_address: Option<MacAddress>,
+
     pub controller_state: Versioned<SwitchControllerState>,
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+
+    /// When set, the state controller (in Ready) transitions to ReProvisioning::Start.
+    pub switch_reprovisioning_requested: Option<SwitchReprovisionRequest>,
+
+    /// Firmware upgrade status during ReProvisioning. WaitFirmwareUpdateCompletion polls this;
+    /// when Completed, transition to Ready; when Failed, transition to Error.
+    pub firmware_upgrade_status: Option<FirmwareUpgradeStatus>,
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
@@ -118,17 +149,24 @@ impl<'r> FromRow<'r, PgRow> for Switch {
         let status: Option<sqlx::types::Json<SwitchStatus>> = row.try_get("status").ok();
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
+        let switch_reprovisioning_requested: Option<sqlx::types::Json<SwitchReprovisionRequest>> =
+            row.try_get("switch_reprovisioning_requested").ok();
+        let firmware_upgrade_status: Option<sqlx::types::Json<FirmwareUpgradeStatus>> =
+            row.try_get("firmware_upgrade_status").ok();
 
         Ok(Switch {
             id: row.try_get("id")?,
             config: config.0,
             status: status.map(|s| s.0),
             deleted: row.try_get("deleted")?,
+            bmc_mac_address: row.try_get("bmc_mac_address").ok().flatten(),
             controller_state: Versioned {
                 value: controller_state.0,
                 version: row.try_get("controller_state_version")?,
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
+            switch_reprovisioning_requested: switch_reprovisioning_requested.map(|j| j.0),
+            firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
         })
     }
 }
@@ -193,18 +231,64 @@ impl TryFrom<Switch> for rpc::Switch {
     }
 }
 
+/// Sub-state for SwitchControllerState::Initializing
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InitializingState {
+    WaitForOsMachineInterface,
+}
+
+/// Sub-state for SwitchControllerState::Configuring
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConfiguringState {
+    RotateOsPassword,
+}
+
+/// Sub-state for SwitchControllerState::Validating
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ValidatingState {
+    ValidationComplete,
+}
+
+/// Sub-state for SwitchControllerState::BomValidating
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BomValidatingState {
+    /// BOM validation is complete; handler transitions to Ready.
+    BomValidationComplete,
+}
+
+/// Sub-state for SwitchControllerState::ReProvisioning
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReProvisioningState {
+    /// Re-provisioning has been started.
+    Start,
+    /// Waiting for firmware update to complete.
+    WaitFirmwareUpdateCompletion,
+}
+
 /// State of a Switch as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SwitchControllerState {
-    /// The Switch is created in Carbide, waiting for initialization.
-    Initializing,
-    /// The Switch is fetching data.
-    FetchingData,
+    /// The Switch has been created in Carbide.
+    Created,
+    /// The Switch is initializing.
+    Initializing {
+        initializing_state: InitializingState,
+    },
     /// The Switch is configuring.
-    Configuring,
+    Configuring { config_state: ConfiguringState },
+    /// The Switch is validating.
+    Validating { validating_state: ValidatingState },
+    /// The Switch is validating the BOM.
+    BomValidating {
+        bom_validating_state: BomValidatingState,
+    },
     /// The Switch is ready for use.
     Ready,
+    // ReProvisioning
+    ReProvisioning {
+        reprovisioning_state: ReProvisioningState,
+    },
     /// There is error in Switch; Switch can not be used if it's in error.
     Error { cause: String },
     /// The Switch is in the process of deleting.
@@ -219,19 +303,31 @@ pub fn state_sla(state: &SwitchControllerState, state_version: &ConfigVersion) -
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
     match state {
-        SwitchControllerState::Initializing => StateSla::with_sla(
+        SwitchControllerState::Created => StateSla::with_sla(
             std::time::Duration::from_secs(slas::INITIALIZING),
             time_in_state,
         ),
-        SwitchControllerState::FetchingData => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::FETCHING_DATA),
+        SwitchControllerState::Initializing { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::INITIALIZING),
             time_in_state,
         ),
-        SwitchControllerState::Configuring => StateSla::with_sla(
+        SwitchControllerState::Configuring { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::CONFIGURING),
+            time_in_state,
+        ),
+        SwitchControllerState::Validating { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::VALIDATING),
+            time_in_state,
+        ),
+        SwitchControllerState::BomValidating { .. } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::CONFIGURING),
             time_in_state,
         ),
         SwitchControllerState::Ready => StateSla::no_sla(),
+        SwitchControllerState::ReProvisioning { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::CONFIGURING),
+            time_in_state,
+        ),
         SwitchControllerState::Error { .. } => StateSla::no_sla(),
         SwitchControllerState::Deleting => StateSla::with_sla(
             std::time::Duration::from_secs(slas::DELETING),
@@ -271,28 +367,38 @@ mod tests {
 
     #[test]
     fn serialize_controller_state() {
-        let state = SwitchControllerState::Initializing {};
+        let state = SwitchControllerState::Created;
         let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"initializing\"}");
+        assert_eq!(serialized, "{\"state\":\"created\"}");
         assert_eq!(
             serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
             state
         );
-        let state = SwitchControllerState::FetchingData {};
+        let state = SwitchControllerState::Initializing {
+            initializing_state: InitializingState::WaitForOsMachineInterface,
+        };
         let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"fetchingdata\"}");
+        assert_eq!(
+            serialized,
+            "{\"state\":\"initializing\",\"initializing_state\":\"WaitForOsMachineInterface\"}"
+        );
         assert_eq!(
             serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
             state
         );
-        let state = SwitchControllerState::Configuring {};
+        let state = SwitchControllerState::Configuring {
+            config_state: ConfiguringState::RotateOsPassword,
+        };
         let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"configuring\"}");
+        assert_eq!(
+            serialized,
+            "{\"state\":\"configuring\",\"config_state\":\"RotateOsPassword\"}"
+        );
         assert_eq!(
             serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
             state
         );
-        let state = SwitchControllerState::Ready {};
+        let state = SwitchControllerState::Ready;
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"ready\"}");
         assert_eq!(
@@ -308,7 +414,7 @@ mod tests {
             serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
             state
         );
-        let state = SwitchControllerState::Deleting {};
+        let state = SwitchControllerState::Deleting;
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"deleting\"}");
         assert_eq!(

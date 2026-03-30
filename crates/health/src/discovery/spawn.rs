@@ -286,38 +286,38 @@ mod tests {
 
     #[test]
     fn test_endpoint_log_identity_falls_back_to_mac_without_metadata() {
-        let endpoint = BmcEndpoint {
-            addr: BmcAddr {
+        let endpoint = BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
                 port: Some(443),
                 mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
             },
-            credentials: BmcCredentials {
+            BmcCredentials::UsernamePassword {
                 username: "user".to_string(),
-                password: "pass".to_string(),
+                password: Some("pass".to_string()),
             },
-            metadata: None,
-        };
+            None,
+        );
 
         assert_eq!(endpoint.log_identity().as_ref(), "AA:BB:CC:DD:EE:FF");
     }
 
     #[test]
     fn test_endpoint_log_identity_uses_switch_serial_when_available() {
-        let endpoint = BmcEndpoint {
-            addr: BmcAddr {
+        let endpoint = BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
                 port: Some(443),
                 mac: MacAddress::from_str("11:22:33:44:55:66").unwrap(),
             },
-            credentials: BmcCredentials {
+            BmcCredentials::UsernamePassword {
                 username: "user".to_string(),
-                password: "pass".to_string(),
+                password: Some("pass".to_string()),
             },
-            metadata: Some(EndpointMetadata::Switch(SwitchData {
+            Some(EndpointMetadata::Switch(SwitchData {
                 serial: "switch-serial-1".to_string(),
             })),
-        };
+        );
 
         assert_eq!(endpoint.log_identity().as_ref(), "switch-serial-1");
     }
@@ -335,18 +335,18 @@ mod tests {
         let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, Arc::new(config))
             .expect("context should initialize");
 
-        let endpoint = Arc::new(BmcEndpoint {
-            addr: BmcAddr {
+        let endpoint = Arc::new(BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
                 port: Some(443),
                 mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
             },
-            credentials: BmcCredentials {
+            BmcCredentials::UsernamePassword {
                 username: "user".to_string(),
-                password: "pass".to_string(),
+                password: Some("pass".to_string()),
             },
-            metadata: None,
-        });
+            None,
+        ));
 
         spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test")
             .await

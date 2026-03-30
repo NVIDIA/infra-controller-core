@@ -57,18 +57,18 @@ impl StaticEndpointSource {
                     })
                 });
 
-                Some(Arc::new(BmcEndpoint {
-                    addr: BmcAddr {
+                Some(Arc::new(BmcEndpoint::with_fixed_credentials(
+                    BmcAddr {
                         ip,
                         port: cfg.port,
                         mac,
                     },
-                    credentials: BmcCredentials {
+                    BmcCredentials::UsernamePassword {
                         username: cfg.username.clone(),
                         password: cfg.password.clone(),
                     },
                     metadata,
-                }))
+                )))
             })
             .collect();
 

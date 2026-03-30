@@ -102,24 +102,24 @@ mod tests {
     use crate::endpoint::{BmcAddr, BmcCredentials, EndpointMetadata, SwitchData};
 
     fn endpoint(mac: MacAddress, switch: bool) -> Arc<BmcEndpoint> {
-        Arc::new(BmcEndpoint {
-            addr: BmcAddr {
+        Arc::new(BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
                 port: Some(443),
                 mac,
             },
-            credentials: BmcCredentials {
+            BmcCredentials::UsernamePassword {
                 username: "user".to_string(),
-                password: "pass".to_string(),
+                password: Some("pass".to_string()),
             },
-            metadata: if switch {
+            if switch {
                 Some(EndpointMetadata::Switch(SwitchData {
                     serial: format!("serial-{mac}"),
                 }))
             } else {
                 None
             },
-        })
+        ))
     }
 
     #[test]

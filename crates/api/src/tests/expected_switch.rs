@@ -30,10 +30,9 @@ use crate::tests::common;
 
 #[crate::sqlx_test]
 async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
     let switches = create_expected_switches(&mut txn).await;
 
     assert_eq!(switches[0].serial_number, "SW-SN-001");
@@ -42,19 +41,19 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
 #[crate::sqlx_test]
 async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
     let switches = create_expected_switches(&mut txn).await;
-
+    txn.commit().await.unwrap();
     let switch = &switches[0];
-
+    let mut txn = env.pool.begin().await.unwrap();
     let new_switch = db::expected_switch::create(
         &mut txn,
         ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: switch.bmc_mac_address,
+            nvos_mac_addresses: switch.nvos_mac_addresses.clone(),
             bmc_username: "ADMIN3".into(),
             bmc_password: "hmm".into(),
             serial_number: "DUPLICATE".into(),
@@ -76,17 +75,17 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
 #[crate::sqlx_test]
 async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
     let switches = create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
     let mut switch = switches[0].clone();
 
     assert_eq!(switch.serial_number, "SW-SN-001");
     assert_eq!(switch.bmc_username, "ADMIN");
     assert_eq!(switch.bmc_password, "Pwd2023x0x0x0x7");
-
+    let mut txn = env.pool.begin().await.unwrap();
     switch.bmc_username = "ADMIN2".to_string();
     switch.bmc_password = "wysiwyg".to_string();
     db::expected_switch::update(&mut txn, &switch)
@@ -114,15 +113,17 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
 #[crate::sqlx_test]
 async fn test_delete(pool: sqlx::PgPool) -> () {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
     let switches = create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
+
     let switch = &switches[0];
 
     assert_eq!(switch.serial_number, "SW-SN-001");
 
+    let mut txn = env.pool.begin().await.unwrap();
     db::expected_switch::delete_by_mac(&mut txn, switch.bmc_mac_address)
         .await
         .expect("Error deleting expected_switch");
@@ -150,6 +151,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
+            nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:4F".to_string()],
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             switch_serial_number: "SW-TEST-001".into(),
@@ -161,6 +163,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:40".to_string(),
+            nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:40".to_string()],
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             switch_serial_number: "SW-TEST-002".into(),
@@ -172,6 +175,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:41".to_string(),
+            nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:41".to_string()],
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             switch_serial_number: "SW-TEST-003".into(),
@@ -228,11 +232,11 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_delete_expected_switch(pool: sqlx::PgPool) {
-    let mut conn = pool.acquire().await.unwrap();
-    let switches = create_expected_switches(&mut conn).await;
-    drop(conn);
-    let env = create_test_env(pool).await;
+    let env = create_test_env(pool.clone()).await;
 
+    let mut txn = env.pool.begin().await.unwrap();
+    let switches = create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
     let expected_switch_count = env
         .api
         .get_all_expected_switches(tonic::Request::new(()))
@@ -266,16 +270,23 @@ async fn test_delete_expected_switch(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_update_expected_switch(pool: sqlx::PgPool) {
-    let mut conn = pool.acquire().await.unwrap();
-    let switches = create_expected_switches(&mut conn).await;
-    drop(conn);
-    let env = create_test_env(pool).await;
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let switches = create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
 
     let bmc_mac_address: MacAddress = switches[1].bmc_mac_address;
+    let nvos_mac_addresses: Vec<String> = switches[1]
+        .nvos_mac_addresses
+        .iter()
+        .map(|m| m.to_string())
+        .collect();
     for mut updated_switch in [
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
+            nvos_mac_addresses: nvos_mac_addresses.clone(),
             bmc_username: "ADMIN_UPDATE".into(),
             bmc_password: "PASS_UPDATE".into(),
             switch_serial_number: "SW-UPD-001".into(),
@@ -287,6 +298,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
+            nvos_mac_addresses: nvos_mac_addresses.clone(),
             bmc_username: "ADMIN_UPDATE".into(),
             bmc_password: "PASS_UPDATE".into(),
             switch_serial_number: "SW-UPD-002".into(),
@@ -298,6 +310,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
+            nvos_mac_addresses: nvos_mac_addresses.clone(),
             bmc_username: "ADMIN_UPDATE1".into(),
             bmc_password: "PASS_UPDATE1".into(),
             switch_serial_number: "SW-UPD-003".into(),
@@ -361,6 +374,7 @@ async fn test_get_expected_switch_by_id(pool: sqlx::PgPool) {
             value: explicit_id.to_string(),
         }),
         bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
+        nvos_mac_addresses: vec!["3A:3B:3C:3D:3E:40".to_string()],
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         switch_serial_number: "SW-ID-001".into(),
@@ -400,6 +414,7 @@ async fn test_delete_expected_switch_by_id(pool: sqlx::PgPool) {
             value: explicit_id.to_string(),
         }),
         bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
+        nvos_mac_addresses: vec!["3A:3B:3C:3D:3E:40".to_string()],
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         switch_serial_number: "SW-DEL-ID-001".into(),
@@ -451,6 +466,7 @@ async fn test_update_expected_switch_by_id(pool: sqlx::PgPool) {
             value: explicit_id.to_string(),
         }),
         bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
+        nvos_mac_addresses: vec!["3A:3B:3C:3D:3E:40".to_string()],
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         switch_serial_number: "SW-UPD-ID-001".into(),
@@ -470,6 +486,7 @@ async fn test_update_expected_switch_by_id(pool: sqlx::PgPool) {
             value: explicit_id.to_string(),
         }),
         bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
+        nvos_mac_addresses: vec!["3A:3B:3C:3D:3E:40".to_string()],
         bmc_username: "ADMIN_UPDATED".into(),
         bmc_password: "PASS_UPDATED".into(),
         switch_serial_number: "SW-UPD-ID-002".into(),
@@ -516,6 +533,7 @@ async fn test_create_expected_switch_with_explicit_id(pool: sqlx::PgPool) {
             value: explicit_id.to_string(),
         }),
         bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
+        nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:3F".to_string()],
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         switch_serial_number: "SW-EXPLICIT-001".into(),
@@ -556,6 +574,7 @@ async fn test_create_expected_switch_auto_generates_id(pool: sqlx::PgPool) {
     let expected_switch = rpc::forge::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
+        nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:3F".to_string()],
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         switch_serial_number: "SW-AUTO-001".into(),
@@ -614,10 +633,12 @@ async fn test_get_expected_switch_by_id_not_found(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_get_linked_expected_switches(pool: sqlx::PgPool) {
-    let mut conn = pool.acquire().await.unwrap();
-    create_expected_switches(&mut conn).await;
-    drop(conn);
     let env = create_test_env(pool).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let _ = create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
+
     let out = env
         .api
         .get_all_expected_switches_linked(tonic::Request::new(()))
@@ -662,6 +683,7 @@ async fn test_update_expected_switch_error(pool: sqlx::PgPool) {
     let expected_switch = rpc::forge::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: bmc_mac_address.to_string(),
+        nvos_mac_addresses: vec!["3A:3B:3C:3D:3E:3F".to_string()],
         bmc_username: "ADMIN_UPDATE".into(),
         bmc_password: "PASS_UPDATE".into(),
         switch_serial_number: "SW-UPD-001".into(),
@@ -708,10 +730,12 @@ async fn test_get_expected_switch_error(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_delete_all_expected_switches(pool: sqlx::PgPool) {
-    let mut conn = pool.acquire().await.unwrap();
-    create_expected_switches(&mut conn).await;
-    drop(conn);
-    let env = create_test_env(pool).await;
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let _ = create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
+
     let mut expected_switch_count = env
         .api
         .get_all_expected_switches(tonic::Request::new(()))
@@ -743,10 +767,12 @@ async fn test_delete_all_expected_switches(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
-    let mut conn = pool.acquire().await.unwrap();
-    create_expected_switches(&mut conn).await;
-    drop(conn);
-    let env = create_test_env(pool).await;
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
+
     let expected_switch_count = env
         .api
         .get_all_expected_switches(tonic::Request::new(()))
@@ -765,6 +791,7 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
     let expected_switch_1 = rpc::forge::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: "6A:6B:6C:6D:6E:6F".into(),
+        nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:6F".to_string()],
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
         switch_serial_number: "SW-NEW-001".into(),
@@ -777,6 +804,7 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
     let expected_switch_2 = rpc::forge::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: "7A:7B:7C:7D:7E:7F".into(),
+        nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:7F".to_string()],
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
         switch_serial_number: "SW-NEW-002".into(),

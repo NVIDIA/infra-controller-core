@@ -32,7 +32,7 @@ use model::dpa_interface::{
 use model::machine::LoadSnapshotOptions;
 use sqlx::PgConnection;
 
-use super::{DatabaseError, dpa_interface_state_history};
+use super::DatabaseError;
 use crate::db_read::DbReader;
 use crate::managed_host;
 
@@ -395,27 +395,20 @@ pub async fn try_update_controller_state(
     txn: &mut PgConnection,
     id: DpaInterfaceId,
     expected_version: ConfigVersion,
+    new_version: ConfigVersion,
     new_state: &DpaInterfaceControllerState,
 ) -> Result<bool, DatabaseError> {
-    let next_version = expected_version.increment();
-
     let query = "UPDATE dpa_interfaces SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
-    let query_result: Result<DpaInterfaceId, _> = sqlx::query_as(query)
-        .bind(next_version)
+    let result = sqlx::query_as::<_, DpaInterfaceId>(query)
+        .bind(new_version)
         .bind(sqlx::types::Json(new_state))
         .bind(id)
         .bind(expected_version)
-        .fetch_one(&mut *txn)
-        .await;
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-    match query_result {
-        Ok(_segment_id) => {
-            dpa_interface_state_history::persist(&mut *txn, id, new_state, next_version).await?;
-            Ok(true)
-        }
-        Err(sqlx::Error::RowNotFound) => Ok(false),
-        Err(e) => Err(DatabaseError::query(query, e)),
-    }
+    Ok(result.is_some())
 }
 
 pub async fn update_controller_state_outcome(
@@ -573,7 +566,6 @@ mod test {
     use mac_address::MacAddress;
     use model::dpa_interface::NewDpaInterface;
     use model::machine::ManagedHostState;
-    use model::metadata::Metadata;
 
     use crate::machine;
 
@@ -584,17 +576,7 @@ mod test {
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
 
-        machine::create(
-            &mut txn,
-            None,
-            &id,
-            ManagedHostState::Ready,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        machine::create(&mut txn, None, &id, ManagedHostState::Ready, None, 2).await?;
 
         let new_intf = NewDpaInterface {
             mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
@@ -632,9 +614,7 @@ mod test {
             None,
             &machine_id,
             ManagedHostState::Ready,
-            &Metadata::default(),
             None,
-            true,
             2,
         )
         .await?;
@@ -689,9 +669,7 @@ mod test {
             None,
             &machine_id,
             ManagedHostState::Ready,
-            &Metadata::default(),
             None,
-            true,
             2,
         )
         .await?;

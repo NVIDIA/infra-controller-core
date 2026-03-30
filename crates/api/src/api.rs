@@ -664,6 +664,14 @@ impl Forge for Api {
         .await?)
     }
 
+    async fn expire_dhcp_lease(
+        &self,
+        request: Request<rpc::ExpireDhcpLeaseRequest>,
+    ) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, Status> {
+        log_request_data(&request);
+        Ok(crate::dhcp::expire::expire_dhcp_lease(self, request).await?)
+    }
+
     async fn find_machine_ids(
         &self,
         request: Request<rpc::MachineSearchConfig>,
@@ -966,7 +974,6 @@ impl Forge for Api {
     /// [vlan-id]
     /// type = "integer"
     /// ranges = [{ start = "100", end = "501" }]
-    ///
     async fn admin_grow_resource_pool(
         &self,
         request: Request<rpc::GrowResourcePoolRequest>,
@@ -1049,6 +1056,20 @@ impl Forge for Api {
         request: Request<rpc::GetRackRequest>,
     ) -> Result<Response<rpc::GetRackResponse>, Status> {
         crate::handlers::rack::get_rack(self, request).await
+    }
+
+    async fn find_rack_ids(
+        &self,
+        request: Request<rpc::RackSearchFilter>,
+    ) -> Result<Response<rpc::RackIdList>, Status> {
+        crate::handlers::rack::find_ids(self, request).await
+    }
+
+    async fn find_racks_by_ids(
+        &self,
+        request: Request<rpc::RacksByIdsRequest>,
+    ) -> Result<Response<rpc::RackList>, Status> {
+        crate::handlers::rack::find_by_ids(self, request).await
     }
 
     async fn delete_rack(
