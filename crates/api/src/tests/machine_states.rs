@@ -1432,3 +1432,42 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         );
     }
 }
+
+/// Exercises WaitingForBiosJob state by configuring mock BMC to return a job ID from machine_setup
+/// Verifies that host reaches "Ready" and that state machine transitioned through WaitingForBiosJob.
+#[crate::sqlx_test]
+async fn test_bios_config_job_happy_path(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    env.redfish_sim
+        .set_machine_setup_bios_job_id(Some("JID_BIOS_TEST_123".to_string()));
+    env.redfish_sim.set_job_state_sequence(vec![
+        libredfish::JobState::Scheduled,
+        libredfish::JobState::Completed,
+    ]);
+
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        matches!(host.current_state(), ManagedHostState::Ready),
+        "Expected host to reach Ready, but got: {:?}",
+        host.current_state()
+    );
+
+    let history = mh.host().parsed_history(None).await;
+    let went_through_bios_job = history.iter().any(|state| {
+        matches!(
+            state,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForBiosJob { .. },
+            }
+        )
+    });
+    assert!(
+        went_through_bios_job,
+        "Expected state history to include WaitingForBiosJob, but it did not. History: {:#?}",
+        history
+    );
+}

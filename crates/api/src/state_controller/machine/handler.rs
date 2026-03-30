@@ -9268,13 +9268,16 @@ async fn handle_instance_host_platform_config(
         } => {
             // Legacy persisted state: migrate to WaitingForBiosJob (one transition per invocation).
             if let Some(info) = bios_config_info {
-                return Ok(StateHandlerOutcome::transition(ManagedHostState::Assigned {
-                    instance_state: InstanceState::HostPlatformConfiguration {
-                        platform_config_state: HostPlatformConfigurationState::WaitingForBiosJob {
-                            bios_config_info: info,
+                return Ok(StateHandlerOutcome::transition(
+                    ManagedHostState::Assigned {
+                        instance_state: InstanceState::HostPlatformConfiguration {
+                            platform_config_state:
+                                HostPlatformConfigurationState::WaitingForBiosJob {
+                                    bios_config_info: info,
+                                },
                         },
                     },
-                }));
+                ));
             }
 
             let next_platform = match configure_host_bios(
@@ -9316,7 +9319,9 @@ async fn handle_instance_host_platform_config(
                         bios_config_info: updated,
                     }
                 }
-                BiosConfigJobAdvanceOutcome::Done => HostPlatformConfigurationState::PollingBiosSetup,
+                BiosConfigJobAdvanceOutcome::Done => {
+                    HostPlatformConfigurationState::PollingBiosSetup
+                }
                 BiosConfigJobAdvanceOutcome::RetryPlatformConfiguration {
                     machine_setup_retry_count: next_count,
                 } => HostPlatformConfigurationState::ConfigureBios {

@@ -625,7 +625,7 @@ pub(crate) fn redact_password(
 
 #[cfg(test)]
 pub mod test_support {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, VecDeque};
     use std::path::Path;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -658,6 +658,8 @@ pub mod test_support {
         users: HashMap<String, String>,
         fw_version: Arc<String>,
         secure_boot: AtomicBool,
+        machine_setup_bios_job_id: Option<String>,
+        job_state_sequence: VecDeque<JobState>,
     }
 
     #[derive(Debug)]
@@ -715,6 +717,14 @@ pub mod test_support {
                     })
                     .collect(),
             }
+        }
+
+        pub fn set_machine_setup_bios_job_id(&self, job_id: Option<String>) {
+            self.state.lock().unwrap().machine_setup_bios_job_id = job_id;
+        }
+
+        pub fn set_job_state_sequence(&self, states: Vec<JobState>) {
+            self.state.lock().unwrap().job_state_sequence = VecDeque::from(states);
         }
     }
 
@@ -799,8 +809,8 @@ pub mod test_support {
                 >,
             >,
             _profile_type: libredfish::BiosProfileType,
-        ) -> Result<(), RedfishError> {
-            Ok(())
+        ) -> Result<Option<String>, RedfishError> {
+            Ok(self.state.lock().unwrap().machine_setup_bios_job_id.clone())
         }
 
         async fn machine_setup_status(
@@ -1453,7 +1463,11 @@ pub mod test_support {
         }
 
         async fn get_job_state(&self, _job_id: &str) -> Result<JobState, RedfishError> {
-            Ok(JobState::Unknown)
+            let mut state = self.state.lock().unwrap();
+            Ok(state
+                .job_state_sequence
+                .pop_front()
+                .unwrap_or(JobState::Unknown))
         }
 
         async fn get_collection(&self, _id: ODataId) -> Result<Collection, RedfishError> {
