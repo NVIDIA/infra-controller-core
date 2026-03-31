@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use config_version::ConfigVersion;
 use ::rpc::forge as rpc;
+use config_version::ConfigVersion;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::{ObjectColumnFilter, ib_partition};
 use model::ib::DEFAULT_IB_FABRIC_NAME;
