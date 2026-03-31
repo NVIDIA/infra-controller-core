@@ -765,7 +765,10 @@ async fn test_handler_update_ib_partition_missing_id(
         .expect_err("expected missing id to fail");
 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert!(err.message().contains("id"), "error should mention 'id': {err}");
+    assert!(
+        err.message().contains("id"),
+        "error should mention 'id': {err}"
+    );
 
     Ok(())
 }

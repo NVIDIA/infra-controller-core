@@ -92,7 +92,6 @@ pub(crate) async fn create(
     Ok(resp)
 }
 
-
 pub(crate) async fn update(
     api: &Api,
     request: Request<rpc::IbPartitionUpdateRequest>,
@@ -104,7 +103,9 @@ pub(crate) async fn update(
     let req = request.into_inner();
     let id = req.id.ok_or(CarbideError::MissingArgument("id"))?;
     let config = req.config.ok_or(CarbideError::MissingArgument("config"))?;
-    let metadata = req.metadata.ok_or(CarbideError::MissingArgument("metadata"))?;
+    let metadata = req
+        .metadata
+        .ok_or(CarbideError::MissingArgument("metadata"))?;
 
     let mut partitions = db::ib_partition::find_by(
         &mut txn,
