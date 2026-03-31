@@ -393,6 +393,40 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
+#[crate::sqlx_test]
+async fn test_fetch_queue_wait_metrics(pool: sqlx::PgPool) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+
+    let mut txn = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO test_state_controller_queued_objects(object_id, processed_by, processing_started_at)
+         VALUES
+            ('waiting-1', NULL, now() - interval '10 seconds'),
+            ('waiting-2', NULL, now() - interval '20 seconds'),
+            ('waiting-3', NULL, now() - interval '30 seconds'),
+            ('running-1', 'processor-a', now() - interval '300 seconds')",
+    )
+    .execute(&mut *txn)
+    .await?;
+
+    let metrics = controller::db::fetch_queue_wait_metrics(
+        txn.as_mut(),
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(metrics.num_waiting_objects, 3);
+    assert!((metrics.oldest_wait_seconds - 30.0).abs() < 2.0);
+    assert!((metrics.mean_wait_seconds - 20.0).abs() < 2.0);
+    assert!((metrics.p50_wait_seconds - 20.0).abs() < 2.0);
+    assert!((metrics.p95_wait_seconds - 29.0).abs() < 2.0);
+    assert!((metrics.p99_wait_seconds - 29.8).abs() < 2.0);
+    txn.commit().await?;
+
+    Ok(())
+}
+
 #[derive(Debug, Default)]
 struct TestStateControllerIO {}
 

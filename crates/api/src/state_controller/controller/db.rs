@@ -17,11 +17,13 @@
 
 //! Database access methods used in the StateController framework
 
+use db::db_read::DbReader;
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use db::{BIND_LIMIT, DatabaseError};
 use sqlx::{PgConnection, PgPool};
 
 use crate::api::TransactionVending;
+use crate::state_controller::controller::periodic_enqueuer::QueueWaitMetricsSnapshot;
 use crate::state_controller::controller::{
     ControllerIteration, ControllerIterationId, LockedControllerIteration, QueuedObject,
 };
@@ -160,6 +162,48 @@ pub async fn queue_objects(
     }
 
     Ok(num_enqueued)
+}
+
+/// Calculates wait-time snapshot metrics for queued objects that have not started processing yet.
+pub async fn fetch_queue_wait_metrics(
+    db: impl DbReader<'_>,
+    table_id: &'static str,
+) -> Result<QueueWaitMetricsSnapshot, DatabaseError> {
+    #[derive(sqlx::FromRow)]
+    struct QueueWaitMetricsRow {
+        num_waiting_objects: i64,
+        oldest_wait_seconds: f64,
+        mean_wait_seconds: f64,
+        p50_wait_seconds: f64,
+        p95_wait_seconds: f64,
+        p99_wait_seconds: f64,
+    }
+
+    let query = format!(
+        "SELECT
+            COUNT(*) AS num_waiting_objects,
+            COALESCE(EXTRACT(EPOCH FROM MAX(now() - processing_started_at)), 0)::double precision AS oldest_wait_seconds,
+            COALESCE(EXTRACT(EPOCH FROM AVG(now() - processing_started_at)), 0)::double precision AS mean_wait_seconds,
+            COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM now() - processing_started_at)), 0)::double precision AS p50_wait_seconds,
+            COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM now() - processing_started_at)), 0)::double precision AS p95_wait_seconds,
+            COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM now() - processing_started_at)), 0)::double precision AS p99_wait_seconds
+        FROM {table_id}
+        WHERE processed_by IS NULL"
+    );
+
+    let result = sqlx::query_as::<_, QueueWaitMetricsRow>(&query)
+        .fetch_one(db)
+        .await
+        .map_err(|e| DatabaseError::new("StateController::fetch_queue_wait_metrics", e))?;
+
+    Ok(QueueWaitMetricsSnapshot {
+        num_waiting_objects: result.num_waiting_objects.max(0) as u64,
+        oldest_wait_seconds: result.oldest_wait_seconds,
+        mean_wait_seconds: result.mean_wait_seconds,
+        p50_wait_seconds: result.p50_wait_seconds,
+        p95_wait_seconds: result.p95_wait_seconds,
+        p99_wait_seconds: result.p99_wait_seconds,
+    })
 }
 
 /// Fetches all objects which have been queued for execution
