@@ -852,7 +852,7 @@ mod tests {
     ) -> HashMap<String, RedfishProxyPrincipalConfig> {
         let mut m = HashMap::new();
         m.insert(
-            "carbide-dps".to_string(),
+            "carbide-dps-agent".to_string(),
             RedfishProxyPrincipalConfig {
                 allowed_post_uris: post_uris.into_iter().map(String::from).collect(),
                 allowed_patch_uris: patch_uris.into_iter().map(String::from).collect(),
@@ -876,7 +876,7 @@ mod tests {
         ctx.principals
             .push(Principal::ExternalUser(ExternalUserInfo {
                 org: None,
-                group: "admin".to_string(),
+                group: "admins".to_string(),
                 user: Some("testuser".to_string()),
             }));
         req.extensions_mut().insert(ctx);
@@ -902,7 +902,7 @@ mod tests {
             vec!["/redfish/v1/Managers/BMC/NodeManager/Domains"],
             vec![],
         );
-        let req = spiffe_request("carbide-dps", ());
+        let req = spiffe_request("carbide-dps-agent", ());
         assert!(check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -918,7 +918,7 @@ mod tests {
             vec!["/redfish/v1/Managers/BMC/NodeManager/Domains"],
             vec![],
         );
-        let req = spiffe_request("carbide-dps", ());
+        let req = spiffe_request("carbide-dps-agent", ());
         let result = check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -935,7 +935,7 @@ mod tests {
             vec![],
             vec!["/redfish/v1/Managers/BMC/NodeManager/Domains/{id}"],
         );
-        let req = spiffe_request("carbide-dps", ());
+        let req = spiffe_request("carbide-dps-agent", ());
         assert!(check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -951,7 +951,7 @@ mod tests {
             vec!["/redfish/v1/Managers/BMC/NodeManager/Domains"],
             vec![],
         );
-        let req = spiffe_request("carbide-dps", ());
+        let req = spiffe_request("carbide-dps-agent", ());
         let result = check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -996,7 +996,7 @@ mod tests {
     #[test]
     fn allowlist_star_pattern_grants_full_access() {
         let config = make_config(vec!["*"], vec!["*"]);
-        let req = spiffe_request("carbide-dps", ());
+        let req = spiffe_request("carbide-dps-agent", ());
         assert!(check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -1004,7 +1004,7 @@ mod tests {
             &http::Method::POST,
         )
         .is_ok());
-        let req2 = spiffe_request("carbide-dps", ());
+        let req2 = spiffe_request("carbide-dps-agent", ());
         assert!(check_redfish_proxy_allowlist(
             &config,
             &req2,
