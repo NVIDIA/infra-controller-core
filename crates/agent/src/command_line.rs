@@ -47,7 +47,7 @@ pub enum AgentCommand {
     Run(Box<RunOptions>),
 
     #[clap(about = "Detect hardware and exit")]
-    Hardware,
+    Hardware(HardwareOptions),
 
     #[clap(about = "One-off health check")]
     Health,
@@ -382,6 +382,15 @@ impl FromStr for AgentPlatformType {
             unknown_type => Err(eyre::eyre!("Unknown platform type \"{unknown_type}\"")),
         }
     }
+}
+
+#[derive(Parser, Debug)]
+pub struct HardwareOptions {
+    #[clap(
+        long,
+        help = "Write the hardware output (a JSON-serialized rpc::DiscoveryInfo message) to the specified file"
+    )]
+    pub output_file: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
