@@ -210,44 +210,62 @@ async fn redfish_proxy_mutate(
     Ok((text, response_headers, status))
 }
 
-pub async fn redfish_post(
+async fn redfish_proxy_get(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishPostRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishPostResponse>, tonic::Status> {
-    log_request_data(&request);
+    uri: http::Uri,
+) -> Result<(String, HashMap<String, String>, String), tonic::Status> {
+    let (metadata, new_uri, headers, http_client) = create_client(
+        uri,
+        &api.database_connection,
+        api.credential_manager.as_ref(),
+        &api.dynamic_settings.bmc_proxy,
+    )
+    .await?;
 
-    let uri: http::Uri = request
-        .get_ref()
-        .uri
-        .parse()
-        .map_err(|err| CarbideError::internal(format!("Parsing uri failed: {err}")))?;
-    let uri_path = uri.path().to_owned();
+    let response = http_client
+        .request(http::Method::GET, new_uri.to_string())
+        .basic_auth(metadata.user.clone(), Some(metadata.password.clone()))
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| CarbideError::internal(format!("Http request failed: {e:?}")))?;
 
-    check_redfish_proxy_allowlist(
-        &api.runtime_config.redfish_proxy,
-        &request,
-        &uri_path,
-        &http::Method::POST,
-    )?;
+    let response_headers = response
+        .headers()
+        .iter()
+        .map(|(x, y)| {
+            (
+                x.to_string(),
+                String::from_utf8_lossy(y.as_bytes()).to_string(),
+            )
+        })
+        .collect::<HashMap<String, String>>();
 
-    tracing::info!(method = "POST", uri = %uri, "redfish proxy request");
+    let status = response.status().to_string();
+    let text = response.text().await.map_err(|e| {
+        CarbideError::internal(format!("Error reading response body: {e}, Status: {status}"))
+    })?;
 
-    let body = request.into_inner().body;
-    let (text, headers, status) =
-        redfish_proxy_mutate(api, uri, body, http::Method::POST).await?;
-
-    Ok(tonic::Response::new(::rpc::forge::RedfishPostResponse {
-        text,
-        headers,
-        status,
-    }))
+    Ok((text, response_headers, status))
 }
 
-pub async fn redfish_patch(
+pub async fn redfish_proxy(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishPatchRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishPatchResponse>, tonic::Status> {
+    request: tonic::Request<::rpc::forge::RedfishProxyRequest>,
+) -> Result<tonic::Response<::rpc::forge::RedfishProxyResponse>, tonic::Status> {
     log_request_data(&request);
+
+    let method = match request.get_ref().method.to_uppercase().as_str() {
+        "GET" => http::Method::GET,
+        "POST" => http::Method::POST,
+        "PATCH" => http::Method::PATCH,
+        other => {
+            return Err(CarbideError::InvalidArgument(format!(
+                "unsupported redfish proxy method: {other} (must be GET, POST, or PATCH)"
+            ))
+            .into())
+        }
+    };
 
     let uri: http::Uri = request
         .get_ref()
@@ -256,24 +274,35 @@ pub async fn redfish_patch(
         .map_err(|err| CarbideError::internal(format!("Parsing uri failed: {err}")))?;
     let uri_path = uri.path().to_owned();
 
-    check_redfish_proxy_allowlist(
-        &api.runtime_config.redfish_proxy,
-        &request,
-        &uri_path,
-        &http::Method::PATCH,
-    )?;
+    // URI allowlist only applies to POST and PATCH; GET is unrestricted.
+    if method != http::Method::GET {
+        check_redfish_proxy_allowlist(
+            &api.runtime_config.redfish_proxy,
+            &request,
+            &uri_path,
+            &method,
+        )?;
+    }
 
-    tracing::info!(method = "PATCH", uri = %uri, "redfish proxy request");
+    tracing::info!(method = %method, uri = %uri, "redfish proxy request");
 
     let body = request.into_inner().body;
-    let (text, headers, status) =
-        redfish_proxy_mutate(api, uri, body, http::Method::PATCH).await?;
 
-    Ok(tonic::Response::new(::rpc::forge::RedfishPatchResponse {
-        text,
-        headers,
-        status,
-    }))
+    if method == http::Method::GET {
+        let (text, headers, status) = redfish_proxy_get(api, uri).await?;
+        Ok(tonic::Response::new(::rpc::forge::RedfishProxyResponse {
+            text,
+            headers,
+            status,
+        }))
+    } else {
+        let (text, headers, status) = redfish_proxy_mutate(api, uri, body, method).await?;
+        Ok(tonic::Response::new(::rpc::forge::RedfishProxyResponse {
+            text,
+            headers,
+            status,
+        }))
+    }
 }
 
 pub async fn redfish_list_actions(
@@ -852,7 +881,7 @@ mod tests {
     ) -> HashMap<String, RedfishProxyPrincipalConfig> {
         let mut m = HashMap::new();
         m.insert(
-            "carbide-dps-agent".to_string(),
+            "power-provisioning-agent".to_string(),
             RedfishProxyPrincipalConfig {
                 allowed_post_uris: post_uris.into_iter().map(String::from).collect(),
                 allowed_patch_uris: patch_uris.into_iter().map(String::from).collect(),
@@ -902,7 +931,7 @@ mod tests {
             vec!["/redfish/v1/Managers/BMC/NodeManager/Domains"],
             vec![],
         );
-        let req = spiffe_request("carbide-dps-agent", ());
+        let req = spiffe_request("power-provisioning-agent", ());
         assert!(check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -918,7 +947,7 @@ mod tests {
             vec!["/redfish/v1/Managers/BMC/NodeManager/Domains"],
             vec![],
         );
-        let req = spiffe_request("carbide-dps-agent", ());
+        let req = spiffe_request("power-provisioning-agent", ());
         let result = check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -935,7 +964,7 @@ mod tests {
             vec![],
             vec!["/redfish/v1/Managers/BMC/NodeManager/Domains/{id}"],
         );
-        let req = spiffe_request("carbide-dps-agent", ());
+        let req = spiffe_request("power-provisioning-agent", ());
         assert!(check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -951,7 +980,7 @@ mod tests {
             vec!["/redfish/v1/Managers/BMC/NodeManager/Domains"],
             vec![],
         );
-        let req = spiffe_request("carbide-dps-agent", ());
+        let req = spiffe_request("power-provisioning-agent", ());
         let result = check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -996,7 +1025,7 @@ mod tests {
     #[test]
     fn allowlist_star_pattern_grants_full_access() {
         let config = make_config(vec!["*"], vec!["*"]);
-        let req = spiffe_request("carbide-dps-agent", ());
+        let req = spiffe_request("power-provisioning-agent", ());
         assert!(check_redfish_proxy_allowlist(
             &config,
             &req,
@@ -1004,7 +1033,7 @@ mod tests {
             &http::Method::POST,
         )
         .is_ok());
-        let req2 = spiffe_request("carbide-dps-agent", ());
+        let req2 = spiffe_request("power-provisioning-agent", ());
         assert!(check_redfish_proxy_allowlist(
             &config,
             &req2,

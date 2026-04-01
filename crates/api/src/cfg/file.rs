@@ -564,17 +564,18 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub component_manager: Option<component_manager::config::ComponentManagerConfig>,
 
-    /// Per-principal URI allowlists for the RedfishPost
-    /// and RedfishPatch synchronous proxy RPCs.
-    /// Keyed by SPIFFE service identifier name (e.g. "carbide-dps").
+    /// Per-principal URI allowlists for the RedfishProxy RPC
+    /// (POST and PATCH methods; GET is unrestricted).
+    /// Keyed by SPIFFE service identifier name (e.g. "power-provisioning-agent").
     /// Section `[redfish_proxy.<principal>]`.
     #[serde(default)]
     pub redfish_proxy: HashMap<String, RedfishProxyPrincipalConfig>,
 }
 
-/// Per-principal configuration for the Redfish POST/PATCH
-/// synchronous proxy. Controls which URI patterns a given
-/// principal is allowed to target. Use `"*"` to allow all URIs.
+/// Per-principal configuration for the RedfishProxy RPC
+/// (GET/POST/PATCH). Controls which POST and PATCH URI patterns
+/// a given principal is allowed to target. GET is unrestricted.
+/// Use `"*"` to allow all URIs for a method.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct RedfishProxyPrincipalConfig {
     #[serde(default)]
