@@ -39,20 +39,32 @@ use crate::tests::common::api_fixtures::{
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// True after the DPF `DeviceReady` sync: no DPU remains in `DpfStates`, or host init has started.
+fn dpf_left_operator_provisioning_substates(host: &ManagedHostState) -> bool {
+    match host {
+        ManagedHostState::DPUInit { dpu_states } => dpu_states
+            .states
+            .values()
+            .all(|s| !matches!(s, DpuInitState::DpfStates { .. })),
+        ManagedHostState::HostInit { .. } => true,
+        _ => false,
+    }
+}
+
 /// Set up the initial provisioning expectations shared by all WaitingForReady tests.
 /// Does NOT set up `get_dpu_phase` -- each test configures it to control the
 /// DPU CR phase (the authoritative readiness signal).
 fn expect_provisioning(mock: &mut MockDpfOperations) {
     mock.expect_register_dpu_device().returning(|_| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
+    mock.expect_verify_node_labels().returning(|_| Ok(true));
 }
 
 fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: None,
-        services: None,
+        ..Default::default()
     }
 }
 
@@ -103,7 +115,7 @@ async fn get_host_state(
 
 /// WaitingForReady with reboot required:
 ///   1. Releases maintenance hold, sees reboot required, power-cycles host (ForceOff + On)
-///   2. After reboot_completed, device ready -> HostInit
+///   2. After reboot_completed, device ready -> leaves DPF `DpfStates` (then may advance further)
 #[crate::sqlx_test]
 async fn test_waiting_for_ready_reboot_flow(pool: sqlx::PgPool) {
     let mut mock = MockDpfOperations::new();
@@ -182,8 +194,8 @@ async fn test_waiting_for_ready_reboot_flow(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DeviceReady, got: {:?}",
         host
     );
 }
@@ -253,8 +265,8 @@ async fn test_waiting_for_ready_no_reboot(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit after DPU Ready, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DeviceReady, got: {:?}",
         host
     );
 }
@@ -459,8 +471,8 @@ async fn test_waiting_for_ready_host_already_off(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DeviceReady, got: {:?}",
         host
     );
 }
@@ -650,8 +662,8 @@ async fn test_waiting_for_ready_reboot_proceeds_after_discovery(pool: sqlx::PgPo
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit after single-DPU discovery + reboot, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DeviceReady, got: {:?}",
         host
     );
 }

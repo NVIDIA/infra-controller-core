@@ -16,7 +16,6 @@
  */
 //!
 //! Machine - represents a database-backed Machine object
-//!
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -32,6 +31,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::{MachineInventory, MachineNvLinkInfo};
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -82,7 +82,6 @@ lazy_static! {
 ///
 /// * `txn` - A reference to a currently open database transaction
 /// * `interface` - Network interface of the machine
-///
 pub async fn get_or_create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
@@ -127,17 +126,7 @@ pub async fn get_or_create(
         // Host and DPU machines are created in same `discover_machine` call. Update same
         // state in both machines.
         let state = ManagedHostState::Created;
-        let machine = create(
-            txn,
-            common_pools,
-            stable_machine_id,
-            state,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        let machine = create(txn, common_pools, stable_machine_id, state, None, 2).await?;
         crate::machine_interface::associate_interface_with_machine(
             &interface.id,
             MachineInterfaceAssociation::Machine(machine.id),
@@ -194,7 +183,6 @@ pub async fn find_existing_machine(
 ///
 /// * `txn` - A reference to a currently open database transaction
 /// * `state` - A reference to a MachineState enum
-///
 // TODO: abhi, Make it private.
 pub async fn advance(
     machine: &Machine,
@@ -283,6 +271,11 @@ pub async fn find(
     if let Some(id) = search_config.instance_type_id {
         builder.push(" AND m.instance_type_id = ");
         builder.push_bind(id);
+    }
+
+    if let Some(rack_id) = search_config.rack_id {
+        builder.push(" AND m.rack_id = ");
+        builder.push_bind(rack_id);
     }
 
     let all_machines: Vec<Machine> = builder
@@ -1216,23 +1209,32 @@ pub async fn clear_failure_details(
 ///
 /// If metadata.name is empty then it is initialized in
 /// stable_machine_id.to_string().
-#[allow(clippy::too_many_arguments)]
 pub async fn create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
     stable_machine_id: &MachineId,
     state: ManagedHostState,
-    metadata: &Metadata,
-    sku_id: Option<&String>,
-    dpf_enabled: bool,
+    expected_machine_data: Option<&ExpectedMachineData>,
     state_model_version: i16,
 ) -> DatabaseResult<Machine> {
     let stable_machine_id_string = stable_machine_id.to_string();
-    let metadata_name = if metadata.name.is_empty() {
-        &stable_machine_id_string
-    } else {
+
+    let default_metadata = &Metadata::default();
+    let metadata = expected_machine_data
+        .map(|data| &data.metadata)
+        .unwrap_or(default_metadata);
+    let metadata_name = if !metadata.name.is_empty() {
         &metadata.name
+    } else {
+        &stable_machine_id_string
     };
+    let rack_id = expected_machine_data.and_then(|data| data.rack_id.as_ref());
+    let sku_id = expected_machine_data.and_then(|data| data.sku_id.as_ref());
+    let dpf_enabled = match expected_machine_data {
+        Some(data) => data.dpf_enabled.unwrap_or(false), // EM entry exists
+        None => true,                                    // EM entry does not exist
+    };
+
     // Host and DPU machines are created in same `discover_machine` call. Update same
     // state in both machines.
     let state_version = ConfigVersion::initial();
@@ -1265,8 +1267,8 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku, dpf)
-                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13) RETURNING id"#;
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
         .bind(state_version)
@@ -1279,6 +1281,7 @@ pub async fn create(
         .bind(metadata_name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
+        .bind(rack_id)
         .bind(sku_id)
         .bind(sqlx::types::Json(Dpf {
             enabled: dpf_enabled,
@@ -1657,6 +1660,14 @@ pub async fn find_machine_ids(
         qb.push(" INNER JOIN machine_topologies mt ON machines.id = mt.machine_id");
     }
 
+    // Return only machines that are powered on and have a health override with leak classification
+    if let Some(pstate) = &search_config.only_with_power_state {
+        let pstate_normalized = pstate.to_lowercase();
+        qb.push(" INNER JOIN power_options po ON po.host_id = machines.id AND po.last_fetched_power_state = ");
+        qb.push_bind(pstate_normalized);
+        qb.push("::host_power_state_t");
+    }
+
     qb.push(" WHERE TRUE");
 
     if search_config.only_maintenance {
@@ -1699,6 +1710,13 @@ pub async fn find_machine_ids(
         ));
     }
 
+    if let Some(ovrrd_str) = &search_config.only_with_health_alert {
+        qb.push(" AND health_report_overrides->'merges' ? ");
+        qb.push_bind(ovrrd_str.clone());
+        qb.push(" AND jsonb_array_length(health_report_overrides->'merges'->");
+        qb.push_bind(ovrrd_str);
+        qb.push("->'alerts') > 0");
+    }
     if search_config.mnnvl_only {
         qb.push(
             " AND mt.topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' LIKE '%GB200%'",
@@ -1710,11 +1728,17 @@ pub async fn find_machine_ids(
         qb.push_bind(id);
     }
 
+    if let Some(rack_id) = search_config.rack_id {
+        qb.push(" AND rack_id = ");
+        qb.push_bind(rack_id);
+    }
+
     if search_config.for_update {
         qb.push(" FOR UPDATE");
     }
 
     let q = qb.build_query_as();
+
     let machine_ids: Vec<MachineId> = q
         .fetch_all(txn)
         .await
@@ -1803,7 +1827,6 @@ pub async fn update_failure_details_by_machine_id(
 /// Arguments
 ///
 /// * `txn` - A reference to currently open database transaction
-///
 pub async fn find_dpu_ids_and_loopback_ips(
     txn: &mut PgConnection,
 ) -> Result<Vec<DpuInfo>, DatabaseError> {
@@ -2319,7 +2342,6 @@ mod test {
     use carbide_uuid::machine::MachineId;
     use model::machine::ManagedHostState;
     use model::machine::machine_search_config::MachineSearchConfig;
-    use model::metadata::Metadata;
 
     #[crate::sqlx_test]
 
@@ -2329,17 +2351,7 @@ mod test {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
-        super::create(
-            &mut txn,
-            None,
-            &id,
-            ManagedHostState::Ready,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        super::create(&mut txn, None, &id, ManagedHostState::Ready, None, 2).await?;
         super::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();

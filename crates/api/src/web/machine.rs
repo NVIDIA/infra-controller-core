@@ -394,13 +394,8 @@ pub async fn fetch_machines(
 ) -> Result<forgerpc::MachineList, tonic::Status> {
     let request = tonic::Request::new(forgerpc::MachineSearchConfig {
         include_dpus,
-        include_history: false,
         include_predicted_host: true,
-        only_maintenance: false,
-        exclude_hosts: false,
-        only_quarantine: false,
-        instance_type_id: None,
-        mnnvl_only: false,
+        ..Default::default()
     });
 
     let machine_ids = api
@@ -415,7 +410,7 @@ pub async fn fetch_machines(
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
         let next_ids = &machine_ids[offset..offset + page_size];
-        let next_vpcs = api
+        let next_machines = api
             .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
                 machine_ids: next_ids.to_vec(),
                 include_history,
@@ -423,7 +418,7 @@ pub async fn fetch_machines(
             .await?
             .into_inner();
 
-        machines.extend(next_vpcs.machines.into_iter());
+        machines.extend(next_machines.machines.into_iter());
         offset += page_size;
     }
 
@@ -435,6 +430,7 @@ pub async fn fetch_machines(
 struct MachineDetail<'a> {
     id: String,
     host_id: String,
+    rack_id: String,
     state: String,
     state_version: String,
     time_in_state: String,
@@ -658,6 +654,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
 
         MachineDetail {
             id: machine_id.clone(),
+            rack_id: m.rack_id.map(|id| id.to_string()).unwrap_or_default(),
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
             state: m.state,
             state_version: m.state_version,

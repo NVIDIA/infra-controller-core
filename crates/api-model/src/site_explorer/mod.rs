@@ -667,6 +667,26 @@ impl ExploredManagedHost {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ExploredManagedSwitch {
+    /// The Switch's BMC IP
+    pub bmc_ip: IpAddr,
+    // Host mac address
+    pub nv_os_mac_addresses: Vec<MacAddress>,
+    /// Exploration report for this switch endpoint
+    pub report: EndpointExplorationReport,
+}
+
+impl ExploredManagedSwitch {
+    pub fn bmc_info(&self) -> BmcInfo {
+        BmcInfo {
+            ip: Some(self.bmc_ip.to_string()),
+            ..Default::default()
+        }
+    }
+}
+
 /// Serialization methods for types which support FromStr/Display
 mod serialize_option_display {
     use std::fmt::Display;
@@ -927,39 +947,24 @@ impl EndpointExplorationReport {
     //TODO: refactor for common code with generate_power_shelf_id
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
-    pub fn generate_switch_id(&mut self) -> ModelResult<Option<&SwitchId>> {
-        if let Some(serial_number) = self
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_ref())
-        {
-            let vendor = self
-                .systems
-                .first()
-                .and_then(|system| system.manufacturer.as_ref());
-            let model = self
-                .systems
-                .first()
-                .and_then(|system| system.model.as_ref());
+    pub fn generate_switch_id(&mut self) -> ModelResult<Option<SwitchId>> {
+        let chassis = self
+            .chassis
+            .iter()
+            .find(|c| c.id.to_string().to_lowercase() == "mgx_nvswitch_0")
+            .unwrap();
+        let serial_number = chassis.serial_number.clone();
+        let manufacturer = chassis.manufacturer.clone().unwrap_or("NVIDIA".to_string());
+        let model = "Switch".to_string();
 
-            let dmi_data = self.create_temporary_dmi_data(serial_number, vendor, model);
-
-            // Construct a HardwareInfo object specifically so that we can mint a MachineId.
-            let _hardware_info = HardwareInfo {
-                dmi_data: Some(dmi_data),
-                // This field should not be read, machine_id::from_hardware_info_with_type should not
-                // need this, only the dmi_data.
-                machine_type: CpuArchitecture::Unknown,
-                ..Default::default()
-            };
-
+        if let Some(serial_number) = serial_number.as_ref() {
             let switch_type = SwitchType::NvLink;
             let switch_source = SwitchIdSource::ProductBoardChassisSerial;
 
             let switch_id = switch_id::from_hardware_info_with_type(
-                serial_number,
-                vendor.unwrap(),
-                model.unwrap(),
+                serial_number.as_str(),
+                manufacturer.as_str(),
+                model.as_str(),
                 switch_source,
                 switch_type,
             )
@@ -968,8 +973,8 @@ impl EndpointExplorationReport {
                     MissingHardwareInfo::Serial,
                 ))
             })?;
-
-            Ok(Some(self.switch_id.insert(switch_id)))
+            self.switch_id = Some(switch_id);
+            Ok(self.switch_id)
         } else {
             Err(ModelError::HardwareInfo(
                 HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),

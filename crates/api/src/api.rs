@@ -17,7 +17,6 @@
 
 pub mod metrics;
 
-use std::collections::HashMap;
 use std::panic::Location;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -286,6 +285,13 @@ impl Forge for Api {
         request: Request<rpc::IbPartitionDeletionRequest>,
     ) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
         crate::handlers::ib_partition::delete(self, request).await
+    }
+
+    async fn update_ib_partition(
+        &self,
+        request: Request<rpc::IbPartitionUpdateRequest>,
+    ) -> Result<Response<rpc::IbPartition>, Status> {
+        crate::handlers::ib_partition::update(self, request).await
     }
 
     async fn ib_partitions_for_tenant(
@@ -664,6 +670,14 @@ impl Forge for Api {
         .await?)
     }
 
+    async fn expire_dhcp_lease(
+        &self,
+        request: Request<rpc::ExpireDhcpLeaseRequest>,
+    ) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, Status> {
+        log_request_data(&request);
+        Ok(crate::dhcp::expire::expire_dhcp_lease(self, request).await?)
+    }
+
     async fn find_machine_ids(
         &self,
         request: Request<rpc::MachineSearchConfig>,
@@ -703,84 +717,16 @@ impl Forge for Api {
 
     async fn find_switch_state_histories(
         &self,
-        _request: Request<rpc::SwitchStateHistoriesRequest>,
+        request: Request<rpc::SwitchStateHistoriesRequest>,
     ) -> Result<Response<rpc::SwitchStateHistories>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        crate::handlers::switch::find_switch_state_histories(self, request).await
     }
 
     async fn find_machine_health_histories(
         &self,
         request: Request<rpc::MachineHealthHistoriesRequest>,
     ) -> std::result::Result<Response<rpc::MachineHealthHistories>, Status> {
-        log_request_data(&request);
-        let request_inner = request.into_inner();
-
-        // Check if time range filtering is requested
-        if let (Some(start_time), Some(end_time)) =
-            (request_inner.start_time, request_inner.end_time)
-        {
-            // Time-filtered query path
-            let machine_id = request_inner.machine_ids.first().ok_or_else(|| {
-                CarbideError::InvalidArgument("machine_id is required".to_string())
-            })?;
-
-            // Convert protobuf timestamps to chrono DateTime
-            let start_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
-                start_time.seconds,
-                start_time.nanos as u32,
-            )
-            .ok_or_else(|| {
-                CarbideError::InvalidArgument("Invalid start_time timestamp".to_string())
-            })?;
-            let end_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
-                end_time.seconds,
-                end_time.nanos as u32,
-            )
-            .ok_or_else(|| {
-                CarbideError::InvalidArgument("Invalid end_time timestamp".to_string())
-            })?;
-
-            // Start database transaction
-            let mut txn = self.txn_begin().await?;
-
-            // Call database function to get health history records with time filter
-            let db_records = db::machine_health_history::find_by_time_range(
-                &mut txn, machine_id, &start_dt, &end_dt,
-            )
-            .await?;
-
-            // Convert database records to MachineHealthHistories format
-            let response_records: Vec<rpc::MachineHealthHistoryRecord> = db_records
-                .into_iter()
-                .map(|db_rec| rpc::MachineHealthHistoryRecord {
-                    health: Some(db_rec.health.into()),
-                    time: Some(db_rec.time.into()),
-                })
-                .collect();
-
-            // Put records in a map keyed by machine ID string
-            let machine_id_str = machine_id.to_string();
-            let mut histories = HashMap::new();
-            histories.insert(
-                machine_id_str,
-                rpc::MachineHealthHistoryRecords {
-                    records: response_records,
-                },
-            );
-
-            txn.commit().await?;
-
-            Ok(Response::new(rpc::MachineHealthHistories { histories }))
-        } else {
-            // Original behavior: no time filtering
-            crate::handlers::machine::find_machine_health_histories(
-                self,
-                Request::new(request_inner),
-            )
-            .await
-        }
+        crate::handlers::machine::find_machine_health_histories(self, request).await
     }
 
     async fn find_interfaces(
@@ -966,7 +912,6 @@ impl Forge for Api {
     /// [vlan-id]
     /// type = "integer"
     /// ranges = [{ start = "100", end = "501" }]
-    ///
     async fn admin_grow_resource_pool(
         &self,
         request: Request<rpc::GrowResourcePoolRequest>,
@@ -1049,6 +994,20 @@ impl Forge for Api {
         request: Request<rpc::GetRackRequest>,
     ) -> Result<Response<rpc::GetRackResponse>, Status> {
         crate::handlers::rack::get_rack(self, request).await
+    }
+
+    async fn find_rack_ids(
+        &self,
+        request: Request<rpc::RackSearchFilter>,
+    ) -> Result<Response<rpc::RackIdList>, Status> {
+        crate::handlers::rack::find_ids(self, request).await
+    }
+
+    async fn find_racks_by_ids(
+        &self,
+        request: Request<rpc::RacksByIdsRequest>,
+    ) -> Result<Response<rpc::RackList>, Status> {
+        crate::handlers::rack::find_by_ids(self, request).await
     }
 
     async fn delete_rack(

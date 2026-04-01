@@ -2441,6 +2441,7 @@ dependencies = [
  "eyre",
  "humantime",
  "ipnetwork",
+ "itertools 0.14.0",
  "prettytable-rs",
  "serde",
  "serde_json",
@@ -5642,7 +5643,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.4#f9a4e74865a87549e22ac8173413c36343f4f234"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.5#add240967b48f7781fead48b8e3b223acbbc96d3"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6505,9 +6506,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db5970e33464c565d44c838e0ac21d885cea9b63cc14dafe6d64572157622f8f"
+checksum = "f385e8c65f5b20e39ce7dc4097068d2fc1f29768b8f0feff4c7cbaa607f19a03"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6521,9 +6522,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dedd265e52e13a911bd811ca8827bfb2a5bc50782ed960165814df09b292054"
+checksum = "e3cad61bfbf44c2d9636adbaf40be728f06b57d430fe982ad32a1f7787bc5245"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6541,9 +6542,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7cc7929b380dbab4b6f72f13d673a38645c4ae0532c9b9d5a9457fc242046e4"
+checksum = "45c045d4e9c9cb32a85d4e325aaf55f70bba7d8954ae29e7d5109bfb1f4c00a2"
 dependencies = [
  "futures-core",
  "rust_decimal",
@@ -6555,9 +6556,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fa5e1eb9a9f67bf5702aac2ce10528844212e4bb40e1cb03f3692ac553604b9"
+checksum = "a2cfc5dda9526b849ddbab9bee999ed951afb505a16cebe8c27ac991a9cf3d3b"
 dependencies = [
  "clap",
  "clap_derive",

@@ -57,6 +57,7 @@ impl Default for HealthReport {
 
 impl HealthReport {
     pub const SKU_VALIDATION_SOURCE: &str = "sku-validation";
+    pub const QUARANTINE_SOURCE: &str = "quarantine";
 
     /// Returns a health report with no successes or errors reported
     pub fn empty(source: String) -> Self {
@@ -296,6 +297,23 @@ impl HealthReport {
             .map(|(id, target)| HealthProbeSuccess { id, target })
             .collect();
         self.alerts = alerts.into_values().collect();
+    }
+
+    pub fn quarantine_report(message: String) -> Self {
+        Self {
+            source: Self::QUARANTINE_SOURCE.to_string(),
+            triggered_by: None,
+            observed_at: Some(chrono::Utc::now()),
+            successes: Vec::new(),
+            alerts: vec![HealthProbeAlert {
+                id: HealthProbeId("Quarantine".to_string()),
+                target: None,
+                in_alert_since: Some(chrono::Utc::now()),
+                message,
+                tenant_message: None,
+                classifications: vec![HealthAlertClassification::prevent_allocations()],
+            }],
+        }
     }
 
     /// Check if reboot from state machine is blocked.

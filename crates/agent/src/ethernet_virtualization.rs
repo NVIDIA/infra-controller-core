@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::Read;
@@ -39,10 +39,7 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
 use crate::nvue::NetworkSecurityGroupRule;
-use crate::{
-    HBNDeviceNames, acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue,
-    traffic_intercept_bridging,
-};
+use crate::{HBNDeviceNames, acl_rules, dhcp, hbn, nvue, traffic_intercept_bridging};
 
 /// None of the files we deal with should be bigger than this
 const MAX_EXPECTED_SIZE: u64 = 1048576; // 1 MiB
@@ -122,24 +119,6 @@ impl InterfaceState {
     }
 }
 
-struct EthernetVirtualizerPaths {
-    interfaces: FPath,
-    frr: FPath,
-    daemons: FPath,
-    acl_rules: FPath,
-}
-
-impl EthernetVirtualizerPaths {
-    /// Delete old .TEST, .BAK and .TMP files
-    fn cleanup(&self) -> bool {
-        let mut did_delete = false;
-        for p in [&self.interfaces, &self.frr, &self.daemons, &self.acl_rules] {
-            did_delete = did_delete || p.cleanup();
-        }
-        did_delete
-    }
-}
-
 struct DhcpServerPaths {
     server: FPath,
     config: FPath,
@@ -162,17 +141,6 @@ pub struct ServiceAddresses {
 struct PostAction {
     cmd: &'static str,
     path: FPath,
-}
-
-fn paths(hbn_root: &Path) -> EthernetVirtualizerPaths {
-    let ps = EthernetVirtualizerPaths {
-        interfaces: FPath(hbn_root.join(interfaces::PATH)),
-        frr: FPath(hbn_root.join(frr::PATH)),
-        daemons: FPath(hbn_root.join(daemons::PATH)),
-        acl_rules: FPath(hbn_root.join(acl_rules::PATH)),
-    };
-    ps.cleanup();
-    ps
 }
 
 // Update network config using nvue (`nv`). Return Ok(true) if the config change, Ok(false) if not.
@@ -417,6 +385,8 @@ pub async fn update_nvue(
             ));
         } else {
             nc.routing_profile.as_ref().map(|rp| nvue::RoutingProfile {
+                leak_default_route_from_underlay: rp.leak_default_route_from_underlay,
+                leak_tenant_host_routes_to_underlay: rp.leak_tenant_host_routes_to_underlay,
                 route_target_imports: rp
                     .route_target_imports
                     .iter()
@@ -436,9 +406,6 @@ pub async fn update_nvue(
             })
         },
     };
-
-    // Cleanup any left over non-NVUE temp files
-    let _ = paths(hbn_root);
 
     // Cleanup non-NVUE ACL files
     // We can remove this once az01 is upgraded
@@ -658,69 +625,6 @@ fn build_quarantined_network_security_group_rules() -> Vec<NetworkSecurityGroupR
     ]
 }
 
-/// Write out all the network config files.
-/// Returns true if any of them changed.
-pub async fn update_files(
-    hbn_root: &Path,
-    network_config: &rpc::ManagedHostNetworkConfigResponse,
-    // if true don't run the reload/restart commands after file update
-    skip_post: bool,
-    hbn_device_names: HBNDeviceNames,
-) -> eyre::Result<bool> {
-    // Cleanup old NVUE files
-    FPath(hbn_root.join(nvue::PATH_ACL)).cleanup();
-    FPath(hbn_root.join(nvue::PATH)).cleanup();
-    // In case we switch from NVUE back to ETV, delete NVUE ACLs
-    cleanup_new_acls(hbn_root);
-
-    let paths = paths(hbn_root);
-
-    let mut errs = vec![];
-    let mut post_actions = vec![];
-    match write_interfaces(&paths.interfaces, network_config, hbn_device_names.clone()) {
-        Ok(true) => {
-            post_actions.push(PostAction {
-                path: paths.interfaces.clone(),
-                cmd: interfaces::RELOAD_CMD,
-            });
-        }
-        Ok(false) => {}
-        Err(err) => errs.push(format!("write_interfaces: {err:#}")),
-    }
-    match write_frr(&paths.frr, network_config, hbn_device_names.clone()) {
-        Ok(true) => {
-            post_actions.push(PostAction {
-                path: paths.frr.clone(),
-                cmd: frr::RELOAD_CMD,
-            });
-        }
-        Ok(false) => {}
-        Err(err) => errs.push(format!("write_frr: {err:#}")),
-    }
-    match write_daemons(&paths.daemons) {
-        Ok(true) => {
-            post_actions.push(PostAction {
-                path: paths.daemons,
-                cmd: daemons::RESTART_CMD,
-            });
-        }
-        Ok(false) => {}
-        Err(err) => errs.push(format!("write_daemons: {err:#}")),
-    }
-    match write_acl_rules(&paths.acl_rules, network_config, hbn_device_names.clone()) {
-        Ok(true) => {
-            post_actions.push(PostAction {
-                path: paths.acl_rules,
-                cmd: acl_rules::RELOAD_CMD,
-            });
-        }
-        Ok(false) => {}
-        Err(err) => errs.push(format!("write_acl_rules: {err:#}")),
-    }
-
-    do_post(skip_post, post_actions, errs).await
-}
-
 async fn do_post(
     skip_post: bool,
     post_actions: Vec<PostAction>,
@@ -812,6 +716,18 @@ pub async fn update_interface_state(nc: &ManagedHostNetworkConfigResponse) -> ey
     let needed_state = needed_interface_state(nc.is_primary_dpu, nc.use_admin_network);
 
     InterfaceState::update_state(&needed_state).await
+}
+
+/// Stops the DHCP process via the dhcp-server gRPC control service.
+///
+/// The gRPC control server remains up after this call so that a future
+/// [`update_dhcp_via_grpc`] call can restart the DHCP process.
+///
+/// Returns `Ok(false)` (matching the file-write path convention) to signal
+/// that no active DHCP service reload occurred.
+async fn stop_dhcp_via_grpc(grpc_addr: &str) -> eyre::Result<bool> {
+    crate::dhcp_server_grpc_client::stop_server(grpc_addr).await?;
+    Ok(false)
 }
 
 /// Sends the current DHCP server config to the dhcp-server process via gRPC.
@@ -911,7 +827,11 @@ pub async fn update_dhcp(
     hbn_device_names: HBNDeviceNames,
     dhcp_grpc_server: Option<String>,
 ) -> eyre::Result<bool> {
+    let stop_server = network_config.use_admin_network && !network_config.is_primary_dpu;
     if let Some(ref addr) = dhcp_grpc_server {
+        if stop_server {
+            return stop_dhcp_via_grpc(addr).await;
+        }
         return update_dhcp_via_grpc(addr, network_config, service_addrs, hbn_device_names).await;
     }
 
@@ -928,7 +848,6 @@ pub async fn update_dhcp(
     // Delete NVUE relay config in case we used that previously
     let _ = fs::remove_file(path_dhcp_relay_nvue);
 
-    let stop_server = network_config.use_admin_network && !network_config.is_primary_dpu;
     // Start DHCP Server in HBN.
     let post_action = match write_dhcp_v4_server_config(
         &path_dhcp_relay,
@@ -1060,14 +979,9 @@ pub fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> V
 }
 
 /// Reset networking to blank.
-/// Replace all networking files with their blank version.
-pub async fn reset(
-    hbn_root: &Path,
-    // if true don't run the reload/restart commands after file update
-    skip_post: bool,
-) {
+/// Clear DHCP and NVUE config files.
+pub async fn reset(hbn_root: &Path, skip_post: bool) {
     tracing::debug!("Setting network config to blank");
-    let paths = paths(hbn_root);
 
     let mut errs = vec![];
     let mut post_actions = vec![];
@@ -1089,34 +1003,13 @@ pub async fn reset(
         Ok(false) => {}
         Err(err) => errs.push(format!("Write blank DHCP server: {err:#}")),
     }
-    match write(
-        interfaces::blank(),
-        &paths.interfaces,
-        "/etc/network/interfaces",
-        false,
-    ) {
-        Ok(true) => post_actions.push(PostAction {
-            path: paths.interfaces,
-            cmd: interfaces::RELOAD_CMD,
-        }),
-        Ok(false) => {}
-        Err(err) => errs.push(format!("write blank interfaces: {err:#}")),
-    }
-    match write(frr::blank(), &paths.frr, "frr.conf", false) {
-        Ok(true) => post_actions.push(PostAction {
-            path: paths.frr,
-            cmd: frr::RELOAD_CMD,
-        }),
-        Ok(false) => {}
-        Err(err) => errs.push(format!("write blank frr: {err:#}")),
-    }
-    match write_daemons(&paths.daemons) {
-        Ok(true) => post_actions.push(PostAction {
-            path: paths.daemons,
-            cmd: daemons::RESTART_CMD,
-        }),
-        Ok(false) => {}
-        Err(err) => errs.push(format!("write_daemons: {err:#}")),
+
+    // Clean up NVUE config
+    let nvue_path = FPath(hbn_root.join(nvue::PATH));
+    if nvue_path.0.exists()
+        && let Err(err) = fs::remove_file(&nvue_path.0)
+    {
+        errs.push(format!("remove NVUE config {nvue_path}: {err:#}"));
     }
 
     if !skip_post {
@@ -1297,196 +1190,6 @@ fn write_dhcp_v4_server_config(
     }
 
     Ok(has_changes)
-}
-
-fn write_interfaces(
-    path: &FPath,
-    nc: &rpc::ManagedHostNetworkConfigResponse,
-    hbn_device_names: HBNDeviceNames,
-) -> eyre::Result<bool> {
-    let l_ip_str = match &nc.managed_host_config {
-        None => {
-            return Err(eyre::eyre!("Missing managed_host_config in response"));
-        }
-        Some(cfg) => {
-            if cfg.loopback_ip.is_empty() {
-                return Err(eyre::eyre!("Missing loopback IP"));
-            }
-            &cfg.loopback_ip
-        }
-    };
-    let loopback_ip = l_ip_str.parse().wrap_err_with(|| l_ip_str.clone())?;
-
-    let physical_name = hbn_device_names.reps[0].to_string();
-    let networks = if nc.use_admin_network {
-        let admin_interface = nc
-            .admin_interface
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
-        vec![interfaces::Network {
-            interface_name: physical_name,
-            vlan: admin_interface.vlan_id as u16,
-            vni: admin_interface.vni,
-            gateway_cidr: admin_interface.gateway.clone(),
-        }]
-    } else {
-        let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
-        for (i, net) in nc.tenant_interfaces.iter().enumerate() {
-            let name = if net.function_type == rpc::InterfaceFunctionType::Physical as i32 {
-                physical_name.clone()
-            } else {
-                match net.virtual_function_id {
-                    Some(id) => hbn_device_names.build_virt(id),
-                    None => {
-                        // This is for backward compatibility with the old
-                        // version of site controller which didn't send the ID
-                        // TODO: Remove this in the future and make it an error
-                        hbn_device_names.build_virt(i.saturating_sub(1) as u32)
-                    }
-                }
-            };
-            ifs.push(interfaces::Network {
-                interface_name: name,
-                vlan: net.vlan_id as u16,
-                vni: net.vni,
-                gateway_cidr: net.gateway.clone(),
-            });
-        }
-        ifs
-    };
-
-    let next_contents = interfaces::build(interfaces::InterfacesConfig {
-        uplinks: hbn_device_names
-            .uplinks
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        vni_device: nc.vni_device.clone(),
-        loopback_ip,
-        networks,
-    })?;
-    write(next_contents, path, "/etc/network/interfaces", false)
-}
-
-fn write_frr(
-    path: &FPath,
-    nc: &rpc::ManagedHostNetworkConfigResponse,
-    hbn_device_names: HBNDeviceNames,
-) -> eyre::Result<bool> {
-    let l_ip_str = match &nc.managed_host_config {
-        None => {
-            return Err(eyre::eyre!("Missing managed_host_config in response"));
-        }
-        Some(cfg) => {
-            if cfg.loopback_ip.is_empty() {
-                return Err(eyre::eyre!("Missing loopback IP"));
-            }
-            &cfg.loopback_ip
-        }
-    };
-    let loopback_ip = l_ip_str.parse().wrap_err_with(|| l_ip_str.clone())?;
-
-    let access_vlans = if nc.use_admin_network {
-        let admin_interface = nc
-            .admin_interface
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
-        vec![frr::FrrVlanConfig {
-            vlan_id: admin_interface.vlan_id,
-            network: admin_interface.interface_prefix.clone(),
-            ip: admin_interface.ip.clone(),
-        }]
-    } else {
-        let mut access_vlans = Vec::with_capacity(nc.tenant_interfaces.len());
-        for net in &nc.tenant_interfaces {
-            access_vlans.push(frr::FrrVlanConfig {
-                vlan_id: net.vlan_id,
-                network: net.interface_prefix.clone(),
-                ip: net.ip.clone(),
-            });
-        }
-        access_vlans
-    };
-
-    let next_contents = frr::build(frr::FrrConfig {
-        asn: nc.asn,
-        uplinks: hbn_device_names
-            .uplinks
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        loopback_ip,
-        access_vlans,
-        vpc_vni: nc.vpc_vni,
-        route_servers: nc.route_servers.clone(),
-        use_admin_network: nc.use_admin_network,
-    })?;
-    write(next_contents, path, "frr.conf", false)
-}
-
-/// The etc/frr/daemons file has no templated parts
-fn write_daemons(path: &FPath) -> eyre::Result<bool> {
-    write(daemons::build(), path, "etc/frr/daemons", false)
-}
-
-fn write_acl_rules(
-    path: &FPath,
-    dpu_network_config: &rpc::ManagedHostNetworkConfigResponse,
-    hbn_device_names: HBNDeviceNames,
-) -> eyre::Result<bool> {
-    let rules_by_interface =
-        instance_interface_acls_by_name(&dpu_network_config.tenant_interfaces, hbn_device_names);
-    // let ingress_interfaces = instance_interface_names(&dpu_network_config.tenant_interfaces);
-
-    let deny_prefixes = match dpu_network_config.vpc_isolation_behavior() {
-        rpc::VpcIsolationBehaviorType::VpcIsolationInvalid => {
-            return Err(eyre::eyre!("received invalid VPC isolation behavior"));
-        }
-        rpc::VpcIsolationBehaviorType::VpcIsolationMutual => [
-            dpu_network_config.site_fabric_prefixes.as_slice(),
-            dpu_network_config.deny_prefixes.as_slice(),
-        ]
-        .concat(),
-        rpc::VpcIsolationBehaviorType::VpcIsolationOpen => dpu_network_config.deny_prefixes.clone(),
-    };
-
-    let config = acl_rules::AclConfig {
-        interfaces: rules_by_interface,
-        deny_prefixes,
-    };
-    let contents = acl_rules::build(config)?;
-    write(contents, path, "forge-acl.rules", false)
-}
-
-// Compute the interface names along with the specific ACL config for each
-// tenant-facing interface.
-fn instance_interface_acls_by_name(
-    intf_configs: &[FlatInterfaceConfig],
-    hbn_device_names: HBNDeviceNames,
-) -> BTreeMap<String, acl_rules::InterfaceRules> {
-    intf_configs
-        .iter()
-        .enumerate()
-        .map(|(i, conf)| {
-            let interface_name = match conf.function_type() {
-                ::rpc::InterfaceFunctionType::Physical => hbn_device_names.reps[0].to_string(),
-
-                ::rpc::InterfaceFunctionType::Virtual => {
-                    let vfid = conf
-                        .virtual_function_id
-                        .unwrap_or_else(|| (i as u32).saturating_sub(1));
-                    hbn_device_names.build_virt(vfid)
-                }
-            };
-            let vpc_prefixes = conf
-                .vpc_prefixes
-                .iter()
-                .map(|prefix| prefix.parse().unwrap())
-                .collect();
-            let interface_rules = acl_rules::InterfaceRules { vpc_prefixes };
-            (interface_name, interface_rules)
-        })
-        .collect()
 }
 
 // Update configuration file
@@ -1779,26 +1482,6 @@ fn cleanup_old_acls(hbn_root: &Path) {
     }
 }
 
-fn cleanup_new_acls(hbn_root: &Path) {
-    // NVUE creates these
-    let nvue_default_acls = hbn_root.join("etc/cumulus/acl/policy.d/50_nvue.rules");
-    // We create these
-    let nvue_extra_acls = hbn_root.join(nvue::PATH_ACL);
-
-    for p in [&nvue_default_acls, &nvue_extra_acls] {
-        if p.exists() {
-            match fs::remove_file(p) {
-                Ok(_) => {
-                    tracing::info!("Cleaned up NVUE ACL file {}", p.display());
-                }
-                Err(err) => {
-                    tracing::warn!("Failed removing NVUE ACL file {}: {err}.", p.display());
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -1836,74 +1519,13 @@ mod tests {
         Ok(())
     }
 
-    // Pretend we received a new config from API server. Apply it and check the resulting files.
-    #[test]
-    fn test_with_tenant_etv() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf(
-            VpcVirtualizationType::EthernetVirtualizer,
-            32,
-            24,
-            true,
-            None,
-            false,
-        );
-
-        let f = tempfile::NamedTempFile::new()?;
-        let fp = FPath(f.path().to_owned());
-
-        // What we're testing
-        match super::write_interfaces(&fp, &network_config, HBNDeviceNames::hbn_23()) {
-            Err(err) => {
-                panic!("write_interfaces error: {err}");
-            }
-            Ok(false) => {
-                panic!("write_interfaces says the config didn't change, that's wrong");
-            }
-            Ok(true) => {
-                // success
-            }
-        }
-        let expected = include_str!("../templates/tests/tenant_interfaces");
-        compare(&fp, expected)?;
-
-        match super::write_frr(&fp, &network_config, HBNDeviceNames::hbn_23()) {
-            Err(err) => {
-                panic!("write_frr error: {err}");
-            }
-            Ok(false) => {
-                panic!("write_frr says the config didn't change, that's wrong");
-            }
-            Ok(true) => {
-                // success
-            }
-        }
-        let expected = include_str!("../templates/tests/tenant_frr.conf");
-        compare(&fp, expected)?;
-
-        match super::write_acl_rules(&fp, &network_config, HBNDeviceNames::hbn_23()) {
-            Err(err) => {
-                panic!("write_acl_rules error: {err}");
-            }
-            Ok(false) => {
-                panic!("write_acl_rules says the config didn't change, that's wrong");
-            }
-            Ok(true) => {
-                // success
-            }
-        }
-        let expected = include_str!("../templates/tests/tenant_acl_rules");
-        compare_diffed(&fp, expected)?;
-
-        Ok(())
-    }
-
     #[tokio::test]
     async fn test_with_tenant_nvue() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
         // Test without an NSG to make sure there are no changes for pre-FNN users
         // if they don't opt-in to a network security group.
-        let network_config = netconf(virtualization_type, 32, 24, false, None, true);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, true, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1939,7 +1561,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
         // Both interfaces are L2 segments, so IncludeBridge is true and the bridge block is emitted.
-        let network_config = netconf(virtualization_type, 32, 24, false, None, true);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, true, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1975,7 +1597,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -2022,7 +1644,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::Fnn;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -2066,11 +1688,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_with_tenant_fnn_with_leaks() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::Fnn;
+
+        let network_config = netconf(virtualization_type, 32, 24, false, None, false, true);
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check startup.yaml
+        let expected = include_str!("../templates/tests/nvue_startup_fnn_with_leaks.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_with_tenant_nvue_with_nsg() -> Result<(), Box<dyn std::error::Error>> {
         // Test WITH an NSG
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
-        let network_config = netconf(virtualization_type, 32, 24, true, None, false);
+        let network_config = netconf(virtualization_type, 32, 24, true, None, false, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2105,7 +1758,7 @@ mod tests {
     async fn test_with_tenant_nvue_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
-        let mut network_config = netconf(virtualization_type, 32, 24, true, None, false);
+        let mut network_config = netconf(virtualization_type, 32, 24, true, None, false, false);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -2159,7 +1812,7 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_nsg() -> Result<(), Box<dyn std::error::Error>>
     {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, true, None, false);
+        let network_config = netconf(virtualization_type, 32, 24, true, None, false, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2205,7 +1858,8 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let mut network_config = netconf(virtualization_type, 32, 24, true, Some(3109), false);
+        let mut network_config =
+            netconf(virtualization_type, 32, 24, true, Some(3109), false, false);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -2258,7 +1912,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, false, None, false);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, false, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2304,6 +1958,7 @@ mod tests {
         include_network_security_group: bool,
         site_global_vpc_vni: Option<u32>,
         second_interface_l2: bool,
+        include_network_host_route_and_default_leaking: bool,
     ) -> rpc::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
@@ -2343,8 +1998,7 @@ mod tests {
         let svi_ip2: IpAddr = IpAddr::from_str("10.217.5.164").unwrap();
 
         let vpc_peer_vnis = match virtualization_type {
-            VpcVirtualizationType::EthernetVirtualizer
-            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+            VpcVirtualizationType::EthernetVirtualizerWithNvue => {
                 vec![]
             }
             _ => {
@@ -2589,6 +2243,8 @@ mod tests {
                 vni: 22222,
             }],
             routing_profile: Some(rpc::RoutingProfile {
+                leak_default_route_from_underlay: include_network_host_route_and_default_leaking,
+                leak_tenant_host_routes_to_underlay: include_network_host_route_and_default_leaking,
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,
@@ -2683,22 +2339,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_reset() -> Result<(), Box<dyn std::error::Error>> {
-        // setup
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
-        fs::create_dir_all(hbn_root.join("etc/frr"))?;
-        fs::create_dir_all(hbn_root.join("etc/network"))?;
         fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
         fs::create_dir_all(hbn_root.join("var/support/forge-dhcp/conf"))?;
 
-        // test
+        // Create NVUE config to verify it gets cleaned up
+        let nvue_dir = hbn_root.join(crate::nvue::PATH);
+        fs::create_dir_all(nvue_dir.parent().unwrap())?;
+        fs::write(&nvue_dir, "test nvue config")?;
+        assert!(nvue_dir.exists());
+
         super::reset(hbn_root, true).await;
 
-        // check
-        let frr_path = hbn_root.join("etc/frr/frr.conf");
-        let frr_contents =
-            super::read_limited(&frr_path).wrap_err(format!("Failed reading {frr_path:?}"))?;
-        assert_eq!(frr_contents, crate::frr::TMPL_EMPTY);
+        // NVUE config should be removed
+        assert!(!nvue_dir.exists());
 
         // check dhcp server
         let dhcp_path = hbn_root.join("etc/supervisor/conf.d/default-forge-dhcp-server.conf");
@@ -2836,6 +2491,8 @@ mod tests {
                 ip: "10.217.4.70".to_string(),
             }],
             ct_routing_profile: Some(nvue::RoutingProfile {
+                leak_default_route_from_underlay: false,
+                leak_tenant_host_routes_to_underlay: false,
                 route_target_imports: vec![nvue::RouteTargetConfig {
                     asn: 44444,
                     vni: 55555,
@@ -2878,31 +2535,6 @@ mod tests {
             })
             .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
         assert_eq!(yaml_obj.len(), 2); // 'header' and 'set'
-        Ok(())
-    }
-
-    fn compare<P: AsRef<Path>>(p1: P, expected: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let contents = super::read_limited(p1.as_ref())?;
-        // trim white space at end of line to match Go version
-        let output = contents
-            .lines()
-            .map(|l| l.trim_end())
-            .collect::<Vec<&str>>()
-            .join("\n")
-            + "\n";
-        let mut has_error = false;
-        if output != expected {
-            for (g, e) in output.lines().zip(expected.lines()) {
-                if g != e {
-                    has_error = true;
-                    println!("Line differs:");
-                    println!("GOT: {g}");
-                    println!("EXP: {e}");
-                }
-            }
-        }
-        assert!(!has_error);
-
         Ok(())
     }
 
@@ -3086,6 +2718,8 @@ mod tests {
             anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
             tenant_host_asn: Some(65100),
             routing_profile: Some(rpc::RoutingProfile {
+                leak_default_route_from_underlay: false,
+                leak_tenant_host_routes_to_underlay: false,
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,

@@ -22,7 +22,7 @@ use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::machine::{
     DpfState, DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, Machine,
-    MachineState, ManagedHostState, ManagedHostStateSnapshot, ReprovisionState, StateMachineArea,
+    ManagedHostState, ManagedHostStateSnapshot, ReprovisionState, StateMachineArea,
 };
 
 use super::helpers::{DpuInitStateHelper, ManagedHostStateHelper, ReprovisionStateHelper};
@@ -138,16 +138,15 @@ fn update_phase_detail_or_wait(
 }
 
 /// Determine the correct next state when exiting `DeviceReady`, based on
-/// whether we are in initial provisioning (`DPUInit`) or reprovisioning
-/// (`DPUReprovision`).
+/// whether we are in initial provisioning (`DPUInit` -> `WaitingForPlatformConfiguration`)
+/// or reprovisioning (`DPUReprovision`).
 fn waiting_for_ready_exit_state(
     state: &ManagedHostStateSnapshot,
 ) -> Result<ManagedHostState, StateHandlerError> {
     match &state.managed_state {
         ManagedHostState::DPUInit { .. } | ManagedHostState::DpuDiscoveringState { .. } => {
-            Ok(ManagedHostState::HostInit {
-                machine_state: MachineState::EnableIpmiOverLan,
-            })
+            DpuInitState::WaitingForPlatformConfiguration
+                .next_state_with_all_dpus_updated(&state.managed_state)
         }
         ManagedHostState::DPUReprovision { .. }
         | ManagedHostState::Assigned {
@@ -390,6 +389,29 @@ pub async fn handle_dpf_state(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+    if !dpf_sdk.verify_node_labels(&node_name).await? {
+        tracing::error!(
+            host = %state.host_snapshot.id,
+            node = %node_name,
+            "DPUNode has stale labels, failing for reprovisioning"
+        );
+        return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning {
+                    err: format!(
+                        "DPUNode {node_name} has stale labels; \
+                         must be deleted and reprovisioned"
+                    ),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+            machine_id: state.host_snapshot.id,
+            retry_count: 0,
+        }));
+    }
+
     match dpf_state {
         DpfState::Provisioning => handle_dpf_provisioning(state, dpf_sdk).await,
         DpfState::WaitingForReady { phase_detail } => {

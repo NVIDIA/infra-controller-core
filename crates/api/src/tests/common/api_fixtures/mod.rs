@@ -283,6 +283,8 @@ impl TestEnvOverrides {
                             internal: false,
                             route_target_imports: vec![],
                             route_targets_on_exports: vec![],
+                            leak_default_route_from_underlay: false,
+                            leak_tenant_host_routes_to_underlay: false,
                         },
                     ),
                     (
@@ -291,6 +293,8 @@ impl TestEnvOverrides {
                             internal: true,
                             route_target_imports: vec![],
                             route_targets_on_exports: vec![],
+                            leak_default_route_from_underlay: false,
+                            leak_tenant_host_routes_to_underlay: false,
                         },
                     ),
                 ]),
@@ -1085,7 +1089,6 @@ pub fn get_config() -> CarbideConfig {
             allocate_secondary_vtep_ip: true,
             ..Default::default()
         },
-        nvue_enabled: true,
         vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
         vpc_peering_policy_on_existing: None,
         attestation_enabled: false,
@@ -1193,7 +1196,6 @@ pub fn get_config() -> CarbideConfig {
         }),
         mlxconfig_profiles: None,
         rack_management_enabled: false,
-        force_dpu_nic_mode: false,
         rms_api_url: Some(
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
         ),
@@ -1207,7 +1209,7 @@ pub fn get_config() -> CarbideConfig {
         },
         machine_identity: crate::cfg::file::MachineIdentityConfig::default(),
         dsx_exchange_event_bus: None,
-        use_onboard_nic: Arc::new(false.into()),
+        force_dpu_nic_mode: Arc::new(false.into()),
         dpf: crate::cfg::file::DpfConfig::default(),
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
@@ -1655,7 +1657,7 @@ pub async fn create_test_env_with_overrides(
             create_switches: Arc::new(true.into()),
             switches_created_per_run: 1,
             rotate_switch_nvos_credentials: Arc::new(false.into()),
-            use_onboard_nic: Arc::new(false.into()),
+            force_dpu_nic_mode: Arc::new(false.into()),
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },
@@ -2288,14 +2290,7 @@ pub async fn forge_agent_control(
 
 /// Create a managed host with 1 DPU (default config)
 pub async fn create_managed_host(env: &TestEnv) -> TestManagedHost {
-    let mh = site_explorer::new_host(env, ManagedHostConfig::default())
-        .await
-        .expect("Failed to create a new host");
-    TestManagedHost {
-        id: mh.host_snapshot.id,
-        dpu_ids: mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
-        api: env.api.clone(),
-    }
+    create_managed_host_with_config(env, ManagedHostConfig::default()).await
 }
 
 /// Create a managed host with 1 DPU (default config)
@@ -2341,13 +2336,7 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> T
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
     let config =
         ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
-    let mh = site_explorer::new_host(env, config).await.unwrap();
-
-    TestManagedHost {
-        id: mh.host_snapshot.id,
-        dpu_ids: mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
-        api: env.api.clone(),
-    }
+    create_managed_host_with_config(env, config).await
 }
 
 /// Create a managed host with full config control
@@ -2355,27 +2344,18 @@ pub async fn create_managed_host_with_config(
     env: &TestEnv,
     config: ManagedHostConfig,
 ) -> TestManagedHost {
-    let dpu_count = config.dpus.len();
     let mh = site_explorer::new_host(env, config)
         .await
         .expect("Failed to create a new host");
 
-    let host_machine_id = mh.host_snapshot.id;
+    let dpu_ids = mh
+        .dpu_snapshots
+        .iter()
+        .map(|snapshot| snapshot.id)
+        .collect();
 
-    let (id, dpu_ids) = match dpu_count {
-        0 => (host_machine_id, vec![]),
-        1 => (host_machine_id, vec![mh.dpu_snapshots[0].id]),
-        _ => {
-            let dpu_ids = mh
-                .dpu_snapshots
-                .iter()
-                .map(|snapshot| snapshot.id)
-                .collect();
-            (host_machine_id, dpu_ids)
-        }
-    };
     TestManagedHost {
-        id,
+        id: mh.host_snapshot.id,
         dpu_ids,
         api: env.api.clone(),
     }
@@ -2401,12 +2381,7 @@ pub async fn create_managed_host_with_hardware_info_template(
     hardware_info_template: managed_host::HardwareInfoTemplate,
 ) -> TestManagedHost {
     let config = ManagedHostConfig::with_hardware_info_template(hardware_info_template);
-    let mh = site_explorer::new_host(env, config).await.unwrap();
-    TestManagedHost {
-        id: mh.host_snapshot.id,
-        dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),
-        api: env.api.clone(),
-    }
+    create_managed_host_with_config(env, config).await
 }
 
 pub async fn update_time_params(

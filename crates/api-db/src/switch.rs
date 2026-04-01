@@ -22,7 +22,9 @@ use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::switch::{NewSwitch, Switch, SwitchControllerState};
+use model::switch::{
+    FirmwareUpgradeStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
+};
 use sqlx::PgConnection;
 
 use crate::{
@@ -55,11 +57,11 @@ pub struct SwitchSearchConfig {
     // pub include_history: bool, // unused
 }
 pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseResult<Switch> {
-    let state = SwitchControllerState::Initializing;
+    let state = SwitchControllerState::Created;
     let version = ConfigVersion::initial();
 
     let query = sqlx::query_as::<_, SwitchId>(
-        "INSERT INTO switches (id, name, config, controller_state, controller_state_version) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        "INSERT INTO switches (id, name, config, controller_state, controller_state_version, bmc_mac_address) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
     );
     let id = query
         .bind(new_switch.id)
@@ -67,6 +69,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         .bind(sqlx::types::Json(&new_switch.config))
         .bind(sqlx::types::Json(&state))
         .bind(version)
+        .bind(new_switch.bmc_mac_address)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("create switch", e))?;
@@ -76,11 +79,14 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         config: new_switch.config.clone(),
         status: None,
         deleted: None,
+        bmc_mac_address: new_switch.bmc_mac_address,
         controller_state: Versioned {
             value: state,
             version,
         },
         controller_state_outcome: None,
+        switch_reprovisioning_requested: None,
+        firmware_upgrade_status: None,
     })
 }
 
@@ -176,20 +182,21 @@ pub async fn try_update_controller_state(
     txn: &mut PgConnection,
     switch_id: SwitchId,
     expected_version: ConfigVersion,
+    new_version: ConfigVersion,
     new_state: &SwitchControllerState,
-) -> DatabaseResult<()> {
-    let _query_result = sqlx::query_as::<_, SwitchId>(
+) -> DatabaseResult<bool> {
+    let query_result = sqlx::query_as::<_, SwitchId>(
             "UPDATE switches SET controller_state = $1, controller_state_version = $2 WHERE id = $3 AND controller_state_version = $4 RETURNING id",
         )
             .bind(sqlx::types::Json(new_state))
-            .bind(expected_version)
+            .bind(new_version)
             .bind(switch_id)
             .bind(expected_version)
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new( "try_update_controller_state", e))?;
 
-    Ok(())
+    Ok(query_result.is_some())
 }
 
 pub async fn update_controller_state_outcome(
@@ -204,6 +211,62 @@ pub async fn update_controller_state_outcome(
         .await
         .map_err(|e| DatabaseError::new("update_controller_state_outcome", e))?;
 
+    Ok(())
+}
+
+/// Sets switch_reprovisioning_requested on the switch. Can be called from any state machine or
+/// service. When the switch is in Ready state, the switch state controller will observe the flag
+/// and transition to ReProvisioning::Start.
+pub async fn set_switch_reprovisioning_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    initiator: &str,
+) -> DatabaseResult<()> {
+    let req = SwitchReprovisionRequest {
+        requested_at: Utc::now(),
+        initiator: initiator.to_string(),
+    };
+    let query =
+        "UPDATE switches SET switch_reprovisioning_requested = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(sqlx::types::Json(req))
+        .bind(switch_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("set_switch_reprovisioning_requested", e))?;
+    Ok(())
+}
+
+/// Clears switch_reprovisioning_requested. Typically called when reprovisioning completes or is
+/// cancelled.
+pub async fn clear_switch_reprovisioning_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE switches SET switch_reprovisioning_requested = NULL WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(switch_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_switch_reprovisioning_requested", e))?;
+    Ok(())
+}
+
+/// Sets firmware_upgrade_status on the switch. Call from any state machine or service to report
+/// upgrade progress. WaitFirmwareUpdateCompletion reads this: Completed → Ready, Failed → Error.
+pub async fn update_firmware_upgrade_status(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    status: Option<&FirmwareUpgradeStatus>,
+) -> DatabaseResult<()> {
+    let query = "UPDATE switches SET firmware_upgrade_status = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(status.map(|s| sqlx::types::Json(s.clone())))
+        .bind(switch_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_firmware_upgrade_status", e))?;
     Ok(())
 }
 
@@ -305,9 +368,9 @@ pub async fn find_bmc_ips_by_switch_ids(
 
 /// Full endpoint info for a switch: BMC MAC/IP and optionally NVOS MAC/IP.
 ///
-/// NVOS fields are nullable because the `host_mac_address` metadata label may
-/// not be set, or the corresponding `machine_interfaces` / addresses may not
-/// exist yet.
+/// NVOS fields are nullable because `nvos_mac_addresses` may not be set on the
+/// expected switch, or the corresponding `machine_interfaces` / addresses may
+/// not exist yet.
 #[derive(Debug, sqlx::FromRow)]
 pub struct SwitchEndpointRow {
     pub switch_id: SwitchId,
@@ -327,7 +390,7 @@ pub struct SwitchEndpointRow {
 ///   switches.id -> switches.config->>'name' (serial)
 ///   -> expected_switches.serial_number -> bmc_mac_address (BMC MAC)
 ///   -> machine_interfaces (by bmc_mac) -> machine_interface_addresses (underlay) -> BMC IP
-///   -> expected_switches.metadata_labels->>'host_mac_address' (NVOS MAC, nullable)
+///   -> expected_switches.nvos_mac_addresses (NVOS MAC, nullable)
 ///   -> machine_interfaces (by nvos_mac) -> machine_interface_addresses -> NVOS IP
 pub async fn find_switch_endpoints_by_ids(
     db: impl crate::db_read::DbReader<'_>,
@@ -350,8 +413,8 @@ pub async fn find_switch_endpoints_by_ids(
         JOIN network_segments bmc_ns
             ON bmc_ns.id = bmc_mi.segment_id
         LEFT JOIN machine_interfaces nvos_mi
-            ON es.metadata_labels->>'host_mac_address' IS NOT NULL
-           AND nvos_mi.mac_address = (es.metadata_labels->>'host_mac_address')::macaddr
+            ON es.nvos_mac_addresses IS NOT NULL
+           AND nvos_mi.mac_address = ANY(es.nvos_mac_addresses)
         LEFT JOIN machine_interface_addresses nvos_mia
             ON nvos_mia.interface_id = nvos_mi.id
         WHERE s.id = ANY($1)

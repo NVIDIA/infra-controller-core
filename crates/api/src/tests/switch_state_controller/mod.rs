@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
-use model::switch::{Switch, SwitchControllerState};
+use model::switch::{ConfiguringState, Switch, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -34,6 +34,7 @@ use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 use crate::state_controller::switch::context::SwitchStateHandlerContextObjects;
+use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
@@ -83,7 +84,7 @@ async fn test_switch_state_transitions(
     // Create a switch
     let switch_id = common::api_fixtures::site_explorer::new_switch(
         &env,
-        Some("State Transition Test Switch".to_string()),
+        Some("Switch1".to_string()),
         Some("Data Center A, Rack 1".to_string()),
     )
     .await?;
@@ -95,7 +96,7 @@ async fn test_switch_state_transitions(
     let switch = switch.unwrap();
     assert!(matches!(
         switch.controller_state.value,
-        SwitchControllerState::Initializing
+        SwitchControllerState::Created
     ));
 
     // Start the state controller
@@ -159,7 +160,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // Create a switch
     let switch_id = common::api_fixtures::site_explorer::new_switch(
         &env,
-        Some("Deletion Test Switch".to_string()),
+        Some("Switch1".to_string()),
         Some("Data Center A, Rack 1".to_string()),
     )
     .await?;
@@ -249,7 +250,7 @@ async fn test_switch_error_state_handling(
     // Create a switch
     let switch_id = common::api_fixtures::site_explorer::new_switch(
         &env,
-        Some("Error State Test Switch".to_string()),
+        Some("Switch1".to_string()),
         Some("Data Center A, Rack 1".to_string()),
     )
     .await?;
@@ -328,7 +329,7 @@ async fn test_switch_state_transition_validation(
     // Create a switch
     let switch_id = common::api_fixtures::site_explorer::new_switch(
         &env,
-        Some("State Transition Validation Test Switch".to_string()),
+        Some("Switch2".to_string()),
         Some("Data Center A, Rack 1".to_string()),
     )
     .await?;
@@ -340,13 +341,14 @@ async fn test_switch_state_transition_validation(
     let switch = switch.unwrap();
     assert!(matches!(
         switch.controller_state.value,
-        SwitchControllerState::Initializing
+        SwitchControllerState::Created
     ));
 
     // Test state transitions by manually setting different states
     let states = vec![
-        SwitchControllerState::FetchingData,
-        SwitchControllerState::Configuring,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::RotateOsPassword,
+        },
         SwitchControllerState::Ready,
         SwitchControllerState::Error {
             cause: "Test error".to_string(),
@@ -379,7 +381,7 @@ async fn test_switch_deletion_with_state_controller(
     // Create a switch
     let switch_id = common::api_fixtures::site_explorer::new_switch(
         &env,
-        Some("Deletion with State Controller Test Switch".to_string()),
+        Some("Switch1".to_string()),
         Some("Data Center A, Rack 1".to_string()),
     )
     .await?;
@@ -445,6 +447,79 @@ async fn test_switch_deletion_with_state_controller(
         count_increase <= 5, // Allow for some timing-related calls
         "State handler should not process deleted switches significantly. Count increase: {}",
         count_increase
+    );
+
+    Ok(())
+}
+
+/// Tests the entire Switch ControllerState transition flow: Initializing -> Configuring
+/// (RotateOsPassword) -> Validating (ValidationComplete) -> BomValidating
+/// (BomValidationComplete) -> Ready. Uses the real SwitchStateHandler so each state handler
+/// performs its transition.
+#[crate::sqlx_test]
+async fn test_switch_entire_state_transition_flow(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    let switch_id = common::api_fixtures::site_explorer::new_switch(
+        &env,
+        Some("Switch3".to_string()),
+        Some("Data Center A, Rack 1".to_string()),
+    )
+    .await?;
+
+    // Verify initial state is Initializing
+    {
+        let mut txn = pool.acquire().await?;
+        let switch = db_switch::find_by_id(&mut txn, &switch_id).await?;
+        let switch = switch.expect("switch should exist");
+        assert!(
+            matches!(
+                switch.controller_state.value,
+                SwitchControllerState::Created
+            ),
+            "initial state should be Created, got {:?}",
+            switch.controller_state.value
+        );
+    }
+
+    // Start the state controller with the real handler
+    let switch_handler = Arc::new(SwitchStateHandler::default());
+    const ITERATION_TIME: Duration = Duration::from_millis(50);
+
+    let handler_services = Arc::new(env.state_handler_services());
+
+    let cancel_token = CancellationToken::new();
+    let mut controller = StateController::<SwitchStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: ITERATION_TIME,
+            processor_dispatch_interval: Duration::from_millis(10),
+            ..Default::default()
+        })
+        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
+        .services(handler_services.clone())
+        .state_handler(switch_handler.clone())
+        .build_for_manual_iterations(cancel_token.clone())
+        .unwrap();
+
+    // iterate a few times
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+
+    // Final assertion: state is Ready
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id).await?;
+    let switch = switch.expect("switch should exist");
+    assert!(
+        matches!(switch.controller_state.value, SwitchControllerState::Ready),
+        "expected Ready, got {:?}",
+        switch.controller_state.value
     );
 
     Ok(())

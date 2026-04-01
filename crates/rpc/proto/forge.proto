@@ -79,6 +79,8 @@ service Forge {
   rpc FindIBPartitionsByIds(IBPartitionsByIdsRequest) returns (IBPartitionList);
   // Create a IB partition
   rpc CreateIBPartition(IBPartitionCreationRequest) returns (IBPartition);
+  // Update a IB partition
+  rpc UpdateIBPartition(IBPartitionUpdateRequest) returns (IBPartition);
   // Delete a IB partition
   rpc DeleteIBPartition(IBPartitionDeletionRequest) returns (IBPartitionDeletionResult);
   // Find all IB partitions under a specified tenant
@@ -168,6 +170,7 @@ service Forge {
   // Invoked by forge-scout whenever a certain Machine can not be properly acted on
   rpc ReportForgeScoutError(ForgeScoutErrorReport) returns (ForgeScoutErrorReportResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
+  rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
 
   // PRIVILEGED: Find things
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
@@ -641,6 +644,9 @@ service Forge {
   rpc DetermineMachineIngestionState(BmcEndpointRequest) returns (MachineIngestionStateResponse);
 
   // Rack
+  rpc FindRackIds(RackSearchFilter) returns (RackIdList);
+  rpc FindRacksByIds(RacksByIdsRequest) returns (RackList);
+  // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
 
@@ -1120,7 +1126,8 @@ message RuntimeConfig {
   uint64 machine_update_runtime_interval = 23;
 
   reserved 24;
-  bool nvue_enabled = 25;
+  // Deprecated: NVUE is always enabled. This field is always set to true.
+  bool nvue_enabled = 25 [deprecated = true];
   uint32 max_database_connections = 26;
 
   bool auto_host_firmware_update = 27;
@@ -1642,6 +1649,17 @@ message IBPartitionCreationRequest {
   Metadata metadata = 3;
 }
 
+message IBPartitionUpdateRequest {
+  common.IBPartitionId id = 1; 
+ 
+  // New IBPartitionConfig to be applied to the IBPartition.
+  IBPartitionConfig config = 2;
+
+  optional string if_version_match = 3;
+
+  Metadata metadata = 4;
+}
+
 message IBPartitionDeletionRequest {
   common.IBPartitionId id = 1;
 }
@@ -1827,6 +1845,9 @@ message Switch {
   string controller_state = 5;
 
   BmcInfo bmc_info = 6;
+
+  // Version string for the current controller state (e.g. "V3-T1774905143273055").
+  string state_version = 7;
 }
 
 message SwitchList {
@@ -1885,6 +1906,7 @@ message ExpectedSwitch {
   optional string nvos_password = 8;
   // Unique identifier for the expected switch. When omitted, server generates one.
   optional common.UUID expected_switch_id = 9;
+  repeated string nvos_mac_addresses = 10;
 }
 
 message ExpectedSwitchRequest {
@@ -2710,8 +2732,15 @@ message MachineSearchConfig {
   reserved 5; // Was: bool include_associated_machine_id = 5; Now always included
   bool exclude_hosts = 6;
   bool only_quarantine = 7;
+  // Returns machines only if they are assigned the given instance type
   optional string instance_type_id = 8;
   bool mnnvl_only = 9;
+  // PowerState would mirror host_power_state_t, basically 'on' and 'off'
+  optional string only_with_power_state = 10;
+  // For example, to search for leak alerts, set the below to "hardware-health.tray-leak-detection"
+  optional string only_with_health_alert = 11;
+  // Returns machines only if they are part of the given rack
+  optional common.RackId rack_id = 12;
 }
 
 message MachineStateHistoriesRequest {
@@ -2847,9 +2876,7 @@ message Machine {
 
   // Other machine ids associated with this machine
   optional common.MachineId associated_host_machine_id = 19;
-  // Deprecated, use associated_dpu_machine_ids. For now, this is filled in with the first DPU ID.
-  // TODO: Once all admin CLI clients have updated, drop this and stop filling it in.
-  optional common.MachineId associated_dpu_machine_id = 20;
+  reserved 20; /* previously: optional common.MachineId associated_dpu_machine_id = 20; */
 
   optional MachineInventory inventory = 21;
   optional google.protobuf.Timestamp last_reboot_requested_time = 22;
@@ -2903,6 +2930,8 @@ message Machine {
   optional MachineNVLinkInfo nvlink_info = 43;
 
   optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
+
+  optional common.RackId rack_id = 45;
 }
 
 message InstanceNetworkRestrictions {
@@ -3112,6 +3141,20 @@ message DhcpDiscovery {
   optional string circuit_id = 5;
   optional string remote_id = 6;
   optional string desired_address = 7;
+}
+
+message ExpireDhcpLeaseRequest {
+  string ip_address = 1;
+}
+
+enum ExpireDhcpLeaseStatus {
+  EXPIRE_DHCP_LEASE_STATUS_RELEASED = 0;
+  EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND = 1;
+}
+
+message ExpireDhcpLeaseResponse {
+  string ip_address = 1;
+  ExpireDhcpLeaseStatus status = 2;
 }
 
 message DhcpRecord {
@@ -5985,6 +6028,21 @@ message GetRackResponse {
   repeated Rack rack = 1;
 }
 
+message RackList {
+  repeated Rack racks = 1;
+}
+
+message RackSearchFilter {
+}
+
+message RackIdList {
+  repeated common.RackId rack_ids = 1;
+}
+
+message RacksByIdsRequest {
+  repeated common.RackId rack_ids = 1;
+}
+
 message Rack {
   common.RackId id = 1;
   string rack_state = 2;
@@ -6692,6 +6750,8 @@ enum RoutingProfileType {
 message RoutingProfile {
   repeated common.RouteTarget route_target_imports     = 1;
   repeated common.RouteTarget route_targets_on_exports = 2;
+  bool leak_default_route_from_underlay                = 3;
+  bool leak_tenant_host_routes_to_underlay             = 4;
 }
 
 // ============================================================================
@@ -6842,7 +6902,7 @@ message RackFirmwareJobStatusResponse {
 }
 
 message RackFirmwareHistoryRequest {
-  string firmware_id = 1;      // Optional: filter by firmware ID. Empty string means no filter.
+  string firmware_id = 1; // Optional: filter by firmware ID. Empty string means no filter.
   repeated string rack_ids = 2; // Optional: filter by rack IDs. Empty list returns all racks.
 }
 

@@ -120,6 +120,13 @@ lazy_static::lazy_static! {
         start: [0x44, 0x44, 0x22, 0x22, 0x0, 0x0],
         length: 65536,
     });
+
+    /// Pool of Expected Switch NVOS MAC addresses
+    pub static ref EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL: MacAddressPool =
+    MacAddressPool::new(MacAddressPoolConfig {
+        start: [0x44, 0x44, 0x33, 0x33, 0x0, 0x0],
+        length: 65536,
+    });
 }
 
 fn to_u64_be(bytes: [u8; 6]) -> u64 {

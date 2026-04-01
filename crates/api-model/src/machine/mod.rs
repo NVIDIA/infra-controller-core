@@ -27,6 +27,7 @@ use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -667,7 +668,6 @@ impl Default for MachineLastRebootRequested {
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
-///
 #[derive(Debug, Clone)]
 pub struct Machine {
     /// The ID of the machine, this is an internal identifier in the database that's unique for
@@ -811,6 +811,9 @@ pub struct Machine {
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
+
+    /// The rack that this machine is associated with
+    pub rack_id: Option<RackId>,
 }
 
 // Dpf status field.
@@ -1106,11 +1109,11 @@ impl From<Machine> for rpc::forge::Machine {
         };
 
         let associated_dpu_machine_ids = machine.associated_dpu_machine_ids();
-        let associated_dpu_machine_id = associated_dpu_machine_ids.first().copied();
         let instance_network_restrictions = Some(machine.instance_network_restrictions());
 
         rpc::Machine {
             id: Some(machine.id),
+            rack_id: machine.rack_id.clone(),
             state: if machine.is_dpu() {
                 machine.state.value.dpu_state_string(&machine.id)
             } else {
@@ -1170,7 +1173,6 @@ impl From<Machine> for rpc::forge::Machine {
             maintenance_start_time,
             associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
             associated_dpu_machine_ids,
-            associated_dpu_machine_id,
             inventory: Some(machine.inventory.unwrap_or_default().into()),
             last_reboot_requested_time: machine
                 .last_reboot_requested
