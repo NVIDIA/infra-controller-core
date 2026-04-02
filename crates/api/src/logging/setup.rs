@@ -284,7 +284,7 @@ impl ShouldSample for CarbideSpanSampler {
                     Value::String(str) => Some(str.as_str()),
                     _ => None,
                 })
-                .is_some_and(|s| s.starts_with("carbide::"))
+                .is_some_and(|s| s.starts_with("nico_api::"))
         };
 
         SamplingResult {

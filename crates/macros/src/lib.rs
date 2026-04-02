@@ -161,7 +161,7 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
 /// #[test]
 /// fn the_test() {
 ///     async fn the_test(pool: sqlx::PgPool) { /* test is "pasted" here */ }
-///     let mut args = ::sqlx::testing::TestArgs::new("carbide::tests::the_test");
+///     let mut args = ::sqlx::testing::TestArgs::new("nico_api::tests::the_test");
 ///     // NOTE: crate::tests::MIGRATOR must exist!
 ///     args.migrator(&crate::tests::MIGRATOR);
 ///     args.fixtures(
