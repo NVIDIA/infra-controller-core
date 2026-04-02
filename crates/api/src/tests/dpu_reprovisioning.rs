@@ -1924,7 +1924,9 @@ impl TestManagedHost {
     /// InstallDpuOs -> WaitingForNetworkInstall -> PoweringOffHost -> PowerDown.
     async fn advance_dpu_reprovision_to_power_down(&self, env: &common::api_fixtures::TestEnv) {
         self.mark_machine_for_updates().await;
-        self.dpu().trigger_dpu_reprovisioning(Mode::Set, false).await;
+        self.dpu()
+            .trigger_dpu_reprovisioning(Mode::Set, false)
+            .await;
 
         // Ready -> InstallDpuOs { InstallingBFB }
         env.run_machine_state_controller_iteration().await;
