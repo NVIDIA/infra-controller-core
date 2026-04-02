@@ -225,7 +225,6 @@ async fn test_switch_database_operations(
     let found_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -336,7 +335,6 @@ async fn test_switch_controller_state_transitions(
     let updated_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -518,7 +516,6 @@ async fn test_switch_controller_state_outcome(
     let updated_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 

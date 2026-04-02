@@ -1583,8 +1583,11 @@ impl TestRackDbBuilder {
     }
 
     pub async fn persist(&self, txn: &mut PgConnection) -> Result<RackId, DatabaseError> {
-        db_rack::create(txn, &self.rack_id, self.rack_type.as_ref().unwrap()).await?;
-
+        let rack_config = RackConfig {
+            rack_type: self.rack_type.clone(),
+            ..Default::default()
+        };
+        db_rack::create(txn, &self.rack_id, &rack_config, None).await?;
 
         Ok(self.rack_id.clone())
     }

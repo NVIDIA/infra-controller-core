@@ -254,7 +254,6 @@ async fn test_power_shelf_database_operations(
     let found_power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -369,7 +368,6 @@ async fn test_power_shelf_controller_state_transitions(
     let updated_power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -568,7 +566,6 @@ async fn test_power_shelf_controller_state_outcome(
     let updated_power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 

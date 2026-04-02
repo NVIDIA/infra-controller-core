@@ -92,13 +92,9 @@ pub async fn get(txn: impl DbReader<'_>, rack_id: &RackId) -> DatabaseResult<Rac
 pub async fn create(
     txn: &mut PgConnection,
     rack_id: &RackId,
+    config: &RackConfig,
     expected_metadata: Option<&Metadata>,
-    rack_type: &str,
 ) -> DatabaseResult<Rack> {
-    let config = RackConfig {
-        rack_type: Some(rack_type.to_string()),
-        ..Default::default()
-    };
     let controller_state = String::from("{\"state\":\"created\"}");
     let controller_state_outcome = String::from("{}");
     let default_metadata = Metadata::default();

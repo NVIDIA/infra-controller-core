@@ -31,7 +31,6 @@ use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
-
 pub async fn handle_discovering(
     id: &RackId,
     config: &RackConfig,
@@ -56,12 +55,26 @@ pub async fn handle_discovering(
     )
     .await?
     .len() as u32;
-    let ready_switches = db_switch::find_ids_by_rack_id_and_state(txn.as_mut(), id, "ready")
-        .await?
-        .len() as u32;
-    let ready_shelves = db_power_shelf::find_ids_by_rack_id_and_state(txn.as_mut(), id, "ready")
-        .await?
-        .len() as u32;
+    let ready_switches = db_switch::find_ids(
+        txn.as_mut(),
+        model::switch::SwitchSearchFilter {
+            rack_id: Some(id.clone()),
+            controller_state: Some("ready".to_string()),
+            ..Default::default()
+        },
+    )
+    .await?
+    .len() as u32;
+    let ready_shelves = db_power_shelf::find_ids(
+        txn.as_mut(),
+        model::power_shelf::PowerShelfSearchFilter {
+            rack_id: Some(id.clone()),
+            controller_state: Some("ready".to_string()),
+            ..Default::default()
+        },
+    )
+    .await?
+    .len() as u32;
 
     if ready_compute < capabilities.compute.count
         || ready_switches < capabilities.switch.count

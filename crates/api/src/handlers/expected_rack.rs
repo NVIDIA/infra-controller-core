@@ -64,25 +64,19 @@ pub async fn add_expected_rack(
         .into());
     }
 
+    if api.runtime_config.rack_types.get(&rack.rack_type).is_none() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Unknown rack_type: {}. Must be one of: {:?}",
+            rack.rack_type,
+            api.runtime_config
+                .rack_types
+                .rack_types
+                .keys()
+                .collect::<Vec<_>>()
+        ))
+        .into());
+    }
     db_expected_rack::create(&mut txn, &rack)
-        .await
-        .map_err(CarbideError::from)?;
-
-    // Create the rack entry with the rack_type name. Expected racks are the
-    // only way rack entries get created.
-    let db_rack = db_rack::create(
-        &mut txn,
-        rack_id,
-        vec![],
-        vec![],
-        vec![],
-        Some(&rack.metadata),
-    )
-    .await
-    .map_err(CarbideError::from)?;
-    let mut config = db_rack.config.clone();
-    config.rack_type = Some(rack_type);
-    db_rack::update(&mut txn, rack_id, &config)
         .await
         .map_err(CarbideError::from)?;
 

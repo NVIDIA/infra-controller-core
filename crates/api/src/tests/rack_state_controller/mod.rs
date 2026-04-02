@@ -23,7 +23,7 @@ use std::time::Duration;
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
 use model::rack::{
-    FirmwareUpgradeState, Rack, RackMaintenanceState, RackState, RackValidationState,
+    FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState, RackValidationState,
 };
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
@@ -481,7 +481,16 @@ async fn test_rack_controller_state_version_increment(
     // Create a rack
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.begin().await?;
-    db_rack::create(&mut txn, &rack_id, "Empty").await?;
+    db_rack::create(
+        &mut txn,
+        &rack_id,
+        &RackConfig {
+            rack_type: Some("Empty".to_string()),
+            ..Default::default()
+        },
+        None,
+    )
+    .await?;
 
     // Verify initial state
     let rack = db_rack::get(&mut *txn, &rack_id).await?;

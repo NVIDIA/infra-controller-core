@@ -17,7 +17,6 @@
 
 use std::net::IpAddr;
 
-use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
@@ -57,6 +56,9 @@ impl ColumnInfo<'_> for NameColumn {
 #[derive(Debug, Clone, Default)]
 pub struct SwitchSearchConfig {
     // pub include_history: bool, // unused
+    pub controller_state: Option<String>,
+    pub rack_id: Option<String>,
+    pub bmc_mac_address: Option<MacAddress>,
 }
 pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseResult<Switch> {
     let state = SwitchControllerState::Created;
@@ -113,12 +115,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
 }
 
 pub async fn find_by_name(txn: &mut PgConnection, name: &str) -> DatabaseResult<Option<Switch>> {
-    let mut switches = find_by(
-        txn,
-        ObjectColumnFilter::One(NameColumn, &name.to_string()),
-        SwitchSearchConfig::default(),
-    )
-    .await?;
+    let mut switches = find_by(txn, ObjectColumnFilter::One(NameColumn, &name.to_string())).await?;
 
     if switches.is_empty() {
         Ok(None)
@@ -135,12 +132,7 @@ pub async fn find_by_name(txn: &mut PgConnection, name: &str) -> DatabaseResult<
 }
 
 pub async fn find_by_id(txn: &mut PgConnection, id: &SwitchId) -> DatabaseResult<Option<Switch>> {
-    let mut switches = find_by(
-        txn,
-        ObjectColumnFilter::One(IdColumn, id),
-        SwitchSearchConfig::default(),
-    )
-    .await?;
+    let mut switches = find_by(txn, ObjectColumnFilter::One(IdColumn, id)).await?;
 
     if switches.is_empty() {
         Ok(None)
@@ -173,12 +165,6 @@ pub async fn find_ids(
     txn: impl DbReader<'_>,
     filter: model::switch::SwitchSearchFilter,
 ) -> Result<Vec<SwitchId>, DatabaseError> {
-    if filter.rack_id.is_some() {
-        return Err(DatabaseError::InvalidArgument(
-            "rack_id filtering is not yet supported for switches".to_string(),
-        ));
-    }
-
     let mut qb = sqlx::QueryBuilder::new("SELECT DISTINCT s.id FROM switches s");
 
     if filter.bmc_mac.is_some() {
@@ -186,6 +172,11 @@ pub async fn find_ids(
     }
 
     qb.push(" WHERE TRUE");
+
+    if filter.rack_id.is_some() {
+        qb.push(" AND s.rack_id = ");
+        qb.push_bind(filter.rack_id.unwrap());
+    }
 
     match filter.deleted {
         model::DeletedFilter::Exclude => qb.push(" AND s.deleted IS NULL"),
@@ -209,27 +200,9 @@ pub async fn find_ids(
         .map_err(|e| DatabaseError::new("switch::find_ids", e))
 }
 
-pub async fn list_sibling_ids(
-    txn: &mut PgConnection,
-    rack_id: &str,
-) -> DatabaseResult<Vec<SwitchId>> {
-    let query =
-        sqlx::query_as::<_, SwitchId>("SELECT id FROM switches WHERE rack_id = $1").bind(rack_id);
-
-    let mut rows = query.fetch(txn);
-    let mut ids = Vec::new();
-
-    while let Some(row) = rows.next().await {
-        ids.push(row.map_err(|e| DatabaseError::new("list_sibling_ids switch", e))?);
-    }
-
-    Ok(ids)
-}
-
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Switch>>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
-    _search_config: SwitchSearchConfig,
 ) -> DatabaseResult<Vec<Switch>> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM switches").filter(&filter);
 

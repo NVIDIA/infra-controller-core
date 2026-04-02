@@ -209,7 +209,14 @@ pub async fn handle_maintenance(
                         .await?;
                     }
 
-                    let switch_ids = db_switch::find_ids_by_rack_id(txn.as_mut(), id).await?;
+                    let switch_ids = db_switch::find_ids(
+                        txn.as_mut(),
+                        model::switch::SwitchSearchFilter {
+                            rack_id: Some(id.clone()),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
                     for switch_id in switch_ids.iter() {
                         db_switch::set_switch_reprovisioning_requested(
                             txn.as_mut(),
@@ -219,8 +226,14 @@ pub async fn handle_maintenance(
                         .await?;
                     }
 
-                    let power_shelf_ids =
-                        db_power_shelf::find_ids_by_rack_id(txn.as_mut(), id).await?;
+                    let power_shelf_ids = db_power_shelf::find_ids(
+                        txn.as_mut(),
+                        model::power_shelf::PowerShelfSearchFilter {
+                            rack_id: Some(id.clone()),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
 
                     let bmc_pairs = db_machine_topology::find_machine_bmc_pairs_by_machine_id(
                         txn.as_mut(),
@@ -369,8 +382,17 @@ pub async fn handle_maintenance(
                         Ok(m) => m,
                         Err(_) => continue,
                     };
-                    if let Some(switch_id) =
-                        db_switch::find_id_by_bmc_mac(txn.as_mut(), &mac).await?
+                    if let Some(switch_id) = db_switch::find_ids(
+                        txn.as_mut(),
+                        model::switch::SwitchSearchFilter {
+                            bmc_mac: Some(mac),
+                            rack_id: Some(id.clone()),
+                            ..Default::default()
+                        },
+                    )
+                    .await?
+                    .first()
+                    .copied()
                     {
                         let fw_status = build_status(device);
                         db_switch::update_firmware_upgrade_status(
@@ -427,15 +449,18 @@ pub async fn handle_maintenance(
                 id
             );
             Ok(StateHandlerOutcome::transition(RackState::Maintenance {
-                maintenance_state: RackMaintenanceState::Completed,
+                maintenance_state: RackMaintenanceState::PowerSequence {
+                    rack_power: RackPowerState::PoweringOn,
+                },
             }))
         }
         RackMaintenanceState::PowerSequence { rack_power } => match rack_power {
             RackPowerState::PoweringOn => {
                 tracing::info!("Rack {} power sequence (on) - stubbed", id);
-                Ok(StateHandlerOutcome::wait(
-                    "power sequence (on) in progress".into(),
-                ))
+
+                Ok(StateHandlerOutcome::transition(RackState::Maintenance {
+                    maintenance_state: RackMaintenanceState::Completed,
+                }))
             }
             RackPowerState::PoweringOff => {
                 tracing::info!("Rack {} power sequence (off) - stubbed", id);

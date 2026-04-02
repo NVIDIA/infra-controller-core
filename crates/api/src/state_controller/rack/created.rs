@@ -55,12 +55,24 @@ pub async fn handle_created(
     )
     .await?
     .len() as u32;
-    let switch_count = db_switch::find_ids_by_rack_id(txn.as_mut(), id)
-        .await?
-        .len() as u32;
-    let power_shelf_count = db_power_shelf::find_ids_by_rack_id(txn.as_mut(), id)
-        .await?
-        .len() as u32;
+    let switch_count = db_switch::find_ids(
+        txn.as_mut(),
+        model::switch::SwitchSearchFilter {
+            rack_id: Some(id.clone()),
+            ..Default::default()
+        },
+    )
+    .await?
+    .len() as u32;
+    let power_shelf_count = db_power_shelf::find_ids(
+        txn.as_mut(),
+        model::power_shelf::PowerShelfSearchFilter {
+            rack_id: Some(id.clone()),
+            ..Default::default()
+        },
+    )
+    .await?
+    .len() as u32;
 
     if compute_count < capabilities.compute.count
         || switch_count < capabilities.switch.count

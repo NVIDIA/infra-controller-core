@@ -117,7 +117,11 @@ pub(crate) async fn ensure_rack_exists(
             };
 
             tracing::info!(%rack_id, "Rack does not exist, creating from expected rack");
-            let rack = db::rack::create(&mut *txn, rack_id, &expected.rack_type)
+            let config = model::rack::RackConfig {
+                rack_type: Some(expected.rack_type.clone()),
+                ..Default::default()
+            };
+            let rack = db::rack::create(&mut *txn, rack_id, &config, Some(&expected.metadata))
                 .await
                 .map_err(CarbideError::from)?;
 
@@ -671,7 +675,6 @@ impl SiteExplorer {
             let existing_power_shelves = db_power_shelf::find_by(
                 &mut txn,
                 ObjectColumnFilter::All::<db::power_shelf::NameColumn>,
-                db_power_shelf::PowerShelfSearchConfig::default(),
             )
             .await?;
 
@@ -760,33 +763,7 @@ impl SiteExplorer {
         }
 
         if let Some(ref rack_id) = expected_shelf.rack_id {
-            let rack = match db::rack::get(txn.as_mut(), rack_id).await {
-                Ok(rack) => rack,
-                Err(_) => {
-                    let expected_rack_metadata =
-                        db::expected_rack::find_by_rack_id(txn.as_mut(), rack_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .map(|er| er.metadata);
-                    db::rack::create(
-                        &mut txn,
-                        rack_id,
-                        vec![],
-                        vec![],
-                        vec![expected_shelf.bmc_mac_address],
-                        expected_rack_metadata.as_ref(),
-                    )
-                    .await
-                    .map_err(CarbideError::from)?
-                }
-            };
-            let mut config = rack.config.clone();
-            config.power_shelves.push(power_shelf_id);
-            db::rack::update(&mut txn, rack_id, &config)
-                .await
-                .map_err(CarbideError::from)?;
-            let _ = ensure_rack_exists(txn.as_mut(), rack_id).await?;
+            let _ = crate::site_explorer::ensure_rack_exists(txn.as_mut(), rack_id).await?;
         }
         // No need to update the power shelf name again; it was already set in config above.
         txn.commit()

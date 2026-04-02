@@ -26,8 +26,8 @@ use db::{
 };
 use futures_util::FutureExt;
 use health_report::OverrideMode;
-use model::metadata::Metadata;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -65,8 +65,22 @@ pub async fn get_rack(
             },
         )
         .await?;
-        let switch_ids = db_switch::find_ids_by_rack_id(&mut txn, &r.id).await?;
-        let power_shelf_ids = db_power_shelf::find_ids_by_rack_id(&mut txn, &r.id).await?;
+        let switch_ids = db_switch::find_ids(
+            &mut txn,
+            model::switch::SwitchSearchFilter {
+                rack_id: Some(r.id.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+        let power_shelf_ids = db_power_shelf::find_ids(
+            &mut txn,
+            model::power_shelf::PowerShelfSearchFilter {
+                rack_id: Some(r.id.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
 
         let mut rpc_rack: rpc::Rack = r.into();
         rpc_rack.compute_trays = machine_ids;
@@ -130,8 +144,22 @@ pub async fn find_by_ids(
             },
         )
         .await?;
-        let switch_ids = db_switch::find_ids_by_rack_id(&mut txn, &rack.id).await?;
-        let power_shelf_ids = db_power_shelf::find_ids_by_rack_id(&mut txn, &rack.id).await?;
+        let switch_ids = db_switch::find_ids(
+            &mut txn,
+            model::switch::SwitchSearchFilter {
+                rack_id: Some(rack.id.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+        let power_shelf_ids = db_power_shelf::find_ids(
+            &mut txn,
+            model::power_shelf::PowerShelfSearchFilter {
+                rack_id: Some(rack.id.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
 
         let expected_compute_trays =
             db_expected_machine::find_all_by_rack_id(&mut txn, &rack.id).await?;
