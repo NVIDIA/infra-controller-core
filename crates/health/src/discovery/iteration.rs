@@ -30,7 +30,10 @@ use crate::sharding::ShardManager;
 use crate::sink::DataSink;
 
 fn active_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow<'static, str>> {
-    sharded_endpoints.iter().map(|e| e.hash_key()).collect()
+    sharded_endpoints
+        .iter()
+        .map(|e| e.identity().into_owned().into())
+        .collect()
 }
 
 pub async fn run_discovery_iteration(
@@ -127,6 +130,12 @@ mod tests {
 
         let keys = active_keys(&[ep1.clone(), ep2.clone()]);
 
-        assert_eq!(keys, HashSet::from([ep1.hash_key(), ep2.hash_key()]));
+        assert_eq!(
+            keys,
+            HashSet::from([
+                Cow::Owned(ep1.identity().into_owned()),
+                Cow::Owned(ep2.identity().into_owned()),
+            ])
+        );
     }
 }
