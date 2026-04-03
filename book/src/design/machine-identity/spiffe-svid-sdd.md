@@ -310,17 +310,27 @@ The JWT spec and vault related configs are passed to the Carbide API server duri
 [machine_identity]
 enabled = true
 algorithm = "ES256"
+# `current_encryption_key_id`: master key id for encrypting per-org signing keys; must match an entry under
+# site secrets `machine_identity.encryption_keys`. Required when `enabled = true` (startup fails if missing).
+current_encryption_key_id = "primary"
 token_ttl_min_sec = 60 # min ttl permitted in seconds
 token_ttl_max_sec = 86400 # max ttl permitted in seconds
 token_endpoint_http_proxy = "https://carbide-ext.com" # optional, SSRF mitigation for token exchange
+# Optional operator allowlists (hostname / DNS patterns only; not full URLs). Empty = no extra restriction.
+# Patterns: exact hostname, *.suffix (one label under suffix), **.suffix (suffix or any subdomain).
+trust_domain_allowlist = []           # JWT issuer trust domain (host from iss URL)
+token_endpoint_domain_allowlist = []    # token delegation token_endpoint URL host (http/https only)
 ```
 
 **Global vs per-org:** 
 Global config provides:
   * the master switch (`enabled`)
   * site-wide signing algorithm (`algorithm`)
+  * **`current_encryption_key_id`**: selects which master encryption key from site secrets is used for per-org signing-key material; required when `enabled` is `true`
   * optional token TTL bounds (`token_ttl_min_sec`, `token_ttl_max_sec`), and
   * optional HTTP proxy for token endpoint calls (`token_endpoint_http_proxy`)
+  * optional **`trust_domain_allowlist`**: when non-empty, each org’s configured JWT `issuer` must resolve to a trust domain (registered host) that matches at least one pattern; patterns are validated at startup
+  * optional **`token_endpoint_domain_allowlist`**: when non-empty, the org’s token delegation `token_endpoint` must be `http://` or `https://` with a host that matches at least one pattern; patterns are validated at startup
   
 All identity settings (`issuer`, `defaultAudience`, `allowedAudiences`, `tokenTtlSec`, `subjectPrefix` etc.) are **per-org only** and are set when calling PUT identity/config. There is no global fallback for those fields. **`subjectPrefix` is optional:** if omitted, the site controller derives `spiffe://<trust-domain-from-issuer>/` from `issuer`. Other fields such as `issuer` and `tokenTtlSec` remain required by the API within documented bounds. Per-org `enabled` can further disable an org when global is true (default `true` when unset).
 
@@ -330,7 +340,7 @@ All identity settings (`issuer`, `defaultAudience`, `allowedAudiences`, `tokenTt
 
 When the `[machine_identity]` section exists but is incomplete or invalid, the following behavior applies.
 
-**Required fields (when section exists and `enabled` is true):** `algorithm`. Optional: `token_endpoint_http_proxy`.
+**Required fields (when section exists and `enabled` is true):** `algorithm`, `current_encryption_key_id` (must align with `machine_identity.encryption_keys` in secrets). Optional: `token_endpoint_http_proxy`.
 
 | Scenario | Behavior |
 | :------- | :------- |

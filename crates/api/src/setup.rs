@@ -154,6 +154,16 @@ pub fn parse_carbide_config(
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
 
+    model::tenant::validate_trust_domain_allowlist_patterns(
+        &config.machine_identity.trust_domain_allowlist,
+    )
+    .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
+
+    model::tenant::validate_token_endpoint_domain_allowlist_patterns(
+        &config.machine_identity.token_endpoint_domain_allowlist,
+    )
+    .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
+
     if config.machine_identity.enabled {
         if config.machine_identity.current_encryption_key_id.is_none() {
             return Err(eyre::eyre!(

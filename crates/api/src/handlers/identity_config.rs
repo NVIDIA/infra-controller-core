@@ -32,7 +32,7 @@ use forge_secrets::key_encryption;
 use model::tenant::{
     IdentityConfig, IdentityConfigValidationError, InvalidTenantOrg, SigningKeyMaterial,
     TenantIdentityConfig, TenantIdentityConfigDecrypted, TenantOrganizationId, TokenDelegation,
-    TokenDelegationValidationError,
+    TokenDelegationValidationBounds, TokenDelegationValidationError,
 };
 use tonic::{Request, Response, Status};
 
@@ -404,8 +404,11 @@ pub(crate) async fn set_token_delegation(
             CarbideError::InvalidArgument("TokenDelegation config is required".to_string())
         })
         .and_then(|c| {
-            TokenDelegation::try_from(c.clone())
-                .map_err(|e: TokenDelegationValidationError| CarbideError::InvalidArgument(e.0))
+            TokenDelegation::try_from_proto(
+                c.clone(),
+                &TokenDelegationValidationBounds::from(api.runtime_config.machine_identity.clone()),
+            )
+            .map_err(|e: TokenDelegationValidationError| CarbideError::InvalidArgument(e.0))
         })?;
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
