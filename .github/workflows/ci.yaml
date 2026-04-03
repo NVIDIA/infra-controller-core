@@ -1122,6 +1122,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
+      # helm-package-push expects exactly one .tgz in package/, so we have to clean the previously built chart
+      - name: Clean helm package directory
+        run: rm -rf package/
+
       - name: Package and push carbide-dpu-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
         with:
@@ -1132,6 +1136,10 @@ jobs:
           ngc-key: ${{ secrets.NVCR_TOKEN }}
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
+
+      # helm-package-push expects exactly one .tgz in package/, so we have to clean the previously built chart
+      - name: Clean helm package directory
+        run: rm -rf package/
 
       - name: Package and push carbide-dhcp-server chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
@@ -1144,6 +1152,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
+      # helm-package-push expects exactly one .tgz in package/, so we have to clean the previously built chart
+      - name: Clean helm package directory
+        run: rm -rf package/
+
       - name: Package and push carbide-dpu-otel-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
         with:
@@ -1154,6 +1166,10 @@ jobs:
           ngc-key: ${{ secrets.NVCR_TOKEN }}
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
+
+      # helm-package-push expects exactly one .tgz in package/, so we have to clean the previously built chart
+      - name: Clean helm package directory
+        run: rm -rf package/
 
       - name: Package and push carbide-fmds chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
