@@ -90,6 +90,12 @@
         enable: on
       policy:
         community-list:
+          BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST:
+            rule:
+              '10':
+                action: permit
+                community:
+                  65100:02: {}
           BYOIP_LEAK_COMMUNITY_LIST:
             rule:
               '10':
@@ -201,6 +207,11 @@
         route-map:
           dpu_to_evpn:
             rule:
+              '9':
+                action:
+                  deny: {}
+                match:
+                  tag: 65102
               '10':
                 action:
                   deny: {}
@@ -228,6 +239,16 @@
                   permit: {}
           leak_to_underlay:
             rule:
+              '65532':
+                action:
+                  permit: {}
+                match:
+                  tag: 65102
+                set:
+                  community:
+                    none: {}
+                  large-community:
+                    none: {}
               '65533':
                 action:
                   permit: {}
@@ -310,6 +331,19 @@
                   deny: {}
           dpu_from_instance:
             rule:
+              '9':
+                action:
+                  permit: {}
+                match:
+                  type: ipv4
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST
+                  community-list: BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST
+                set:
+                  tag: 65102
+                  community:
+                      none: {}
+                  large-community:
+                    none: {}
               '10':
                 action:
                   permit: {}
@@ -382,6 +416,19 @@
                   type: ipv6
           dpu_from_instance_ipv6:
             rule:
+              '9':
+                action:
+                  permit: {}
+                match:
+                  type: ipv6
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6
+                  community-list: BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST
+                set:
+                  tag: 65102
+                  community:
+                      none: {}
+                  large-community:
+                    none: {}
               '10':
                 action:
                   permit: {}
