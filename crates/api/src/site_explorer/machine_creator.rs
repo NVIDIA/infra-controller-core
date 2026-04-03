@@ -25,7 +25,9 @@ use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{Machine, MachineInterfaceSnapshot, ManagedHostState};
+use model::machine::{
+    DpuDiscoveringState, DpuDiscoveringStates, Machine, MachineInterfaceSnapshot, ManagedHostState,
+};
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
@@ -165,7 +167,15 @@ impl MachineCreator {
         db::machine::update_state(
             &mut txn,
             &host_machine_id,
-            &ManagedHostState::VerifyRmsMembership,
+            &ManagedHostState::DpuDiscoveringState {
+                dpu_states: DpuDiscoveringStates {
+                    states: dpu_ids
+                        .iter()
+                        .copied()
+                        .map(|id| (id, DpuDiscoveringState::Initializing))
+                        .collect(),
+                },
+            },
         )
         .await?;
 

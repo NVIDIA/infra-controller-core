@@ -396,8 +396,6 @@ impl TestEnv {
     ) -> ManagedHostState {
         //This block is to fill data that is populated within statemachine
         match state.clone() {
-            ManagedHostState::RegisterRmsMembership => state.clone(),
-            ManagedHostState::VerifyRmsMembership => state.clone(),
             ManagedHostState::DpuDiscoveringState { .. } => state.clone(),
             ManagedHostState::DPUInit { .. } => state.clone(),
             ManagedHostState::HostInit { machine_state } => {

@@ -248,9 +248,13 @@ async fn test_site_explorer_creates_managed_host(
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(
+    assert!(
+        matches!(
+            dpu_machine.current_state(),
+            ManagedHostState::DpuDiscoveringState { .. }
+        ),
+        "expected DpuDiscoveringState, got {:?}",
         dpu_machine.current_state(),
-        &ManagedHostState::VerifyRmsMembership,
     );
     assert_eq!(
         dpu_machine.hardware_info.as_ref().unwrap().machine_type,
@@ -308,9 +312,13 @@ async fn test_site_explorer_creates_managed_host(
     let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id)
         .await?
         .unwrap();
-    assert_eq!(
+    assert!(
+        matches!(
+            host_machine.current_state(),
+            ManagedHostState::DpuDiscoveringState { .. }
+        ),
+        "expected DpuDiscoveringState, got {:?}",
         host_machine.current_state(),
-        &ManagedHostState::VerifyRmsMembership,
     );
     assert!(host_machine.bmc_info.ip.is_some());
 
@@ -336,8 +344,7 @@ async fn test_site_explorer_creates_managed_host(
         .build();
     env.override_machine_state_controller_handler(handler).await;
 
-    // VerifyRmsMembership -> DpuDiscovering/Initializing -> DpuDiscovering/Configuring
-    env.run_machine_state_controller_iteration().await;
+    // DpuDiscovering/Initializing -> DpuDiscovering/Configuring
     env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = db::machine::find_one(
@@ -802,12 +809,23 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         }
     );
 
-    let expected_state = ManagedHostState::VerifyRmsMembership;
-
-    assert_eq!(host_machine.unwrap().current_state(), &expected_state);
+    assert!(
+        matches!(
+            host_machine.unwrap().current_state(),
+            ManagedHostState::DpuDiscoveringState { .. }
+        ),
+        "expected DpuDiscoveringState for host",
+    );
 
     for dpu in &dpu_machines {
-        assert_eq!(dpu.current_state(), &expected_state);
+        assert!(
+            matches!(
+                dpu.current_state(),
+                ManagedHostState::DpuDiscoveringState { .. }
+            ),
+            "expected DpuDiscoveringState for DPU {:?}",
+            dpu.id,
+        );
     }
 
     let mut interfaces_map =
