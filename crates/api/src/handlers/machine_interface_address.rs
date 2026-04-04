@@ -15,12 +15,74 @@
  * limitations under the License.
  */
 
+use mac_address::MacAddress;
+use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
+use model::network_segment::NetworkSegmentType;
 use rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::errors::CarbideError;
+
+/// Pre-allocate a machine_interface with a static address so
+/// site_explorer can discover the BMC at that IP.
+///
+/// If the IP is within a managed network prefix, the interface is
+/// created on that segment. Otherwise it falls back to the first
+/// underlay segment as an anchor for external/BYO IPs.
+///
+/// Currently "assumes" a BMC, but hey maybe we can use it for
+/// other things as time goes on.
+pub async fn preallocate_machine_interface(
+    txn: &mut sqlx::PgConnection,
+    bmc_mac_address: MacAddress,
+    bmc_ip: std::net::IpAddr,
+) -> Result<(), CarbideError> {
+    let segment = match db::network_segment::for_relay(txn, bmc_ip).await? {
+        Some(seg) => seg,
+        None => {
+            let underlay_ids =
+                db::network_segment::list_segment_ids(txn, Some(NetworkSegmentType::Underlay))
+                    .await?;
+            let segment_id = underlay_ids.first().ok_or(CarbideError::NotFoundError {
+                kind: "underlay_segment",
+                id: "any".to_string(),
+            })?;
+            db::network_segment::find_by(
+                txn,
+                db::ObjectColumnFilter::One(db::network_segment::IdColumn, segment_id),
+                Default::default(),
+            )
+            .await?
+            .into_iter()
+            .next()
+            .ok_or(CarbideError::NotFoundError {
+                kind: "underlay_segment",
+                id: segment_id.to_string(),
+            })?
+        }
+    };
+
+    db::machine_interface::create(
+        txn,
+        &segment,
+        &bmc_mac_address,
+        segment.subdomain_id,
+        true,
+        AddressSelectionStrategy::StaticAddress(bmc_ip),
+    )
+    .await?;
+
+    tracing::info!(
+        %bmc_mac_address,
+        %bmc_ip,
+        segment_id = %segment.id,
+        "Pre-allocated static machine interface"
+    );
+
+    Ok(())
+}
 
 pub async fn assign_static_address(
     api: &Api,

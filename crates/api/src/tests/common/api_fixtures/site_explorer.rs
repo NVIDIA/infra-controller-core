@@ -1855,7 +1855,7 @@ pub async fn create_expected_power_shelves(
             serial_number: format!("PS-SN-{:03}", i + 1),
             bmc_username: "ADMIN".into(),
             bmc_password: "Pwd2023x0x0x0x0x7".into(),
-            ip_address: if (3..=4).contains(&i) {
+            bmc_ip_address: if (3..=4).contains(&i) {
                 Some(format!("192.168.1.{}", 100 + i - 3).parse().unwrap())
             } else {
                 None

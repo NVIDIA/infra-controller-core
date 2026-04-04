@@ -319,11 +319,11 @@ pub async fn find_bmc_ips_by_power_shelf_ids(
     let sql = r#"
         SELECT
             ps.id,
-            eps.ip_address
+            eps.bmc_ip_address
         FROM power_shelves ps
         JOIN expected_power_shelves eps ON eps.serial_number = ps.config->>'name'
         WHERE ps.id = ANY($1)
-          AND eps.ip_address IS NOT NULL
+          AND eps.bmc_ip_address IS NOT NULL
     "#;
 
     sqlx::query_as(sql)
@@ -350,11 +350,11 @@ pub async fn find_power_shelf_endpoints_by_ids(
         SELECT
             ps.id                AS power_shelf_id,
             eps.bmc_mac_address  AS pmc_mac,
-            eps.ip_address       AS pmc_ip
+            eps.bmc_ip_address       AS pmc_ip
         FROM power_shelves ps
         JOIN expected_power_shelves eps ON eps.serial_number = ps.config->>'name'
         WHERE ps.id = ANY($1)
-          AND eps.ip_address IS NOT NULL
+          AND eps.bmc_ip_address IS NOT NULL
     "#;
 
     sqlx::query_as(sql)

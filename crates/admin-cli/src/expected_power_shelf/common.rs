@@ -29,5 +29,5 @@ pub struct ExpectedPowerShelfJson {
     pub metadata: Option<rpc::forge::Metadata>,
     pub host_name: Option<String>,
     pub rack_id: Option<RackId>,
-    pub ip_address: Option<String>,
+    pub bmc_ip_address: Option<String>,
 }

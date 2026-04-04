@@ -176,7 +176,7 @@ impl FakePowerShelf {
             bmc_username: self.bmc_username.clone(),
             bmc_password: self.bmc_password.clone(),
             serial_number: self.serial_number.clone(),
-            ip_address: Some(self.ip.parse().unwrap()),
+            bmc_ip_address: Some(self.ip.parse().unwrap()),
             metadata: Metadata {
                 name: format!("Test Power Shelf {}", self.serial_number),
                 description: format!("A test power shelf with serial {}", self.serial_number),
@@ -4518,7 +4518,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
 
     let power_shelf = FakePowerShelf::new(
         "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.2.1".to_string(),
+        "192.0.1.180".to_string(),
         "PS123456789".to_string(),
         "admin".to_string(),
         "password".to_string(),
@@ -4531,11 +4531,13 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         power_shelf.ip,
         power_shelf.bmc_mac_address,
     );
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
+    // Create expected power shelf via the RPC handler, which
+    // pre-allocates a machine interface with the static IP.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(
+            power_shelf.as_expected_power_shelf().into(),
+        ))
+        .await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 

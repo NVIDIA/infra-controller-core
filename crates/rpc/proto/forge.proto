@@ -1825,7 +1825,7 @@ message ExpectedPowerShelf {
   string bmc_username = 2;
   string bmc_password = 3;
   string shelf_serial_number = 4;
-  string ip_address = 5;
+  string bmc_ip_address = 5;
   // Metadata that will automatically get associated with a newly created PowerShelf
   Metadata metadata = 6;
   optional common.RackId rack_id = 7;

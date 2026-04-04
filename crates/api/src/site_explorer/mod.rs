@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::panic::Location;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -27,14 +27,10 @@ use std::time::Instant;
 
 use carbide_network::sanitized_mac;
 use carbide_uuid::machine::MachineType;
-use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config_version::ConfigVersion;
-use db::{
-    self, DatabaseError, ObjectFilter, Transaction, machine, network_segment as db_network_segment,
-    power_shelf as db_power_shelf,
-};
+use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -1348,39 +1344,14 @@ impl SiteExplorer {
         // Note: As a side effect of this, OOB interfaces might for a short time be scanned,
         // until the machine is ingested. At that point in time this filter will remove them
         // from the to-be-scanned list.
-        let underlay_interfaces: Vec<MachineInterfaceSnapshot> = {
-            // Get all underlay interfaces from the database
-            let underlay_interfaces = interfaces.into_iter().filter(|iface| {
+        // Get all underlay interfaces from the database, which includes interfaces
+        // which have come from both DHCP and/or static assignments.
+        let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
+            .into_iter()
+            .filter(|iface| {
                 underlay_segments.contains(&iface.segment_id) && iface.machine_id.is_none()
-            });
-
-            // For power shelves, currently adding a bogus static IP as an underlay interface if
-            // configured to do so.
-            if explore_power_shelves_from_static_ip {
-                let underlay_segment_id = self.get_underlay_segment_id().await?;
-                underlay_interfaces
-                    .chain(expected_power_shelves.iter().map(|expected_power_shelf| {
-                        let fake_ip = self.get_static_ip_for_power_shelf(
-                            &expected_power_shelf.bmc_mac_address,
-                            expected_power_shelf.ip_address,
-                        );
-                        // Create a fake machine interface for the power shelf
-                        let mut fake_interface = MachineInterfaceSnapshot::mock_with_mac(
-                            expected_power_shelf.bmc_mac_address,
-                        );
-                        fake_interface.hostname =
-                            format!("power-shelf-{}", expected_power_shelf.serial_number);
-                        fake_interface.segment_id = underlay_segment_id;
-                        fake_interface.addresses = vec![fake_ip];
-                        fake_interface.network_segment_type = Some(NetworkSegmentType::Underlay);
-                        fake_interface.vendors = vec!["PowerShelf".to_string()];
-                        fake_interface
-                    }))
-                    .collect()
-            } else {
-                underlay_interfaces.collect()
-            }
-        };
+            })
+            .collect();
 
         // Start an index of all underlay interfaces, expected machines, expected power shelves, and expected switches.
         let index = ExploredEndpointIndex::builder(explored_endpoints, underlay_interfaces)
@@ -1748,55 +1719,6 @@ impl SiteExplorer {
         }
 
         Ok(index)
-    }
-
-    // TODO(chet): Follow up with RMS team re: code cleanup, or
-    // just take care of it myself (import/merge feedback).
-    fn get_static_ip_for_power_shelf(
-        &self,
-        _mac_address: &MacAddress,
-        ip_address: Option<IpAddr>,
-    ) -> IpAddr {
-        // Convert MAC address to a deterministic IP address
-        // We'll use a private IP range (192.168.0.0/16) and derive the IP from MAC
-        //TODO will check this later needd better logic
-        // let mac_bytes = mac_address.bytes();
-        // let ip_bytes = [192, 168, mac_bytes[4], mac_bytes[5]];
-        // IpAddr::V4(std::net::Ipv4Addr::new(
-        //     ip_bytes[0],
-        //     ip_bytes[1],
-        //     ip_bytes[2],
-        //     ip_bytes[3],
-        // ));
-        // if ip_address.is_some() {
-        //     return ip_address.unwrap();
-        // }
-        ip_address.unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
-    }
-
-    /// Get the underlay segment ID for power shelf interfaces
-    async fn get_underlay_segment_id(&self) -> CarbideResult<NetworkSegmentId> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::new("begin get underlay segment id", e))?;
-
-        let underlay_segments =
-            db_network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
-                .await?;
-        txn.rollback()
-            .await
-            .map_err(|e| DatabaseError::new("end get underlay segment id", e))?;
-
-        // Return the first underlay segment, or create a default one if none exist
-        underlay_segments
-            .first()
-            .copied()
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "underlay_segment",
-                id: "no_underlay_segments_found".to_string(),
-            })
     }
 
     pub async fn handle_redfish_error(
