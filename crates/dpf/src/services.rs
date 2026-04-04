@@ -18,11 +18,43 @@
 //! DPU service definitions (DTS, etc.) for DPUServiceTemplate and DPUServiceConfiguration.
 
 use crate::types::{
-    ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
+    ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
+
+pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str = "https://gitlab-master.nvidia.com/aadvani/my-helm-project/-/raw/main/charts-repo";
+
+/// Default DOCA container image registry prefix.
+pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
+
+/// Default Carbide container image registry prefix.
+pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "https://gitlab-master.nvidia.com/aadvani/my-helm-project";
+
+/// HBN service Definitions
+pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn"; 
+pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
+pub const DOCA_HBN_SERVICE_HELM_VERSION: &str = "1.0.5";
+pub const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca-hbn";
+pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
+
+/// DHCP Service Definitions
+pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
+pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "carbide-dhcp-server";
+pub const DHCP_SERVER_SERVICE_HELM_VERSION: &str = "2.0.9";
+pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
+pub const DHCP_SERVER_SERVICE_IMAGE_TAG: &str = "v1.9.5-arm64-distroless";
+pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
+pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
+
+// DPU Agent Service Definitions
+pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent"; 
+pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
+pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = "0.4.0";
+pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
+pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = "v0.3-arm64-multistage";
 
 /// Overridable registry configuration for DPU services.
 ///
@@ -32,12 +64,21 @@ pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia
 pub struct ServiceRegistryConfig {
     /// Helm chart repository URL for DOCA services (HBN, DTS).
     pub doca_helm_registry: String,
+    /// Container image registry prefix for DOCA images
+    pub doca_image_registry: String,
+    /// Helm chart repository URL for carbide services
+    pub carbide_helm_registry: String,
+    /// Container image registry for carbide images
+    pub carbide_image_registry: String,
 }
 
 impl Default for ServiceRegistryConfig {
     fn default() -> Self {
         Self {
             doca_helm_registry: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+            doca_image_registry: DEFAULT_DOCA_IMAGE_REGISTRY.to_string(),
+            carbide_helm_registry: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+            carbide_image_registry: DEFAULT_CARBIDE_IMAGE_REGISTRY.to_string(),
         }
     }
 }
@@ -59,7 +100,119 @@ pub fn dts_service(reg: &ServiceRegistryConfig) -> ServiceDefinition {
     }
 }
 
+/// DHCP server service definition
+pub fn dhcp_server_service(reg: &ServiceRegistryConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": format!("{}/{}", reg.carbide_image_registry,
+                    DHCP_SERVER_SERVICE_IMAGE_NAME),
+                "tag": DHCP_SERVER_SERVICE_IMAGE_TAG,
+            }
+        })),
+
+        interfaces: vec![
+            ServiceInterface {
+                name: "dhcp_pf0if".to_string(),
+                network: DHCP_SERVER_SERVICE_NAD_NAME.to_string(),
+            }
+        ],
+
+        service_nad: Some(ServiceNAD {
+            name: DHCP_SERVER_SERVICE_NAD_NAME.to_string(),
+            bridge: Some("br-sfc".to_string()),
+            resource_type: ServiceNADResourceType::Sf,
+            ipam: Some(false),
+            mtu: Some(DHCP_SERVER_SERVICE_MTU),
+        }),
+
+        ..ServiceDefinition::new(
+            DHCP_SERVER_SERVICE_NAME,
+            &reg.carbide_helm_registry,
+            DHCP_SERVER_SERVICE_HELM_NAME,
+            DHCP_SERVER_SERVICE_HELM_VERSION
+        )
+    }
+}
+
+pub fn doca_hbn_service(reg: &ServiceRegistryConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": format!("{}/{}", reg.doca_image_registry,
+                    DOCA_HBN_SERVICE_IMAGE_NAME),
+                "tag": DOCA_HBN_SERVICE_IMAGE_TAG,
+            },
+            "resources": {
+                "memory": "6Gi",
+                "nvidia.com/bf_sf": 2
+            },
+        })),
+
+        config_values: Some(serde_json::json!({
+            "helmChart": {
+                "values": {
+                    "configuration": {
+                        "startupYAMLJ2": concat!(
+                        "- header:\n",
+                        "    model: BLUEFIELD\n",
+                        "    nvue-api-version: nvue_v1\n",
+                        "    rev-id: 1.0\n",
+                        "    version: HBN 2.4.0\n",
+                        "- set:\n",
+                        "    interface:\n",
+                        "      p0_if:\n",
+                        "        type: swp\n",
+                        "      pf0hpf_if:\n",
+                        "        type: swp\n",
+                    )}
+                }
+            }
+        })),
+
+        interfaces: vec![
+            ServiceInterface {
+                name: "p0_if".to_string(),
+                network: DOCA_HBN_SERVICE_NETWORK.to_string(),
+            },
+            ServiceInterface {
+                name: "pf0hpf_if".to_string(),
+                network: DOCA_HBN_SERVICE_NETWORK.to_string(),
+            }
+        ],
+
+        ..ServiceDefinition::new(
+            DOCA_HBN_SERVICE_NAME,
+            &reg.doca_helm_registry,
+            DOCA_HBN_SERVICE_HELM_NAME,
+            DOCA_HBN_SERVICE_HELM_VERSION
+        )
+    }
+}
+
+pub fn dpu_agent_service(reg: &ServiceRegistryConfig) -> ServiceDefinition {
+    ServiceDefinition {
+
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": format!("{}/{}", reg.carbide_image_registry,
+                    DPU_AGENT_SERVICE_IMAGE_NAME),
+                "tag": DPU_AGENT_SERVICE_IMAGE_TAG,
+            }
+        })),
+
+        ..ServiceDefinition::new(
+            DPU_AGENT_SERVICE_NAME,
+            &reg.carbide_helm_registry,
+            DPU_AGENT_SERVICE_HELM_NAME,
+            DPU_AGENT_SERVICE_HELM_VERSION,
+        )
+    }
+
+}
+
 /// Default DPU services. Used when `config.services` is empty.
 pub fn default_services(reg: &ServiceRegistryConfig) -> Vec<ServiceDefinition> {
-    vec![dts_service(reg)]
+    vec![dts_service(reg), dhcp_server_service(reg), doca_hbn_service(reg),
+        dpu_agent_service(reg)]
 }

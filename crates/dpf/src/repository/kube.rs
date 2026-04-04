@@ -42,6 +42,7 @@ use crate::crds::dpunodes_generated::DPUNode;
 use crate::crds::dpus_generated::DPU;
 use crate::crds::dpuservicechains_generated::DPUServiceChain;
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
+use crate::crds::dpuservicenads_generated::DPUServiceNAD;
 use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
 use crate::crds::dpuservices_generated::DPUService;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
@@ -435,6 +436,33 @@ impl DpuServiceConfigurationRepository for KubeRepository {
                 name,
                 &PatchParams::apply("carbide-dpf-sdk").force(),
                 &Patch::Apply(config),
+            )
+            .await?)
+    }
+}
+
+#[async_trait]
+impl DpuServiceNADRepository for KubeRepository {
+    async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPUServiceNAD>, DpfError> {
+        let api = self.api(namespace);
+        Ok(api.get_opt(name).await?)
+    }
+
+    async fn list(&self, namespace: &str) -> Result<Vec<DPUServiceNAD>, DpfError> {
+        let api = self.api(namespace);
+        let list = api.list(&ListParams::default()).await?;
+        Ok(list.items)
+    }
+
+    async fn apply(&self, nad: &DPUServiceNAD) -> Result<DPUServiceNAD, DpfError> {
+        let namespace = nad.meta().namespace.as_deref().unwrap_or("default");
+        let name = nad.meta().name.as_deref().unwrap_or("default");
+        let api = self.api(namespace);
+        Ok(api
+            .patch(
+                name,
+                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &Patch::Apply(nad),
             )
             .await?)
     }

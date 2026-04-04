@@ -54,11 +54,16 @@ use crate::crds::dpuservicetemplates_generated::{
     DPUServiceTemplate, DpuServiceTemplateHelmChart, DpuServiceTemplateHelmChartSource,
     DpuServiceTemplateSpec,
 };
+use crate::crds::dpuservicenads_generated::{
+    DPUServiceNAD, DpuServiceNadSpec, DpuServiceNadResourceType,
+};
+use crate::types::ServiceNADResourceType;
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuDeviceRepository,
     DpuFlavorRepository, DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository,
-    DpuServiceConfigurationRepository, DpuServiceTemplateRepository, K8sConfigRepository,
+    DpuServiceConfigurationRepository, DpuServiceTemplateRepository,
+    DpuServiceNADRepository, K8sConfigRepository,
 };
 use crate::types::{
     BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuFlavorDefinition, DpuNodeInfo,
@@ -239,6 +244,7 @@ where
         + DpuDeploymentRepository
         + DpuServiceTemplateRepository
         + DpuServiceConfigurationRepository
+        + DpuServiceNADRepository
         + K8sConfigRepository
         + DpfOperatorConfigRepository
         + 'static,
@@ -723,6 +729,30 @@ fn build_service_configuration(
     }
 }
 
+pub fn build_service_nad(svc: &ServiceDefinition, namespace: &str) ->
+    Option<DPUServiceNAD> {
+    svc.service_nad.as_ref().map(|service_nad| DPUServiceNAD {
+        metadata: ObjectMeta {
+            name: Some(service_nad.name.clone()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        spec: DpuServiceNadSpec {
+            bridge: service_nad.bridge.clone(),
+            chained_cn_is: None,
+            ipam: service_nad.ipam,
+            metadata: None,
+            resource_type: match service_nad.resource_type {
+                ServiceNADResourceType::Sf => DpuServiceNadResourceType::Sf,
+                ServiceNADResourceType::Vf => DpuServiceNadResourceType::Vf,
+                ServiceNADResourceType::Veth => DpuServiceNadResourceType::Veth,
+            },
+            service_mtu: service_nad.mtu,
+        },
+        status: None,
+    })
+}
+
 fn build_deployment<L: ResourceLabeler>(
     services: &[ServiceDefinition],
     deployment_name: &str,
@@ -839,7 +869,8 @@ async fn create_flavor_services_and_deployment<
     R: DpuServiceTemplateRepository
         + DpuServiceConfigurationRepository
         + DpuDeploymentRepository
-        + DpuFlavorRepository,
+        + DpuFlavorRepository
+        + DpuServiceNADRepository,
     L: ResourceLabeler,
 >(
     repo: &R,
@@ -870,6 +901,9 @@ async fn create_flavor_services_and_deployment<
             &build_service_configuration(svc, namespace),
         )
         .await?;
+        if let Some(nad) = build_service_nad(svc, namespace).as_ref() {
+            DpuServiceNADRepository::apply(repo, nad).await?;
+        }
     }
 
     let deployment = build_deployment(
@@ -890,6 +924,7 @@ impl<
         + DpuDeploymentRepository
         + DpuServiceTemplateRepository
         + DpuServiceConfigurationRepository
+        + DpuServiceNADRepository
         + K8sConfigRepository
         + DpfOperatorConfigRepository,
     L: ResourceLabeler,

@@ -29,10 +29,11 @@ use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpuflavors_generated::DPUFlavor;
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
+use crate::crds::dpuservicenads_generated::DPUServiceNAD;
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuFlavorRepository,
-    DpuServiceConfigurationRepository, DpuServiceTemplateRepository, K8sConfigRepository,
+    DpuServiceConfigurationRepository, DpuServiceTemplateRepository, DpuServiceNADRepository, K8sConfigRepository,
 };
 use crate::types::*;
 
@@ -57,6 +58,7 @@ struct InitializationMock {
     deployments: Arc<DashMap<String, DPUDeployment>>,
     service_templates: Arc<DashMap<String, DPUServiceTemplate>>,
     service_configs: Arc<DashMap<String, DPUServiceConfiguration>>,
+    nads: Arc<DashMap<String, DPUServiceNAD>>,
     configs: Arc<DashMap<String, BTreeMap<String, String>>>,
     secrets: Arc<DashMap<String, BTreeMap<String, Vec<u8>>>>,
 }
@@ -186,6 +188,26 @@ impl DpuServiceConfigurationRepository for InitializationMock {
 }
 
 #[async_trait]
+impl DpuServiceNADRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUServiceNAD>, DpfError> {
+        Ok(self.nads.get(&ns_key(ns, name)).map(|r| r.clone()))
+    }
+    async fn list(&self, ns: &str) -> Result<Vec<DPUServiceNAD>, DpfError> {
+        let prefix = format!("{}/", ns);
+        Ok(self
+            .nads
+            .iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .map(|entry| entry.value().clone())
+            .collect())
+    }
+    async fn apply(&self, nad: &DPUServiceNAD) -> Result<DPUServiceNAD, DpfError> {
+        self.nads.insert(resource_key(nad), nad.clone());
+        Ok(nad.clone())
+    }
+}
+
+#[async_trait]
 impl K8sConfigRepository for InitializationMock {
     async fn get_configmap(
         &self,
@@ -262,4 +284,40 @@ async fn test_create_initialization_objects() {
     assert!(secret.is_some());
 
     drop(sdk);
+}
+
+#[tokio::test]
+async fn test_generate_yaml_for_initialized_resources() {
+    let mock = InitializationMock::default();
+
+    let config = InitDpfResourcesConfig {
+        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployment_name: "carbide-deployment".to_string(),
+        ..Default::default()
+    };
+
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .initialize(&config)
+        .await
+        .unwrap();
+    drop(sdk);
+
+    for entry in mock.bfbs.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.flavors.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.service_templates.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.service_configs.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.nads.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.deployments.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
 }
