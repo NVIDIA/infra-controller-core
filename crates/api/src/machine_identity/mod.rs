@@ -18,7 +18,7 @@
 //! Machine Identity module for JWT-SVID token generation and management.
 //!
 //! This module handles signing JWT-SVID tokens for machine identity verification.
-#![allow(dead_code)] // Signer, Es256Signer, SignOptions used from tests and from handler once key loading is implemented
+#![allow(dead_code)] // `sign` convenience helper is currently only used from unit tests
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -84,7 +84,8 @@ impl Signer for Es256Signer {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect::<BTreeMap<_, _>>();
 
-        let header = Header::new(jsonwebtoken::Algorithm::ES256);
+        let mut header = Header::new(jsonwebtoken::Algorithm::ES256);
+        header.kid = Some(self.key_id.clone());
         let token = encode(&header, &claims, &self.encoding_key)?;
         Ok(token)
     }
