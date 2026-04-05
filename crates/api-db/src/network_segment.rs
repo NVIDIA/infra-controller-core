@@ -564,6 +564,16 @@ pub async fn find_by_name(
         .map_err(|e| DatabaseError::query(&query, e))
 }
 
+/// Well-known name for the static assignments "anchor segment",
+/// making it extra-obvious that it's a special one.
+pub const STATIC_ASSIGNMENTS_SEGMENT_NAME: &str = "static-assignments";
+
+/// Returns the static-assignments anchor segment, used for external
+/// static IP assignments that don't fall within any managed network prefix.
+pub async fn static_assignments(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseError> {
+    find_by_name(txn, STATIC_ASSIGNMENTS_SEGMENT_NAME).await
+}
+
 /// This method returns Admin network segment.
 pub async fn admin(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseError> {
     lazy_static! {

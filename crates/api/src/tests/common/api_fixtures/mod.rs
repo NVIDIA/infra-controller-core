@@ -134,7 +134,8 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
-    create_tenant_network_segment, create_underlay_network_segment,
+    create_static_assignments_segment, create_tenant_network_segment,
+    create_underlay_network_segment,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 use crate::tests::common::test_certificates::TestCertificateProvider;
@@ -1723,6 +1724,9 @@ pub async fn create_test_env_with_overrides(
         let underlay = Some(create_underlay_network_segment(&api).await);
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
+
+        // Create static-assignments "anchor segment"
+        create_static_assignments_segment(&api).await;
 
         (admin, underlay)
     } else {
