@@ -23,9 +23,11 @@ use ::rpc::DiscoveryInfo;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
 use carbide_host_support::agent_config::AgentConfig;
-use carbide_host_support::hardware_enumeration::enumerate_hardware;
+use carbide_host_support::hardware_enumeration::{
+    HW_CACHE_PATH, enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
+};
 use carbide_host_support::registration::register_machine;
-pub use command_line::{AgentCommand, Options, RunOptions, WriteTarget};
+pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
@@ -128,12 +130,25 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 tracing::warn!("Upgrades disabled. Dev only");
             }
 
+            // For Containerized mode, fall back to the hardware cache written by the init
+            // container if no explicit discovery file was provided.
+            let hw_cache_path = Path::new(HW_CACHE_PATH);
+            let discovery_info_file = match &options.agent_platform_type {
+                AgentPlatformType::Containerized => Some(
+                    options
+                        .discovery_info_file
+                        .as_deref()
+                        .unwrap_or(hw_cache_path),
+                ),
+                _ => options.discovery_info_file.as_deref(),
+            };
+
             let Registration {
                 machine_id,
                 factory_mac_address,
             } = match options.override_machine_id {
                 // Normal case
-                None => register(&agent, options.discovery_info_file.as_deref())
+                None => register(&agent, discovery_info_file)
                     .await
                     .wrap_err("registration error")?,
                 // Dev / test override
@@ -156,7 +171,14 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
         // enumerate hardware and exit
         Some(AgentCommand::Hardware(options)) => {
-            let info = enumerate_hardware()?;
+            let info = match options.agent_platform_type {
+                // Init: enumerate from host and persist to the shared volume for the containerized agent
+                AgentPlatformType::ContainerInitializer => enumerate_and_save_hardware()?,
+                // Containerized: read the snapshot written by the init container
+                AgentPlatformType::Containerized => load_hardware_from_cache()?,
+                // No container mode, just plain old dpu-agent running as a service on DPU OS.
+                AgentPlatformType::DpuOs => enumerate_hardware()?,
+            };
             let string_result = serde_json::to_string_pretty(&info)?;
             match options.output_file.as_ref() {
                 Some(output_file) => tokio::fs::write(output_file.as_path(), string_result).await?,

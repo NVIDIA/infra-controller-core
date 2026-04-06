@@ -362,6 +362,9 @@ pub enum AgentPlatformType {
     // inside a container with no direct access to the OS resources or any of
     // the other containers.
     Containerized,
+    // init - init-container. This mode is used to fetch hardware info as json and feed to
+    // containerized mode.
+    ContainerInitializer,
     // should "fake DPU" be modeled as a variant here?
 }
 
@@ -379,6 +382,7 @@ impl FromStr for AgentPlatformType {
         match s {
             "dpu-os" => Ok(DpuOs),
             "containerized" => Ok(Containerized),
+            "init" => Ok(ContainerInitializer),
             unknown_type => Err(eyre::eyre!("Unknown platform type \"{unknown_type}\"")),
         }
     }
@@ -391,6 +395,13 @@ pub struct HardwareOptions {
         help = "Write the hardware output (a JSON-serialized rpc::DiscoveryInfo message) to the specified file"
     )]
     pub output_file: Option<PathBuf>,
+    #[clap(
+        long,
+        default_value = "dpu-os",
+        help = "Set the platform type. Specify \"dpu-os\", \"containerized\", or \"init\".",
+        env = "AGENT_PLATFORM_TYPE"
+    )]
+    pub agent_platform_type: AgentPlatformType,
 }
 
 #[derive(Parser, Debug)]
@@ -430,5 +441,39 @@ pub struct DuppetOptions {
 impl Options {
     pub fn load() -> Self {
         Self::parse()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_platform_type_parses_all_valid_values() {
+        assert!(matches!(
+            "dpu-os".parse::<AgentPlatformType>().unwrap(),
+            AgentPlatformType::DpuOs
+        ));
+        assert!(matches!(
+            "containerized".parse::<AgentPlatformType>().unwrap(),
+            AgentPlatformType::Containerized
+        ));
+        assert!(matches!(
+            "init".parse::<AgentPlatformType>().unwrap(),
+            AgentPlatformType::ContainerInitializer
+        ));
+    }
+
+    #[test]
+    fn test_platform_type_rejects_unknown_value() {
+        let err = "banana".parse::<AgentPlatformType>().unwrap_err();
+        assert!(err.to_string().contains("banana"));
+    }
+
+    #[test]
+    fn test_is_dpu_os_only_true_for_dpu_os() {
+        assert!(AgentPlatformType::DpuOs.is_dpu_os());
+        assert!(!AgentPlatformType::Containerized.is_dpu_os());
+        assert!(!AgentPlatformType::ContainerInitializer.is_dpu_os());
     }
 }
