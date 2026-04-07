@@ -468,50 +468,6 @@ function tick(S_o, S_d, operations):
 
     return (actions, S_o)
 ```
-
-### 3.10 Computational Model
-
-The convergence engine can be characterized through several well-known computational models.
-
-**Reactive production system.** The engine follows the classic **match-resolve-act** cycle of production systems (rule engines):
-
-1. **Match:** Evaluate all operation guards against current state.
-2. **Resolve:** Select which matched operations to fire (conflict resolution via priority and resource locks).
-3. **Act:** Execute the selected operations and update state.
-
-Unlike classical production systems (e.g., OPS5, CLIPS), the engine adds the *constructiveness* predicate, ensuring that only state-improving operations fire.
-
-**Dataflow / computation graph.** Each tick can be viewed as evaluating a dynamic computation graph:
-
-- **Nodes** are state keys.
-- **Edges** are operations: an operation `ω` creates edges from its guard dependencies (the keys it reads) to its effect targets (the keys it writes).
-- The graph is **regenerated each tick** because the delta changes and different operations become relevant.
-
-This makes the engine a *dynamic, self-modifying* computation graph — unlike static dataflow systems (e.g., TensorFlow graphs), the topology changes at each step.
-
-**Datalog analogy.** The convergence loop resembles bottom-up Datalog evaluation:
-
-- **Facts** are the current state key-value pairs.
-- **Rules** are the operations (guard → effect).
-- Each tick derives new facts from existing ones, like one round of stratified Datalog evaluation.
-- The process terminates at a fixpoint.
-
-The key difference is that operations have *side effects* (they mutate state rather than deriving new facts), making the engine more like a Datalog program with updates.
-
-**Terraform analogy.** The engine's tick cycle mirrors Terraform's plan/apply:
-
-- **Plan:** Compute the delta, select operations = Terraform's diff/plan.
-- **Apply:** Execute operations, update state = Terraform's apply.
-
-But the convergence engine goes further: it handles dependencies automatically (Terraform requires explicit `depends_on`), resolves them at runtime, and iterates to a fixpoint rather than executing a single plan.
-
-**Summary.** The convergence engine is a **fixpoint-seeking, priority-scheduled, resource-safe reactive production system** with dynamic rule activation and automatic dependency resolution. It combines ideas from:
-
-- Production systems (match-resolve-act)
-- Declarative state management (Terraform, Kubernetes controllers)
-- Dataflow computation (reactive graphs)
-- Fixpoint semantics (Datalog, abstract interpretation)
-
 ---
 
 ## 4. Architecture
