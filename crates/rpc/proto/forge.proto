@@ -5647,72 +5647,99 @@ message RedfishApplyActionResponse {
 message RedfishCancelActionResponse {
 }
 
-// Typed endpoint enum for the RedfishProxy RPC. Each variant maps to a
-// fixed Redfish URI pattern (with optional component index) and an implicit
-// HTTP method, so callers never construct raw URIs.
+// Typed endpoint enum for the RedfishProxy RPC. Each variant identifies a
+// specific Redfish URI path. The HTTP method is specified separately in the
+// request message.
+//
+// GB200 topology: 4 GPUs (0-3), 2 CPUs (0-1), 2 processor modules (0-1).
 enum RedfishProxyEndpoint {
   REDFISH_PROXY_ENDPOINT_UNSPECIFIED = 0;
 
-  // GET /redfish/v1/UpdateService/FirmwareInventory/FW_BMC_0
-  GET_BMC_FIRMWARE_VERSION = 1;
+  // /redfish/v1/UpdateService/FirmwareInventory/FW_BMC_0
+  BMC_FIRMWARE_VERSION = 1;
 
-  // GET /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_{id}
-  GET_GPU_PROCESSOR = 2;
-  // GET /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_{id}/EnvironmentMetrics
-  GET_GPU_ENVIRONMENT_METRICS = 3;
-  // PATCH /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_{id}/EnvironmentMetrics
-  SET_GPU_POWER_LIMIT = 4;
+  // --- GPU processors (0-3) ---
 
-  // GET /redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_{id}
-  GET_CPU_PROCESSOR = 5;
-  // GET /redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_{id}/EnvironmentMetrics
-  GET_CPU_ENVIRONMENT_METRICS = 6;
-  // PATCH /redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_{id}/EnvironmentMetrics
-  SET_CPU_POWER_LIMIT = 7;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_0
+  GPU_0_PROCESSOR = 2;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1
+  GPU_1_PROCESSOR = 3;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_2
+  GPU_2_PROCESSOR = 4;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_3
+  GPU_3_PROCESSOR = 5;
 
-  // GET /redfish/v1/Chassis/Chassis_0
-  GET_CHASSIS = 8;
-  // GET /redfish/v1/Chassis/Chassis_0/EnvironmentMetrics
-  GET_CHASSIS_ENVIRONMENT_METRICS = 9;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_0/EnvironmentMetrics
+  GPU_0_ENVIRONMENT_METRICS = 6;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1/EnvironmentMetrics
+  GPU_1_ENVIRONMENT_METRICS = 7;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_2/EnvironmentMetrics
+  GPU_2_ENVIRONMENT_METRICS = 8;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_3/EnvironmentMetrics
+  GPU_3_ENVIRONMENT_METRICS = 9;
 
-  // GET /redfish/v1/Chassis/HGX_Chassis_0
-  GET_HGX_CHASSIS = 10;
-  // GET /redfish/v1/Chassis/HGX_Chassis_0/EnvironmentMetrics
-  GET_HGX_CHASSIS_ENVIRONMENT_METRICS = 11;
+  // --- CPU processors (0-1) ---
 
-  // GET /redfish/v1/Chassis/HGX_ProcessorModule_{id}/EnvironmentMetrics
-  GET_PROCESSOR_MODULE_ENVIRONMENT_METRICS = 12;
-  // PATCH /redfish/v1/Chassis/HGX_ProcessorModule_{id}/EnvironmentMetrics
-  SET_PROCESSOR_MODULE_POWER_LIMIT = 13;
-  // GET /redfish/v1/Chassis/HGX_ProcessorModule_{id}/Assembly
-  GET_PROCESSOR_MODULE_ASSEMBLY = 14;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_0
+  CPU_0_PROCESSOR = 10;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_1
+  CPU_1_PROCESSOR = 11;
 
-  // GET /redfish/v1/Managers/HGX_BMC_0
-  GET_HGX_BMC_MANAGER = 15;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_0/EnvironmentMetrics
+  CPU_0_ENVIRONMENT_METRICS = 12;
+  // /redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_1/EnvironmentMetrics
+  CPU_1_ENVIRONMENT_METRICS = 13;
+
+  // --- Chassis ---
+
+  // /redfish/v1/Chassis/Chassis_0
+  CHASSIS = 14;
+  // /redfish/v1/Chassis/Chassis_0/EnvironmentMetrics
+  CHASSIS_ENVIRONMENT_METRICS = 15;
+
+  // /redfish/v1/Chassis/HGX_Chassis_0
+  HGX_CHASSIS = 16;
+  // /redfish/v1/Chassis/HGX_Chassis_0/EnvironmentMetrics
+  HGX_CHASSIS_ENVIRONMENT_METRICS = 17;
+
+  // --- Processor modules (0-1) ---
+
+  // /redfish/v1/Chassis/HGX_ProcessorModule_0/EnvironmentMetrics
+  PROCESSOR_MODULE_0_ENVIRONMENT_METRICS = 18;
+  // /redfish/v1/Chassis/HGX_ProcessorModule_1/EnvironmentMetrics
+  PROCESSOR_MODULE_1_ENVIRONMENT_METRICS = 19;
+
+  // /redfish/v1/Chassis/HGX_ProcessorModule_0/Assembly
+  PROCESSOR_MODULE_0_ASSEMBLY = 20;
+  // /redfish/v1/Chassis/HGX_ProcessorModule_1/Assembly
+  PROCESSOR_MODULE_1_ASSEMBLY = 21;
+
+  // --- Managers ---
+
+  // /redfish/v1/Managers/HGX_BMC_0
+  HGX_BMC_MANAGER = 22;
+}
+
+// HTTP method for the RedfishProxy RPC.
+enum RedfishProxyMethod {
+  REDFISH_PROXY_METHOD_UNSPECIFIED = 0;
+  GET = 1;
+  POST = 2;
+  PATCH = 3;
 }
 
 message RedfishProxyRequest {
-  // Which Redfish endpoint to target.
-  RedfishProxyEndpoint endpoint = 4;
+  // Which Redfish endpoint (URI path) to target.
+  RedfishProxyEndpoint endpoint = 1;
 
-  // Component index for endpoints that include {id} in the URI pattern
-  // (e.g. GPU_0, CPU_1, HGX_ProcessorModule_0). Ignored for endpoints
-  // without an {id} segment.
-  optional uint32 component_id = 5;
+  // HTTP method to use against the endpoint.
+  RedfishProxyMethod method = 2;
 
-  // BMC IP address to target. Required when using the `endpoint` field.
-  // In the legacy flow, the BMC IP was embedded as the host component
-  // of the `uri` field.
-  string bmc_ip = 6;
+  // BMC IP address to target.
+  string bmc_ip = 3;
 
-  // JSON body for PATCH requests. Ignored for GET endpoints.
-  string body = 2;
-
-  // Deprecated: raw URI and method strings. Callers should migrate to the
-  // `endpoint` + `bmc_ip` fields. These are retained for backward
-  // compatibility during the transition period.
-  string uri = 1 [deprecated = true];
-  string method = 3 [deprecated = true];
+  // JSON body for POST/PATCH requests. Ignored for GET.
+  string body = 4;
 }
 
 message RedfishProxyResponse {

@@ -214,129 +214,72 @@ async fn redfish_proxy_get(
     Ok((text, response_headers, status))
 }
 
-/// Resolves a `RedfishProxyEndpoint` enum value and optional component id
-/// into a concrete (URI path, HTTP method) pair. Returns an error for
-/// unrecognized or unspecified endpoints.
-fn resolve_proxy_endpoint(
-    endpoint: i32,
-    component_id: Option<u32>,
-) -> Result<(String, http::Method), CarbideError> {
-    use ::rpc::forge::RedfishProxyEndpoint;
+use ::rpc::forge::RedfishProxyEndpoint;
 
+/// Endpoint-to-URI lookup table. To add a new endpoint, add a proto enum
+/// variant and append one entry here.
+const REDFISH_PROXY_ENDPOINT_TO_URI: &[(RedfishProxyEndpoint, &str)] = &[
+    (RedfishProxyEndpoint::BmcFirmwareVersion,               "/redfish/v1/UpdateService/FirmwareInventory/FW_BMC_0"),
+    (RedfishProxyEndpoint::Gpu0Processor,                    "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_0"),
+    (RedfishProxyEndpoint::Gpu1Processor,                    "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1"),
+    (RedfishProxyEndpoint::Gpu2Processor,                    "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_2"),
+    (RedfishProxyEndpoint::Gpu3Processor,                    "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_3"),
+    (RedfishProxyEndpoint::Gpu0EnvironmentMetrics,           "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_0/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::Gpu1EnvironmentMetrics,           "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::Gpu2EnvironmentMetrics,           "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_2/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::Gpu3EnvironmentMetrics,           "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_3/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::Cpu0Processor,                    "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_0"),
+    (RedfishProxyEndpoint::Cpu1Processor,                    "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_1"),
+    (RedfishProxyEndpoint::Cpu0EnvironmentMetrics,           "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_0/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::Cpu1EnvironmentMetrics,           "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_1/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::Chassis,                          "/redfish/v1/Chassis/Chassis_0"),
+    (RedfishProxyEndpoint::ChassisEnvironmentMetrics,        "/redfish/v1/Chassis/Chassis_0/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::HgxChassis,                       "/redfish/v1/Chassis/HGX_Chassis_0"),
+    (RedfishProxyEndpoint::HgxChassisEnvironmentMetrics,     "/redfish/v1/Chassis/HGX_Chassis_0/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::ProcessorModule0EnvironmentMetrics, "/redfish/v1/Chassis/HGX_ProcessorModule_0/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::ProcessorModule1EnvironmentMetrics, "/redfish/v1/Chassis/HGX_ProcessorModule_1/EnvironmentMetrics"),
+    (RedfishProxyEndpoint::ProcessorModule0Assembly,         "/redfish/v1/Chassis/HGX_ProcessorModule_0/Assembly"),
+    (RedfishProxyEndpoint::ProcessorModule1Assembly,         "/redfish/v1/Chassis/HGX_ProcessorModule_1/Assembly"),
+    (RedfishProxyEndpoint::HgxBmcManager,                    "/redfish/v1/Managers/HGX_BMC_0"),
+];
+
+/// Resolves a `RedfishProxyEndpoint` enum value to a Redfish URI path.
+fn resolve_proxy_endpoint(endpoint: i32) -> Result<&'static str, CarbideError> {
     let ep = RedfishProxyEndpoint::try_from(endpoint).map_err(|_| {
         CarbideError::InvalidArgument(format!("unknown RedfishProxyEndpoint value: {endpoint}"))
     })?;
 
-    let id = component_id.map(|i| i.to_string());
-    let require_id = |label: &str| -> Result<String, CarbideError> {
-        id.clone().ok_or_else(|| {
-            CarbideError::InvalidArgument(format!("component_id is required for {label}"))
+    if ep == RedfishProxyEndpoint::Unspecified {
+        return Err(CarbideError::InvalidArgument(
+            "RedfishProxyEndpoint must not be UNSPECIFIED".to_owned(),
+        ));
+    }
+
+    REDFISH_PROXY_ENDPOINT_TO_URI
+        .iter()
+        .find(|(e, _)| *e == ep)
+        .map(|(_, path)| *path)
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument(format!("no URI mapping for endpoint {ep:?}"))
         })
-    };
+}
 
-    let (path, method) = match ep {
-        RedfishProxyEndpoint::Unspecified => {
-            return Err(CarbideError::InvalidArgument(
-                "RedfishProxyEndpoint must not be UNSPECIFIED".to_owned(),
-            ));
-        }
+/// Resolves a `RedfishProxyMethod` enum value to an `http::Method`.
+fn resolve_proxy_method(method: i32) -> Result<http::Method, CarbideError> {
+    use ::rpc::forge::RedfishProxyMethod;
 
-        RedfishProxyEndpoint::GetBmcFirmwareVersion => (
-            "/redfish/v1/UpdateService/FirmwareInventory/FW_BMC_0".to_owned(),
-            http::Method::GET,
-        ),
+    let m = RedfishProxyMethod::try_from(method).map_err(|_| {
+        CarbideError::InvalidArgument(format!("unknown RedfishProxyMethod value: {method}"))
+    })?;
 
-        RedfishProxyEndpoint::GetGpuProcessor => (
-            format!(
-                "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_{}",
-                require_id("GET_GPU_PROCESSOR")?
-            ),
-            http::Method::GET,
-        ),
-        RedfishProxyEndpoint::GetGpuEnvironmentMetrics => (
-            format!(
-                "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_{}/EnvironmentMetrics",
-                require_id("GET_GPU_ENVIRONMENT_METRICS")?
-            ),
-            http::Method::GET,
-        ),
-        RedfishProxyEndpoint::SetGpuPowerLimit => (
-            format!(
-                "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_{}/EnvironmentMetrics",
-                require_id("SET_GPU_POWER_LIMIT")?
-            ),
-            http::Method::PATCH,
-        ),
-
-        RedfishProxyEndpoint::GetCpuProcessor => (
-            format!(
-                "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_{}",
-                require_id("GET_CPU_PROCESSOR")?
-            ),
-            http::Method::GET,
-        ),
-        RedfishProxyEndpoint::GetCpuEnvironmentMetrics => (
-            format!(
-                "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_{}/EnvironmentMetrics",
-                require_id("GET_CPU_ENVIRONMENT_METRICS")?
-            ),
-            http::Method::GET,
-        ),
-        RedfishProxyEndpoint::SetCpuPowerLimit => (
-            format!(
-                "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_{}/EnvironmentMetrics",
-                require_id("SET_CPU_POWER_LIMIT")?
-            ),
-            http::Method::PATCH,
-        ),
-
-        RedfishProxyEndpoint::GetChassis => (
-            "/redfish/v1/Chassis/Chassis_0".to_owned(),
-            http::Method::GET,
-        ),
-        RedfishProxyEndpoint::GetChassisEnvironmentMetrics => (
-            "/redfish/v1/Chassis/Chassis_0/EnvironmentMetrics".to_owned(),
-            http::Method::GET,
-        ),
-
-        RedfishProxyEndpoint::GetHgxChassis => (
-            "/redfish/v1/Chassis/HGX_Chassis_0".to_owned(),
-            http::Method::GET,
-        ),
-        RedfishProxyEndpoint::GetHgxChassisEnvironmentMetrics => (
-            "/redfish/v1/Chassis/HGX_Chassis_0/EnvironmentMetrics".to_owned(),
-            http::Method::GET,
-        ),
-
-        RedfishProxyEndpoint::GetProcessorModuleEnvironmentMetrics => (
-            format!(
-                "/redfish/v1/Chassis/HGX_ProcessorModule_{}/EnvironmentMetrics",
-                require_id("GET_PROCESSOR_MODULE_ENVIRONMENT_METRICS")?
-            ),
-            http::Method::GET,
-        ),
-        RedfishProxyEndpoint::SetProcessorModulePowerLimit => (
-            format!(
-                "/redfish/v1/Chassis/HGX_ProcessorModule_{}/EnvironmentMetrics",
-                require_id("SET_PROCESSOR_MODULE_POWER_LIMIT")?
-            ),
-            http::Method::PATCH,
-        ),
-        RedfishProxyEndpoint::GetProcessorModuleAssembly => (
-            format!(
-                "/redfish/v1/Chassis/HGX_ProcessorModule_{}/Assembly",
-                require_id("GET_PROCESSOR_MODULE_ASSEMBLY")?
-            ),
-            http::Method::GET,
-        ),
-
-        RedfishProxyEndpoint::GetHgxBmcManager => (
-            "/redfish/v1/Managers/HGX_BMC_0".to_owned(),
-            http::Method::GET,
-        ),
-    };
-
-    Ok((path, method))
+    match m {
+        RedfishProxyMethod::Unspecified => Err(CarbideError::InvalidArgument(
+            "RedfishProxyMethod must not be UNSPECIFIED".to_owned(),
+        )),
+        RedfishProxyMethod::Get => Ok(http::Method::GET),
+        RedfishProxyMethod::Post => Ok(http::Method::POST),
+        RedfishProxyMethod::Patch => Ok(http::Method::PATCH),
+    }
 }
 
 pub async fn redfish_proxy(
@@ -347,42 +290,21 @@ pub async fn redfish_proxy(
 
     let inner = request.get_ref();
 
-    // New enum-based path: prefer `endpoint` if set to a non-default value.
-    let (uri, method) = if inner.endpoint != 0 {
-        let (path, method) = resolve_proxy_endpoint(inner.endpoint, inner.component_id)?;
-        let bmc_ip = &inner.bmc_ip;
-        if bmc_ip.is_empty() {
-            return Err(CarbideError::InvalidArgument(
-                "bmc_ip is required when using the endpoint field".to_owned(),
-            )
-            .into());
-        }
-        let uri: http::Uri = http::Uri::builder()
-            .scheme("https")
-            .authority(bmc_ip.as_str())
-            .path_and_query(path.as_str())
-            .build()
-            .map_err(|e| CarbideError::internal(format!("building proxy URI: {e}")))?;
-        (uri, method)
-    } else {
-        // Legacy path: raw uri + method strings (deprecated, kept for backward compat).
-        let method = match inner.method.to_uppercase().as_str() {
-            "GET" => http::Method::GET,
-            "POST" => http::Method::POST,
-            "PATCH" => http::Method::PATCH,
-            other => {
-                return Err(CarbideError::InvalidArgument(format!(
-                    "unsupported redfish proxy method: {other} (must be GET, POST, or PATCH)"
-                ))
-                .into());
-            }
-        };
-        let uri: http::Uri = inner
-            .uri
-            .parse()
-            .map_err(|err| CarbideError::internal(format!("Parsing uri failed: {err}")))?;
-        (uri, method)
-    };
+    let path = resolve_proxy_endpoint(inner.endpoint)?;
+    let method = resolve_proxy_method(inner.method)?;
+
+    let bmc_ip = &inner.bmc_ip;
+    if bmc_ip.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("bmc_ip is required".to_owned()).into(),
+        );
+    }
+    let uri: http::Uri = http::Uri::builder()
+        .scheme("https")
+        .authority(bmc_ip.as_str())
+        .path_and_query(path)
+        .build()
+        .map_err(|e| CarbideError::internal(format!("building proxy URI: {e}")))?;
 
     let uri_path = uri.path().to_owned();
 
@@ -1147,178 +1069,83 @@ mod tests {
 
     // ── resolve_proxy_endpoint ─────────────────────────────────────────
 
-    use ::rpc::forge::RedfishProxyEndpoint;
+    use ::rpc::forge::RedfishProxyMethod;
 
     #[test]
     fn resolve_unspecified_endpoint_is_error() {
-        let result = resolve_proxy_endpoint(RedfishProxyEndpoint::Unspecified as i32, None);
-        assert!(result.is_err());
+        assert!(resolve_proxy_endpoint(RedfishProxyEndpoint::Unspecified as i32).is_err());
     }
 
     #[test]
     fn resolve_unknown_endpoint_value_is_error() {
-        let result = resolve_proxy_endpoint(9999, None);
-        assert!(result.is_err());
+        assert!(resolve_proxy_endpoint(9999).is_err());
     }
 
     #[test]
-    fn resolve_get_bmc_firmware_version() {
-        let (path, method) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::GetBmcFirmwareVersion as i32, None)
-                .unwrap();
+    fn resolve_all_endpoints() {
+        let cases: &[(RedfishProxyEndpoint, &str)] = &[
+            (RedfishProxyEndpoint::BmcFirmwareVersion, "/redfish/v1/UpdateService/FirmwareInventory/FW_BMC_0"),
+            (RedfishProxyEndpoint::Gpu0Processor, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_0"),
+            (RedfishProxyEndpoint::Gpu1Processor, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1"),
+            (RedfishProxyEndpoint::Gpu2Processor, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_2"),
+            (RedfishProxyEndpoint::Gpu3Processor, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_3"),
+            (RedfishProxyEndpoint::Gpu0EnvironmentMetrics, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_0/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::Gpu1EnvironmentMetrics, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::Gpu2EnvironmentMetrics, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_2/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::Gpu3EnvironmentMetrics, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_3/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::Cpu0Processor, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_0"),
+            (RedfishProxyEndpoint::Cpu1Processor, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_1"),
+            (RedfishProxyEndpoint::Cpu0EnvironmentMetrics, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_0/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::Cpu1EnvironmentMetrics, "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_1/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::Chassis, "/redfish/v1/Chassis/Chassis_0"),
+            (RedfishProxyEndpoint::ChassisEnvironmentMetrics, "/redfish/v1/Chassis/Chassis_0/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::HgxChassis, "/redfish/v1/Chassis/HGX_Chassis_0"),
+            (RedfishProxyEndpoint::HgxChassisEnvironmentMetrics, "/redfish/v1/Chassis/HGX_Chassis_0/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::ProcessorModule0EnvironmentMetrics, "/redfish/v1/Chassis/HGX_ProcessorModule_0/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::ProcessorModule1EnvironmentMetrics, "/redfish/v1/Chassis/HGX_ProcessorModule_1/EnvironmentMetrics"),
+            (RedfishProxyEndpoint::ProcessorModule0Assembly, "/redfish/v1/Chassis/HGX_ProcessorModule_0/Assembly"),
+            (RedfishProxyEndpoint::ProcessorModule1Assembly, "/redfish/v1/Chassis/HGX_ProcessorModule_1/Assembly"),
+            (RedfishProxyEndpoint::HgxBmcManager, "/redfish/v1/Managers/HGX_BMC_0"),
+        ];
+        for &(ep, expected_path) in cases {
+            let path = resolve_proxy_endpoint(ep as i32).unwrap();
+            assert_eq!(path, expected_path, "mismatch for {ep:?}");
+        }
+    }
+
+    // ── resolve_proxy_method ────────────────────────────────────────────
+
+    #[test]
+    fn resolve_unspecified_method_is_error() {
+        assert!(resolve_proxy_method(RedfishProxyMethod::Unspecified as i32).is_err());
+    }
+
+    #[test]
+    fn resolve_unknown_method_value_is_error() {
+        assert!(resolve_proxy_method(9999).is_err());
+    }
+
+    #[test]
+    fn resolve_get_method() {
         assert_eq!(
-            path,
-            "/redfish/v1/UpdateService/FirmwareInventory/FW_BMC_0"
+            resolve_proxy_method(RedfishProxyMethod::Get as i32).unwrap(),
+            http::Method::GET,
         );
-        assert_eq!(method, http::Method::GET);
     }
 
     #[test]
-    fn resolve_get_gpu_processor_requires_id() {
-        let result =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::GetGpuProcessor as i32, None);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn resolve_get_gpu_processor_with_id() {
-        let (path, method) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::GetGpuProcessor as i32, Some(3))
-                .unwrap();
+    fn resolve_post_method() {
         assert_eq!(
-            path,
-            "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_3"
+            resolve_proxy_method(RedfishProxyMethod::Post as i32).unwrap(),
+            http::Method::POST,
         );
-        assert_eq!(method, http::Method::GET);
     }
 
     #[test]
-    fn resolve_set_gpu_power_limit_is_patch() {
-        let (path, method) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::SetGpuPowerLimit as i32, Some(0))
-                .unwrap();
+    fn resolve_patch_method() {
         assert_eq!(
-            path,
-            "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_0/EnvironmentMetrics"
+            resolve_proxy_method(RedfishProxyMethod::Patch as i32).unwrap(),
+            http::Method::PATCH,
         );
-        assert_eq!(method, http::Method::PATCH);
-    }
-
-    #[test]
-    fn resolve_get_cpu_processor_with_id() {
-        let (path, method) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::GetCpuProcessor as i32, Some(1))
-                .unwrap();
-        assert_eq!(
-            path,
-            "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_1"
-        );
-        assert_eq!(method, http::Method::GET);
-    }
-
-    #[test]
-    fn resolve_set_cpu_power_limit_is_patch() {
-        let (path, method) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::SetCpuPowerLimit as i32, Some(0))
-                .unwrap();
-        assert_eq!(
-            path,
-            "/redfish/v1/Systems/HGX_Baseboard_0/Processors/CPU_0/EnvironmentMetrics"
-        );
-        assert_eq!(method, http::Method::PATCH);
-    }
-
-    #[test]
-    fn resolve_get_chassis() {
-        let (path, method) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::GetChassis as i32, None).unwrap();
-        assert_eq!(path, "/redfish/v1/Chassis/Chassis_0");
-        assert_eq!(method, http::Method::GET);
-    }
-
-    #[test]
-    fn resolve_get_chassis_environment_metrics() {
-        let (path, method) = resolve_proxy_endpoint(
-            RedfishProxyEndpoint::GetChassisEnvironmentMetrics as i32,
-            None,
-        )
-        .unwrap();
-        assert_eq!(path, "/redfish/v1/Chassis/Chassis_0/EnvironmentMetrics");
-        assert_eq!(method, http::Method::GET);
-    }
-
-    #[test]
-    fn resolve_get_hgx_chassis() {
-        let (path, method) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::GetHgxChassis as i32, None).unwrap();
-        assert_eq!(path, "/redfish/v1/Chassis/HGX_Chassis_0");
-        assert_eq!(method, http::Method::GET);
-    }
-
-    #[test]
-    fn resolve_get_hgx_chassis_environment_metrics() {
-        let (path, method) = resolve_proxy_endpoint(
-            RedfishProxyEndpoint::GetHgxChassisEnvironmentMetrics as i32,
-            None,
-        )
-        .unwrap();
-        assert_eq!(
-            path,
-            "/redfish/v1/Chassis/HGX_Chassis_0/EnvironmentMetrics"
-        );
-        assert_eq!(method, http::Method::GET);
-    }
-
-    #[test]
-    fn resolve_get_processor_module_env_metrics_requires_id() {
-        let result = resolve_proxy_endpoint(
-            RedfishProxyEndpoint::GetProcessorModuleEnvironmentMetrics as i32,
-            None,
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn resolve_set_processor_module_power_limit() {
-        let (path, method) = resolve_proxy_endpoint(
-            RedfishProxyEndpoint::SetProcessorModulePowerLimit as i32,
-            Some(1),
-        )
-        .unwrap();
-        assert_eq!(
-            path,
-            "/redfish/v1/Chassis/HGX_ProcessorModule_1/EnvironmentMetrics"
-        );
-        assert_eq!(method, http::Method::PATCH);
-    }
-
-    #[test]
-    fn resolve_get_processor_module_assembly() {
-        let (path, method) = resolve_proxy_endpoint(
-            RedfishProxyEndpoint::GetProcessorModuleAssembly as i32,
-            Some(0),
-        )
-        .unwrap();
-        assert_eq!(
-            path,
-            "/redfish/v1/Chassis/HGX_ProcessorModule_0/Assembly"
-        );
-        assert_eq!(method, http::Method::GET);
-    }
-
-    #[test]
-    fn resolve_get_hgx_bmc_manager() {
-        let (path, method) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::GetHgxBmcManager as i32, None)
-                .unwrap();
-        assert_eq!(path, "/redfish/v1/Managers/HGX_BMC_0");
-        assert_eq!(method, http::Method::GET);
-    }
-
-    #[test]
-    fn resolve_ignores_component_id_for_fixed_endpoints() {
-        let (path, _) =
-            resolve_proxy_endpoint(RedfishProxyEndpoint::GetChassis as i32, Some(42)).unwrap();
-        assert_eq!(path, "/redfish/v1/Chassis/Chassis_0");
     }
 }
