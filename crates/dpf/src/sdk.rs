@@ -68,6 +68,7 @@ use crate::watcher::DpuWatcherBuilder;
 
 const SECRET_NAME: &str = "bmc-shared-password";
 const BFB_NAME_PREFIX: &str = "bf-bundle";
+const DPF_OPERATOR_CONFIG: &str = "dpfoperatorconfig";
 
 pub(crate) const RESTART_ANNOTATION: &str =
     "provisioning.dpu.nvidia.com/dpunode-external-reboot-required";
@@ -522,7 +523,8 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
         ];
 
         flavor.spec.nvconfig = Some(vec![DpuFlavorNvconfig {
-            device: Some("mt*_pciconf0".to_string()),
+            // DPF does not allow anyother wild card. It takes only '*'
+            device: Some("*".to_string()),
             host_power_cycle_required: None,
             parameters: Some(nvue_params),
         }]);
@@ -935,7 +937,7 @@ impl<
             // Use default bf.cfg. In this case, delete bfCFGTemplateConfigMap from dpfoperatorconfig
             DpfOperatorConfigRepository::patch(
                 &*self.repo,
-                &config.deployment_name,
+                DPF_OPERATOR_CONFIG,
                 &self.namespace,
                 serde_json::json!({
                     "spec": {
