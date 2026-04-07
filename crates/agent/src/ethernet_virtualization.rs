@@ -399,6 +399,7 @@ pub async fn update_nvue(
             nc.routing_profile.as_ref().map(|rp| nvue::RoutingProfile {
                 leak_default_route_from_underlay: rp.leak_default_route_from_underlay,
                 leak_tenant_host_routes_to_underlay: rp.leak_tenant_host_routes_to_underlay,
+                tenant_leak_communities_accepted: rp.tenant_leak_communities_accepted,
                 route_target_imports: rp
                     .route_target_imports
                     .iter()
@@ -2347,6 +2348,7 @@ mod tests {
             routing_profile: Some(rpc::RoutingProfile {
                 leak_default_route_from_underlay: include_network_host_route_and_default_leaking,
                 leak_tenant_host_routes_to_underlay: include_network_host_route_and_default_leaking,
+                tenant_leak_communities_accepted: include_network_host_route_and_default_leaking,
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,
@@ -2593,6 +2595,7 @@ mod tests {
                 ip: "10.217.4.70".to_string(),
             }],
             ct_routing_profile: Some(nvue::RoutingProfile {
+                tenant_leak_communities_accepted: false,
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
                 route_target_imports: vec![nvue::RouteTargetConfig {
@@ -2820,6 +2823,7 @@ mod tests {
             anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
             tenant_host_asn: Some(65100),
             routing_profile: Some(rpc::RoutingProfile {
+                tenant_leak_communities_accepted: false,
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
                 route_target_imports: vec![rpc_common::RouteTarget {

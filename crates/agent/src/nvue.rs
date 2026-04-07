@@ -126,6 +126,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         .ct_routing_profile
         .as_ref()
         .map(|rt| TmplRoutingProfile {
+            TenantLeakCommunitiesAccepted: rt.tenant_leak_communities_accepted,
             LeakDefaultRouteFromUnderlay: rt.leak_default_route_from_underlay,
             LeakTenantHostRoutesToUnderlay: rt.leak_tenant_host_routes_to_underlay,
             RouteTargetImports: rt
@@ -922,6 +923,7 @@ pub struct RoutingProfile {
     pub leak_tenant_host_routes_to_underlay: bool,
     pub route_target_imports: Vec<RouteTargetConfig>,
     pub route_targets_on_exports: Vec<RouteTargetConfig>,
+    pub tenant_leak_communities_accepted: bool,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -1179,6 +1181,7 @@ struct TmplRoutingProfile {
     LeakDefaultRouteFromUnderlay: bool,
     RouteTargetImports: Vec<TmplRouteTargetConfig>,
     RouteTargetsOnExports: Vec<TmplRouteTargetConfig>,
+    TenantLeakCommunitiesAccepted: bool,
 }
 
 #[allow(non_snake_case)]
@@ -1576,6 +1579,7 @@ mod tests {
         conf.deny_prefixes = vec!["192.0.2.0/24".into(), "2001:db8:bad::/48".into()];
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00:abcd::/32".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],
@@ -1650,6 +1654,7 @@ mod tests {
         conf.deny_prefixes = vec!["192.0.2.0/24".into()];
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/48".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
 
@@ -1729,6 +1734,7 @@ mod tests {
         conf.use_vpc_isolation = true;
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/32".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],

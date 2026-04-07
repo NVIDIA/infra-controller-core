@@ -6971,6 +6971,11 @@ message RoutingProfile {
   repeated common.RouteTarget route_targets_on_exports = 2;
   bool leak_default_route_from_underlay                = 3;
   bool leak_tenant_host_routes_to_underlay             = 4;
+  
+  // Are route-leak communities sent by the host OS honored by the DPU for allowing
+  // routes advertised by the host OS to be leaked into the underlay?
+  bool tenant_leak_communities_accepted                = 5;
+
 }
 
 // ============================================================================

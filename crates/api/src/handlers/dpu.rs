@@ -665,6 +665,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 })
         }),
         routing_profile: routing_profile.map(|p| rpc::RoutingProfile {
+            tenant_leak_communities_accepted: p.tenant_leak_communities_accepted,
             leak_default_route_from_underlay: p.leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
             route_target_imports: p

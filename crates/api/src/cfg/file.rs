@@ -845,6 +845,11 @@ pub struct FnnRoutingProfileConfig {
     /// into the underlay?
     #[serde(default)]
     pub leak_tenant_host_routes_to_underlay: bool,
+
+    /// Are route-leak communities sent by the host OS honored by the DPU for allowing
+    /// routes advertised by the host OS to be leaked into the underlay?
+    #[serde(default)]
+    pub tenant_leak_communities_accepted: bool,
 }
 
 /// FNN configuration specific to the admin network.

@@ -435,11 +435,15 @@ pub async fn start_api(
 
         // This is just temparary code until we make v2 only option. (just 2 weeks)
         // Soon v2 flag will be removed and will become only mode for dpf handling.
-        let v2_str = if carbide_config.dpf.v2 { "-v2" } else { "" };
         let init_config = carbide_dpf::InitDpfResourcesConfig {
             bfb_url,
             flavor_name: carbide_config.dpf.flavor_name.clone(),
-            deployment_name: format!("{}{}", carbide_config.dpf.deployment_name.clone(), v2_str),
+            deployment_name: if carbide_config.dpf.v2 {
+                // We can't keep name longer than 20 chars (DPF restriction)
+                "nico-deployment-v2".to_string()
+            } else {
+                carbide_config.dpf.deployment_name.clone()
+            },
             services: if carbide_config.dpf.v2 {
                 // Enable all the services.
                 Vec::new()

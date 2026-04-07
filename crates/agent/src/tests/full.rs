@@ -831,6 +831,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             vni: 22222,
         }],
         routing_profile: Some(rpc::forge::RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![rpc_common::RouteTarget {
