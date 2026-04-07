@@ -281,6 +281,35 @@ pub async fn find_machine_bmc_pairs_by_machine_id(
         })
 }
 
+/// Find the BMC IP and MAC address for each of the given machine IDs.
+///
+/// Returns a list of (machine_id, bmc_ip, bmc_mac) tuples. Uses the most recent
+/// topology per machine via `DISTINCT ON ... ORDER BY created DESC`.
+pub async fn find_machine_bmc_endpoints_by_machine_id(
+    txn: &mut PgConnection,
+    machine_ids: Vec<MachineId>,
+) -> Result<Vec<(MachineId, Option<String>, Option<String>)>, DatabaseError> {
+    let query = r#"
+        SELECT DISTINCT ON (machine_id)
+            machine_id,
+            topology->'bmc_info'->>'ip',
+            topology->'bmc_info'->>'mac'
+        FROM machine_topologies
+        WHERE machine_id = ANY($1)
+        ORDER BY machine_id, created DESC
+    "#;
+    sqlx::query_as(query)
+        .bind(machine_ids)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                "machine_topologies find_machine_bmc_endpoints_by_machine_id",
+                e,
+            )
+        })
+}
+
 /// Find any topology with a product, chassis, or board serial number exactly matching the input.
 ///
 /// NOTE: This query must exactly match the index machine_topologies_serial_numbers_idx, which

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use db::{DatabaseError, rack_firmware as rack_firmware_db};
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use rpc::forge::{
     DeviceUpdateResult, NodeJobInfo, RackFirmware, RackFirmwareApplyRequest,
     RackFirmwareApplyResponse, RackFirmwareCreateRequest, RackFirmwareDeleteRequest,
@@ -1015,20 +1015,12 @@ pub async fn apply(
                 message: format!("Failed to query switches for rack: {}", e),
             })?;
 
-    let power_shelf_ids: Vec<carbide_uuid::power_shelf::PowerShelfId> =
-        sqlx::query_as("SELECT id FROM power_shelves WHERE rack_id = $1 AND deleted IS NULL")
-            .bind(&rack_id)
-            .fetch_all(&mut *conn)
-            .await
-            .map_err(|e| CarbideError::Internal {
-                message: format!("Failed to query power shelves for rack: {}", e),
-            })?;
+    // Power shelf firmware updates are not yet supported — skip querying them.
 
     let has_compute_trays = !machine_ids.is_empty();
-    let has_power_shelves = !power_shelf_ids.is_empty();
     let has_switches = !switch_ids.is_empty();
 
-    if !has_compute_trays && !has_power_shelves && !has_switches {
+    if !has_compute_trays && !has_switches {
         return Err(CarbideError::FailedPrecondition(format!(
             "Rack '{}' contains no devices",
             rack_id
@@ -1039,7 +1031,6 @@ pub async fn apply(
     tracing::info!(
         rack_id = %rack_id,
         compute_trays = machine_ids.len(),
-        power_shelves = power_shelf_ids.len(),
         switches = switch_ids.len(),
         "Found devices in rack"
     );
@@ -1057,12 +1048,6 @@ pub async fn apply(
             librms::protos::rack_manager::NodeType::Compute as i32,
             "Compute Node",
             has_compute_trays,
-        ),
-        (
-            "Power Shelf",
-            librms::protos::rack_manager::NodeType::Powershelf as i32,
-            "Power Shelf",
-            has_power_shelves,
         ),
         (
             "Switch Tray",
@@ -1136,22 +1121,52 @@ pub async fn apply(
         .into());
     }
 
-    // Resolve BMC endpoints for all devices and build the NodeSet.
+    // Resolve BMC endpoints and credentials for all devices and build the NodeSet.
     let mut devices = Vec::new();
+    let credential_reader = api.credential_manager.as_ref();
 
-    // Compute trays: resolve MachineId -> BMC IP via machine_topologies
+    // Compute trays: resolve MachineId -> BMC IP + MAC, then look up BMC credentials
     if has_compute_trays {
         #[allow(clippy::explicit_auto_deref)]
-        let bmc_pairs =
-            db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut *conn, machine_ids)
+        let bmc_endpoints =
+            db::machine_topology::find_machine_bmc_endpoints_by_machine_id(&mut *conn, machine_ids)
                 .await
                 .map_err(|e| CarbideError::Internal {
                     message: format!("Failed to resolve compute tray BMC endpoints: {}", e),
                 })?;
-        for (machine_id, bmc_ip) in bmc_pairs {
-            let Some(ip) = bmc_ip else {
-                tracing::warn!(machine_id = %machine_id, "Compute tray has no BMC IP, skipping");
+        for (machine_id, bmc_ip, bmc_mac) in bmc_endpoints {
+            let (Some(ip), Some(mac)) = (bmc_ip, bmc_mac) else {
+                tracing::warn!(machine_id = %machine_id, "Compute tray missing BMC IP or MAC, skipping");
                 continue;
+            };
+            let mac_addr: mac_address::MacAddress = match mac.parse() {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(machine_id = %machine_id, mac = %mac, error = %e, "Invalid BMC MAC, skipping");
+                    continue;
+                }
+            };
+            let creds = credential_reader
+                .get_credentials(&CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot {
+                        bmc_mac_address: mac_addr,
+                    },
+                })
+                .await
+                .map_err(|e| CarbideError::Internal {
+                    message: format!(
+                        "Failed to get BMC credentials for compute {}: {}",
+                        machine_id, e
+                    ),
+                })?;
+            let Some(Credentials::UsernamePassword { username, password }) = creds else {
+                tracing::warn!(machine_id = %machine_id, "No BMC credentials found, skipping");
+                continue;
+            };
+            let rms_creds = librms::protos::rack_manager::Credentials {
+                auth: Some(librms::protos::rack_manager::credentials::Auth::UserPass(
+                    librms::protos::rack_manager::UsernamePassword { username, password },
+                )),
             };
             devices.push(librms::protos::rack_manager::NewNodeInfo {
                 node_id: machine_id.to_string(),
@@ -1160,53 +1175,76 @@ pub async fn apply(
                 bmc_endpoint: Some(librms::protos::rack_manager::BmcEndpoint {
                     interface: Some(librms::protos::rack_manager::NetworkInterface {
                         ip_address: ip,
-                        mac_address: String::new(),
+                        mac_address: mac,
                     }),
                     port: 443,
-                    credentials: None,
+                    credentials: Some(rms_creds),
                 }),
                 host_endpoint: None,
             });
         }
     }
 
-    // Power shelves: resolve PowerShelfId -> BMC MAC + IP
-    if has_power_shelves {
-        let ps_endpoints = db::power_shelf::find_power_shelf_endpoints_by_ids(
-            &api.database_connection,
-            &power_shelf_ids,
-        )
-        .await
-        .map_err(|e| CarbideError::Internal {
-            message: format!("Failed to resolve power shelf BMC endpoints: {}", e),
-        })?;
-        for row in ps_endpoints {
-            devices.push(librms::protos::rack_manager::NewNodeInfo {
-                node_id: row.power_shelf_id.to_string(),
-                rack_id: rack_id.to_string(),
-                r#type: Some(librms::protos::rack_manager::NodeType::Powershelf as i32),
-                bmc_endpoint: Some(librms::protos::rack_manager::BmcEndpoint {
-                    interface: Some(librms::protos::rack_manager::NetworkInterface {
-                        ip_address: row.pmc_ip.to_string(),
-                        mac_address: row.pmc_mac.to_string(),
-                    }),
-                    port: 443,
-                    credentials: None,
-                }),
-                host_endpoint: None,
-            });
-        }
-    }
-
-    // Switches: resolve SwitchId -> BMC MAC + IP
+    // Switches: resolve SwitchId -> BMC + NVOS endpoints, then look up host (NVOS) credentials
     if has_switches {
         let sw_endpoints =
-            db::switch::find_bmc_info_by_switch_ids(&api.database_connection, &switch_ids)
+            db::switch::find_switch_endpoints_by_ids(&api.database_connection, &switch_ids)
                 .await
                 .map_err(|e| CarbideError::Internal {
-                    message: format!("Failed to resolve switch BMC endpoints: {}", e),
+                    message: format!("Failed to resolve switch endpoints: {}", e),
                 })?;
         for row in sw_endpoints {
+            let Some(nvos_ip) = row.nvos_ip else {
+                tracing::warn!(switch_id = %row.switch_id, "Switch has no NVOS IP, skipping");
+                continue;
+            };
+
+            // BMC credentials for the switch BMC
+            let bmc_creds = credential_reader
+                .get_credentials(&CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot {
+                        bmc_mac_address: row.bmc_mac,
+                    },
+                })
+                .await
+                .map_err(|e| CarbideError::Internal {
+                    message: format!(
+                        "Failed to get BMC credentials for switch {}: {}",
+                        row.switch_id, e
+                    ),
+                })?;
+            let rms_bmc_creds = bmc_creds.map(|c| match c {
+                Credentials::UsernamePassword { username, password } => {
+                    librms::protos::rack_manager::Credentials {
+                        auth: Some(librms::protos::rack_manager::credentials::Auth::UserPass(
+                            librms::protos::rack_manager::UsernamePassword { username, password },
+                        )),
+                    }
+                }
+            });
+
+            // Host (NVOS) credentials for switch firmware push via SSH/SFTP
+            let nvos_creds = credential_reader
+                .get_credentials(&CredentialKey::SwitchNvosAdmin {
+                    bmc_mac_address: row.bmc_mac,
+                })
+                .await
+                .map_err(|e| CarbideError::Internal {
+                    message: format!(
+                        "Failed to get NVOS credentials for switch {}: {}",
+                        row.switch_id, e
+                    ),
+                })?;
+            let Some(Credentials::UsernamePassword { username, password }) = nvos_creds else {
+                tracing::warn!(switch_id = %row.switch_id, "No NVOS credentials found, skipping");
+                continue;
+            };
+            let rms_host_creds = librms::protos::rack_manager::Credentials {
+                auth: Some(librms::protos::rack_manager::credentials::Auth::UserPass(
+                    librms::protos::rack_manager::UsernamePassword { username, password },
+                )),
+            };
+
             devices.push(librms::protos::rack_manager::NewNodeInfo {
                 node_id: row.switch_id.to_string(),
                 rack_id: rack_id.to_string(),
@@ -1217,9 +1255,16 @@ pub async fn apply(
                         mac_address: row.bmc_mac.to_string(),
                     }),
                     port: 443,
-                    credentials: None,
+                    credentials: rms_bmc_creds,
                 }),
-                host_endpoint: None,
+                host_endpoint: Some(librms::protos::rack_manager::HostEndpoint {
+                    interfaces: vec![librms::protos::rack_manager::NetworkInterface {
+                        ip_address: nvos_ip.to_string(),
+                        mac_address: row.nvos_mac.map(|m| m.to_string()).unwrap_or_default(),
+                    }],
+                    port: 0,
+                    credentials: Some(rms_host_creds),
+                }),
             });
         }
     }
