@@ -193,6 +193,9 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             machine_setup_status: report.machine_setup_status.map(Into::into),
             secure_boot_status: report.secure_boot_status.map(Into::into),
             lockdown_status: report.lockdown_status.map(Into::into),
+            firmware_versions: serde_json::to_value(&report.versions)
+                .and_then(serde_json::from_value)
+                .unwrap_or_default(),
         }
     }
 }
