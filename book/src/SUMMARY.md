@@ -43,6 +43,16 @@
 # Design
 
 - [SPIFFE SVID Design](design/machine-identity/spiffe-svid-sdd.md)
+- [Convergence Engine](design/convergence-engine/README.md)
+    - [Machine Handler](design/convergence-engine/machine.md)
+    - [Rack Handler](design/convergence-engine/rack.md)
+    - [Switch Handler](design/convergence-engine/switch.md)
+    - [IB Partition Handler](design/convergence-engine/ib-partition.md)
+    - [DPA Interface Handler](design/convergence-engine/dpa-interface.md)
+    - [SPDM / Attestation Handler](design/convergence-engine/spdm.md)
+    - [Network Segment Handler](design/convergence-engine/network-segment.md)
+    - [Power Shelf Handler](design/convergence-engine/power-shelf.md)
+    - [External Policy — OPA / Rego](design/convergence-engine/rego-opa.md)
 
 # Development
 
