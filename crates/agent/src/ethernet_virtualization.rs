@@ -418,6 +418,7 @@ pub async fn update_nvue(
                     .collect(),
             })
         },
+        bgp_leaf_session_password: nc.bgp_leaf_session_password.clone(),
     };
 
     // next_contents is a YAML-serialized NVUE config.
@@ -2335,6 +2336,7 @@ mod tests {
             asn: 4259912557,
             datacenter_asn: 11414,
             site_global_vpc_vni,
+            bgp_leaf_session_password: None,
             anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
             tenant_host_asn: Some(65100),
             common_internal_route_target: Some(rpc_common::RouteTarget {
@@ -2550,6 +2552,7 @@ mod tests {
         let hostname = super::hostname().wrap_err("gethostname error")?;
         let vpc_vni = 7777;
         let conf = nvue::NvueConfig {
+            bgp_leaf_session_password: None,
             is_fnn,
             vpc_virtualization_type,
             use_admin_network: true,
@@ -2808,6 +2811,7 @@ mod tests {
         };
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
+            bgp_leaf_session_password: None,
             site_global_vpc_vni: None,
             asn: 4259912557,
             datacenter_asn: 11414,
@@ -3023,6 +3027,7 @@ mod tests {
             quarantine_state: None,
         };
         let network_config = rpc::ManagedHostNetworkConfigResponse {
+            bgp_leaf_session_password: None,
             site_global_vpc_vni: None,
             asn: 4259912557,
             datacenter_asn: 11414,

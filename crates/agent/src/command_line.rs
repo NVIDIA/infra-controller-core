@@ -214,6 +214,12 @@ pub struct NvueOptions {
         help = "Full JSON representation of a RoutingProfile (see nvue.rs)."
     )]
     pub ct_routing_profile: Option<String>,
+
+    #[clap(
+        long,
+        help = "BGP password to use with session between the DPU and the TOR"
+    )]
+    pub bgp_leaf_session_password: Option<String>,
 }
 
 #[derive(Parser, Debug)]
