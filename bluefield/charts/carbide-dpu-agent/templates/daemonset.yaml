@@ -52,7 +52,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
             - hardware
-            - "--output-file=/etc/carbide/hardware/discovery_info.json"
+            - "--output-file={{ .Values.discovery.hardware_volume_path }}/discovery_info.json"
           env:
             - name: POD_IP
               valueFrom:
@@ -78,7 +78,7 @@ spec:
                   fieldPath: metadata.namespace
           volumeMounts:
             - name: agent-discovery-info
-              mountPath: /etc/carbide/hardware
+              mountPath: "{{ .Values.discovery.hardware_volume_path }}"
       containers:
         - name: forge-dpu-agent
           securityContext:
@@ -88,7 +88,7 @@ spec:
             - run
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
-            - "--discovery-info-file=/etc/carbide/hardware/discovery_info.json"
+            - "--discovery-info-file={{ .Values.discovery.hardware_volume_path }}/discovery_info.json"
             {{- if not (empty .Values.dhcp_server.interface_prepend) }}
             - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
             {{ end }}
@@ -139,7 +139,7 @@ spec:
             - name: forge-certs
               mountPath: /opt/forge
             - name: agent-discovery-info
-              mountPath: /etc/carbide/hardware
+              mountPath: "{{ .Values.discovery.hardware_volume_path }}"
               readOnly: true
       volumes:
         - name: forge-certs

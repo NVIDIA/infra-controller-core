@@ -32,7 +32,9 @@ hbn:
   nvue_username_key: "username"
   nvue_password_key: "password"
 discovery:
-  hardware_file: "/etc/carbide/discovery_info.json"
+  # The init container will write discovery_info.json into this volume, and the
+  # main agent container will load it from there.
+  hardware_volume_path: "/etc/carbide/hardware"
 dhcp_server:
   # If interface_prepend is set to a non-empty string, it will
   # be turned into a --dhcp-server-interface-prepend argument.
