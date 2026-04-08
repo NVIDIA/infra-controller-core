@@ -24,3 +24,12 @@ securityContext:
       - DAC_OVERRIDE
       - NET_RAW
 tolerations: []
+
+### Values for agent operation
+hbn:
+  nvue_https_address: "nvue"
+  nvue_credentials_secret_name: ""
+  nvue_username_key: "username"
+  nvue_password_key: "password"
+discovery:
+  hardware_file: "/etc/carbide/discovery_info.json"
