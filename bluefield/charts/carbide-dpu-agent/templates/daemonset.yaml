@@ -54,6 +54,9 @@ spec:
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
             - "--discovery-info-file={{ .Values.discovery.hardware_file }}"
+            {{- if not (empty .Values.dhcp_server.interface_prepend) }}
+            - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
+            {{ end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:

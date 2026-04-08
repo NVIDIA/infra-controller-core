@@ -323,6 +323,13 @@ pub struct RunOptions {
         env = "DISCOVERY_INFO_FILE"
     )]
     pub discovery_info_file: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "Prepend this string to interface names before sending them to the DHCP server",
+        env = "DHCP_SERVER_INTERFACE_PREPEND"
+    )]
+    pub dhcp_server_interface_prepend: Option<String>,
 }
 
 #[derive(Parser, Debug, Clone)]
