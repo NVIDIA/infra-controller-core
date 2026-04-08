@@ -47,7 +47,8 @@ spec:
       initContainers:
         - name: forge-dpu-agent-init
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            procMount: Unmasked
+            privileged: true
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
             - hardware
