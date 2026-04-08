@@ -145,15 +145,15 @@ impl InternalRBACRules {
         );
         x.perm(
             "ListRackHealthReportOverrides",
-            vec![ForgeAdminCLI, DsxExchangeConsumer],
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm(
             "InsertRackHealthReportOverride",
-            vec![ForgeAdminCLI, DsxExchangeConsumer],
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm(
             "RemoveRackHealthReportOverride",
-            vec![ForgeAdminCLI, DsxExchangeConsumer],
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm("DpuAgentUpgradeCheck", vec![Scout]);
         x.perm("DpuAgentUpgradePolicyAction", vec![ForgeAdminCLI]);
