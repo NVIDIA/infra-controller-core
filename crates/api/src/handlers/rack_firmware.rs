@@ -990,60 +990,46 @@ pub async fn apply(
             message: format!("Failed to get rack: {}", e),
         })?;
 
-    // Query device IDs and BMC endpoints from the database by rack_id.
-    // All DB work is done upfront so the connection is dropped before async
-    // credential lookups and the RMS call (avoids txn-held-across-await).
-    let (machine_bmc_endpoints, switch_endpoints) = {
-        let mut conn =
-            api.database_connection.acquire().await.map_err(|e| {
-                CarbideError::from(DatabaseError::new("acquire for device lookup", e))
-            })?;
+    // Load devices for this rack from the database. All DB work is done upfront
+    // so connections are dropped before async credential lookups and the RMS call
+    // (avoids txn-held-across-await).
+    let machine_search = model::machine::machine_search_config::MachineSearchConfig {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    };
+    let machines = db::machine::find(
+        &api.database_connection,
+        db::ObjectFilter::All,
+        machine_search,
+    )
+    .await
+    .map_err(|e| CarbideError::Internal {
+        message: format!("Failed to query machines for rack: {}", e),
+    })?;
 
-        let machine_ids: Vec<carbide_uuid::machine::MachineId> =
-            sqlx::query_as("SELECT id FROM machines WHERE rack_id = $1 AND deleted IS NULL")
-                .bind(&rack_id)
-                .fetch_all(&mut *conn)
-                .await
-                .map_err(|e| CarbideError::Internal {
-                    message: format!("Failed to query machines for rack: {}", e),
-                })?;
+    let switch_search = model::switch::SwitchSearchFilter {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    };
+    let switch_ids = db::switch::find_ids(&api.database_connection, switch_search)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Failed to query switches for rack: {}", e),
+        })?;
 
-        let switch_ids: Vec<carbide_uuid::switch::SwitchId> =
-            sqlx::query_as("SELECT id FROM switches WHERE rack_id = $1 AND deleted IS NULL")
-                .bind(&rack_id)
-                .fetch_all(&mut *conn)
-                .await
-                .map_err(|e| CarbideError::Internal {
-                    message: format!("Failed to query switches for rack: {}", e),
-                })?;
+    let switch_endpoints = if switch_ids.is_empty() {
+        vec![]
+    } else {
+        db::switch::find_switch_endpoints_by_ids(&api.database_connection, &switch_ids)
+            .await
+            .map_err(|e| CarbideError::Internal {
+                message: format!("Failed to resolve switch endpoints: {}", e),
+            })?
+    };
 
-        // Power shelf firmware updates are not yet supported — skip querying them.
+    // Power shelf firmware updates are not yet supported — skip querying them.
 
-        #[allow(clippy::explicit_auto_deref)]
-        let machine_bmc = if machine_ids.is_empty() {
-            vec![]
-        } else {
-            db::machine_topology::find_machine_bmc_endpoints_by_machine_id(&mut *conn, machine_ids)
-                .await
-                .map_err(|e| CarbideError::Internal {
-                    message: format!("Failed to resolve compute tray BMC endpoints: {}", e),
-                })?
-        };
-
-        let switch_ep = if switch_ids.is_empty() {
-            vec![]
-        } else {
-            db::switch::find_switch_endpoints_by_ids(&api.database_connection, &switch_ids)
-                .await
-                .map_err(|e| CarbideError::Internal {
-                    message: format!("Failed to resolve switch endpoints: {}", e),
-                })?
-        };
-
-        (machine_bmc, switch_ep)
-    }; // conn dropped here
-
-    let has_compute_trays = !machine_bmc_endpoints.is_empty();
+    let has_compute_trays = !machines.is_empty();
     let has_switches = !switch_endpoints.is_empty();
 
     if !has_compute_trays && !has_switches {
@@ -1056,7 +1042,7 @@ pub async fn apply(
 
     tracing::info!(
         rack_id = %rack_id,
-        compute_trays = machine_bmc_endpoints.len(),
+        compute_trays = machines.len(),
         switches = switch_endpoints.len(),
         "Found devices in rack"
     );
@@ -1151,35 +1137,28 @@ pub async fn apply(
     let mut devices = Vec::new();
     let credential_reader = api.credential_manager.as_ref();
 
-    // Compute trays: look up BMC credentials for each resolved endpoint
+    // Compute trays: extract BMC info from Machine objects, look up BMC credentials
     if has_compute_trays {
-        for (machine_id, bmc_ip, bmc_mac) in machine_bmc_endpoints {
-            let (Some(ip), Some(mac)) = (bmc_ip, bmc_mac) else {
-                tracing::warn!(machine_id = %machine_id, "Compute tray missing BMC IP or MAC, skipping");
+        for machine in &machines {
+            let (Some(bmc_ip), Some(bmc_mac)) = (&machine.bmc_info.ip, machine.bmc_info.mac) else {
+                tracing::warn!(machine_id = %machine.id, "Compute tray missing BMC IP or MAC, skipping");
                 continue;
-            };
-            let mac_addr: mac_address::MacAddress = match mac.parse() {
-                Ok(m) => m,
-                Err(e) => {
-                    tracing::warn!(machine_id = %machine_id, mac = %mac, error = %e, "Invalid BMC MAC, skipping");
-                    continue;
-                }
             };
             let creds = credential_reader
                 .get_credentials(&CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::BmcRoot {
-                        bmc_mac_address: mac_addr,
+                        bmc_mac_address: bmc_mac,
                     },
                 })
                 .await
                 .map_err(|e| CarbideError::Internal {
                     message: format!(
                         "Failed to get BMC credentials for compute {}: {}",
-                        machine_id, e
+                        machine.id, e
                     ),
                 })?;
             let Some(Credentials::UsernamePassword { username, password }) = creds else {
-                tracing::warn!(machine_id = %machine_id, "No BMC credentials found, skipping");
+                tracing::warn!(machine_id = %machine.id, "No BMC credentials found, skipping");
                 continue;
             };
             let rms_creds = librms::protos::rack_manager::Credentials {
@@ -1188,15 +1167,15 @@ pub async fn apply(
                 )),
             };
             devices.push(librms::protos::rack_manager::NewNodeInfo {
-                node_id: machine_id.to_string(),
+                node_id: machine.id.to_string(),
                 rack_id: rack_id.to_string(),
                 r#type: Some(librms::protos::rack_manager::NodeType::Compute as i32),
                 bmc_endpoint: Some(librms::protos::rack_manager::BmcEndpoint {
                     interface: Some(librms::protos::rack_manager::NetworkInterface {
-                        ip_address: ip,
-                        mac_address: mac,
+                        ip_address: bmc_ip.clone(),
+                        mac_address: bmc_mac.to_string(),
                     }),
-                    port: 443,
+                    port: machine.bmc_info.port.unwrap_or(443) as i32,
                     credentials: Some(rms_creds),
                 }),
                 host_endpoint: None,
@@ -1377,20 +1356,21 @@ pub async fn apply(
 
     // Record apply event in history
     let rack_id_str = rack_id.to_string();
-    let mut conn = api
-        .database_connection
-        .acquire()
+    {
+        let mut conn =
+            api.database_connection.acquire().await.map_err(|e| {
+                CarbideError::from(DatabaseError::new("acquire for apply history", e))
+            })?;
+        #[allow(clippy::explicit_auto_deref)]
+        db::rack_firmware::record_apply_history(
+            &mut *conn,
+            &req.firmware_id,
+            &rack_id_str,
+            &req.firmware_type,
+        )
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("acquire for apply history", e)))?;
-    #[allow(clippy::explicit_auto_deref)]
-    db::rack_firmware::record_apply_history(
-        &mut *conn,
-        &req.firmware_id,
-        &rack_id_str,
-        &req.firmware_type,
-    )
-    .await
-    .map_err(CarbideError::from)?;
+        .map_err(CarbideError::from)?;
+    }
 
     Ok(Response::new(RackFirmwareApplyResponse {
         total_updates: device_results.len() as i32,
@@ -1551,17 +1531,17 @@ pub async fn get_history(
         Some(req.firmware_id.as_str())
     };
 
-    let mut conn = api
-        .database_connection
-        .acquire()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("acquire for history", e)))?;
-
-    #[allow(clippy::explicit_auto_deref)]
-    let records =
+    let records = {
+        let mut conn = api
+            .database_connection
+            .acquire()
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new("acquire for history", e)))?;
+        #[allow(clippy::explicit_auto_deref)]
         db::rack_firmware::list_apply_history(&mut *conn, firmware_id_filter, &req.rack_ids)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(CarbideError::from)?
+    };
 
     // Group results by rack_id
     let mut histories: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
