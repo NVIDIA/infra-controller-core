@@ -777,31 +777,39 @@ fn build_deployment<L: ResourceLabeler>(
 
     let all_switches: Vec<DpuDeploymentServiceChainsSwitches> = vec![
         DpuDeploymentServiceChainsSwitches {
-            ports: vec![DpuDeploymentServiceChainsSwitchesPorts {
-                service_interface: Some(DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
-                    match_labels: BTreeMap::from([("interface".to_string(), "p0".to_string())]),
-                    ipam: None,
-                }),
-                service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
-                    name: "doca-hbn".to_string(),
-                    interface: "p0_if".to_string(),
-                    ipam: None,
-                }),
-            }],
+            ports: vec![
+                DpuDeploymentServiceChainsSwitchesPorts {
+                    service_interface: Some(DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
+                        match_labels: BTreeMap::from([("interface".to_string(), "p0".to_string())]),
+                        ipam: None,
+                    }),
+                    service: None,
+                },
+                DpuDeploymentServiceChainsSwitchesPorts {
+                    service_interface: None,
+                    service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
+                        name: "doca-hbn".to_string(),
+                        interface: "p0_if".to_string(),
+                        ipam: None,
+                    }),
+                },
+            ],
             service_mtu: None,
         },
         DpuDeploymentServiceChainsSwitches {
             ports: vec![
                 DpuDeploymentServiceChainsSwitchesPorts {
-                    service_interface: Some(
-                        DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
-                            match_labels: BTreeMap::from([(
-                                "interface".to_string(),
-                                "pf0hpf".to_string(),
-                            )]),
-                            ipam: None,
-                        },
-                    ),
+                    service_interface: Some(DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
+                        match_labels: BTreeMap::from([(
+                            "interface".to_string(),
+                            "pf0hpf".to_string(),
+                        )]),
+                        ipam: None,
+                    }),
+                    service: None,
+                },
+                DpuDeploymentServiceChainsSwitchesPorts {
+                    service_interface: None,
                     service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
                         name: "doca-hbn".to_string(),
                         interface: "pf0hpf_if".to_string(),
