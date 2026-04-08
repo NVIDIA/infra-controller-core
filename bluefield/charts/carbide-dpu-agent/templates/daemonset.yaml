@@ -148,7 +148,7 @@ spec:
             type: DirectoryOrCreate
         - name: agent-discovery-info
           emptyDir:
-            sizeLimit: 1Gi
+            sizeLimit: 16Mi
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
