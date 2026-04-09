@@ -670,6 +670,7 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+  rpc GetRackCapabilities(GetRackCapabilitiesRequest) returns (GetRackCapabilitiesResponse);
 
   //
   // Compute Allocations
@@ -6319,6 +6320,71 @@ message RackStateHistoryRecords {
 
 message DeleteRackRequest {
   string id = 1;
+}
+
+// Rack Capabilities
+
+enum RackHardwareType {
+  RACK_HARDWARE_TYPE_UNSPECIFIED = 0;
+  RACK_HARDWARE_TYPE_DSX_GB200NVL_36X1 = 1;
+  RACK_HARDWARE_TYPE_DSX_GB200NVL_36X2 = 2;
+  RACK_HARDWARE_TYPE_DSX_GB200NVL_72X1 = 3;
+}
+
+enum RackHardwareTopology {
+  RACK_HARDWARE_TOPOLOGY_UNSPECIFIED = 0;
+  RACK_HARDWARE_TOPOLOGY_GB200_NVL36R1_C2G4 = 1;
+  RACK_HARDWARE_TOPOLOGY_GB300_NVL36R1_C2G4 = 2;
+  RACK_HARDWARE_TOPOLOGY_GB200_NVL72R1_C2G4 = 3;
+  RACK_HARDWARE_TOPOLOGY_GB300_NVL72R1_C2G4 = 4;
+  RACK_HARDWARE_TOPOLOGY_VR_NVL8R1_C2G4_RTF = 5;
+  RACK_HARDWARE_TOPOLOGY_VR_NVL72R1_C2G4 = 6;
+}
+
+enum RackHardwareClass {
+  RACK_HARDWARE_CLASS_UNSPECIFIED = 0;
+  RACK_HARDWARE_CLASS_DEV = 1;
+  RACK_HARDWARE_CLASS_PROD = 2;
+}
+
+message RackCapabilityCompute {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilitySwitch {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilityPowerShelf {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilitiesSet {
+  RackHardwareType rack_hardware_type = 1;
+  RackHardwareTopology rack_hardware_topology = 2;
+  RackHardwareClass rack_hardware_class = 3;
+  RackCapabilityCompute compute = 4;
+  RackCapabilitySwitch switch = 5;
+  RackCapabilityPowerShelf power_shelf = 6;
+}
+
+message GetRackCapabilitiesRequest {
+  common.RackId rack_id = 1;
+}
+
+message GetRackCapabilitiesResponse {
+  common.RackId rack_id = 1;
+  string rack_type = 2;
+  RackCapabilitiesSet capabilities = 3;
 }
 
 // put some sample rack manager commands in for now
