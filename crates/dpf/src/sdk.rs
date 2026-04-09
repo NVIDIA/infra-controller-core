@@ -50,6 +50,15 @@ use crate::crds::dpuserviceconfigurations_generated::{
     DpuServiceConfigurationServiceConfigurationServiceDaemonSet, DpuServiceConfigurationSpec,
     DpuServiceConfigurationUpgradePolicy,
 };
+use crate::crds::dpuserviceinterfaces_generated::{
+    DPUServiceInterface, DpuServiceInterfaceSpec, DpuServiceInterfaceTemplate,
+    DpuServiceInterfaceTemplateSpec, DpuServiceInterfaceTemplateSpecTemplate,
+    DpuServiceInterfaceTemplateSpecTemplateMetadata, DpuServiceInterfaceTemplateSpecTemplateSpec,
+    DpuServiceInterfaceTemplateSpecTemplateSpecInterfaceType,
+    DpuServiceInterfaceTemplateSpecTemplateSpecPf,
+    DpuServiceInterfaceTemplateSpecTemplateSpecPhysical,
+    DpuServiceInterfaceTemplateSpecTemplateSpecVf,
+};
 use crate::crds::dpuservicenads_generated::{
     DPUServiceNAD, DpuServiceNadResourceType, DpuServiceNadSpec,
 };
@@ -760,6 +769,7 @@ fn build_deployment<L: ResourceLabeler>(
     flavor_name: String,
     namespace: &str,
     labeler: &L,
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
 ) -> DPUDeployment {
     let services_map: BTreeMap<String, DpuDeploymentServices> = services
         .iter()
@@ -775,66 +785,37 @@ fn build_deployment<L: ResourceLabeler>(
         })
         .collect();
 
-    let all_switches: Vec<DpuDeploymentServiceChainsSwitches> = vec![
-        DpuDeploymentServiceChainsSwitches {
-            ports: vec![
-                DpuDeploymentServiceChainsSwitchesPorts {
-                    service_interface: Some(
-                        DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
-                            match_labels: BTreeMap::from([(
-                                "interface".to_string(),
-                                "p0".to_string(),
-                            )]),
-                            ipam: None,
-                        },
-                    ),
-                    service: None,
-                },
-                DpuDeploymentServiceChainsSwitchesPorts {
-                    service_interface: None,
-                    service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
-                        name: "doca-hbn".to_string(),
-                        interface: "p0_if".to_string(),
-                        ipam: None,
-                    }),
-                },
-            ],
+    let active_interfaces = &interfaces[0..2];
+    let mut all_switches = Vec::new();
+    for iface in active_interfaces {
+        let Some(chained_svc_if) = iface.chained_svc_if.as_ref() else {
+            continue;
+        };
+
+        let mut ports = vec![DpuDeploymentServiceChainsSwitchesPorts {
+            service_interface: Some(DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
+                match_labels: BTreeMap::from([("interface".to_string(), iface.name.clone())]),
+                ipam: None,
+            }),
+            service: None,
+        }];
+
+        for (service_name, chain_ifname) in chained_svc_if {
+            ports.push(DpuDeploymentServiceChainsSwitchesPorts {
+                service_interface: None,
+                service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
+                    name: service_name.clone(),
+                    interface: chain_ifname.clone(),
+                    ipam: None,
+                }),
+            });
+        }
+
+        all_switches.push(DpuDeploymentServiceChainsSwitches {
+            ports,
             service_mtu: None,
-        },
-        DpuDeploymentServiceChainsSwitches {
-            ports: vec![
-                DpuDeploymentServiceChainsSwitchesPorts {
-                    service_interface: Some(
-                        DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
-                            match_labels: BTreeMap::from([(
-                                "interface".to_string(),
-                                "pf0hpf".to_string(),
-                            )]),
-                            ipam: None,
-                        },
-                    ),
-                    service: None,
-                },
-                DpuDeploymentServiceChainsSwitchesPorts {
-                    service_interface: None,
-                    service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
-                        name: "doca-hbn".to_string(),
-                        interface: "pf0hpf_if".to_string(),
-                        ipam: None,
-                    }),
-                },
-                DpuDeploymentServiceChainsSwitchesPorts {
-                    service_interface: None,
-                    service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
-                        name: "carbide-dhcp-server".to_string(),
-                        interface: "d_pf0hpf_if".to_string(),
-                        ipam: None,
-                    }),
-                },
-            ],
-            service_mtu: None,
-        },
-    ];
+        });
+    }
 
     let service_chains = if all_switches.is_empty() {
         None
@@ -892,150 +873,191 @@ fn build_deployment<L: ResourceLabeler>(
     }
 }
 
-/// Build each standard DPU service interface template and apply it to the repository in one pass.
-pub async fn apply_service_interface_templates<
-    R: crate::repository::DpuServiceInterfaceRepository,
->(
-    repo: &R,
-    namespace: &str,
-) -> Result<(), crate::error::DpfError> {
-    use kube::core::ObjectMeta;
-
-    use crate::crds::dpuserviceinterfaces_generated::{
-        DPUServiceInterface, DpuServiceInterfaceSpec, DpuServiceInterfaceTemplate,
-        DpuServiceInterfaceTemplateSpec, DpuServiceInterfaceTemplateSpecTemplate,
-        DpuServiceInterfaceTemplateSpecTemplateMetadata,
-        DpuServiceInterfaceTemplateSpecTemplateSpec,
-        DpuServiceInterfaceTemplateSpecTemplateSpecInterfaceType,
-        DpuServiceInterfaceTemplateSpecTemplateSpecPf,
-        DpuServiceInterfaceTemplateSpecTemplateSpecPhysical,
-        DpuServiceInterfaceTemplateSpecTemplateSpecVf,
-    };
-
+pub fn build_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> {
     let interfaces: Vec<DpuServiceInterfaceTemplateDefinition> = vec![
         DpuServiceInterfaceTemplateDefinition {
             name: "p0".into(),
             iface_type: DpuServiceInterfaceTemplateType::Physical,
             pf_id: 0,
             vf_id: 0,
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "p1".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Physical,
-            pf_id: 1,
-            vf_id: 0,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "p0_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0hpf".into(),
             iface_type: DpuServiceInterfaceTemplateType::Pf,
             pf_id: 0,
             vf_id: 0,
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1hpf".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Pf,
-            pf_id: 1,
-            vf_id: 0,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0hpf_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0hpf_if".into()),
+            ]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0vf0".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 0,
             vf_id: 0,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0vf0_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0vf0_if".into()),
+            ]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0vf1".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 0,
             vf_id: 1,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0vf1_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0vf1_if".into()),
+            ]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0vf2".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 0,
             vf_id: 2,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0vf2_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0vf2_if".into()),
+            ]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0vf3".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 0,
             vf_id: 3,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0vf3_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0vf3_if".into()),
+            ]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0vf4".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 0,
             vf_id: 4,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0vf4_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0vf4_if".into()),
+            ]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0vf5".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 0,
             vf_id: 5,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0vf5_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0vf5_if".into()),
+            ]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0vf6".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 0,
             vf_id: 6,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0vf6_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0vf6_if".into()),
+            ]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf0vf7".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 0,
             vf_id: 7,
+            chained_svc_if: Some(vec![
+                ("doca-hbn".into(), "pf0vf7_if".into()),
+                ("carbide-dhcp-server".into(), "d_pf0vf7_if".into()),
+            ]),
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "p1".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Physical,
+            pf_id: 1,
+            vf_id: 0,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "p1_if".into())]),
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1hpf".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Pf,
+            pf_id: 1,
+            vf_id: 0,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1hpf_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf1vf0".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 1,
             vf_id: 0,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1vf0_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf1vf1".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 1,
             vf_id: 1,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1vf1_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf1vf2".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 1,
             vf_id: 2,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1vf2_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf1vf3".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 1,
             vf_id: 3,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1vf3_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf1vf4".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 1,
             vf_id: 4,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1vf4_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf1vf5".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 1,
             vf_id: 5,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1vf5_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf1vf6".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 1,
             vf_id: 6,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1vf6_if".into())]),
         },
         DpuServiceInterfaceTemplateDefinition {
             name: "pf1vf7".into(),
             iface_type: DpuServiceInterfaceTemplateType::Vf,
             pf_id: 1,
             vf_id: 7,
+            chained_svc_if: Some(vec![("doca-hbn".into(), "pf1vf7_if".into())]),
         },
     ];
 
-    let active_interfaces = &interfaces[0..4];
+    interfaces
+}
+
+/// Build each standard DPU service interface template and apply it to the repository in one pass.
+pub async fn apply_service_interface_templates<
+    R: crate::repository::DpuServiceInterfaceRepository,
+>(
+    repo: &R,
+    namespace: &str,
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> Result<(), crate::error::DpfError> {
+    use kube::core::ObjectMeta;
+
+    let active_interfaces = &interfaces[0..2];
 
     for iface in active_interfaces {
         let (interface_type, physical, pf, vf) = match iface.iface_type {
@@ -1146,7 +1168,9 @@ async fn create_flavor_services_and_deployment<
     )
     .await?;
 
-    apply_service_interface_templates(repo, namespace).await?;
+    let interfaces = build_dpu_interfaces_vec();
+
+    apply_service_interface_templates(repo, namespace, &interfaces).await?;
 
     for svc in services {
         DpuServiceTemplateRepository::apply(repo, &build_service_template(svc, namespace)).await?;
@@ -1167,6 +1191,7 @@ async fn create_flavor_services_and_deployment<
         flavor_name,
         namespace,
         labeler,
+        &interfaces,
     );
     DpuDeploymentRepository::apply(repo, &deployment).await?;
     Ok(())

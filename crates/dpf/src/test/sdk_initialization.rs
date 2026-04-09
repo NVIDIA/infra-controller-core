@@ -39,7 +39,7 @@ use crate::repository::{
 };
 use crate::types::*;
 
-const TEST_NS: &str = "sdk-init-ns";
+const TEST_NS: &str = "dpf-operator-system";
 
 fn ns_key(ns: &str, name: &str) -> String {
     format!("{}/{}", ns, name)
