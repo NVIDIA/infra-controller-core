@@ -674,6 +674,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
 
     // 1) Authenticate and set the BMC root account credentials
     // 2) Authenticate and set the BMC forge-admin account credentials (TODO)
+    #[tracing::instrument(skip_all, fields(object_id=%bmc_ip_address))]
     async fn explore_endpoint(
         &self,
         bmc_ip_address: SocketAddr,

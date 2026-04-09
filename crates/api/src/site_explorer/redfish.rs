@@ -19,6 +19,7 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use carbide_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
@@ -332,9 +333,12 @@ impl RedfishClient {
             .nv_redfish_client_pool
             .cached_nv_redfish_bmc(bmc_ip_address, credentials.clone())
         {
-            bmc_explorer::nv_generate_exploration_report(bmc, boot_interface_mac)
-                .await
-                .map_err(map_nv_redfish_explore_error)
+            bmc_explorer::nv_generate_exploration_report(
+                bmc,
+                &nv_bmc_explore_config(boot_interface_mac),
+            )
+            .await
+            .map_err(map_nv_redfish_explore_error)
         } else {
             let bmc = self
                 .nv_redfish_client_pool
@@ -373,9 +377,12 @@ impl RedfishClient {
             };
             self.nv_redfish_client_pool
                 .update_cache(bmc_ip_address, credentials, bmc);
-            bmc_explorer::nv_generate_exploration_report_from_root(root, boot_interface_mac)
-                .await
-                .map_err(map_nv_redfish_explore_error)
+            bmc_explorer::nv_generate_exploration_report_from_root(
+                root,
+                &nv_bmc_explore_config(boot_interface_mac),
+            )
+            .await
+            .map_err(map_nv_redfish_explore_error)
         }
     }
 
@@ -1289,6 +1296,32 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
             response_body: None,
             response_code: None,
         },
+    }
+}
+
+fn nv_error_classifier(
+    err: &<crate::nv_redfish::NvRedfishBmc as nv_redfish::Bmc>::Error,
+) -> Option<bmc_explorer::ErrorClass> {
+    type BmcError = nv_redfish::bmc_http::reqwest::BmcError;
+    match err {
+        BmcError::InvalidResponse {
+            status: http::StatusCode::NOT_FOUND,
+            ..
+        } => Some(bmc_explorer::ErrorClass::HttpNotFound),
+        _ => None,
+    }
+}
+
+fn nv_bmc_explore_config(
+    boot_interface_mac: Option<MacAddress>,
+) -> bmc_explorer::Config<'static, crate::nv_redfish::NvRedfishBmc> {
+    bmc_explorer::Config {
+        boot_interface_mac,
+        error_classifier: &nv_error_classifier,
+        // Chosen arbitrarily: we want to wait a bit between tries,
+        // but not for too long relative to the total exploration
+        // time.
+        retry_timeout: Duration::from_millis(1000),
     }
 }
 
