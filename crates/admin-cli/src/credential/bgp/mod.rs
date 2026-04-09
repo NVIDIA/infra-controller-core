@@ -28,10 +28,7 @@ use crate::cfg::runtime::RuntimeContext;
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
 pub enum Cmd {
-    #[clap(
-        name = "set-sitewide",
-        about = "Set the site-wide leaf BGP password"
-    )]
+    #[clap(name = "set-sitewide", about = "Set the site-wide leaf BGP password")]
     Set(set_sitewide::Args),
     #[clap(
         name = "delete-sitewide",
