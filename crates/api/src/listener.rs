@@ -40,7 +40,7 @@ use tower_http::auth::AsyncRequireAuthorizationLayer;
 
 use crate::api::Api;
 use crate::auth;
-use crate::auth::AuthContext;
+use crate::auth::Authorization;
 use crate::cfg::file::AuthConfig;
 use crate::errors::CarbideError;
 use crate::logging::api_logs::LogLayer;
@@ -216,7 +216,7 @@ pub async fn start(
             ),
         ))?;
 
-    let cert_description_layer: CertDescriptionMiddleware<AuthContext> =
+    let cert_description_layer: CertDescriptionMiddleware<Authorization> =
         CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context);
     let casbin_layer = if let Some(auth_config) = auth_config {
         if let Some(casbin_policy_file) = &auth_config.casbin_policy_file {
