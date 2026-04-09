@@ -65,8 +65,9 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
         registry,
         health_controller: Some(metrics_setup.health_controller),
     };
-    let join_listener =
-        tokio::spawn(async move { metrics_endpoint::run_metrics_endpoint(&metrics_config).await });
+    let join_listener = tokio::spawn(async move {
+        metrics_endpoint::run_metrics_endpoint_forever(&metrics_config).await
+    });
 
     // Create consumer metrics
     let consumer_metrics = ConsumerMetrics::new(&meter);

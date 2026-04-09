@@ -31,6 +31,7 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions as semconv;
 use prometheus::{Encoder, TextEncoder};
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 
 /// Health and readiness controller
 #[derive(Debug, Clone)]
@@ -155,8 +156,17 @@ fn create_metric_view_for_retry_histograms(
     opentelemetry_sdk::metrics::new_view(criteria, mask)
 }
 
+pub async fn run_metrics_endpoint_forever(
+    config: &MetricsEndpointConfig,
+) -> Result<(), std::io::Error> {
+    run_metrics_endpoint(config, CancellationToken::new()).await
+}
+
 /// Start a HTTP endpoint which exposes metrics using the provided configuration
-pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), std::io::Error> {
+pub async fn run_metrics_endpoint(
+    config: &MetricsEndpointConfig,
+    cancel_token: CancellationToken,
+) -> Result<(), std::io::Error> {
     let handler_state = Arc::new(MetricsHandlerState {
         registry: config.registry.clone(),
         health_controller: config.health_controller.clone().unwrap_or_default(),
@@ -169,9 +179,8 @@ pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), 
         "Starting metrics listener"
     );
 
-    loop {
-        let (stream, _) = listener.accept().await?;
-
+    while let Some(result) = cancel_token.run_until_cancelled(listener.accept()).await {
+        let (stream, _) = result?;
         let io = TokioIo::new(stream);
 
         let handler_state = handler_state.clone();
@@ -192,6 +201,7 @@ pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), 
             }
         });
     }
+    Ok(())
 }
 
 /// Metrics request handler
