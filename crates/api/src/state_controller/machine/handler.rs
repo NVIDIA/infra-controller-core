@@ -5224,7 +5224,8 @@ impl StateHandler for InstanceStateHandler {
                         }
                         InstanceNetworkSyncStatus::InstanceNetworkSynced => {}
                         InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded => {
-                            return Ok(StateHandlerOutcome::transition(next_state));
+                            // We don't need the DPU observation - but we still want to check
+                            // whether NVLink and IB configs are applied
                         }
                         InstanceNetworkSyncStatus::InstanceNetworkNotSynced(outdated_dpus) => {
                             return Ok(StateHandlerOutcome::wait(format!(
@@ -6693,84 +6694,23 @@ impl HostUpgradeState {
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let machine_id = state.host_snapshot.id;
 
-        let is_current_cycle = |fw: &model::rack::RackFirmwareUpgradeStatus| -> bool {
-            match (
-                &fw.ended_at,
-                &state.host_snapshot.host_reprovision_requested,
-            ) {
-                (Some(ended), Some(req)) => ended >= &req.requested_at,
-                _ => true,
-            }
-        };
-
-        if let Some(fw) = &state.host_snapshot.rack_fw_details
-            && !fw.is_in_progress()
-            && is_current_cycle(fw)
-        {
-            match &fw.status {
-                model::rack::RackFirmwareUpgradeState::Completed => {
-                    tracing::info!(
-                        %machine_id,
-                        "Rack firmware upgrade completed, transitioning to Ready"
-                    );
-                    let outcome = StateHandlerOutcome::transition(scenario.actual_new_state(
-                        HostReprovisionState::CheckingFirmwareRepeatV2 {
-                            firmware_type: None,
-                            firmware_number: None,
-                        },
-                        state.managed_state.get_host_repro_retry_count(),
-                    ));
-                    return Ok(outcome
-                        .in_transaction(&ctx.services.db_pool, move |txn| {
-                            async move {
-                                db::host_machine_update::clear_host_reprovisioning_request(
-                                    txn,
-                                    &machine_id,
-                                )
-                                .await?;
-                                Ok::<_, DatabaseError>(())
-                            }
-                            .boxed()
-                        })
-                        .await??);
+        let outcome = StateHandlerOutcome::transition(scenario.actual_new_state(
+            HostReprovisionState::CheckingFirmwareRepeatV2 {
+                firmware_type: None,
+                firmware_number: None,
+            },
+            state.managed_state.get_host_repro_retry_count(),
+        ));
+        return Ok(outcome
+            .in_transaction(&ctx.services.db_pool, move |txn| {
+                async move {
+                    db::host_machine_update::clear_host_reprovisioning_request(txn, &machine_id)
+                        .await?;
+                    Ok::<_, DatabaseError>(())
                 }
-                model::rack::RackFirmwareUpgradeState::Failed { cause } => {
-                    tracing::warn!(
-                        %machine_id,
-                        "Rack firmware upgrade failed: {}", cause
-                    );
-                    let outcome = StateHandlerOutcome::transition(ManagedHostState::Failed {
-                        details: FailureDetails {
-                            cause: FailureCause::Reprovisioning {
-                                err: format!("Rack firmware upgrade failed: {}", cause),
-                            },
-                            failed_at: chrono::Utc::now(),
-                            source: FailureSource::StateMachine,
-                        },
-                        machine_id,
-                        retry_count: 0,
-                    });
-                    return Ok(outcome
-                        .in_transaction(&ctx.services.db_pool, move |txn| {
-                            async move {
-                                db::host_machine_update::clear_host_reprovisioning_request(
-                                    txn,
-                                    &machine_id,
-                                )
-                                .await?;
-                                Ok::<_, DatabaseError>(())
-                            }
-                            .boxed()
-                        })
-                        .await??);
-                }
-                _ => {}
-            }
-        }
-
-        Ok(StateHandlerOutcome::wait(
-            "Waiting for rack firmware upgrade to be completed".to_string(),
-        ))
+                .boxed()
+            })
+            .await??);
     }
 
     #[allow(clippy::too_many_arguments)]
