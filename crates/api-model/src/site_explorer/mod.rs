@@ -32,7 +32,7 @@ use libredfish::RedfishError;
 pub use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use utils::models::arch::CpuArchitecture;
 
 use super::DpuModel;
@@ -1222,12 +1222,21 @@ pub struct ComputerSystem {
     pub attributes: ComputerSystemAttributes,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pcie_devices: Vec<PCIeDevice>,
+    #[serde(default, deserialize_with = "base_mac_deserialize")]
     pub base_mac: Option<BaseMac>,
     #[serde(default)]
     pub power_state: PowerState,
     pub sku: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot_order: Option<BootOrder>,
+}
+
+pub fn base_mac_deserialize<'a, D>(deserializer: D) -> Result<Option<BaseMac>, D::Error>
+where
+    D: Deserializer<'a>,
+{
+    let optional_value: Option<String> = Option::deserialize(deserializer)?;
+    Ok(optional_value.and_then(|v| v.parse().ok()))
 }
 
 impl ComputerSystem {
@@ -2277,5 +2286,132 @@ mod tests {
         assert_eq!(report.compute_tray_index, None);
         assert_eq!(report.topology_id, None);
         assert_eq!(report.revision_id, None);
+    }
+
+    #[test]
+    fn is_power_shelf_with_powershelf_chassis_id() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "powershelf".to_string(),
+                manufacturer: Some("lite-on technology corp.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_chassis_id_and_liteon_manufacturer() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: Some("LITE-ON TECHNOLOGY CORP.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_generic_chassis_id_not_liteon() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: Some("Dell Inc.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_no_manufacturer() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: None,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!report.is_power_shelf());
+    }
+
+    #[test]
+    fn test_computer_system_with_invalid_base_mac_deserializes_as_none() {
+        let json = serde_json::json!({
+            "EthernetInterfaces": [],
+            "Id": "Bluefield",
+            "Manufacturer": "Nvidia",
+            "Model": "Bluefield-3 DPU",
+            "SerialNumber": "ABC1234",
+            "Attributes": {},
+            "PcieDevices": [],
+            "BaseMac": "pe:",
+            "PowerState": "On"
+        });
+
+        let system: ComputerSystem =
+            serde_json::from_value(json).expect("should deserialize despite invalid BaseMac");
+        assert_eq!(system.base_mac, None);
+    }
+
+    #[test]
+    fn test_computer_system_with_valid_base_mac_deserializes_correctly() {
+        let json = serde_json::json!({
+            "EthernetInterfaces": [],
+            "Id": "Bluefield",
+            "Manufacturer": "Nvidia",
+            "Model": "Bluefield-3 DPU",
+            "SerialNumber": "ABC1234",
+            "Attributes": {},
+            "PcieDevices": [],
+            "BaseMac": "A088C208804C",
+            "PowerState": "On"
+        });
+
+        let system: ComputerSystem =
+            serde_json::from_value(json).expect("should deserialize valid BaseMac");
+        assert_eq!(system.base_mac, Some("A088C208804C".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_computer_system_with_null_base_mac_deserializes_as_none() {
+        let json = serde_json::json!({
+            "EthernetInterfaces": [],
+            "Id": "Bluefield",
+            "Manufacturer": "Nvidia",
+            "Model": "Bluefield-3 DPU",
+            "SerialNumber": "ABC1234",
+            "Attributes": {},
+            "PcieDevices": [],
+            "BaseMac": null,
+            "PowerState": "On"
+        });
+
+        let system: ComputerSystem =
+            serde_json::from_value(json).expect("should deserialize null BaseMac");
+        assert_eq!(system.base_mac, None);
+    }
+
+    #[test]
+    fn test_computer_system_with_missing_base_mac_deserializes_as_none() {
+        let json = serde_json::json!({
+            "EthernetInterfaces": [],
+            "Id": "Bluefield",
+            "Manufacturer": "Nvidia",
+            "Model": "Bluefield-3 DPU",
+            "SerialNumber": "ABC1234",
+            "Attributes": {},
+            "PcieDevices": [],
+            "PowerState": "On"
+        });
+
+        let system: ComputerSystem =
+            serde_json::from_value(json).expect("should deserialize missing BaseMac");
+        assert_eq!(system.base_mac, None);
     }
 }
