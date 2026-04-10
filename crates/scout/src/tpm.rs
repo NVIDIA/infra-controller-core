@@ -20,8 +20,7 @@ use std::process::Command;
 use tss_esapi::handles::AuthHandle;
 use tss_esapi::interface_types::session_handles::AuthSession;
 
-use crate::CarbideClientError;
-use crate::attestation as attest;
+use crate::{CarbideClientError, attestation as attest};
 
 // From https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode
 pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
@@ -76,9 +75,8 @@ pub(crate) fn clear_tpm_platform_hierarchy(tpm_path: &str) -> Result<(), Carbide
     // full TPM auth session is unnecessary.
     ctx.set_sessions((Some(AuthSession::Password), None, None));
 
-    ctx.clear(AuthHandle::Platform).map_err(|e| {
-        CarbideClientError::TpmError(format!("TPM2_Clear (platform) failed: {e}"))
-    })?;
+    ctx.clear(AuthHandle::Platform)
+        .map_err(|e| CarbideClientError::TpmError(format!("TPM2_Clear (platform) failed: {e}")))?;
 
     ctx.clear_sessions();
     tracing::info!("TPM platform hierarchy clear completed");
