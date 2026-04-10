@@ -115,8 +115,9 @@ pub async fn persist(
                 vlan_id,
                 vni_id,
                 network_segment_type,
-                can_stretch)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                can_stretch,
+                allocation_strategy)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id";
     let segment_id: NetworkSegmentId = sqlx::query_as(query)
         .bind(value.id)
@@ -131,6 +132,7 @@ pub async fn persist(
         .bind(value.vni)
         .bind(value.segment_type)
         .bind(value.can_stretch)
+        .bind(value.allocation_strategy)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -454,33 +456,20 @@ pub async fn try_update_controller_state(
     txn: &mut PgConnection,
     segment_id: NetworkSegmentId,
     expected_version: ConfigVersion,
+    new_version: ConfigVersion,
     new_state: &NetworkSegmentControllerState,
 ) -> Result<bool, DatabaseError> {
-    let next_version = expected_version.increment();
-
     let query = "UPDATE network_segments SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
-    let query_result: Result<NetworkSegmentId, _> = sqlx::query_as(query)
-        .bind(next_version)
+    let result = sqlx::query_as::<_, NetworkSegmentId>(query)
+        .bind(new_version)
         .bind(sqlx::types::Json(new_state))
         .bind(segment_id)
         .bind(expected_version)
-        .fetch_one(&mut *txn)
-        .await;
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-    match query_result {
-        Ok(_segment_id) => {
-            crate::network_segment_state_history::persist(
-                &mut *txn,
-                segment_id,
-                new_state,
-                next_version,
-            )
-            .await?;
-            Ok(true)
-        }
-        Err(sqlx::Error::RowNotFound) => Ok(false),
-        Err(e) => Err(DatabaseError::query(query, e)),
-    }
+    Ok(result.is_some())
 }
 
 pub async fn update_controller_state_outcome(
@@ -575,6 +564,16 @@ pub async fn find_by_name(
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(&query, e))
+}
+
+/// Well-known name for the static assignments "anchor segment",
+/// making it extra-obvious that it's a special one.
+pub const STATIC_ASSIGNMENTS_SEGMENT_NAME: &str = "static-assignments";
+
+/// Returns the static-assignments anchor segment, used for external
+/// static IP assignments that don't fall within any managed network prefix.
+pub async fn static_assignments(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseError> {
+    find_by_name(txn, STATIC_ASSIGNMENTS_SEGMENT_NAME).await
 }
 
 /// This method returns Admin network segment.

@@ -169,6 +169,8 @@ impl FakePowerShelf {
         }
     }
 
+    /// Builds model input for `add_expected_power_shelf`; `bmc_ip_address` drives the same static
+    /// BMC pre-allocation path as expected machines / switches.
     fn as_expected_power_shelf(&self) -> model::expected_power_shelf::ExpectedPowerShelf {
         model::expected_power_shelf::ExpectedPowerShelf {
             expected_power_shelf_id: None,
@@ -176,7 +178,7 @@ impl FakePowerShelf {
             bmc_username: self.bmc_username.clone(),
             bmc_password: self.bmc_password.clone(),
             serial_number: self.serial_number.clone(),
-            ip_address: Some(self.ip.parse().unwrap()),
+            bmc_ip_address: Some(self.ip.parse().unwrap()),
             metadata: Metadata {
                 name: format!("Test Power Shelf {}", self.serial_number),
                 description: format!("A test power shelf with serial {}", self.serial_number),
@@ -897,7 +899,7 @@ async fn test_site_explorer_audit_exploration_results(
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
         rotate_switch_nvos_credentials: Arc::new(false.into()),
-        use_onboard_nic: Arc::new(false.into()),
+        force_dpu_nic_mode: Arc::new(false.into()),
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
@@ -1428,6 +1430,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -1476,6 +1479,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         host_nics: vec![],
         rack_id: None,
         dpf_enabled: Some(true),
+        bmc_ip_address: None,
     };
     db::expected_machine::update(&mut txn, &host1_expected_machine).await?;
     txn.commit().await?;
@@ -2435,6 +2439,7 @@ async fn test_machine_creation_with_sku(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2568,6 +2573,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2589,6 +2595,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2610,6 +2617,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2917,6 +2925,159 @@ async fn test_site_explorer_power_shelf_discovery(
 }
 
 #[crate::sqlx_test]
+async fn test_site_explorer_switch_discovery(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let bmc_mac: MacAddress = "B8:3F:D2:90:97:C0".parse().unwrap();
+    let serial_number = "SW-SN-001".to_string();
+    let bmc_username = "ADMIN".to_string();
+    let bmc_password = "Pwd2023".to_string();
+    let segment = env.underlay_segment.unwrap();
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(
+                bmc_mac.to_string(),
+                match segment {
+                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
+                    _ => "192.0.2.1".to_string(),
+                },
+            )
+            .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    tracing::info!("DHCP with mac {} assigned ip {}", bmc_mac, response.address);
+    let switch_ip = response.address.clone();
+
+    let mut txn = env.pool.begin().await?;
+    let expected_switch = model::expected_switch::ExpectedSwitch {
+        expected_switch_id: None,
+        bmc_mac_address: bmc_mac,
+        nvos_mac_addresses: vec![bmc_mac],
+        serial_number: serial_number.clone(),
+        bmc_username: bmc_username.clone(),
+        bmc_password: bmc_password.clone(),
+        nvos_username: None,
+        nvos_password: None,
+        bmc_ip_address: None,
+        metadata: Metadata {
+            name: format!("Test Switch {}", serial_number),
+            description: format!("A test switch with serial {}", serial_number),
+            labels: HashMap::new(),
+        },
+        rack_id: None,
+    };
+    db::expected_switch::create(&mut txn, expected_switch).await?;
+    txn.commit().await?;
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+
+    endpoint_explorer.insert_endpoint_result(
+        switch_ip.parse().unwrap(),
+        Ok(EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            last_exploration_error: None,
+            last_exploration_latency: None,
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+            machine_id: None,
+            managers: Vec::new(),
+            systems: vec![ComputerSystem {
+                serial_number: Some(serial_number.clone()),
+                ..Default::default()
+            }],
+            chassis: vec![Chassis {
+                id: "mgx_nvswitch_0".to_string(),
+                model: Some("Switch".to_string()),
+                manufacturer: Some("NVIDIA".to_string()),
+                serial_number: Some(serial_number.clone()),
+                part_number: Some(serial_number.clone()),
+                ..Default::default()
+            }],
+            service: Vec::new(),
+            versions: HashMap::default(),
+            model: Some("Switch".to_string()),
+            machine_setup_status: None,
+            secure_boot_status: None,
+            lockdown_status: None,
+            power_shelf_id: None,
+            switch_id: None,
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
+        }),
+    );
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_switches: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        allow_zero_dpu_hosts: true,
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
+    );
+
+    explorer.run_single_iteration().await.unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let explored = db_explored_endpoints::find_all(txn.as_mut()).await.unwrap();
+    txn.commit().await?;
+    assert_eq!(explored.len(), 1);
+
+    for report in &explored {
+        assert_eq!(report.report_version.version_nr(), 1);
+        let guard = endpoint_explorer.reports.lock().unwrap();
+        let res = guard.get(&report.address).unwrap();
+        assert!(res.is_ok());
+        assert_eq!(
+            res.clone().unwrap().endpoint_type,
+            report.report.endpoint_type
+        );
+        assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
+        assert_eq!(res.clone().unwrap().systems, report.report.systems);
+    }
+
+    let mut txn = env.pool.begin().await?;
+    db_explored_endpoints::set_preingestion_complete(switch_ip.parse().unwrap(), &mut txn).await?;
+    txn.commit().await?;
+
+    explorer.run_single_iteration().await.unwrap();
+
+    assert_eq!(
+        test_meter
+            .formatted_metric("carbide_endpoint_explorations_count")
+            .unwrap(),
+        "1"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let switches = db::switch::find_all(txn.as_mut()).await?;
+    println!("switches: {:?}", switches);
+    txn.commit().await?;
+    assert_eq!(switches.len(), 1, "Expected one switch to be created");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_site_explorer_power_shelf_with_expected_config(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -3035,7 +3196,6 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig {},
     )
     .await?;
     txn.commit().await?;
@@ -3327,7 +3487,6 @@ async fn test_site_explorer_power_shelf_disabled(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig {},
     )
     .await?;
     txn.commit().await?;
@@ -3582,7 +3741,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3611,7 +3769,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3631,7 +3788,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3657,7 +3813,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3812,7 +3967,6 @@ async fn test_power_shelf_state_history(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4082,7 +4236,6 @@ async fn test_power_shelf_state_history_multiple(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4296,7 +4449,6 @@ async fn test_power_shelf_state_history_error_handling(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4375,7 +4527,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
 
     let power_shelf = FakePowerShelf::new(
         "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.2.1".to_string(),
+        "192.0.1.180".to_string(),
         "PS123456789".to_string(),
         "admin".to_string(),
         "password".to_string(),
@@ -4388,11 +4540,13 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         power_shelf.ip,
         power_shelf.bmc_mac_address,
     );
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
+    // Create expected power shelf via the RPC handler, which
+    // pre-allocates a machine interface with the static IP.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(
+            power_shelf.as_expected_power_shelf().into(),
+        ))
+        .await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 

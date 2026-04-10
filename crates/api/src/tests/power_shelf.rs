@@ -19,7 +19,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig, PowerShelfStatus};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{PowerShelfDeletionRequest, PowerShelfQuery};
+use rpc::forge::{AdminForceDeletePowerShelfRequest, PowerShelfDeletionRequest, PowerShelfQuery};
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -235,6 +235,8 @@ async fn test_power_shelf_database_operations(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
+        rack_id: None,
     };
 
     let created_power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -252,7 +254,6 @@ async fn test_power_shelf_database_operations(
     let found_power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -290,6 +291,8 @@ async fn test_power_shelf_status_update(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
+        rack_id: None,
     };
 
     let mut power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -333,6 +336,8 @@ async fn test_power_shelf_controller_state_transitions(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
+        rack_id: None,
     };
 
     let power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -348,19 +353,21 @@ async fn test_power_shelf_controller_state_transitions(
     let new_state = model::power_shelf::PowerShelfControllerState::Ready;
     let current_version = power_shelf.controller_state.version;
 
-    db_power_shelf::try_update_controller_state(
+    let next_version = current_version.increment();
+    let updated = db_power_shelf::try_update_controller_state(
         &mut txn,
         power_shelf_id,
         current_version,
+        next_version,
         &new_state,
     )
     .await?;
+    assert!(updated, "update with correct version should succeed");
 
     // Verify the state was updated
     let updated_power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -370,6 +377,39 @@ async fn test_power_shelf_controller_state_transitions(
         updated_power_shelf.controller_state.value,
         model::power_shelf::PowerShelfControllerState::Ready
     ));
+
+    // Version should have been incremented
+    assert_eq!(
+        updated_power_shelf.controller_state.version.version_nr(),
+        current_version.version_nr() + 1,
+        "version should be incremented after update"
+    );
+
+    // Trying to update with the old version should fail (optimistic lock)
+    let stale_update = db_power_shelf::try_update_controller_state(
+        &mut txn,
+        power_shelf_id,
+        current_version,
+        current_version.increment(),
+        &model::power_shelf::PowerShelfControllerState::Initializing,
+    )
+    .await?;
+    assert!(
+        !stale_update,
+        "update with stale version should be rejected"
+    );
+
+    // Updating with the new version should succeed
+    let new_version = updated_power_shelf.controller_state.version;
+    let updated_again = db_power_shelf::try_update_controller_state(
+        &mut txn,
+        power_shelf_id,
+        new_version,
+        new_version.increment(),
+        &model::power_shelf::PowerShelfControllerState::Initializing,
+    )
+    .await?;
+    assert!(updated_again, "update with current version should succeed");
 
     txn.rollback().await?;
 
@@ -394,6 +434,8 @@ async fn test_power_shelf_conversion_roundtrip(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
+        rack_id: None,
     };
 
     let mut power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -466,6 +508,8 @@ async fn test_power_shelf_list_segment_ids(
         let new_power_shelf = NewPowerShelf {
             id: power_shelf_id,
             config: config.clone(),
+            metadata: None,
+            rack_id: None,
         };
 
         let power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -506,6 +550,8 @@ async fn test_power_shelf_controller_state_outcome(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
+        rack_id: None,
     };
 
     let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -520,7 +566,6 @@ async fn test_power_shelf_controller_state_outcome(
     let updated_power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -567,6 +612,125 @@ async fn test_new_power_shelf_fixture(
     // Verify the custom power shelf was created
     assert!(!custom_power_shelf_id.to_string().is_empty());
     assert_ne!(power_shelf_id, custom_power_shelf_id);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_power_shelf_success(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("ForceDelete Power Shelf".to_string()),
+        Some(5000),
+        Some(240),
+        None,
+    )
+    .await?;
+
+    // Force delete without deleting interfaces.
+    let response = env
+        .api
+        .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
+            power_shelf_id: Some(power_shelf_id),
+            delete_interfaces: false,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.power_shelf_id, power_shelf_id.to_string());
+    assert_eq!(response.interfaces_deleted, 0);
+
+    // Verify the power shelf is completely gone (not just soft-deleted).
+    let find_result = env
+        .api
+        .find_power_shelves(tonic::Request::new(PowerShelfQuery {
+            name: None,
+            power_shelf_id: Some(power_shelf_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(
+        find_result.power_shelves.is_empty(),
+        "Power shelf should be hard-deleted"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_power_shelf_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let non_existent_id = PowerShelfId::from(uuid::Uuid::new_v4());
+    let result = env
+        .api
+        .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
+            power_shelf_id: Some(non_existent_id),
+            delete_interfaces: false,
+        }))
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), Code::NotFound);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_power_shelf_already_soft_deleted(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("SoftDeleted Power Shelf".to_string()),
+        Some(3000),
+        Some(120),
+        None,
+    )
+    .await?;
+
+    // Soft-delete the power shelf first.
+    env.api
+        .delete_power_shelf(tonic::Request::new(PowerShelfDeletionRequest {
+            id: Some(power_shelf_id),
+        }))
+        .await?;
+
+    // Force-delete should still work on a soft-deleted power shelf.
+    let response = env
+        .api
+        .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
+            power_shelf_id: Some(power_shelf_id),
+            delete_interfaces: false,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.power_shelf_id, power_shelf_id.to_string());
+
+    // Verify completely gone.
+    let find_result = env
+        .api
+        .find_power_shelves(tonic::Request::new(PowerShelfQuery {
+            name: None,
+            power_shelf_id: Some(power_shelf_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(
+        find_result.power_shelves.is_empty(),
+        "Power shelf should be hard-deleted after force delete"
+    );
 
     Ok(())
 }

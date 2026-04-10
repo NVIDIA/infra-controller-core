@@ -478,6 +478,8 @@ impl ApiClient {
             .map_err(ClientApiError::InvocationError)
     }
 
+    /// Registers a mock expected machine. Static BMC (`bmc_ip_address`) is left unset here;
+    /// real environments set it through the admin CLI / API when DHCP discovery is not used.
     pub async fn add_expected_machine(
         &self,
         bmc_mac_address: String,
@@ -499,6 +501,7 @@ impl ApiClient {
                 #[allow(deprecated)]
                 dpf_enabled: true,
                 is_dpf_enabled: Some(true),
+                bmc_ip_address: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

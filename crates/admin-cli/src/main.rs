@@ -17,7 +17,6 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
-use std::pin::Pin;
 
 use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge_api_client::ForgeApiClient;
@@ -68,6 +67,7 @@ mod machine;
 mod machine_interfaces;
 mod machine_validation;
 mod managed_host;
+mod managed_switch;
 mod measurement;
 mod metadata;
 mod mlx;
@@ -228,6 +228,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::MachineInterfaces(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::MachineValidation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ManagedHost(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ManagedSwitch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Measurement(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Mlx(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkDevice(cmd) => cmd.dispatch(ctx).await?,
@@ -272,16 +273,16 @@ async fn main() -> color_eyre::Result<()> {
 
 pub async fn get_output_file_or_stdout(
     output_filename: Option<&str>,
-) -> Result<Pin<Box<dyn tokio::io::AsyncWrite>>, CarbideCliError> {
-    let output: Pin<Box<dyn tokio::io::AsyncWrite>> = if let Some(filename) = output_filename {
+) -> Result<Box<dyn tokio::io::AsyncWrite + Unpin>, CarbideCliError> {
+    let output: Box<dyn tokio::io::AsyncWrite + Unpin> = if let Some(filename) = output_filename {
         let file = tokio::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(filename)
             .await?;
-        Box::pin(file)
+        Box::new(file)
     } else {
-        Box::pin(tokio::io::stdout())
+        Box::new(tokio::io::stdout())
     };
     Ok(output)
 }

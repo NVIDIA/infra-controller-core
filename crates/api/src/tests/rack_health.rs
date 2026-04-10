@@ -17,16 +17,18 @@
 
 use carbide_uuid::rack::RackId;
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport, OverrideMode};
+use model::expected_machine::ExpectedMachineData;
 use model::machine::LoadSnapshotOptions;
 use model::rack::RackConfig;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as rpc_forge};
 use tonic::Request;
 
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
-    send_health_report_override,
+    TestEnvOverrides, create_managed_host, create_managed_host_with_config,
+    create_test_env_with_overrides, get_config, send_health_report_override,
 };
 
 fn leak_alert_report(source: &str) -> HealthReport {
@@ -232,26 +234,20 @@ async fn test_propagation_to_host_aggregate_health(
         create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(get_config()))
             .await;
 
-    let mh = create_managed_host(&env).await;
-    let host_machine_id = mh.id;
-
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.acquire().await?;
     TestRackDbBuilder::new()
         .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
-
-    let config = RackConfig {
-        compute_trays: vec![host_machine_id],
-        power_shelves: vec![],
-        expected_compute_trays: vec![],
-        expected_switches: vec![],
-        expected_power_shelves: vec![],
-        rack_type: None,
-    };
-    db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
+
+    let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    });
+    let mh = create_managed_host_with_config(&env, host_config).await;
+    let host_machine_id = mh.id;
 
     let report = leak_alert_report("dsx-exchange-consumer");
     env.api
@@ -300,25 +296,20 @@ async fn test_host_allocatability_blocked_by_rack_override(
         create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(get_config()))
             .await;
 
-    let mh = create_managed_host(&env).await;
-    let host_machine_id = mh.id;
-
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.acquire().await?;
     TestRackDbBuilder::new()
         .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
-    let config = RackConfig {
-        compute_trays: vec![host_machine_id],
-        power_shelves: vec![],
-        expected_compute_trays: vec![],
-        expected_switches: vec![],
-        expected_power_shelves: vec![],
-        rack_type: None,
-    };
-    db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
+
+    let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    });
+    let mh = create_managed_host_with_config(&env, host_config).await;
+    let host_machine_id = mh.id;
 
     let report = leak_alert_report("dsx-exchange-consumer");
     env.api
@@ -376,12 +367,8 @@ async fn test_host_replace_overrides_rack_alerts(
         .persist(&mut txn)
         .await?;
     let config = RackConfig {
-        compute_trays: vec![host_machine_id],
-        power_shelves: vec![],
-        expected_compute_trays: vec![],
-        expected_switches: vec![],
-        expected_power_shelves: vec![],
         rack_type: None,
+        ..Default::default()
     };
     db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
@@ -452,12 +439,8 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
         .persist(&mut txn)
         .await?;
     let config = RackConfig {
-        compute_trays: vec![host_machine_id],
-        power_shelves: vec![],
-        expected_compute_trays: vec![],
-        expected_switches: vec![],
-        expected_power_shelves: vec![],
         rack_type: None,
+        ..Default::default()
     };
     db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
@@ -574,7 +557,7 @@ async fn test_dsx_consumer_contract(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 }
 
 #[crate::sqlx_test]
-async fn test_rack_health_visible_in_get_rack(
+async fn test_rack_health_visible_in_find_racks_by_ids(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env =
@@ -600,14 +583,14 @@ async fn test_rack_health_visible_in_get_rack(
 
     let rack_resp = env
         .api
-        .get_rack(Request::new(rpc_forge::GetRackRequest {
-            id: Some(rack_id.to_string()),
+        .find_racks_by_ids(Request::new(rpc_forge::RacksByIdsRequest {
+            rack_ids: vec![rack_id.clone()],
         }))
         .await?
         .into_inner();
 
-    assert_eq!(rack_resp.rack.len(), 1);
-    let rack = &rack_resp.rack[0];
+    assert_eq!(rack_resp.racks.len(), 1);
+    let rack = &rack_resp.racks[0];
 
     assert!(rack.health.is_some(), "Rack should have health field");
     let health: HealthReport = rack.health.clone().unwrap().try_into().unwrap();

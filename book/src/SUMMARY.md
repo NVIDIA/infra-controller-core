@@ -3,7 +3,7 @@
 - [Introduction](README.md)
 - [Hardware Compatbility List](hcl.md)
 - [Release Notes](release-notes.md)
-- [FAQs](faqs.md)
+- [FAQs](faq.md)
 
 # Architecture
 
@@ -21,6 +21,7 @@
     - [NIC and Port selection](architecture/infiniband/nic_selection.md)
 - [State Machines]()
     - [Managed Host](architecture/state_machines/managedhost.md)
+    - [Switch](architecture/state_machines/switch.md)
 
 # Manuals
 
@@ -55,6 +56,7 @@
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
 - [Database]()
     - [Data Model / DB Schema](development/schema.md)
+- [Adding Support for New Hardware](development/new_hardware_support.md)
 - [DPU/Bluefield](dpu-operations.md)
 
 # Kubernetes

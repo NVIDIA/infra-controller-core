@@ -100,6 +100,7 @@ fn convert_and_print_into_nice_table(
     table.set_titles(row![
         "Serial Number",
         "BMC Mac",
+        "MAC addresses",
         "Interface IP",
         "Associated Machine",
         "Name",
@@ -141,6 +142,7 @@ fn convert_and_print_into_nice_table(
         table.add_row(row![
             expected_switch.switch_serial_number,
             expected_switch.bmc_mac_address,
+            expected_switch.nvos_mac_addresses.join(", "),
             machine_interface
                 .map(|x| x.address.join("\n"))
                 .unwrap_or("Undiscovered".to_string()),

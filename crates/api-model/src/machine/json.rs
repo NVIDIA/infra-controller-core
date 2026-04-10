@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::HealthReport;
@@ -39,6 +40,7 @@ use crate::machine::{
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
+use crate::rack::RackFirmwareUpgradeStatus;
 use crate::sku::SkuStatus;
 
 /// This represents the structure of a machine we get from postgres via the row_to_json or
@@ -48,6 +50,7 @@ use crate::sku::SkuStatus;
 #[derive(Serialize, Deserialize)]
 pub struct MachineSnapshotPgJson {
     pub id: MachineId,
+    pub rack_id: Option<RackId>,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deployed: Option<DateTime<Utc>>,
@@ -102,6 +105,8 @@ pub struct MachineSnapshotPgJson {
     pub update_complete: bool,
     pub nvlink_info: Option<MachineNvLinkInfo>,
     pub dpf: Dpf,
+    #[serde(default)]
+    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -149,6 +154,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
 
         Ok(Self {
             id: value.id,
+            rack_id: value.rack_id,
             state: Versioned {
                 value: value.controller_state,
                 version: value.controller_state_version.parse().map_err(|e| {
@@ -213,6 +219,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             update_complete: value.update_complete,
             nvlink_info: value.nvlink_info,
             dpf: value.dpf,
+            rack_fw_details: value.rack_fw_details,
         })
     }
 }

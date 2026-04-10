@@ -53,7 +53,6 @@ impl From<DbSwitchStateHistoryRecord> for SwitchStateHistoryRecord {
 /// Arguments:
 ///
 /// * `txn` - A reference to an open Transaction
-///
 pub async fn find_by_switch_ids(
     txn: &mut PgConnection,
     ids: &[SwitchId],
@@ -115,6 +114,20 @@ pub async fn persist(
         .await
         .map_err(|e| DatabaseError::new(query, e))
         .map(Into::into)
+}
+
+/// Delete all state history entries for a switch.
+pub async fn delete_by_switch_id(
+    txn: &mut PgConnection,
+    switch_id: &SwitchId,
+) -> DatabaseResult<u64> {
+    let query = "DELETE FROM switch_state_history WHERE switch_id = $1";
+    let result = sqlx::query(query)
+        .bind(switch_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
+    Ok(result.rows_affected())
 }
 
 /// Renames all history entries using one Switch ID into using another Switch ID

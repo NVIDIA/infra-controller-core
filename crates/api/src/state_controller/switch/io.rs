@@ -19,7 +19,6 @@
 
 use carbide_uuid::switch::SwitchId;
 use config_version::{ConfigVersion, Versioned};
-use db::switch::SwitchSearchConfig;
 use db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
@@ -63,7 +62,6 @@ impl StateControllerIO for SwitchStateControllerIO {
         let mut switches = db_switch::find_by(
             txn,
             ObjectColumnFilter::One(db::switch::IdColumn, switch_id),
-            SwitchSearchConfig::default(),
         )
         .await?;
         if switches.is_empty() {
@@ -98,15 +96,21 @@ impl StateControllerIO for SwitchStateControllerIO {
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
+        new_version: ConfigVersion,
+        new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db_switch::try_update_controller_state(txn, *object_id, old_version, new_version, new_state)
+            .await
+    }
+
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let _updated =
-            db_switch::try_update_controller_state(txn, *object_id, old_version, new_state).await?;
-
-        // Persist state history for debugging purposes
-        let _history =
-            db::switch_state_history::persist(txn, object_id, new_state, old_version).await?;
-
+        db::switch_state_history::persist(txn, object_id, new_state, new_version).await?;
         Ok(())
     }
 
@@ -121,10 +125,13 @@ impl StateControllerIO for SwitchStateControllerIO {
 
     fn metric_state_names(state: &SwitchControllerState) -> (&'static str, &'static str) {
         match state {
-            SwitchControllerState::Initializing => ("initializing", ""),
-            SwitchControllerState::FetchingData => ("fetching_data", ""),
-            SwitchControllerState::Configuring => ("configuring", ""),
+            SwitchControllerState::Created => ("created", ""),
+            SwitchControllerState::Initializing { .. } => ("initializing", ""),
+            SwitchControllerState::Configuring { .. } => ("configuring", ""),
+            SwitchControllerState::Validating { .. } => ("validating", ""),
+            SwitchControllerState::BomValidating { .. } => ("bomvalidating", ""),
             SwitchControllerState::Ready => ("ready", ""),
+            SwitchControllerState::ReProvisioning { .. } => ("reprovisioning", ""),
             SwitchControllerState::Error { .. } => ("error", ""),
             SwitchControllerState::Deleting => ("deleting", ""),
         }

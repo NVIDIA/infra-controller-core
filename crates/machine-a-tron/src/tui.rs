@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
@@ -94,12 +95,13 @@ pub struct HostDetails {
     pub machine_id: Option<String>,
     pub hw_type: Option<HostHardwareType>,
     pub power_state: MockPowerState,
-    pub mat_state: String,
+    pub mat_state: Option<&'static str>,
     pub api_state: String,
     pub oob_ip: String,
     pub machine_ip: String,
     pub dpus: Vec<HostDetails>,
     pub booted_os: String,
+    pub next_boot_kind: Cow<'static, str>,
 }
 
 impl HostDetails {
@@ -109,7 +111,7 @@ impl HostDetails {
             self.machine_id
                 .clone()
                 .unwrap_or_else(|| self.mat_id.to_string()),
-            self.mat_state,
+            self.mat_state.unwrap_or("Unknown"),
             self.api_state
         )
     }
@@ -130,7 +132,8 @@ impl HostDetails {
             &format!("BMC IP: {}\n", self.oob_ip),
             &format!("Power State: {}\n", self.power_state),
             &format!("Booted OS: {}\n", self.booted_os),
-            &format!("MAT State: {}\n", self.mat_state),
+            &format!("Next boot: {}\n", self.next_boot_kind),
+            &format!("MAT State: {}\n", self.mat_state.unwrap_or("Unknown")),
             &format!("API State: {}\n", self.api_state),
         ]
         .into_iter()

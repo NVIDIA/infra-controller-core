@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
@@ -37,6 +39,8 @@ pub struct Args {
     )]
     pub switch_serial_number: String,
 
+    #[clap(long = "nvos-mac-address", help = "NVOS MAC address(es) of the expected switch", action = clap::ArgAction::Append)]
+    pub nvos_mac_addresses: Vec<MacAddress>,
     #[clap(long, help = "NVOS username of the expected switch")]
     pub nvos_username: Option<String>,
     #[clap(long, help = "NVOS password of the expected switch")]
@@ -71,6 +75,13 @@ pub struct Args {
         action = clap::ArgAction::Append
     )]
     pub rack_id: Option<RackId>,
+
+    #[clap(
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        help = "BMC IP address of the expected switch"
+    )]
+    pub bmc_ip_address: Option<IpAddr>,
 }
 
 impl From<Args> for rpc::forge::ExpectedSwitch {
@@ -89,8 +100,17 @@ impl From<Args> for rpc::forge::ExpectedSwitch {
             switch_serial_number: value.switch_serial_number,
             metadata: Some(metadata),
             rack_id: value.rack_id,
+            nvos_mac_addresses: value
+                .nvos_mac_addresses
+                .iter()
+                .map(|m| m.to_string())
+                .collect(),
             nvos_username: value.nvos_username,
             nvos_password: value.nvos_password,
+            bmc_ip_address: value
+                .bmc_ip_address
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
         }
     }
 }

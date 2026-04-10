@@ -188,12 +188,13 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             power_state: self
                 .system
                 .power_state()
-                .map(|v| match v {
-                    PowerState::On => ModelPowerState::On,
-                    PowerState::Off => ModelPowerState::Off,
-                    PowerState::PoweringOn => ModelPowerState::PoweringOn,
-                    PowerState::PoweringOff => ModelPowerState::PoweringOff,
-                    PowerState::Paused => ModelPowerState::Paused,
+                .and_then(|v| match v {
+                    PowerState::On => Some(ModelPowerState::On),
+                    PowerState::Off => Some(ModelPowerState::Off),
+                    PowerState::PoweringOn => Some(ModelPowerState::PoweringOn),
+                    PowerState::PoweringOff => Some(ModelPowerState::PoweringOff),
+                    PowerState::Paused => Some(ModelPowerState::Paused),
+                    PowerState::UnsupportedValue => None,
                 })
                 .unwrap_or_default(),
             sku: self.system.sku().map(|v| v.to_string()),
@@ -311,6 +312,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     id: Some(iface.id().to_string()),
                     interface_enabled: iface.interface_enabled(),
                     mac_address,
+                    link_status: iface.link_status().map(|s| format!("{s:?}")),
                     uefi_device_path,
                 })
             }).collect::<Result<Vec<_>, _>>()?;
@@ -365,6 +367,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                         id: Some("oob_net0".to_string()),
                         interface_enabled: None,
                         mac_address: Some(mac_addr),
+                        link_status: None,
                         uefi_device_path: None,
                     })
             })
@@ -388,9 +391,10 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     | Some("BlueField-3 SmartNIC Main Card")
                     | Some("Bluefield 3 SmartNIC Main Card") => {
                         use nv_redfish::oem::nvidia::bluefield::nvidia_computer_system::Mode;
-                        bf_ncs.mode().map(|v| match v {
-                            Mode::DpuMode => NicMode::Dpu,
-                            Mode::NicMode => NicMode::Nic,
+                        bf_ncs.mode().and_then(|v| match v {
+                            Mode::DpuMode => Some(NicMode::Dpu),
+                            Mode::NicMode => Some(NicMode::Nic),
+                            Mode::UnsupportedValue => None,
                         })
                     }
                     Some("Bluefield 2 SmartNIC Main Card") | Some("Bluefield SoC") => {
@@ -516,22 +520,24 @@ fn pcie_device_to_model<B: Bmc>(
         }),
         // TODO: Should not be converted to string....
         status: status.map(|status| model::site_explorer::SystemStatus {
-            health: status.health.map(|v| {
-                match v {
-                    nv_redfish::resource::Health::Ok => "OK",
-                    nv_redfish::resource::Health::Warning => "Warning",
-                    nv_redfish::resource::Health::Critical => "Critical",
-                }
-                .into()
-            }),
-            health_rollup: status.health_rollup.map(|v| {
-                match v {
-                    nv_redfish::resource::Health::Ok => "OK",
-                    nv_redfish::resource::Health::Warning => "Warning",
-                    nv_redfish::resource::Health::Critical => "Critical",
-                }
-                .into()
-            }),
+            health: status
+                .health
+                .and_then(|v| match v {
+                    nv_redfish::resource::Health::Ok => Some("OK"),
+                    nv_redfish::resource::Health::Warning => Some("Warning"),
+                    nv_redfish::resource::Health::Critical => Some("Critical"),
+                    nv_redfish::resource::Health::UnsupportedValue => None,
+                })
+                .map(ToString::to_string),
+            health_rollup: status
+                .health_rollup
+                .and_then(|v| match v {
+                    nv_redfish::resource::Health::Ok => Some("OK"),
+                    nv_redfish::resource::Health::Warning => Some("Warning"),
+                    nv_redfish::resource::Health::Critical => Some("Critical"),
+                    nv_redfish::resource::Health::UnsupportedValue => None,
+                })
+                .map(ToString::to_string),
             // Not enabled devices are filtered by code above.
             state: status
                 .state

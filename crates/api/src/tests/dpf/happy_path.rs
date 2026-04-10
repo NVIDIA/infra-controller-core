@@ -39,6 +39,7 @@ fn default_mock() -> MockDpfOperations {
     mock.expect_is_reboot_required().returning(|_| Ok(false));
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
+    mock.expect_verify_node_labels().returning(|_| Ok(true));
     mock
 }
 
@@ -50,8 +51,9 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     config.dpf = crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: None,
         services: None,
+        v2: true,
+        ..Default::default()
     };
 
     let env = create_test_env_with_overrides(
@@ -74,6 +76,6 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     assert!(carbide_machines_per_state.contains(&(
         "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
-        "2".to_string()
+        "3".to_string()
     )));
 }

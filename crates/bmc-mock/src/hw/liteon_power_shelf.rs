@@ -55,6 +55,7 @@ impl LiteOnPowerShelf<'_> {
                     .interface_enabled(true)
                     .build(),
                 ]),
+                host_interfaces: None,
                 firmware_version: Some("r1.3.9"),
                 oem: None,
             }],
@@ -72,7 +73,7 @@ impl LiteOnPowerShelf<'_> {
                 eth_interfaces: None,
                 serial_number: None,
                 boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
-                power_control: None,
+                callbacks: None,
                 chassis: vec!["powershelf".into()],
                 boot_options: None,
                 bios_mode: redfish::computer_system::BiosMode::Generic,

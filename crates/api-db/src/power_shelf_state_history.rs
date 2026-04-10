@@ -53,7 +53,6 @@ impl From<DbPowerShelfStateHistoryRecord> for PowerShelfStateHistoryRecord {
 /// Arguments:
 ///
 /// * `txn` - A reference to an open Transaction
-///
 pub async fn find_by_power_shelf_ids(
     txn: &mut PgConnection,
     ids: &[PowerShelfId],
@@ -114,6 +113,20 @@ pub async fn persist(
         .await
         .map_err(|e| DatabaseError::new(query, e))
         .map(Into::into)
+}
+
+/// Delete all state history entries for a power shelf.
+pub async fn delete_by_power_shelf_id(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+) -> DatabaseResult<u64> {
+    let query = "DELETE FROM power_shelf_state_history WHERE power_shelf_id = $1";
+    let result = sqlx::query(query)
+        .bind(power_shelf_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
+    Ok(result.rows_affected())
 }
 
 /// Renames all history entries using one Power Shelf ID into using another Power Shelf ID

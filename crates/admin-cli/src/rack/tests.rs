@@ -52,7 +52,7 @@ fn parse_show_no_args() {
 
     match cmd {
         Cmd::Show(args) => {
-            assert!(args.identifier.is_none());
+            assert!(args.rack.is_none());
         }
         _ => panic!("expected Show variant"),
     }
@@ -66,7 +66,7 @@ fn parse_show_with_identifier() {
 
     match cmd {
         Cmd::Show(args) => {
-            assert_eq!(args.identifier, Some("rack-123".to_string()));
+            assert_eq!(args.rack, Some("rack-123".parse().unwrap()));
         }
         _ => panic!("expected Show variant"),
     }
@@ -99,4 +99,26 @@ fn parse_delete() {
 fn parse_delete_missing_identifier_fails() {
     let result = Cmd::try_parse_from(["rack", "delete"]);
     assert!(result.is_err(), "should fail without identifier");
+}
+
+// parse_capabilities_show ensures capabilities show parses with rack ID.
+#[test]
+fn parse_capabilities_show() {
+    let cmd = Cmd::try_parse_from(["rack", "capabilities", "show", "rack-123"])
+        .expect("should parse capabilities show");
+
+    match cmd {
+        Cmd::Capabilities(capabilities::Args::Show(args)) => {
+            assert_eq!(args.rack_id, "rack-123".parse().unwrap());
+        }
+        _ => panic!("expected Capabilities(Show) variant"),
+    }
+}
+
+// parse_capabilities_show_missing_rack_id_fails ensures capabilities
+// show fails without rack ID.
+#[test]
+fn parse_capabilities_show_missing_rack_id_fails() {
+    let result = Cmd::try_parse_from(["rack", "capabilities", "show"]);
+    assert!(result.is_err(), "should fail without rack_id");
 }

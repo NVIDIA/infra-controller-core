@@ -32,7 +32,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::crds::dpus_generated::*;
 use crate::error::DpfError;
-use crate::repository::{DpuRepository, K8sConfigRepository};
+use crate::repository::{DpfOperatorConfigRepository, DpuRepository, K8sConfigRepository};
 
 pub(crate) struct Collector<T> {
     pub items: Mutex<Vec<T>>,
@@ -250,10 +250,7 @@ pub(crate) fn make_dpu_labeled(
     mid: &str,
 ) -> DPU {
     let mut dpu = make_dpu(ns, name, device, node, phase);
-    dpu.metadata.labels = Some(BTreeMap::from([(
-        "carbide.nvidia.com/dpu-machine-id".into(),
-        mid.into(),
-    )]));
+    dpu.metadata.labels = Some(BTreeMap::from([("test/dpu-machine-id".into(), mid.into())]));
     dpu
 }
 
@@ -291,6 +288,13 @@ impl K8sConfigRepository for ConfigMock {
         _: &str,
         _: BTreeMap<String, Vec<u8>>,
     ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DpfOperatorConfigRepository for ConfigMock {
+    async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
 }

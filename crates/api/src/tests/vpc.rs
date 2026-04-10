@@ -278,7 +278,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert!(forge_vpc.status.and_then(|s| s.vni).is_some());
     // The 'config' VNI is still None because this was an auto-allocated VNI
     assert!(forge_vpc.vni.is_none());
-    // We default to type Ethernet Virtualizer
+    // We default to EthernetVirtualizer (proto value 0).
     assert_eq!(forge_vpc.network_virtualization_type, Some(0));
 
     let no_org_vpc = env
@@ -358,10 +358,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(updated_vpc.metadata, updated_metadata);
     assert_eq!(updated_vpc.version.version_nr(), 2);
 
-    // This only works because `EthernetVirtualizer` is the default
-    // virtualization type right now. Once we change the default type,
-    // this will fail, and we'll need to update the test. BUT, I wanted
-    // to be explicit here.
+    // DB value "etv" decodes as EthernetVirtualizer.
     assert_eq!(
         updated_vpc.network_virtualization_type,
         VpcVirtualizationType::EthernetVirtualizer

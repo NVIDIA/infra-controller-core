@@ -17,7 +17,6 @@
 
 //!
 //! The Carbide API server library.
-//!
 
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
 #![cfg_attr(test, allow(txn_held_across_await))]
@@ -74,6 +73,7 @@ mod db_init;
 mod dhcp;
 mod dpa;
 mod dpf;
+mod dpf_services;
 mod dynamic_settings;
 mod errors;
 mod ethernet_virtualization;

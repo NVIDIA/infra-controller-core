@@ -23,7 +23,7 @@ use crate::{
     dpu_remediation, expected_machines, expected_power_shelf, expected_rack, expected_switch,
     extension_service, firmware, generate_shell_complete, host, ib_partition, instance,
     instance_type, inventory, ip, jump, machine, machine_interfaces, machine_validation,
-    managed_host, mlx, network_devices, network_security_group, network_segment,
+    managed_host, managed_switch, mlx, network_devices, network_security_group, network_segment,
     nvl_logical_partition, nvl_partition, os_image, ping, power_shelf, rack, rack_firmware,
     redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer, sku, ssh, switch,
     tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
@@ -155,6 +155,12 @@ pub enum CliCommand {
     )]
     ManagedHost(managed_host::Cmd),
     #[clap(
+        about = "Managed switch related handling",
+        subcommand,
+        visible_alias = "ms"
+    )]
+    ManagedSwitch(managed_switch::Cmd),
+    #[clap(
         subcommand,
         about = "Work with measured boot data.",
         visible_alias = "mb"
@@ -189,7 +195,7 @@ pub enum CliCommand {
     #[clap(about = "Site explorer functions", subcommand)]
     SiteExplorer(site_explorer::Cmd),
     #[clap(
-        about = "List of all Machine interfaces",
+        about = "Machine interfaces and address management",
         subcommand,
         visible_alias = "mi"
     )]

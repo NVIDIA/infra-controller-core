@@ -25,9 +25,8 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
-use model;
-use model::machine;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use model::{self, machine};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use utils::managed_host_display::get_memory_details;
@@ -653,13 +652,8 @@ async fn fetch_managed_hosts_with_metadata(
     let machine_ids = api
         .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
             include_dpus: true,
-            include_history: false,
             include_predicted_host: true,
-            only_maintenance: false,
-            exclude_hosts: false,
-            only_quarantine: false,
-            instance_type_id: None,
-            mnnvl_only: false,
+            ..Default::default()
         }))
         .await?
         .into_inner()

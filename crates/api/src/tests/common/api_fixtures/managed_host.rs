@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
+use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate};
 use model::machine::ManagedHostState;
 use model::site_explorer::{
@@ -58,6 +59,11 @@ pub struct ManagedHostConfig {
     /// Default: true (maintains backward compatibility)
     pub auto_assign_sku_in_fixture: bool,
     pub hardware_info_template: HardwareInfoTemplate,
+    /// The contents of this will be used as ExpectedMachine entry
+    /// However not all fields need to be filled
+    /// - bmc username/password are not required
+    /// - serial number is copied from ManagedHostConfig
+    pub expected_machine_data: Option<ExpectedMachineData>,
 }
 
 impl ManagedHostConfig {
@@ -85,6 +91,13 @@ impl ManagedHostConfig {
     pub fn with_hardware_info_template(hardware_info_template: HardwareInfoTemplate) -> Self {
         Self {
             hardware_info_template,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_expected_machine_data(expected_machine_data: ExpectedMachineData) -> Self {
+        Self {
+            expected_machine_data: Some(expected_machine_data),
             ..Default::default()
         }
     }
@@ -126,6 +139,7 @@ impl Default for ManagedHostConfig {
                 .collect(),
             auto_assign_sku_in_fixture: true,
             hardware_info_template: HardwareInfoTemplate::Default,
+            expected_machine_data: None,
         }
     }
 }
@@ -239,6 +253,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some(format!("Embedded NIC 1 Port {port} Partition 1")),
                     interface_enabled: Some(true),
                     mac_address: Some(*mac),
+                    link_status: None,
                     uefi_device_path: None,
                 }
             })
@@ -249,6 +264,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some(format!("NIC in Slot {slot} Port 1")),
                     interface_enabled: Some(true),
                     mac_address: Some(dpu.host_mac_address),
+                    link_status: None,
                     uefi_device_path: Some(
                         dpu.override_hosts_uefi_device_path.clone().unwrap_or(
                             UefiDevicePath::from_str(&format!(
@@ -275,6 +291,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some("Management Network Interface".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some(value.bmc_mac_address),
+                    link_status: None,
                     uefi_device_path: None,
                 }],
             }],
