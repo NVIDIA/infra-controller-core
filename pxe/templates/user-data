@@ -1,4 +1,4 @@
-cat <<\ZOF >/etc/bf.cfg
+cat << \ZOF >/etc/bf.cfg
 
 # SFC variables
 ENABLE_BR_HBN=yes
@@ -63,15 +63,15 @@ if [ -e "$nvinit_path" ]; then
 
   # Files to install: src:dest:mode
   local -a nvinit_files=(
-    "/$nvinit_path/etc-nvssh-nvssh-conf:/mnt/etc/nvssh/nvssh.conf:0644"
-    "/$nvinit_path/etc-sudoersd-nvssh-sudo:/mnt/etc/sudoers.d/nvssh-sudo:0600"
-    "/$nvinit_path/etc-sudoersd-nvssh-sudo-nopasswd:/mnt/etc/sudoers.d/nvssh-sudo-nopasswd:0600"
-    "/$nvinit_path/etc-nsswitch-conf:/mnt/etc/nsswitch.conf:0644"
-    "/$nvinit_path/etc-pamd-sshd:/mnt/etc/pam.d/sshd:0600"
-    "/$nvinit_path/etc-ssh-ngc-users-ca-keys-pem:/mnt/etc/ssh/ngc-users-ca-keys.pem:0644"
-    "/$nvinit_path/sbin-nss-exec:/mnt/sbin/nss_exec:0755"
-    "/$nvinit_path/usr-bin-nvssh:/mnt/usr/bin/nvssh:0755"
-    "/$nvinit_path/etc-ssh-sshd-config:/mnt/etc/ssh/sshd_config:0644"
+    "$nvinit_path/etc-nvssh-nvssh-conf:/mnt/etc/nvssh/nvssh.conf:0644"
+    "$nvinit_path/etc-sudoersd-nvssh-sudo:/mnt/etc/sudoers.d/nvssh-sudo:0600"
+    "$nvinit_path/etc-sudoersd-nvssh-sudo-nopasswd:/mnt/etc/sudoers.d/nvssh-sudo-nopasswd:0600"
+    "$nvinit_path/etc-nsswitch-conf:/mnt/etc/nsswitch.conf:0644"
+    "$nvinit_path/etc-pamd-sshd:/mnt/etc/pam.d/sshd:0600"
+    "$nvinit_path/etc-ssh-ngc-users-ca-keys-pem:/mnt/etc/ssh/ngc-users-ca-keys.pem:0644"
+    "$nvinit_path/sbin-nss-exec:/mnt/sbin/nss_exec:0755"
+    "$nvinit_path/usr-bin-nvssh:/mnt/usr/bin/nvssh:0755"
+    "$nvinit_path/etc-ssh-sshd-config:/mnt/etc/ssh/sshd_config:0644"
   )
 
   for entry in "${nvinit_files[@]}"; do
