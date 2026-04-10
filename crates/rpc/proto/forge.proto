@@ -2319,7 +2319,7 @@ message TenantConfig {
   string tenant_organization_id = 1;
 
   // These fields have been used for OS configuration in the past.
-  // They are now replaced with the OperatingSystem message.
+  // They are now replaced with the OperatingSystemConfig message.
   reserved 11, 12, 13, 14;
 
   optional string hostname = 15;
