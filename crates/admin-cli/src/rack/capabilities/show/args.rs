@@ -15,29 +15,11 @@
  * limitations under the License.
  */
 
-pub mod capabilities;
-mod delete;
-mod list;
-pub mod metadata;
-mod show;
-
-#[cfg(test)]
-mod tests;
-
+use carbide_uuid::rack::RackId;
 use clap::Parser;
 
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Show rack information")]
-    Show(show::Args),
-    #[clap(about = "List all racks")]
-    List(list::Args),
-    #[clap(about = "Delete the rack")]
-    Delete(delete::Args),
-    #[clap(subcommand, about = "Edit Metadata associated with a Rack")]
-    Metadata(metadata::Args),
-    #[clap(subcommand, about = "Rack capabilities")]
-    Capabilities(capabilities::Args),
+#[derive(Parser, Debug, Clone)]
+pub struct Args {
+    #[clap(help = "Rack ID to get capabilities for")]
+    pub rack_id: RackId,
 }
