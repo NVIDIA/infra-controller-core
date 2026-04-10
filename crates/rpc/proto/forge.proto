@@ -645,6 +645,12 @@ service Forge {
   // Trim DB Tables
   rpc TrimTable(TrimTableRequest) returns (TrimTableResponse);
 
+  // Chassis serial → NMX-C gRPC endpoint (nvlink_nmxc_endpoints table)
+  rpc ListNvlinkNmxcEndpoints(google.protobuf.Empty) returns (NvlinkNmxcEndpointList);
+  rpc CreateNvlinkNmxcEndpoint(NvlinkNmxcEndpoint) returns (NvlinkNmxcEndpoint);
+  rpc UpdateNvlinkNmxcEndpoint(NvlinkNmxcEndpoint) returns (NvlinkNmxcEndpoint);
+  rpc DeleteNvlinkNmxcEndpoint(DeleteNvlinkNmxcEndpointRequest) returns (google.protobuf.Empty);
+
   // begin DPU Remediation APIs
   // these apis are intended for consumption by the admin-cli to manage remediations and their status
   rpc CreateRemediation(CreateRemediationRequest) returns (CreateRemediationResponse);
@@ -6091,6 +6097,19 @@ message TrimTableRequest{
 
 message TrimTableResponse{
   string total_deleted = 1;
+}
+
+message NvlinkNmxcEndpoint {
+  string chassis_serial = 1;
+  string endpoint = 2;
+}
+
+message NvlinkNmxcEndpointList {
+  repeated NvlinkNmxcEndpoint entries = 1;
+}
+
+message DeleteNvlinkNmxcEndpointRequest {
+  string chassis_serial = 1;
 }
 
 // begin DPU remediation models

@@ -73,6 +73,7 @@ mod mlx;
 mod network_devices;
 mod network_security_group;
 mod network_segment;
+mod nvlink_nmxc_endpoints;
 mod nvl_logical_partition;
 mod nvl_partition;
 mod os_image;
@@ -231,6 +232,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::NetworkDevice(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkSecurityGroup(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NvlinkNmxcEndpoints(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OsImage(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ping(cmd) => cmd.dispatch(ctx).await?,

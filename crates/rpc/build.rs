@@ -143,6 +143,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.MachineNVLinkGpuStatusObservation", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineNVLinkStatusObservation", "#[derive(serde::Serialize)]")
         .type_attribute("common.NVLinkDomainId", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NvlinkNmxcEndpoint", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.NvlinkNmxcEndpointList", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute(
+            "forge.DeleteNvlinkNmxcEndpointRequest",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .type_attribute("common.NVLinkLogicalPartitionId", "#[derive(serde::Serialize)]")
         .type_attribute("common.NVLinkPartitionId", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineNVLinkInfo", "#[derive(serde::Serialize)]")

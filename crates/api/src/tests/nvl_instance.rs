@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use libnmxc::nmxc_model::GetPartitionInfoListRequest;
 //use rpc::forge::NvlPartitionSearchFilter;
 use ::rpc::machine_discovery::Gpu;
 use common::api_fixtures::create_managed_host_with_hardware_info_template;
@@ -62,6 +63,8 @@ async fn test_create_instance_with_nvl_config(pool: sqlx::PgPool) {
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(logical_ids_list.partition_ids.len(), 1);
+
+    print!("XXXXXXXXXXXXXXXXXX\n\n\n");
 
     let mh = create_managed_host_with_hardware_info_template(
         &env,
@@ -1138,11 +1141,11 @@ async fn test_instance_delete_with_nvl_config(pool: sqlx::PgPool) {
         nvlink_config.enabled = true;
     }
 
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool.clone(),
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
+    let mut test_overrides = TestEnvOverrides::with_config(config);
+    test_overrides.nmxc_default_partition = Some(true);
+
+    let env =
+        common::api_fixtures::create_test_env_with_overrides(pool.clone(), test_overrides).await;
 
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
@@ -1238,10 +1241,11 @@ async fn test_instance_delete_with_nvl_config(pool: sqlx::PgPool) {
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(ids_all.partition_ids.len(), 0);
+
 }
 
 #[crate::sqlx_test]
-async fn test_create_instance_with_nvl_config_remove_from_default_partition(pool: sqlx::PgPool) {
+async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
         nvlink_config.enabled = true;
@@ -1453,18 +1457,26 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ids_all.partition_ids.len(), 1);
 
-    let nmxm_sim_client = env
-        .nmxm_sim
-        .create_client("localhost:4010", None)
+    let nmxc_sim_client = env
+        .nmxc_sim
+        .create_client(libnmxc::Endpoint::new("localhost:4010"))
         .await
         .unwrap();
-    let nmx_m_partitions = nmxm_sim_client.get_partitions_list().await.unwrap();
-    assert_eq!(nmx_m_partitions.len(), 1);
-    let members = match nmx_m_partitions[0].members.as_ref() {
-        libnmxm::nmxm_model::PartitionMembers::Ids(ids) => ids,
-        _ => panic!("Expected IDs partition members"),
-    };
-    assert_eq!(members.len(), 4);
+    let nmxc_partitions = nmxc_sim_client
+        .get_partition_info_list(GetPartitionInfoListRequest {
+            context: Some(libnmxc::nmxc_model::Context {
+                context: String::new(),
+            }),
+            partition_id_list: vec![],
+            partition_name_list: vec![],
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+        })
+        .await
+        .unwrap()
+        .partition_info_list;
+
+    assert_eq!(nmxc_partitions.len(), 1);
+    assert_eq!(nmxc_partitions[0].gpu_uid_list.len(), 4);
 
     // Now create another instance in the same logical partition and rack.
     let mh2 = create_managed_host_with_hardware_info_template(
@@ -1520,13 +1532,21 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ids_all.partition_ids.len(), 1);
 
-    let nmx_m_partitions = nmxm_sim_client.get_partitions_list().await.unwrap();
-    assert_eq!(nmx_m_partitions.len(), 1);
-    let members = match nmx_m_partitions[0].members.as_ref() {
-        libnmxm::nmxm_model::PartitionMembers::Ids(ids) => ids,
-        _ => panic!("Expected IDs partition members"),
-    };
-    assert_eq!(members.len(), 8);
+    let nmxc_partitions = nmxc_sim_client
+        .get_partition_info_list(GetPartitionInfoListRequest {
+            context: Some(libnmxc::nmxc_model::Context {
+                context: String::new(),
+            }),
+            partition_id_list: vec![],
+            partition_name_list: vec![],
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+        })
+        .await
+        .unwrap()
+        .partition_info_list;
+
+    assert_eq!(nmxc_partitions.len(), 1);
+    assert_eq!(nmxc_partitions[0].gpu_uid_list.len(), 8);
 }
 
 #[crate::sqlx_test]

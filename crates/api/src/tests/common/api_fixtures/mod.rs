@@ -103,7 +103,7 @@ use crate::logging::log_limiter::LogLimiter;
 use crate::nv_redfish::NvRedfishClientPool;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::NmxmClientPool;
-use crate::nvlink::test_support::NmxmSimClient;
+use crate::nvlink::test_support::{NmxcSimClient, NmxmSimClient};
 use crate::rack::rms_client::test_support::RmsSim;
 use crate::redfish::test_support::RedfishSim;
 use crate::scout_stream;
@@ -138,6 +138,7 @@ use crate::tests::common::api_fixtures::network_segment::{
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 use crate::tests::common::test_certificates::TestCertificateProvider;
 use crate::tests::common::test_meter::TestMeter;
+use libnmxc::NmxcPool;
 
 pub mod dpu;
 pub mod endpoint_explorer;
@@ -266,6 +267,8 @@ pub struct TestEnvOverrides {
     pub fnn_config: Option<FnnConfig>,
     pub nmxm_default_partition: Option<bool>,
     pub nmxm_unknown_partition: Option<bool>,
+    pub nmxc_default_partition: Option<bool>,
+    pub nmxc_unknown_partition: Option<bool>,
     // After n create_requests succeed, they will start failing.
     pub nmxm_fail_after_n_creates: Option<usize>,
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
@@ -356,6 +359,7 @@ pub struct TestEnv {
     pub attestation_enabled: bool,
     pub site_explorer: SiteExplorer,
     pub nmxm_sim: Arc<dyn NmxmClientPool>,
+    pub nmxc_sim: Arc<dyn NmxcPool>,
     pub endpoint_explorer: MockEndpointExplorer,
     pub admin_segment: Option<NetworkSegmentId>,
     pub underlay_segment: Option<NetworkSegmentId>,
@@ -1312,6 +1316,17 @@ pub async fn create_test_env_with_overrides(
             NmxmSimClient::default()
         });
 
+    let nmxc_sim: Arc<dyn NmxcPool> =
+        Arc::new(if let Some(n) = overrides.nmxm_fail_after_n_creates {
+            NmxcSimClient::with_fail_after_n_creates(n)
+        } else if overrides.nmxc_default_partition == Some(true) {
+            NmxcSimClient::with_default_partition()
+        } else if overrides.nmxc_unknown_partition == Some(true) {
+            NmxcSimClient::with_unknown_partition()
+        } else {
+            NmxcSimClient::default()
+        });
+
     let mut config = overrides.config.unwrap_or(get_config());
     if let Some(threshold) = overrides.dpu_agent_version_staleness_threshold {
         config.host_health.dpu_agent_version_staleness_threshold = threshold;
@@ -1375,7 +1390,7 @@ pub async fn create_test_env_with_overrides(
 
     let nvl_partition_monitor = NvlPartitionMonitor::new(
         db_pool.clone(),
-        nmxm_sim.clone(),
+        nmxc_sim.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
         config.host_health,
@@ -1718,6 +1733,7 @@ pub async fn create_test_env_with_overrides(
         test_meter,
         site_explorer,
         nmxm_sim,
+        nmxc_sim,
         endpoint_explorer: fake_endpoint_explorer,
         admin_segment,
         underlay_segment,
@@ -2352,11 +2368,70 @@ pub async fn create_managed_host_with_hardware_info_template(
 ) -> TestManagedHost {
     let config = ManagedHostConfig::with_hardware_info_template(hardware_info_template);
     let mh = site_explorer::new_host(env, config).await.unwrap();
-    TestManagedHost {
+    let test_mh = TestManagedHost {
         id: mh.host_snapshot.id,
         dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),
         api: env.api.clone(),
+    };
+    insert_nvlink_nmxc_endpoint_from_managed_host_discovery(env, &test_mh).await;
+    test_mh
+}
+
+/// Returns true when discovery looks like a GB200-class host (DMI product name or GPU marketing name).
+fn discovery_indicates_gb200(discovery: &rpc::DiscoveryInfo) -> bool {
+    if discovery.dmi_data.as_ref().is_some_and(|d| d.product_name.contains("GB200")) {
+        return true;
     }
+    discovery
+        .gpus
+        .iter()
+        .any(|g| g.name.contains("GB200"))
+}
+
+/// Inserts `nvlink_nmxc_endpoints` using the first non-empty
+/// `discovery_info.gpus[].platform_info.chassis_serial` from the host machine (endpoint `1.1.1.1`).
+/// Only runs for GB200-class discovery; skips otherwise, if discovery data is missing, if there is no
+/// chassis serial, or if the row already exists.
+pub async fn insert_nvlink_nmxc_endpoint_from_managed_host_discovery(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+) {
+    const ENDPOINT: &str = "1.1.1.1";
+    let machine = mh.host().rpc_machine().await;
+    let Some(ref discovery) = machine.discovery_info else {
+        return;
+    };
+    if !discovery_indicates_gb200(discovery) {
+        return;
+    }
+    let Some(chassis_serial) = discovery.gpus.iter().find_map(|g| {
+        g.platform_info
+            .as_ref()
+            .map(|p| p.chassis_serial.as_str())
+            .filter(|s| !s.is_empty())
+    }) else {
+        return;
+    };
+    let Ok(mut txn) = db::Transaction::begin(&env.pool).await else {
+        return;
+    };
+    let Ok(existing) = db::nvlink_nmxc_endpoints::find_by_chassis_serial(&mut txn, chassis_serial).await
+    else {
+        txn.rollback().await.ok();
+        return;
+    };
+    if existing.is_some() {
+        txn.commit().await.ok();
+        return;
+    }
+    if db::nvlink_nmxc_endpoints::create(&mut txn, chassis_serial, ENDPOINT)
+        .await
+        .is_err()
+    {
+        txn.rollback().await.ok();
+        return;
+    }
+    txn.commit().await.ok();
 }
 
 pub async fn update_time_params(

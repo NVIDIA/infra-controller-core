@@ -23,7 +23,8 @@ use crate::{
     dpu_remediation, expected_machines, expected_power_shelf, expected_switch, extension_service,
     firmware, generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip,
     jump, machine, machine_interfaces, machine_validation, managed_host, mlx, network_devices,
-    network_security_group, network_segment, nvl_logical_partition, nvl_partition, os_image, ping,
+    network_security_group, network_segment, nvlink_nmxc_endpoints, nvl_logical_partition,
+    nvl_partition, os_image, ping,
     power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
     site_explorer, sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
     vpc_peering, vpc_prefix,
@@ -146,6 +147,12 @@ pub enum CliCommand {
         visible_alias = "ns"
     )]
     NetworkSegment(network_segment::Cmd),
+    #[clap(
+        name = "nvlink-nmxc-endpoints",
+        about = "Chassis serial → NMX-C endpoint mappings (nvlink_nmxc_endpoints)",
+        subcommand
+    )]
+    NvlinkNmxcEndpoints(nvlink_nmxc_endpoints::Cmd),
     #[clap(about = "Domain related handling", subcommand, visible_alias = "d")]
     Domain(domain::Cmd),
     #[clap(

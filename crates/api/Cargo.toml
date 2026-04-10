@@ -42,6 +42,7 @@ carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
+libnmxc = { path = "../libnmxc" }
 logfmt = { path = "../logfmt" }
 mqttea = { path = "../mqttea" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }

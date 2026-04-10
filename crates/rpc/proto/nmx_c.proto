@@ -891,7 +891,7 @@ message SetAdminStateResponse {
   AdminState admin_state = 4;
 }
 
-service NMXController {
+service NMX_Controller {
   // Initial RPC call
   rpc Hello(ClientHello) returns (ServerHello) {};
 

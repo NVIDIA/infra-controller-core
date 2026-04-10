@@ -57,6 +57,7 @@ pub mod network_devices;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod nvl_partition;
+pub mod nvlink_nmxc_endpoints;
 pub mod power_options;
 pub mod power_shelf;
 pub mod pxe;

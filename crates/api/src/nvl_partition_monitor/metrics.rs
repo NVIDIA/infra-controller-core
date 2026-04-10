@@ -25,7 +25,7 @@ use opentelemetry::metrics::{Counter, Histogram, Meter};
 use serde::Serialize;
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
-use crate::nvl_partition_monitor::NmxmPartitionOperationType;
+use crate::nvl_partition_monitor::NmxcPartitionOperationType;
 
 /// Metrics that are gathered in a single nvl partition monitor run
 #[derive(Clone, Debug)]
@@ -60,7 +60,6 @@ pub enum NmxmPartitionOperations {
     Remove,
     RemoveDefaultPartition,
     Update,
-    Pending,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -358,7 +357,13 @@ impl NvlPartitionMonitorInstruments {
 
 impl NmxmPartitionOperations {
     pub fn values() -> impl Iterator<Item = Self> {
-        [Self::Create, Self::Update, Self::Pending, Self::Remove].into_iter()
+        [
+            Self::Create,
+            Self::Update,
+            Self::Remove,
+            Self::RemoveDefaultPartition,
+        ]
+        .into_iter()
     }
 }
 
@@ -368,7 +373,6 @@ impl From<NmxmPartitionOperations> for opentelemetry::Value {
             NmxmPartitionOperations::Create => "create",
             NmxmPartitionOperations::Update => "update",
             NmxmPartitionOperations::Remove => "remove",
-            NmxmPartitionOperations::Pending => "pending",
             NmxmPartitionOperations::RemoveDefaultPartition => "remove_default_partition",
         };
 
@@ -376,16 +380,15 @@ impl From<NmxmPartitionOperations> for opentelemetry::Value {
     }
 }
 
-impl From<NmxmPartitionOperationType> for NmxmPartitionOperations {
-    fn from(value: NmxmPartitionOperationType) -> NmxmPartitionOperations {
+impl From<NmxcPartitionOperationType> for NmxmPartitionOperations {
+    fn from(value: NmxcPartitionOperationType) -> NmxmPartitionOperations {
         match value {
-            NmxmPartitionOperationType::Create => NmxmPartitionOperations::Create,
-            NmxmPartitionOperationType::Remove(_) => NmxmPartitionOperations::Remove,
-            NmxmPartitionOperationType::RemoveUnknownPartition(_) => {
+            NmxcPartitionOperationType::Create => NmxmPartitionOperations::Create,
+            NmxcPartitionOperationType::Remove(_) => NmxmPartitionOperations::Remove,
+            NmxcPartitionOperationType::RemoveUnknownPartition(_) => {
                 NmxmPartitionOperations::RemoveDefaultPartition
             }
-            NmxmPartitionOperationType::Update(_) => NmxmPartitionOperations::Update,
-            NmxmPartitionOperationType::Pending(_) => NmxmPartitionOperations::Pending,
+            NmxcPartitionOperationType::Update(_) => NmxmPartitionOperations::Update,
         }
     }
 }

@@ -1393,6 +1393,7 @@ dependencies = [
  "jsonwebtoken",
  "kube",
  "lazy_static",
+ "libnmxc",
  "libnmxm",
  "libredfish",
  "librms",
@@ -5588,6 +5589,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
+name = "libnmxc"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "prost 0.14.1",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+]
+
+[[package]]
 name = "libnmxm"
 version = "0.1.0"
 dependencies = [
@@ -6276,6 +6291,16 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+]
+
+[[package]]
+name = "nmxc_client"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "libnmxc",
+ "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]

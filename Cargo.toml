@@ -16,7 +16,7 @@
 #
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = ["crates/*", "crates/libnmxc/tests"]
 
 [workspace.package]
 edition = "2024"

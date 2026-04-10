@@ -2528,6 +2528,34 @@ impl Forge for Api {
         crate::handlers::db::trim_table(self, request).await
     }
 
+    async fn list_nvlink_nmxc_endpoints(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::NvlinkNmxcEndpointList>, Status> {
+        crate::handlers::nvlink_nmxc_endpoints::list_nvlink_nmxc_endpoints(self, request).await
+    }
+
+    async fn create_nvlink_nmxc_endpoint(
+        &self,
+        request: Request<rpc::NvlinkNmxcEndpoint>,
+    ) -> Result<Response<rpc::NvlinkNmxcEndpoint>, Status> {
+        crate::handlers::nvlink_nmxc_endpoints::create_nvlink_nmxc_endpoint(self, request).await
+    }
+
+    async fn update_nvlink_nmxc_endpoint(
+        &self,
+        request: Request<rpc::NvlinkNmxcEndpoint>,
+    ) -> Result<Response<rpc::NvlinkNmxcEndpoint>, Status> {
+        crate::handlers::nvlink_nmxc_endpoints::update_nvlink_nmxc_endpoint(self, request).await
+    }
+
+    async fn delete_nvlink_nmxc_endpoint(
+        &self,
+        request: Request<rpc::DeleteNvlinkNmxcEndpointRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nvlink_nmxc_endpoints::delete_nvlink_nmxc_endpoint(self, request).await
+    }
+
     async fn create_remediation(
         &self,
         request: Request<rpc::CreateRemediationRequest>,

@@ -532,6 +532,10 @@ impl InternalRBACRules {
             vec![Agent, Scout, Machineatron, ForgeAdminCLI],
         );
         x.perm("TrimTable", vec![ForgeAdminCLI, MaintenanceJobs]);
+        x.perm("ListNvlinkNmxcEndpoints", vec![ForgeAdminCLI]);
+        x.perm("CreateNvlinkNmxcEndpoint", vec![ForgeAdminCLI]);
+        x.perm("UpdateNvlinkNmxcEndpoint", vec![ForgeAdminCLI]);
+        x.perm("DeleteNvlinkNmxcEndpoint", vec![ForgeAdminCLI]);
         x.perm("CreateRemediation", vec![ForgeAdminCLI]);
         x.perm("ApproveRemediation", vec![ForgeAdminCLI]);
         x.perm("RevokeRemediation", vec![ForgeAdminCLI]);

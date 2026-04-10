@@ -464,7 +464,7 @@ pub async fn initialize_and_start_controllers(
         database_connection: db_pool,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
-        nmxm_pool: shared_nmxm_pool,
+        nmxm_pool: _,
         work_lock_manager_handle,
         rms_client,
         ..
@@ -887,9 +887,14 @@ pub async fn initialize_and_start_controllers(
     )
     .start(join_set, cancel_token.clone())?;
 
+    let nmxc_client_pool = libnmxc::NmxcClientPool::builder()
+        .build()
+        .map_err(|e| eyre::eyre!("Failed to build NMX-C client pool: {e}"))?;
+    let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
+
     NvlPartitionMonitor::new(
         db_pool.clone(),
-        shared_nmxm_pool.clone(),
+        shared_nmxc_pool,
         meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
         carbide_config.host_health,
