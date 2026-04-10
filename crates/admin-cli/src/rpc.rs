@@ -274,6 +274,18 @@ impl ApiClient {
         Ok(racks)
     }
 
+    pub async fn get_rack_capabilities(
+        &self,
+        rack_id: RackId,
+    ) -> CarbideCliResult<rpc::GetRackCapabilitiesResponse> {
+        Ok(self
+            .0
+            .get_rack_capabilities(rpc::GetRackCapabilitiesRequest {
+                rack_id: Some(rack_id),
+            })
+            .await?)
+    }
+
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
         Ok(self.0.find_rack_ids().await?)
     }
