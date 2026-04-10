@@ -4221,6 +4221,13 @@ message PxeInstructionRequest {
 
 message PxeInstructions {
   string pxe_script = 1;
+  // URL overrides for external clients (e.g. on the static-assignments
+  // segment). When set, carbide-pxe uses these instead of its global
+  // env var URLs, allowing external hosts to reach services via an
+  // alternate hostname or IP that they can resolve.
+  optional string api_url_override = 2;
+  optional string pxe_url_override = 3;
+  optional string static_pxe_url_override = 4;
 }
 
 message CloudInitDiscoveryInstructions {
@@ -4257,6 +4264,12 @@ message CloudInitInstructions {
   optional string custom_cloud_init = 1;
   optional CloudInitDiscoveryInstructions discovery_instructions = 2;
   optional CloudInitMetaData metadata = 3;
+  // URL overrides for external clients (e.g. on the static-assignments
+  // segment). When set, carbide-pxe uses these instead of its global
+  // env var URLs, allowing external hosts to reach services via an
+  // alternate hostname or IP that they can resolve.
+  optional string api_url_override = 4;
+  optional string pxe_url_override = 5;
 }
 
 // Specifies whether a network interface is physical network function (PF)

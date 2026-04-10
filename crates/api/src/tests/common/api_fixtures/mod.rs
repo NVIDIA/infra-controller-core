@@ -1224,6 +1224,9 @@ pub fn get_config() -> CarbideConfig {
         dpf: crate::cfg::file::DpfConfig::default(),
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
+        external_api_url: None,
+        external_pxe_url: None,
+        external_static_pxe_url: None,
         supernic_firmware_profiles: HashMap::default(),
         component_manager: None,
     }
@@ -1734,7 +1737,8 @@ pub async fn create_test_env_with_overrides(
 
         // Synthetic segment for operator static IPs outside Carbide-managed prefixes (expected
         // machine / switch / shelf BMC pre-allocation). Required for static-BMC integration tests.
-        create_static_assignments_segment(&api).await;
+        // Pass the domain to match production behavior (db_init passes Some(domain_id)).
+        create_static_assignments_segment(&api, Some(domain)).await;
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
 

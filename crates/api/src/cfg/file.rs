@@ -530,6 +530,30 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub arm_pxe_boot_url_override: Option<String>,
 
+    /// Alternate API URL for external hosts that cannot resolve
+    /// https://carbide-pxe.forge. This be an IP (e.g., "https://10.0.0.1:1079"),
+    /// or an externally resolvable hostname (e.g.,
+    /// "https://carbide-stack-api.corp.example.com"). This is the URL
+    /// that gets handed back to interfaces assigned ot the static-assignments
+    /// subnet. If not set, external hosts will just get the "internal"
+    /// variant of api_url.
+    #[serde(default)]
+    pub external_api_url: Option<String>,
+
+    /// Alternate PXE URL for external hosts (e.g., "http://10.0.0.1:8080"
+    /// or "http://carbide-stack-pxe.corp.example.com"). Used for cloud-init and
+    /// root CA retrieval for interfaces on the static-assignments segment,
+    /// and follows the same rules as external_api_url above.
+    #[serde(default)]
+    pub external_pxe_url: Option<String>,
+
+    /// Alternate static PXE URL for external hosts (e.g.,
+    /// "http://10.0.0.1:8081" or "http://carbide-stack-static.corp.example.com").
+    /// Used for kernel/blob downloads on the static-assignments segment.
+    /// If not set, falls back to `external_pxe_url`.
+    #[serde(default)]
+    pub external_static_pxe_url: Option<String>,
+
     /// Controls enforcement of compute allocations when a new instance is
     /// requested.
     #[serde(default)]
