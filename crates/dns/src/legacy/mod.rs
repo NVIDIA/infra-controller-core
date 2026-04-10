@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use eyre::Report;
-use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint_forever};
+use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Meter};
 use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
@@ -300,7 +300,7 @@ impl LegacyDnsServer {
 
         tokio::spawn(async move {
             tracing::info!("Spawning metrics endpoint on {}", metrics_config.address);
-            if let Err(e) = run_metrics_endpoint_forever(&metrics_config).await {
+            if let Err(e) = run_metrics_endpoint(&metrics_config).await {
                 tracing::error!("Metrics endpoint error: {}", e);
             }
         });

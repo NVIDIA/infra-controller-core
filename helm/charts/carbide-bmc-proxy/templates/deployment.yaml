@@ -31,10 +31,6 @@ spec:
         - name: carbide-bmc-proxy
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
-          securityContext:
-            capabilities:
-              add:
-                - SYS_PTRACE
           command:
             {{- toYaml .Values.command | nindent 12 }}
           env:
@@ -102,7 +98,7 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.envFrom.databaseConfig.configMapName }}
                   key: DB_NAME
-            - name: CARBIDE_API_DATABASE_URL
+            - name: CARBIDE_BMC_PROXY_DATABASE_URL
               value: "postgres://$(DATASTORE_USER):$(DATASTORE_PASSWORD)@$(DATASTORE_HOST):$(DATASTORE_PORT)/$(DATASTORE_NAME)"
             - name: RUST_BACKTRACE
               value: {{ .Values.env.RUST_BACKTRACE | quote }}

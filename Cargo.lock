@@ -1629,13 +1629,11 @@ dependencies = [
 name = "carbide-authn"
 version = "0.0.0"
 dependencies = [
- "futures-util",
  "hyper",
  "serde",
  "thiserror 2.0.17",
  "tonic 0.14.5",
  "tower 0.5.3",
- "tower-http",
  "tracing",
  "x509-parser",
 ]

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+use std::io;
 use std::sync::Arc;
 
 mod bmc_proxy;
@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 use tracing_log::AsLog;
 
 #[derive(Parser)]
-#[clap(name = "carbide-api")]
+#[clap(name = "carbide-bmc-proxy")]
 pub struct Args {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
@@ -48,13 +48,21 @@ pub struct Args {
 #[derive(thiserror::Error, Debug)]
 enum Error {
     #[error("Configuration error: {0}")]
-    Config(#[from] ConfigError),
+    Config(Box<ConfigError>),
     #[error("Error setting up bmc-proxy: {0}")]
     Setup(#[from] SetupError),
     #[error("Error running bmc-proxy: {0}")]
     BmcProxy(#[from] BmcProxyError),
     #[error("Error connecting to database: {0}")]
     DatabaseConnection(sqlx::Error),
+    #[error("Error running metrics endpoint: {0}")]
+    Metrics(io::Error),
+}
+
+impl From<ConfigError> for Error {
+    fn from(e: ConfigError) -> Self {
+        Self::Config(Box::new(e))
+    }
 }
 
 #[tokio::main]
@@ -64,34 +72,47 @@ async fn main() -> Result<(), Error> {
         println!("{}", carbide_version::version!());
         return Ok(());
     }
+
     let debug = args.debug;
-    let config_str = tokio::fs::read_to_string(&args.config_path)
+    setup_logging(debug)?;
+
+    let config = tokio::fs::read_to_string(&args.config_path)
         .await
         .map_err(|e| {
             ConfigError::Read(format!(
                 "Error opening config file at {}: {}",
                 args.config_path, e
             ))
-        })?;
-    let config = Config::parse(&config_str)?;
-
-    setup_logging(debug)?;
-    let metrics_setup = setup_metrics()?;
+        })
+        .and_then(|s| Config::parse(&s))?;
 
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
-    let pg_pool = connect_to_database(&config).await?;
-    let metrics_endpoint = config.metrics_endpoint;
 
-    let start_params = BmcProxyParams {
-        config: Arc::new(config),
-        credential_config: Default::default(),
-        meter: metrics_setup.meter.clone(),
-        pg_pool,
-    };
+    // Run metrics endpoint
+    let metrics_setup = setup_metrics()?;
+    let meter = metrics_setup.meter.clone();
+    metrics::start(
+        config.metrics_endpoint,
+        metrics_setup,
+        cancel_token.clone(),
+        &mut join_set,
+    )
+    .await
+    .map_err(Error::Metrics)?;
 
-    let proxy_cancel_token = cancel_token.clone();
-    let metrics_cancel_token = cancel_token.clone();
+    // Run the BMC proxy
+    bmc_proxy::start(
+        BmcProxyParams {
+            pg_pool: connect_to_database(&config).await?,
+            config: Arc::new(config),
+            credential_config: Default::default(),
+            meter,
+        },
+        cancel_token.clone(),
+        &mut join_set,
+    )
+    .await?;
 
     // Cancel things when we get a ctrl+c
     tokio::spawn(async move {
@@ -99,14 +120,7 @@ async fn main() -> Result<(), Error> {
         cancel_token.cancel();
     });
 
-    metrics::start(
-        metrics_endpoint,
-        metrics_setup,
-        metrics_cancel_token,
-        &mut join_set,
-    )
-    .await;
-    bmc_proxy::start(start_params, proxy_cancel_token, &mut join_set).await?;
+    // Wait until tasks are complete, propagating any panics
     join_set.join_all().await;
 
     Ok(())
@@ -128,9 +142,9 @@ async fn connect_to_database(config: &Config) -> Result<PgPool, Error> {
             .ssl_mode(PgSslMode::VerifyFull)
             .ssl_root_cert(&config.tls.root_cafile_path);
     }
-    Ok(sqlx::pool::PoolOptions::new()
+    sqlx::pool::PoolOptions::new()
         .max_connections(config.max_database_connections)
         .connect_with(database_connect_options)
         .await
-        .map_err(Error::DatabaseConnection)?)
+        .map_err(Error::DatabaseConnection)
 }

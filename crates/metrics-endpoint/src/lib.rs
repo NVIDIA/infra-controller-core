@@ -156,22 +156,8 @@ fn create_metric_view_for_retry_histograms(
     opentelemetry_sdk::metrics::new_view(criteria, mask)
 }
 
-pub async fn run_metrics_endpoint_forever(
-    config: &MetricsEndpointConfig,
-) -> Result<(), std::io::Error> {
-    run_metrics_endpoint(config, CancellationToken::new()).await
-}
-
 /// Start a HTTP endpoint which exposes metrics using the provided configuration
-pub async fn run_metrics_endpoint(
-    config: &MetricsEndpointConfig,
-    cancel_token: CancellationToken,
-) -> Result<(), std::io::Error> {
-    let handler_state = Arc::new(MetricsHandlerState {
-        registry: config.registry.clone(),
-        health_controller: config.health_controller.clone().unwrap_or_default(),
-    });
-
+pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), std::io::Error> {
     let listener = TcpListener::bind(&config.address).await?;
 
     tracing::info!(
@@ -179,8 +165,29 @@ pub async fn run_metrics_endpoint(
         "Starting metrics listener"
     );
 
+    run_metrics_endpoint_with_listener(config, CancellationToken::new(), listener).await;
+    Ok(())
+}
+
+/// Run the metrics service on an existing listener (which allows this function to not return errors.)
+pub async fn run_metrics_endpoint_with_listener(
+    config: &MetricsEndpointConfig,
+    cancel_token: CancellationToken,
+    listener: TcpListener,
+) {
+    let handler_state = Arc::new(MetricsHandlerState {
+        registry: config.registry.clone(),
+        health_controller: config.health_controller.clone().unwrap_or_default(),
+    });
+
     while let Some(result) = cancel_token.run_until_cancelled(listener.accept()).await {
-        let (stream, _) = result?;
+        let stream = match result {
+            Ok((stream, _addr)) => stream,
+            Err(e) => {
+                tracing::error!("error accepting TCP connection: {e}");
+                continue;
+            }
+        };
         let io = TokioIo::new(stream);
 
         let handler_state = handler_state.clone();
@@ -201,7 +208,6 @@ pub async fn run_metrics_endpoint(
             }
         });
     }
-    Ok(())
 }
 
 /// Metrics request handler

@@ -34,8 +34,8 @@ annotations:
 
 resources:
   limits:
-    cpu: 3
-    memory: 32Gi
+    cpu: 4
+    memory: 2Gi
   requests:
     cpu: 1
     memory: 512Mi

@@ -13,9 +13,15 @@ pub enum ConfigError {
     #[error("{0}")]
     Read(String),
     #[error(transparent)]
-    Figment(#[from] figment::Error),
+    Figment(Box<figment::Error>),
     #[error("Invalid database url: {0}")]
     DatabaseUrl(String),
+}
+
+impl From<figment::Error> for ConfigError {
+    fn from(e: figment::Error) -> Self {
+        Self::Figment(Box::new(e))
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -62,7 +68,7 @@ impl Defaults {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TlsConfig {
     pub identity_pemfile_path: String,
     pub identity_keyfile_path: String,
@@ -85,10 +91,6 @@ impl Default for TlsConfig {
 /// Authentication related configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AuthConfig {
-    /// Enable permissive mode in the authorization enforcer (for development).
-    #[serde(default)]
-    pub permissive_mode: bool,
-
     /// Additional nico-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
     #[serde(default)]
     pub cli_certs: Option<AllowedCertCriteria>,
@@ -102,7 +104,7 @@ impl Config {
     pub fn parse(s: &str) -> Result<Config, ConfigError> {
         Figment::new()
             .merge(Toml::string(s))
-            .merge(Env::prefixed("CARBIDE_API_"))
+            .merge(Env::prefixed("CARBIDE_BMC_PROXY_"))
             .extract()
             .map_err(Into::into)
     }

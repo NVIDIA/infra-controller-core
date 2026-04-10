@@ -13,7 +13,7 @@ use axum::routing::{any, get};
 use bytes::Bytes;
 use carbide_authn::SpiffeContext;
 use carbide_authn::middleware::{
-    AuthContext, CertDescriptionMiddleware, ConnectionAttributes, Principal,
+    AuthContext, Authorization, CertDescriptionMiddleware, ConnectionAttributes, Principal,
 };
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialReader, Credentials,
@@ -26,6 +26,7 @@ use hyper_util::service::TowerToHyperService;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
+use sqlx::types::mac_address::MacAddress;
 use tokio::net::TcpListener;
 use tokio::task::JoinSet;
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
@@ -37,6 +38,9 @@ use utils::HostPortPair;
 
 use crate::config::{AuthConfig, TlsConfig};
 
+const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const MAX_BODY_SIZE: usize = 8 * 1024 * 1024; // 8MiB body size limit (matches nginx ingress controller defaults)
+
 #[derive(thiserror::Error, Debug)]
 pub enum BmcProxyError {
     #[error("Error creating credential manager: {0}")]
@@ -45,8 +49,6 @@ pub enum BmcProxyError {
     InvalidConfiguration(String),
     #[error("Internal error proxying request: {0}")]
     InternalProxying(String),
-    #[error("Unknown BMC IP address: {0}")]
-    UnknownBmcIp(IpAddr),
     #[error("No credentials found for BMC IP address: {0}")]
     NoCredentials(IpAddr),
     #[error("Error spawning listener: {0}")]
@@ -88,42 +90,24 @@ pub async fn start(
         build_version = carbide_version::v!(build_version),
         build_date = carbide_version::v!(build_date),
         rust_version = carbide_version::v!(rust_version),
-        "Start carbide-api BMC proxy",
+        "Start carbide BMC proxy",
     );
 
     let credential_manager = create_credential_manager(&credential_config, meter.clone())
         .await
         .map_err(|e| BmcProxyError::CredentialManager(e.to_string()))?;
 
-    let proxy_state = BmcProxyState {
+    let listener = TcpListener::bind(config.listen)
+        .await
+        .map_err(BmcProxyError::Listen)?;
+
+    let state = BmcProxyState {
         config,
         pg_pool,
         credential_manager,
         meter,
     };
 
-    join_set
-        .build_task()
-        .name("bmc-proxy listener")
-        .spawn(async move {
-            run(proxy_state, cancel_token)
-                .await
-                // Safety: If this errors out, we want to crash
-                .expect("Error running bmc-proxy listener");
-        })
-        // Safety: will only fail if outside tokio runtime
-        .expect("Error spawning bmc-proxy listener");
-
-    Ok(())
-}
-
-#[derive(Clone)]
-struct TlsAcceptorWithTimestamp {
-    acceptor: TlsAcceptor,
-    refreshed_at: Instant,
-}
-
-async fn run(state: BmcProxyState, cancel_token: CancellationToken) -> Result<(), BmcProxyError> {
     let app = Router::new()
         .route("/", get(root_url))
         .route("/{*path}", any(proxy_request))
@@ -131,121 +115,163 @@ async fn run(state: BmcProxyState, cancel_token: CancellationToken) -> Result<()
         .layer(from_fn_with_state(state.clone(), authorize_proxy_request))
         .layer(cert_description_layer::<()>(&state.config.auth)?);
 
-    let listener = TcpListener::bind(state.config.listen)
-        .await
-        .map_err(BmcProxyError::Listen)?;
-    let http = http2::Builder::new(TokioExecutor::new());
+    let tls_acceptor = RefreshableTlsAcceptor::new(state.config.tls.clone()).await?;
 
-    let connection_total_counter = state
-        .meter
-        .u64_counter("carbide-api.tls.connection_attempted")
-        .with_description("The amount of tls connections that were attempted")
-        .build();
-    let connection_succeeded_counter = state
-        .meter
-        .u64_counter("carbide-api.tls.connection_success")
-        .with_description("The amount of tls connections that were successful")
-        .build();
-    let connection_failed_counter = state
-        .meter
-        .u64_counter("carbide-api.tls.connection_fail")
-        .with_description("The amount of tcp connections that were failures")
-        .build();
+    let bmc_proxy = BmcProxy {
+        app,
+        listener,
+        state,
+        tls_acceptor,
+    };
 
-    let mut tls_acceptor_with_timestamp: Option<TlsAcceptorWithTimestamp> = None;
-    let tls_refresh_interval = Duration::from_secs(5 * 60);
-
-    while let Some(incoming_connection) = cancel_token.run_until_cancelled(listener.accept()).await
-    {
-        connection_total_counter.add(1, &[]);
-        let (conn, addr) = match incoming_connection {
-            Ok(incoming) => incoming,
-            Err(e) => {
-                tracing::error!(error = %e, "Error accepting connection");
-                connection_failed_counter
-                    .add(1, &[KeyValue::new("reason", "tcp_connection_failure")]);
-                continue;
-            }
-        };
-
-        let tls_acceptor = match tls_acceptor_with_timestamp.as_mut() {
-            Some(tls_acceptor) if tls_acceptor.refreshed_at.elapsed() < tls_refresh_interval => {
-                tls_acceptor.clone()
-            }
-            _ => {
-                tracing::info!("Refreshing certs");
-                let acceptor = tokio::task::Builder::new()
-                    .name("get_tls_acceptor refresh")
-                    .spawn_blocking({
-                        let config = state.config.clone();
-                        move || get_tls_acceptor(&config.tls)
-                    })
-                    .expect("Failed to spawn blocking task")
-                    .await
-                    .expect("task panicked")?;
-
-                tls_acceptor_with_timestamp
-                    .insert(TlsAcceptorWithTimestamp {
-                        acceptor,
-                        refreshed_at: Instant::now(),
-                    })
-                    .clone()
-            }
-        };
-
-        let http = http.clone();
-        let app = app.clone();
-        let connection_succeeded_counter = connection_succeeded_counter.clone();
-        let connection_failed_counter = connection_failed_counter.clone();
-
-        tokio::task::Builder::new()
-            .name("http conn handler")
-            .spawn(async move {
-                match tls_acceptor.acceptor.accept(conn).await {
-                    Ok(conn) => {
-                        let conn = TokioIo::new(conn);
-                        connection_succeeded_counter.add(1, &[]);
-
-                        let (_, session) = conn.inner().get_ref();
-                        let connection_attributes = {
-                            let peer_address = addr;
-                            let peer_certificates =
-                                session.peer_certificates().unwrap_or_default().to_vec();
-                            Arc::new(ConnectionAttributes {
-                                peer_address,
-                                peer_certificates,
-                            })
-                        };
-                        let conn_attrs_extension_layer =
-                            AddExtensionLayer::new(connection_attributes);
-
-                        let app_with_ext = tower::ServiceBuilder::new()
-                            .layer(conn_attrs_extension_layer)
-                            .service(app);
-
-                        if let Err(error) = http
-                            .serve_connection(conn, TowerToHyperService::new(app_with_ext))
-                            .await
-                        {
-                            tracing::debug!(%error, "error servicing tls http request: {error:?}");
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, address = %addr, "error accepting tls connection");
-                        connection_failed_counter
-                            .add(1, &[KeyValue::new("reason", "tls_connection_failure")]);
-                    }
-                }
-            })
-            .expect("could not spawn task to handle HTTP connection");
-    }
-
-    tracing::info!("carbide-bmc-proxy shutting down");
+    join_set
+        .build_task()
+        .name("bmc-proxy listener")
+        .spawn(bmc_proxy.run(cancel_token))
+        // Safety: will only fail if outside tokio runtime
+        .expect("Error spawning bmc-proxy listener");
 
     Ok(())
 }
 
-fn get_tls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor, BmcProxyError> {
+#[derive(Clone)]
+struct RefreshableTlsAcceptor {
+    acceptor: TlsAcceptor,
+    refreshed_at: Instant,
+}
+
+impl RefreshableTlsAcceptor {
+    fn is_fresh(&self) -> bool {
+        self.refreshed_at.elapsed() < TLS_REFRESH_INTERVAL
+    }
+
+    async fn new(config: TlsConfig) -> Result<Self, BmcProxyError> {
+        tokio::task::Builder::new()
+            .name("get_tls_acceptor refresh")
+            .spawn_blocking(move || get_tls_acceptor(&config))
+            .expect("Failed to spawn blocking task")
+            .await
+            .expect("task panicked")
+    }
+}
+
+struct BmcProxy {
+    app: Router,
+    listener: TcpListener,
+    state: BmcProxyState,
+    tls_acceptor: RefreshableTlsAcceptor,
+}
+
+impl BmcProxy {
+    async fn run(mut self, cancel_token: CancellationToken) {
+        let http = http2::Builder::new(TokioExecutor::new());
+
+        let connection_total_counter = self
+            .state
+            .meter
+            .u64_counter("carbide-bmc-proxy.tls.connection_attempted")
+            .with_description("The amount of tls connections that were attempted")
+            .build();
+        let connection_succeeded_counter = self
+            .state
+            .meter
+            .u64_counter("carbide-bmc-proxy.tls.connection_success")
+            .with_description("The amount of tls connections that were successful")
+            .build();
+        let connection_failed_counter = self
+            .state
+            .meter
+            .u64_counter("carbide-bmc-proxy.tls.connection_fail")
+            .with_description("The amount of tcp connections that were failures")
+            .build();
+
+        while let Some(incoming_connection) = cancel_token
+            .run_until_cancelled(self.listener.accept())
+            .await
+        {
+            connection_total_counter.add(1, &[]);
+            let (conn, addr) = match incoming_connection {
+                Ok(incoming) => incoming,
+                Err(e) => {
+                    tracing::error!(error = %e, "Error accepting connection");
+                    connection_failed_counter
+                        .add(1, &[KeyValue::new("reason", "tcp_connection_failure")]);
+                    continue;
+                }
+            };
+
+            let tls_acceptor = if self.tls_acceptor.is_fresh() {
+                self.tls_acceptor.acceptor.clone()
+            } else {
+                self.tls_acceptor =
+                    match RefreshableTlsAcceptor::new(self.state.config.tls.clone()).await {
+                        Ok(acceptor) => acceptor,
+                        Err(e) => {
+                            tracing::error!("Error reloading TLS certificate, will retry: {e}");
+                            connection_failed_counter
+                                .add(1, &[KeyValue::new("reason", "tls_certificate_invalid")]);
+                            continue;
+                        }
+                    };
+                self.tls_acceptor.acceptor.clone()
+            };
+
+            // Spawn task to handle request
+            let http = http.clone();
+            let app = self.app.clone();
+            let connection_succeeded_counter = connection_succeeded_counter.clone();
+            let connection_failed_counter = connection_failed_counter.clone();
+
+            tokio::task::Builder::new()
+                .name("http conn handler")
+                .spawn(
+                    async move {
+                        match tls_acceptor.accept(conn).await {
+                            Ok(conn) => {
+                                let conn = TokioIo::new(conn);
+                                connection_succeeded_counter.add(1, &[]);
+
+                                let (_, session) = conn.inner().get_ref();
+                                let connection_attributes = {
+                                    let peer_address = addr;
+                                    let peer_certificates =
+                                        session.peer_certificates().unwrap_or_default().to_vec();
+                                    Arc::new(ConnectionAttributes {
+                                        peer_address,
+                                        peer_certificates,
+                                    })
+                                };
+                                let conn_attrs_extension_layer =
+                                    AddExtensionLayer::new(connection_attributes);
+
+                                let app_with_ext = tower::ServiceBuilder::new()
+                                    .layer(conn_attrs_extension_layer)
+                                    .service(app);
+
+                                if let Err(error) = http
+                                    .serve_connection(conn, TowerToHyperService::new(app_with_ext))
+                                    .await
+                                {
+                                    tracing::debug!(%error, "error servicing tls http request: {error:?}");
+                                }
+                            }
+                            Err(error) => {
+                                tracing::error!(%error, address = %addr, "error accepting tls connection");
+                                connection_failed_counter
+                                    .add(1, &[KeyValue::new("reason", "tls_connection_failure")]);
+                            }
+                        }
+                    }
+                )
+                // Safety: This only fails if run outside the tokio runtime
+                .expect("could not spawn task to handle HTTP connection");
+        }
+
+        tracing::info!("carbide-bmc-proxy shutting down");
+    }
+}
+
+fn get_tls_acceptor(tls_config: &TlsConfig) -> Result<RefreshableTlsAcceptor, BmcProxyError> {
     let certs = {
         let fd = match std::fs::File::open(&tls_config.identity_pemfile_path) {
             Ok(fd) => fd,
@@ -351,12 +377,16 @@ fn get_tls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor, BmcProxyError
 
     tls.alpn_protocols = vec![b"h2".to_vec()];
 
-    Ok(TlsAcceptor::from(Arc::new(tls)))
+    let acceptor = TlsAcceptor::from(Arc::new(tls));
+    Ok(RefreshableTlsAcceptor {
+        acceptor,
+        refreshed_at: Instant::now(),
+    })
 }
 
-pub fn cert_description_layer<T: Clone>(
+pub fn cert_description_layer<AZ: Authorization>(
     auth_config: &AuthConfig,
-) -> Result<CertDescriptionMiddleware<T>, BmcProxyError> {
+) -> Result<CertDescriptionMiddleware<AZ>, BmcProxyError> {
     tracing::info!("TrustConfig rendered from config: {:?}", auth_config.trust);
     let spiffe_context = SpiffeContext::try_from(auth_config.trust.clone()).map_err(|e| {
         BmcProxyError::InvalidConfiguration(format!(
@@ -400,6 +430,20 @@ async fn proxy_request(
         })?
         .map_err(|e| error_response((StatusCode::BAD_REQUEST, e.to_string()).into()))?;
 
+    let bmc_mac_address = db::machine_interface::find_by_ip(&state.pg_pool, target_ip)
+        .await
+        .map_err(|e| error_response((StatusCode::BAD_GATEWAY, e.to_string()).into()))?
+        .ok_or_else(|| {
+            error_response(
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Unknown BMC IP address: {target_ip}"),
+                )
+                    .into(),
+            )
+        })?
+        .mac_address;
+
     let path_and_query = parts
         .uri
         .into_parts()
@@ -408,8 +452,8 @@ async fn proxy_request(
 
     let mut bmc_client_info = create_client(
         target_ip,
+        bmc_mac_address,
         state.credential_manager.as_ref(),
-        &state.pg_pool,
         &state.config.bmc_proxy,
     )
     .await
@@ -417,7 +461,7 @@ async fn proxy_request(
 
     copy_request_headers(&parts.headers, &mut bmc_client_info.header_map);
 
-    let body = axum::body::to_bytes(body, usize::MAX)
+    let body = axum::body::to_bytes(body, MAX_BODY_SIZE)
         .await
         .map_err(|e| error_response((StatusCode::BAD_REQUEST, e.to_string()).into()))?;
 
@@ -615,8 +659,8 @@ struct BmcClientInfo {
 
 async fn create_client(
     ip: IpAddr,
+    bmc_mac_address: MacAddress,
     credential_reader: &dyn CredentialReader,
-    pg_pool: &PgPool,
     bmc_proxy: &Option<HostPortPair>,
 ) -> Result<BmcClientInfo, BmcProxyError> {
     let (host, port, add_custom_header) = match bmc_proxy {
@@ -652,19 +696,13 @@ async fn create_client(
         }
     };
 
-    let bmc_mac_address = db::machine_interface::find_by_ip(pg_pool, ip)
-        .await
-        .map_err(|e| BmcProxyError::InternalProxying(format!("Database error: {e}")))?
-        .ok_or_else(|| BmcProxyError::UnknownBmcIp(ip))?
-        .mac_address;
-
     let credentials = credential_reader
         .get_credentials(&CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
         })
         .await
         .map_err(|e| BmcProxyError::InternalProxying(format!("Error fetching credentials: {e}")))?
-        .ok_or_else(|| BmcProxyError::NoCredentials(ip))?;
+        .ok_or(BmcProxyError::NoCredentials(ip))?;
 
     let base_authority = match (host, port) {
         (host, Some(port)) => Cow::Owned(format!("{}:{}", host, port)),

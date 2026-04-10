@@ -21,8 +21,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use metrics_endpoint::{
-    HealthController, MetricsEndpointConfig, MetricsSetup, new_metrics_setup,
-    run_metrics_endpoint_forever,
+    HealthController, MetricsEndpointConfig, MetricsSetup, new_metrics_setup, run_metrics_endpoint,
 };
 use opentelemetry::KeyValue;
 use rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
@@ -119,7 +118,7 @@ pub fn metrics_server() {
 
                 // start metrics server
                 runtime.block_on(async move {
-                    if let Err(e) = run_metrics_endpoint_forever(&MetricsEndpointConfig {
+                    if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
                         address: metrics_endpoint,
                         registry: mconf.registry,
                         health_controller: Some(health_controller),

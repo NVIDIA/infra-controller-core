@@ -29,12 +29,10 @@ name = "carbide_authn"
 thiserror = { workspace = true }
 x509-parser = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-futures-util = "0.3.32"
-hyper = "1.9.0"
-tonic = "0.14.5"
-tower = "0.5.3"
-tower-http = "0.6.8"
-tracing = "0.1.44"
+hyper = { workspace = true }
+tonic = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
 
 [lints]
 workspace = true

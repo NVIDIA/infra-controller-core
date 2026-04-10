@@ -38,6 +38,8 @@ pub struct Authorization {
     _predicate: Predicate, // Currently unused
 }
 
+impl carbide_authn::middleware::Authorization for Authorization {}
+
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum AuthorizationError {
     #[error("Unauthorized: CasbinEngine: all auth principals denied by enforcer")]
@@ -265,7 +267,7 @@ mod tests {
             println!("Extra test cert: {:?}", extra.desired);
             table.push(extra);
         }
-        let context: CertDescriptionMiddleware<AuthContext> = CertDescriptionMiddleware::new(
+        let context: CertDescriptionMiddleware<Authorization> = CertDescriptionMiddleware::new(
             Some(AllowedCertCriteria {
                 required_equals: HashMap::from([
                     (CertComponent::IssuerO, "ExampleCo".to_string()),

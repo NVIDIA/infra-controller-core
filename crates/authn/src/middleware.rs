@@ -37,13 +37,13 @@ use crate::{SpiffeContext, SpiffeError};
 // that an access control policy might need to do its work should be passed
 // along in the request extensions.
 #[derive(Clone)]
-pub struct CertDescriptionMiddleware<T: Clone> {
+pub struct CertDescriptionMiddleware<AZ: Authorization> {
     pub spiffe_context: Arc<SpiffeContext>,
     pub extra_allowed_certs: Option<AllowedCertCriteria>,
-    _phantom: std::marker::PhantomData<T>,
+    _authorization: std::marker::PhantomData<AZ>,
 }
 
-impl<T: Clone> CertDescriptionMiddleware<T> {
+impl<AZ: Authorization> CertDescriptionMiddleware<AZ> {
     pub fn new(
         extra_allowed_certs: Option<AllowedCertCriteria>,
         spiffe_context: SpiffeContext,
@@ -51,13 +51,13 @@ impl<T: Clone> CertDescriptionMiddleware<T> {
         CertDescriptionMiddleware {
             spiffe_context: Arc::new(spiffe_context),
             extra_allowed_certs,
-            _phantom: std::marker::PhantomData::<T>,
+            _authorization: std::marker::PhantomData,
         }
     }
 }
 
-impl<S, T: Clone> Layer<S> for CertDescriptionMiddleware<T> {
-    type Service = CertDescriptionService<S, T>;
+impl<S, AZ: Authorization> Layer<S> for CertDescriptionMiddleware<AZ> {
+    type Service = CertDescriptionService<S, AZ>;
 
     fn layer(&self, inner: S) -> Self::Service {
         CertDescriptionService {
@@ -68,19 +68,27 @@ impl<S, T: Clone> Layer<S> for CertDescriptionMiddleware<T> {
 }
 
 #[derive(Clone)]
-pub struct CertDescriptionService<S, T: Clone> {
+pub struct CertDescriptionService<S, AZ: Authorization> {
     inner: S,
-    authorization_context: Arc<CertDescriptionMiddleware<T>>,
+    authorization_context: Arc<CertDescriptionMiddleware<AZ>>,
 }
 
 // This is added to the extensions of a request. The authentication (authn)
 // middleware populates the `principals` field, and the authorization (authz)
 // middleware sets the `authorization` field.
 #[derive(Clone)]
-pub struct AuthContext<AuthZ> {
+pub struct AuthContext<AZ: Authorization> {
     pub principals: Vec<Principal>,
-    pub authorization: Option<AuthZ>,
+    pub authorization: Option<AZ>,
 }
+
+/// Clients may want to include Authorization information (distinct from "authentication" which this
+/// crate provides) in the AuthContext. This trait allows clients to tag a type as containing
+/// Authorization info, so that it can work as the generic type for AuthContext<T>.
+pub trait Authorization: Clone + Send + Sync + 'static {}
+
+pub type NoAuthorization = ();
+impl Authorization for NoAuthorization {}
 
 // Various properties of a user gleaned from the presented certificate
 #[derive(Clone, Debug, PartialEq)]
@@ -145,9 +153,9 @@ impl Principal {
     }
 
     // Note: no certificate verification is performed here!
-    pub fn try_from_client_certificate<T: Clone>(
+    pub fn try_from_client_certificate<AZ: Authorization>(
         certificate: &CertificateDer,
-        auth_context: &CertDescriptionMiddleware<T>,
+        auth_context: &CertDescriptionMiddleware<AZ>,
     ) -> Result<Principal, SpiffeError> {
         match crate::validate_x509_certificate(certificate.as_ref()) {
             Ok(spiffe_id) => {
@@ -198,9 +206,9 @@ impl Principal {
 }
 
 // try_external_cert will return a Pricipal::ExternalUser if this looks like some external cert
-fn try_external_cert<T: Clone>(
+fn try_external_cert<AZ: Authorization>(
     der_certificate: &[u8],
-    auth_context: &CertDescriptionMiddleware<T>,
+    auth_context: &CertDescriptionMiddleware<AZ>,
 ) -> Option<Principal> {
     if let Ok((_remainder, x509_cert)) = X509Certificate::from_der(der_certificate) {
         // Looks through the issuer relative distinguished names for a CN matching what we expect for external certs.
@@ -382,7 +390,7 @@ fn cert_component_from_oid_subject(oid: Oid) -> Option<CertComponent> {
     }
 }
 
-impl<Predicate> AuthContext<Predicate> {
+impl<T: Authorization> AuthContext<T> {
     pub fn get_spiffe_machine_id(&self) -> Option<&str> {
         self.principals.iter().find_map(|p| match p {
             Principal::SpiffeMachineIdentifier(identifier) => Some(identifier.as_str()),
@@ -416,7 +424,7 @@ impl<Predicate> AuthContext<Predicate> {
     }
 }
 
-impl<Predicate> Default for AuthContext<Predicate> {
+impl<T: Authorization> Default for AuthContext<T> {
     fn default() -> Self {
         // We'll probably only ever see 1-2 principals associated with a request.
         let principals = Vec::with_capacity(4);
@@ -437,11 +445,11 @@ pub struct ConnectionAttributes {
     pub peer_certificates: Vec<CertificateDer<'static>>,
 }
 
-impl<S, B, T> Service<Request<B>> for CertDescriptionService<S, T>
+impl<S, B, AZ> Service<Request<B>> for CertDescriptionService<S, AZ>
 where
     B: tonic::codegen::Body,
     S: Service<Request<B>>,
-    T: Clone + std::marker::Send + std::marker::Sync + 'static,
+    AZ: Authorization,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -460,7 +468,7 @@ where
             // Authorization header, we can do it here.
         }
         let extensions = request.extensions_mut();
-        let mut auth_context = AuthContext::<T>::default();
+        let mut auth_context = AuthContext::<AZ>::default();
         if let Some(conn_attrs) = extensions.get::<Arc<ConnectionAttributes>>() {
             let peer_certs = &conn_attrs.peer_certificates;
             let peer_cert_principals = peer_certs.iter().filter_map(|cert| {
