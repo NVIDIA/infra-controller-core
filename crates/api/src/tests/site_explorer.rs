@@ -3727,12 +3727,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Test power shelf creation
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -3755,12 +3750,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Test that duplicate creation returns false
     assert!(
         !explorer
-            .create_power_shelf(
-                explored_endpoint,
-                exploration_report,
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint, &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -3953,12 +3943,7 @@ async fn test_power_shelf_state_history(
     // Create the power shelf using site explorer
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -4214,7 +4199,6 @@ async fn test_power_shelf_state_history_multiple(
         explorer
             .create_power_shelf(
                 explored_endpoint1.clone(),
-                exploration_report1.clone(),
                 &expected_power_shelf1,
                 &env.pool,
             )
@@ -4225,7 +4209,6 @@ async fn test_power_shelf_state_history_multiple(
         explorer
             .create_power_shelf(
                 explored_endpoint2.clone(),
-                exploration_report2.clone(),
                 &expected_power_shelf2,
                 &env.pool,
             )
@@ -4435,12 +4418,7 @@ async fn test_power_shelf_state_history_error_handling(
     // Create the power shelf using site explorer
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 
