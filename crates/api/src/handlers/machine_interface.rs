@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineType;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 
@@ -64,34 +64,42 @@ pub(crate) async fn find_interfaces(
         },
     };
 
-    // Link BMC interface to its machine, for carbide-web and admin-cli.
-    // Don't link if the search returned multiple, in case perf is an issue.
-    if interfaces.len() == 1 {
-        let interface = interfaces.get_mut(0).unwrap();
-        let not_linked_yet = interface.machine_id.is_none();
-        let maybe_a_bmc_interface = interface.primary_interface && interface.address.len() == 1;
-        if not_linked_yet && maybe_a_bmc_interface {
-            let Some(ip) = interface.address.first() else {
-                return Err(CarbideError::Internal {
-                    message: "Impossible interface.address array length".into(),
-                }
-                .into());
-            };
-            match db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), ip).await {
-                Ok(Some(machine_id)) => {
-                    let rpc_machine_id = Some(machine_id);
-                    interface.is_bmc = Some(true);
-                    match machine_id.machine_type() {
-                        MachineType::Dpu => interface.attached_dpu_machine_id = rpc_machine_id,
-                        MachineType::Host | MachineType::PredictedHost => {
-                            interface.machine_id = rpc_machine_id
+    // Link BMC interfaces to their machines for carbide-web and admin-cli.
+    // Collect candidate IPs from unlinked interfaces, then do a single bulk
+    // lookup against machine_topologies to resolve BMC IP -> machine_id.
+    let candidate_ips: Vec<String> = interfaces
+        .iter()
+        .filter(|i| i.machine_id.is_none() && i.attached_dpu_machine_id.is_none())
+        .flat_map(|i| i.address.iter().cloned())
+        .collect();
+
+    if !candidate_ips.is_empty() {
+        match db::machine_topology::find_machine_bmc_pairs(
+            txn.as_pgconn(),
+            candidate_ips,
+        )
+        .await
+        {
+            Ok(pairs) => {
+                let bmc_ip_to_machine: HashMap<String, _> =
+                    pairs.into_iter().map(|(mid, ip)| (ip, mid)).collect();
+                for interface in &mut interfaces {
+                    if interface.machine_id.is_some()
+                        || interface.attached_dpu_machine_id.is_some()
+                    {
+                        continue;
+                    }
+                    for ip in &interface.address {
+                        if let Some(&machine_id) = bmc_ip_to_machine.get(ip) {
+                            interface.is_bmc = Some(true);
+                            interface.machine_id = Some(machine_id);
+                            break;
                         }
                     }
                 }
-                Ok(None) => {} // expected, not a BMC interface
-                Err(err) => {
-                    tracing::warn!(%err, %ip, "db::machine_topology::find_machine_id_by_bmc_ip error");
-                }
+            }
+            Err(err) => {
+                tracing::warn!(%err, "find_machine_bmc_pairs error during interface enrichment");
             }
         }
     }
