@@ -1596,6 +1596,7 @@ version = "0.0.0"
 dependencies = [
  "bmc-mock",
  "carbide-api",
+ "carbide-api-db",
  "carbide-machine-a-tron",
  "carbide-rpc",
  "carbide-secrets",
@@ -9443,6 +9444,18 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "squash-migrations"
+version = "0.0.1"
+dependencies = [
+ "carbide-api-db",
+ "chrono",
+ "clap",
+ "sqlx",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
