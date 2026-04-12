@@ -366,10 +366,7 @@ async fn test_host_replace_overrides_rack_alerts(
         .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
-    let config = RackConfig {
-        rack_type: None,
-        ..Default::default()
-    };
+    let config = RackConfig::default();
     db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
 
@@ -438,10 +435,7 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
         .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
-    let config = RackConfig {
-        rack_type: None,
-        ..Default::default()
-    };
+    let config = RackConfig::default();
     db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
 

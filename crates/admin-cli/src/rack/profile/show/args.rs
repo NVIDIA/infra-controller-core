@@ -20,6 +20,6 @@ use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
-    #[clap(help = "Rack ID to get capabilities for")]
+    #[clap(help = "Rack ID to get profile for")]
     pub rack_id: RackId,
 }

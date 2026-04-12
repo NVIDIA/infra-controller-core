@@ -1210,7 +1210,7 @@ pub fn get_config() -> CarbideConfig {
             ),
             ..Default::default()
         },
-        rack_types: Default::default(),
+        rack_profiles: Default::default(),
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
         },

@@ -18,7 +18,7 @@
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::GetRackCapabilitiesResponse;
+use rpc::forge::GetRackProfileResponse;
 use serde::Serialize;
 
 use super::args::Args;
@@ -26,9 +26,9 @@ use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
 #[derive(Serialize)]
-struct CapabilitiesOutput {
+struct ProfileOutput {
     rack_id: String,
-    rack_type: String,
+    rack_profile_id: String,
     rack_hardware_type: String,
     rack_hardware_topology: String,
     rack_hardware_class: String,
@@ -46,9 +46,10 @@ struct CapabilitiesOutput {
     power_shelf_slot_ids: Vec<u32>,
 }
 
-impl From<&GetRackCapabilitiesResponse> for CapabilitiesOutput {
-    fn from(r: &GetRackCapabilitiesResponse) -> Self {
-        let capabilities = r.capabilities.as_ref();
+impl From<&GetRackProfileResponse> for ProfileOutput {
+    fn from(r: &GetRackProfileResponse) -> Self {
+        let profile = r.profile.as_ref();
+        let capabilities = profile.and_then(|p| p.capabilities.as_ref());
         let compute = capabilities.and_then(|c| c.compute.as_ref());
         let switch = capabilities.and_then(|c| c.switch.as_ref());
         let power_shelf = capabilities.and_then(|c| c.power_shelf.as_ref());
@@ -59,22 +60,26 @@ impl From<&GetRackCapabilitiesResponse> for CapabilitiesOutput {
                 .as_ref()
                 .map(|id| id.to_string())
                 .unwrap_or_default(),
-            rack_type: r.rack_type.clone(),
-            rack_hardware_type: capabilities
-                .and_then(|c| c.rack_hardware_type.as_ref())
+            rack_profile_id: r
+                .rack_profile_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
+            rack_hardware_type: profile
+                .and_then(|p| p.rack_hardware_type.as_ref())
                 .map(|t| t.value.clone())
                 .unwrap_or_else(|| "N/A".to_string()),
-            rack_hardware_topology: capabilities
-                .map(|c| {
-                    rpc::forge::RackHardwareTopology::try_from(c.rack_hardware_topology)
+            rack_hardware_topology: profile
+                .map(|p| {
+                    rpc::forge::RackHardwareTopology::try_from(p.rack_hardware_topology)
                         .unwrap_or_default()
                         .as_str_name()
                         .to_string()
                 })
                 .unwrap_or_else(|| "N/A".to_string()),
-            rack_hardware_class: capabilities
-                .map(|c| {
-                    rpc::forge::RackHardwareClass::try_from(c.rack_hardware_class)
+            rack_hardware_class: profile
+                .map(|p| {
+                    rpc::forge::RackHardwareClass::try_from(p.rack_hardware_class)
                         .unwrap_or_default()
                         .as_str_name()
                         .to_string()
@@ -108,14 +113,14 @@ impl From<&GetRackCapabilitiesResponse> for CapabilitiesOutput {
     }
 }
 
-pub async fn show_capabilities(
+pub async fn show_profile(
     api_client: &ApiClient,
     args: Args,
     config: &RuntimeConfig,
 ) -> Result<()> {
-    let response = api_client.get_rack_capabilities(args.rack_id).await?;
+    let response = api_client.get_rack_profile(args.rack_id).await?;
 
-    let output = CapabilitiesOutput::from(&response);
+    let output = ProfileOutput::from(&response);
     match config.format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&output)?),
         OutputFormat::Yaml => println!("{}", serde_yaml::to_string(&output)?),
@@ -136,8 +141,9 @@ fn slot_ids_display(ids: &[u32]) -> String {
     }
 }
 
-fn show_detail(r: &GetRackCapabilitiesResponse) {
-    let capabilities = r.capabilities.as_ref();
+fn show_detail(r: &GetRackProfileResponse) {
+    let profile = r.profile.as_ref();
+    let capabilities = profile.and_then(|p| p.capabilities.as_ref());
     let compute = capabilities.and_then(|c| c.compute.as_ref());
     let switch = capabilities.and_then(|c| c.switch.as_ref());
     let power_shelf = capabilities.and_then(|c| c.power_shelf.as_ref());
@@ -150,19 +156,25 @@ fn show_detail(r: &GetRackCapabilitiesResponse) {
             .map(|id| id.to_string())
             .unwrap_or_default()
     ]);
-    table.add_row(row!["Rack Type", r.rack_type]);
+    table.add_row(row![
+        "Rack Profile",
+        r.rack_profile_id
+            .as_ref()
+            .map(|id| id.to_string())
+            .unwrap_or_default()
+    ]);
     table.add_row(row![
         "Hardware Type",
-        capabilities
-            .and_then(|c| c.rack_hardware_type.as_ref())
+        profile
+            .and_then(|p| p.rack_hardware_type.as_ref())
             .map(|t| t.value.as_str())
             .unwrap_or("N/A")
     ]);
     table.add_row(row![
         "Hardware Topology",
-        capabilities
+        profile
             .map(
-                |c| rpc::forge::RackHardwareTopology::try_from(c.rack_hardware_topology)
+                |p| rpc::forge::RackHardwareTopology::try_from(p.rack_hardware_topology)
                     .unwrap_or_default()
                     .as_str_name()
                     .to_string()
@@ -171,9 +183,9 @@ fn show_detail(r: &GetRackCapabilitiesResponse) {
     ]);
     table.add_row(row![
         "Hardware Class",
-        capabilities
+        profile
             .map(
-                |c| rpc::forge::RackHardwareClass::try_from(c.rack_hardware_class)
+                |p| rpc::forge::RackHardwareClass::try_from(p.rack_hardware_class)
                     .unwrap_or_default()
                     .as_str_name()
                     .to_string()

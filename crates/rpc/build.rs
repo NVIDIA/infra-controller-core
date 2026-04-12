@@ -47,6 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.NetworkSegmentId", "::carbide_uuid::network::NetworkSegmentId")
         .extern_path(".common.PowerShelfId", "::carbide_uuid::power_shelf::PowerShelfId")
         .extern_path(".common.RackId", "::carbide_uuid::rack::RackId")
+        .extern_path(".common.RackProfileId", "::carbide_uuid::rack::RackProfileId")
         .extern_path(".common.NVLinkPartitionId", "::carbide_uuid::nvlink::NvLinkPartitionId")
         .extern_path(".common.NVLinkLogicalPartitionId", "::carbide_uuid::nvlink::NvLinkLogicalPartitionId")
         .extern_path(".common.NVLinkDomainId", "::carbide_uuid::nvlink::NvLinkDomainId")
@@ -678,7 +679,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.RackCapabilityCompute", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackCapabilitySwitch", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackCapabilityPowerShelf", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.GetRackCapabilitiesResponse", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackProfile", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.GetRackProfileResponse", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineHardwareInfoGpu",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -898,6 +900,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "::carbide_uuid::ipxe_template::IpxeTemplateId",
             ),
             (".common.RackId", "::carbide_uuid::rack::RackId"),
+            (
+                ".common.RackProfileId",
+                "::carbide_uuid::rack::RackProfileId",
+            ),
             (
                 ".common.NVLinkPartitionId",
                 "::carbide_uuid::nvlink::NvLinkPartitionId",

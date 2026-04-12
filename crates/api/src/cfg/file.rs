@@ -509,13 +509,13 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub rms: RmsConfig,
 
-    /// rack_types contains the rack type definitions. When expected racks
-    /// are created, they are given a rack_type name to reference. This maps
-    /// those names to the actual RackTypeConfig. This may eventually change,
+    /// rack_profiles contains the rack profile definitions. When expected racks
+    /// are created, they are given a rack_profile_id to reference. This maps
+    /// those names to the actual RackProfileConfig. This may eventually change,
     /// and/or co-exist with a DCIM providing us an entire config as part of
     /// the ingestion call.
     #[serde(default)]
-    pub rack_types: model::rack_type::RackTypeConfig,
+    pub rack_profiles: model::rack_type::RackProfileConfig,
 
     /// Treat any dpu found as a regular NIC and skip configuring it as a managed dpu.
     /// This is specifically for dev labs to allow using GB200/300 and VR compute
@@ -3946,17 +3946,23 @@ mod tests {
         );
         assert!(mlxconfig_profile.get_variable("NONEXISTENT_GOO").is_none());
 
-        assert_eq!(config.rack_types.rack_types.len(), 2);
-        let nvl72 = config.rack_types.get("NVL72").unwrap();
-        assert_eq!(nvl72.compute.count, 18);
-        assert_eq!(nvl72.compute.name.as_deref(), Some("GB200"));
-        assert_eq!(nvl72.compute.vendor.as_deref(), Some("NVIDIA"));
-        assert_eq!(nvl72.switch.count, 9);
-        assert_eq!(nvl72.power_shelf.count, 8);
-        let nvl36 = config.rack_types.get("NVL36").unwrap();
-        assert_eq!(nvl36.compute.count, 9);
-        assert_eq!(nvl36.switch.count, 9);
-        assert_eq!(nvl36.power_shelf.count, 2);
+        assert_eq!(config.rack_profiles.rack_profiles.len(), 2);
+        let nvl72 = config.rack_profiles.get("NVL72").unwrap();
+        assert_eq!(nvl72.rack_capabilities.compute.count, 18);
+        assert_eq!(
+            nvl72.rack_capabilities.compute.name.as_deref(),
+            Some("GB200")
+        );
+        assert_eq!(
+            nvl72.rack_capabilities.compute.vendor.as_deref(),
+            Some("NVIDIA")
+        );
+        assert_eq!(nvl72.rack_capabilities.switch.count, 9);
+        assert_eq!(nvl72.rack_capabilities.power_shelf.count, 8);
+        let nvl36 = config.rack_profiles.get("NVL36").unwrap();
+        assert_eq!(nvl36.rack_capabilities.compute.count, 9);
+        assert_eq!(nvl36.rack_capabilities.switch.count, 9);
+        assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
     }
 
     #[test]

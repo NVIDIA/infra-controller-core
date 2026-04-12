@@ -1108,11 +1108,11 @@ impl Forge for Api {
         crate::handlers::rack::delete_rack(self, request).await
     }
 
-    async fn get_rack_capabilities(
+    async fn get_rack_profile(
         &self,
-        request: Request<rpc::GetRackCapabilitiesRequest>,
-    ) -> Result<Response<rpc::GetRackCapabilitiesResponse>, Status> {
-        crate::handlers::rack::get_rack_capabilities(self, request).await
+        request: Request<rpc::GetRackProfileRequest>,
+    ) -> Result<Response<rpc::GetRackProfileResponse>, Status> {
+        crate::handlers::rack::get_rack_profile(self, request).await
     }
 
     /// Trigger DPU reprovisioning

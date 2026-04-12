@@ -677,7 +677,7 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
-  rpc GetRackCapabilities(GetRackCapabilitiesRequest) returns (GetRackCapabilitiesResponse);
+  rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
 
   //
   // Compute Allocations
@@ -2087,8 +2087,8 @@ message LinkedExpectedSwitch {
 message ExpectedRack {
   // The rack identifier. Same rack_id referenced by expected machines, switches, and power shelves.
   optional common.RackId rack_id = 1;
-  // The rack type name. Determines expected counts of compute trays, switches, and power shelves.
-  string rack_type = 2;
+  // The rack profile ID. Determines expected counts of compute trays, switches, and power shelves.
+  common.RackProfileId rack_profile_id = 2;
   // Metadata that will be associated with the rack.
   Metadata metadata = 3;
 }
@@ -6455,22 +6455,26 @@ message RackCapabilityPowerShelf {
 }
 
 message RackCapabilitiesSet {
+  RackCapabilityCompute compute = 1;
+  RackCapabilitySwitch switch = 2;
+  RackCapabilityPowerShelf power_shelf = 3;
+}
+
+message RackProfile {
   common.RackHardwareType rack_hardware_type = 1;
   RackHardwareTopology rack_hardware_topology = 2;
   RackHardwareClass rack_hardware_class = 3;
-  RackCapabilityCompute compute = 4;
-  RackCapabilitySwitch switch = 5;
-  RackCapabilityPowerShelf power_shelf = 6;
+  RackCapabilitiesSet capabilities = 4;
 }
 
-message GetRackCapabilitiesRequest {
+message GetRackProfileRequest {
   common.RackId rack_id = 1;
 }
 
-message GetRackCapabilitiesResponse {
+message GetRackProfileResponse {
   common.RackId rack_id = 1;
-  string rack_type = 2;
-  RackCapabilitiesSet capabilities = 3;
+  common.RackProfileId rack_profile_id = 2;
+  RackProfile profile = 3;
 }
 
 // put some sample rack manager commands in for now

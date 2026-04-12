@@ -15,22 +15,12 @@
  * limitations under the License.
  */
 
-pub mod args;
-mod show;
+use clap::Parser;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Args;
+use super::show;
 
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
-
-impl Run for Args {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Args::Show(args) => {
-                show::cmd::show_capabilities(&ctx.api_client, args, &ctx.config).await?;
-            }
-        }
-        Ok(())
-    }
+#[derive(Parser, Debug, Clone)]
+pub enum Args {
+    #[clap(about = "Show rack profile for a given rack")]
+    Show(show::Args),
 }

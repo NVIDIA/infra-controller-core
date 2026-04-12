@@ -112,13 +112,16 @@ pub(crate) async fn ensure_rack_exists(
             };
 
             tracing::info!(%rack_id, "Rack does not exist, creating from expected rack");
-            let config = model::rack::RackConfig {
-                rack_type: Some(expected.rack_type.clone()),
-                ..Default::default()
-            };
-            let rack = db::rack::create(&mut *txn, rack_id, &config, Some(&expected.metadata))
-                .await
-                .map_err(CarbideError::from)?;
+            let config = model::rack::RackConfig::default();
+            let rack = db::rack::create(
+                &mut *txn,
+                rack_id,
+                Some(&expected.rack_profile_id),
+                &config,
+                Some(&expected.metadata),
+            )
+            .await
+            .map_err(CarbideError::from)?;
 
             Ok(Some(rack))
         }

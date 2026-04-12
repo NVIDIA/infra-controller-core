@@ -21,7 +21,7 @@ use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use db::machine_interface::find_by_mac_address;
 use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch};
@@ -1552,14 +1552,14 @@ clear looking at the test what the intent of the configuration is.
 */
 pub struct TestRackDbBuilder {
     rack_id: RackId,
-    rack_type: Option<String>,
+    rack_profile_id: Option<RackProfileId>,
 }
 
 impl Default for TestRackDbBuilder {
     fn default() -> Self {
         TestRackDbBuilder {
             rack_id: RackId::new(uuid::Uuid::new_v4().to_string()),
-            rack_type: Some("rack".to_string()),
+            rack_profile_id: Some(RackProfileId::new("rack")),
         }
     }
 }
@@ -1576,17 +1576,21 @@ impl TestRackDbBuilder {
         self
     }
 
-    pub fn with_rack_type(mut self, rack_type: impl Into<String>) -> Self {
-        self.rack_type = Some(rack_type.into());
+    pub fn with_rack_profile_id(mut self, rack_profile_id: impl Into<String>) -> Self {
+        self.rack_profile_id = Some(RackProfileId::new(rack_profile_id));
         self
     }
 
     pub async fn persist(&self, txn: &mut PgConnection) -> Result<RackId, DatabaseError> {
-        let rack_config = RackConfig {
-            rack_type: self.rack_type.clone(),
-            ..Default::default()
-        };
-        db_rack::create(txn, &self.rack_id, &rack_config, None).await?;
+        let rack_config = RackConfig::default();
+        db_rack::create(
+            txn,
+            &self.rack_id,
+            self.rack_profile_id.as_ref(),
+            &rack_config,
+            None,
+        )
+        .await?;
 
         Ok(self.rack_id.clone())
     }
