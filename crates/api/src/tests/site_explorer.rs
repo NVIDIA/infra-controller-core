@@ -169,6 +169,8 @@ impl FakePowerShelf {
         }
     }
 
+    /// Builds model input for `add_expected_power_shelf`; `bmc_ip_address` drives the same static
+    /// BMC pre-allocation path as expected machines / switches.
     fn as_expected_power_shelf(&self) -> model::expected_power_shelf::ExpectedPowerShelf {
         model::expected_power_shelf::ExpectedPowerShelf {
             expected_power_shelf_id: None,
@@ -176,7 +178,7 @@ impl FakePowerShelf {
             bmc_username: self.bmc_username.clone(),
             bmc_password: self.bmc_password.clone(),
             serial_number: self.serial_number.clone(),
-            ip_address: Some(self.ip.parse().unwrap()),
+            bmc_ip_address: Some(self.ip.parse().unwrap()),
             metadata: Metadata {
                 name: format!("Test Power Shelf {}", self.serial_number),
                 description: format!("A test power shelf with serial {}", self.serial_number),
@@ -897,7 +899,7 @@ async fn test_site_explorer_audit_exploration_results(
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
         rotate_switch_nvos_credentials: Arc::new(false.into()),
-        use_onboard_nic: Arc::new(false.into()),
+        force_dpu_nic_mode: Arc::new(false.into()),
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
@@ -1428,6 +1430,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -1476,6 +1479,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         host_nics: vec![],
         rack_id: None,
         dpf_enabled: Some(true),
+        bmc_ip_address: None,
     };
     db::expected_machine::update(&mut txn, &host1_expected_machine).await?;
     txn.commit().await?;
@@ -2435,6 +2439,7 @@ async fn test_machine_creation_with_sku(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2568,6 +2573,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2589,6 +2595,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2610,6 +2617,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2955,6 +2963,7 @@ async fn test_site_explorer_switch_discovery(
         bmc_password: bmc_password.clone(),
         nvos_username: None,
         nvos_password: None,
+        bmc_ip_address: None,
         metadata: Metadata {
             name: format!("Test Switch {}", serial_number),
             description: format!("A test switch with serial {}", serial_number),
@@ -3187,7 +3196,6 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig {},
     )
     .await?;
     txn.commit().await?;
@@ -3479,7 +3487,6 @@ async fn test_site_explorer_power_shelf_disabled(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig {},
     )
     .await?;
     txn.commit().await?;
@@ -3720,12 +3727,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Test power shelf creation
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -3734,7 +3736,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3749,12 +3750,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Test that duplicate creation returns false
     assert!(
         !explorer
-            .create_power_shelf(
-                explored_endpoint,
-                exploration_report,
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint, &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -3763,7 +3759,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3783,7 +3778,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3809,7 +3803,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3950,12 +3943,7 @@ async fn test_power_shelf_state_history(
     // Create the power shelf using site explorer
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -3964,7 +3952,6 @@ async fn test_power_shelf_state_history(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4212,7 +4199,6 @@ async fn test_power_shelf_state_history_multiple(
         explorer
             .create_power_shelf(
                 explored_endpoint1.clone(),
-                exploration_report1.clone(),
                 &expected_power_shelf1,
                 &env.pool,
             )
@@ -4223,7 +4209,6 @@ async fn test_power_shelf_state_history_multiple(
         explorer
             .create_power_shelf(
                 explored_endpoint2.clone(),
-                exploration_report2.clone(),
                 &expected_power_shelf2,
                 &env.pool,
             )
@@ -4234,7 +4219,6 @@ async fn test_power_shelf_state_history_multiple(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4434,12 +4418,7 @@ async fn test_power_shelf_state_history_error_handling(
     // Create the power shelf using site explorer
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -4448,7 +4427,6 @@ async fn test_power_shelf_state_history_error_handling(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4527,7 +4505,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
 
     let power_shelf = FakePowerShelf::new(
         "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.2.1".to_string(),
+        "192.0.1.180".to_string(),
         "PS123456789".to_string(),
         "admin".to_string(),
         "password".to_string(),
@@ -4540,11 +4518,13 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         power_shelf.ip,
         power_shelf.bmc_mac_address,
     );
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
+    // Create expected power shelf via the RPC handler, which
+    // pre-allocates a machine interface with the static IP.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(
+            power_shelf.as_expected_power_shelf().into(),
+        ))
+        .await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 

@@ -29,8 +29,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
 use axum_extra::extract::Host;
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
-use base64::prelude::*;
-use http::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
+use http::header::CONTENT_TYPE;
 use http::{HeaderMap, Request, StatusCode, Uri};
 use itertools::Itertools;
 use oauth2::basic::{
@@ -50,6 +49,15 @@ use crate::CarbideError;
 use crate::api::Api;
 use crate::auth::{AuthContext, Principal};
 use crate::cfg::file::CarbideConfig;
+
+/// Reusable template for rendering metadata (name, description, labels, version)
+/// in entity detail pages. Render with `{{ metadata_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "metadata_details.html")]
+pub(crate) struct MetadataDetail {
+    pub metadata: rpc::forge::Metadata,
+    pub metadata_version: String,
+}
 
 mod action_status;
 mod attestation;
@@ -96,8 +104,6 @@ mod tenant;
 mod tenant_keyset;
 mod ufm_browser;
 mod vpc;
-
-const WEB_AUTH: &str = "admin:Welcome123";
 
 const AUTH_TYPE_ENV: &str = "CARBIDE_WEB_AUTH_TYPE";
 const AUTH_CALLBACK_ROOT: &str = "auth-callback";
@@ -148,17 +154,12 @@ pub(crate) struct Oauth2Layer {
 
 /// All the URLs in the admin interface. Nested under /admin in api.rs.
 pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
-    // Just something to let us transition more easily.
-    // By default, everything will be the original basic-auth,
-    // so we can deploy this all over and flip on azure auth with
-    // some env-vars.  When everything is switched over, we can
-    // clean this up this up, maybe directly send the struct without the option wrapper,
-    // and only ever use oauth2 if we want.
-    let oauth_extension_layer = match env::var(AUTH_TYPE_ENV)
-        .unwrap_or("basic".to_string())
-        .to_lowercase()
-        .as_str()
-    {
+    // `CARBIDE_WEB_AUTH_TYPE`: `none` (default) = no in-process auth — protect the admin UI with
+    // network policy, or a reverse proxy (OAuth2 Proxy, etc.). `oauth2` = Entra / OIDC via env.
+    let auth_type = env::var(AUTH_TYPE_ENV)
+        .unwrap_or_else(|_| "none".to_string())
+        .to_lowercase();
+    let oauth_extension_layer = match auth_type.as_str() {
         "oauth2" => {
             // Get our cookiejar key so we can add it as an extension.
             let private_cookiejar_key = Key::try_from(
@@ -228,7 +229,23 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 http_client,
             })
         }
-        _ => None,
+        "none" | "" => {
+            tracing::warn!(
+                "{}: admin web UI has no in-process authentication; restrict access with network policy, a private network, or an authenticating reverse proxy (for example OAuth2 Proxy)",
+                AUTH_TYPE_ENV
+            );
+            None
+        }
+        "basic" => {
+            return Err(eyre::eyre!(
+                "{AUTH_TYPE_ENV}=basic is not supported. Use \"none\" (default; secure the UI with network controls or an auth proxy) or \"oauth2\" (SSO via Entra)."
+            ));
+        }
+        other => {
+            return Err(eyre::eyre!(
+                "unknown {AUTH_TYPE_ENV}={other:?}: expected \"none\" or \"oauth2\""
+            ));
+        }
     };
 
     Ok(NormalizePath::trim_trailing_slash(
@@ -392,6 +409,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/power-shelf", get(power_shelf::show_html))
             .route("/power-shelf.json", get(power_shelf::show_json))
+            .route("/power-shelf/{power_shelf_id}", get(power_shelf::detail))
             .route(
                 "/power-shelf/{power_shelf_id}/state-history",
                 get(power_shelf_state_history::show_state_history),
@@ -568,7 +586,7 @@ pub async fn auth_oauth2(
         }
         Some(o) => match o {
             None => {
-                return auth_basic(req, next).await;
+                return Ok(next.run(req).await);
             }
             Some(oa) => oa.to_owned(),
         },
@@ -675,58 +693,6 @@ pub async fn auth_oauth2(
         Redirect::to(auth_url.as_ref()),
     )
         .into_response())
-}
-
-pub async fn auth_basic(req: Request<AxumBody>, next: Next) -> Result<Response, StatusCode> {
-    let must_auth = (
-        StatusCode::UNAUTHORIZED,
-        [(WWW_AUTHENTICATE, "Basic realm=Carbide")],
-    );
-    match req.headers().get("Authorization") {
-        None => {
-            return Ok(must_auth.into_response());
-        }
-        Some(auth_val) => {
-            let Ok(auth_val) = auth_val.to_str() else {
-                tracing::error!("Invalid auth header");
-                return Err(StatusCode::BAD_REQUEST);
-            };
-            if !is_valid_auth(auth_val) {
-                return Ok(must_auth.into_response());
-            }
-        }
-    };
-
-    let mut peer = String::new();
-    if let Some(conn) = req
-        .extensions()
-        .get::<Arc<crate::listener::ConnectionAttributes>>()
-    {
-        peer = conn.peer_address().ip().to_string();
-    }
-    let path = req.uri().path();
-    let at = format!("{:?}", chrono::Utc::now());
-    tracing::info!(client_ip=%peer, path=%path, at=%at, "carbide-web_authorized_request");
-
-    Ok(next.run(req).await)
-}
-
-fn is_valid_auth(auth_str: &str) -> bool {
-    let parts: Vec<&str> = auth_str.split(' ').collect();
-    if parts.len() != 2 || parts[0] != "Basic" {
-        tracing::trace!(auth_str, "Auth must match 'Basic <str>'");
-        return false;
-    }
-    let Ok(plain) = BASE64_STANDARD.decode(parts[1]) else {
-        tracing::trace!(auth_str, "Auth should be base64");
-        return false;
-    };
-    let plain = String::from_utf8_lossy(&plain);
-    if plain != WEB_AUTH {
-        tracing::trace!(auth_str, "Wrong username or password");
-        return false;
-    }
-    true
 }
 
 #[derive(Template)]

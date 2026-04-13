@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod delete;
 mod list;
 mod show;
 
@@ -31,4 +32,6 @@ pub enum Cmd {
     Show(show::Args),
     #[clap(about = "List all managed switches")]
     List(list::Args),
+    #[clap(about = "Delete a managed switch")]
+    Delete(delete::Args),
 }

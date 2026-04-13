@@ -81,7 +81,7 @@ machines_created_per_run = 2
 override_target_ip = "1.2.3.4"
 override_target_port = 10443
 reset_rate_limit = "2h"
-use_onboard_nic = false
+force_dpu_nic_mode = false
 
 # Unit is mandatory
 [machine_state_controller]
@@ -129,6 +129,7 @@ host_disable_autoupdate = [
 ]
 run_interval = "20s"
 max_uploads = 3
+max_concurrent_bfb_copies = 7
 
 [machine_updater]
 instance_autoreboot_period.start = "2025-01-07T00:00:00Z"

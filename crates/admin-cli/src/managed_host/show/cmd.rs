@@ -17,7 +17,6 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
-use std::pin::Pin;
 
 use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -201,7 +200,7 @@ fn convert_managed_hosts_to_nice_output(
 
 async fn show_managed_hosts(
     managed_host_data: utils::ManagedHostMetadata,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     output_options: ManagedHostOutputOptions,
     sort_by: SortField,
@@ -453,15 +452,13 @@ fn format_health_alerts(alerts: &[HealthProbeAlert], width: usize) -> String {
 }
 
 pub async fn show(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
     sort_by: SortField,
 ) -> CarbideCliResult<()> {
-    let site_explorer_managed_hosts = api_client.get_all_explored_managed_hosts(page_size).await?;
-
     // TODO(chet): Remove this ~March 2024.
     // Use tracing::warn for this so its both a little more
     // noticeable, and a little more annoying/naggy. If people
@@ -559,7 +556,6 @@ pub async fn show(
     show_managed_hosts(
         utils::ManagedHostMetadata {
             machines,
-            site_explorer_managed_hosts,
             connected_devices,
             network_devices,
             exploration_reports: vec![], //Todo - add exploration reports

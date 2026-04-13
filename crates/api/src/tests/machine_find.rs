@@ -38,6 +38,7 @@ use sha2::{Digest, Sha256};
 use tonic::Request;
 
 use crate::tests::common;
+use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     create_managed_host_multi_dpu, create_managed_host_with_config,
 };
@@ -205,6 +206,15 @@ async fn test_find_machine_without_rack_id(pool: sqlx::PgPool) {
 async fn test_find_machine_by_rack_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let rack_id: RackId = "Rack1".parse().unwrap();
+
+    let mut txn = env.pool.acquire().await.unwrap();
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await
+        .unwrap();
+    drop(txn);
+
     let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
         rack_id: rack_id.clone().into(),
         ..Default::default()
@@ -566,15 +576,6 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
             "host machine has an unexpected associated_dpu_machine_id {dpu_id}"
         );
     }
-
-    let deprecated_dpu_id = host_machine.associated_dpu_machine_id
-        .expect("host machine should fill in an associated_dpu_machine_id field for backwards compatibility");
-
-    let first_dpu_id = dpu_ids.into_iter().next().unwrap();
-    assert_eq!(
-        deprecated_dpu_id, first_dpu_id,
-        "deprecated DPU field should equal the first DPU ID"
-    );
 }
 
 #[crate::sqlx_test()]

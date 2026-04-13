@@ -84,8 +84,8 @@ applicable.
 | `force_dpu_nic_mode` | `bool` | `false` | Treat DPUs as regular NICs (skip managed DPU config). For dev labs with BF DPUs. |
 | `rms_api_url` | `Option<String>` | — | Rack Manager Service API URL for rack-level firmware and power operations. |
 | `rack_types` | `RackTypeConfig` | *(default)* | Rack type definitions referenced by expected racks. |
-| `use_onboard_nic` | `Arc<AtomicBool>` | `false` | Use host onboard NIC instead of DPU NICs. Dynamically toggleable. |
 | `spdm` | `SpdmConfig` | *(see below)* | SPDM hardware attestation (see [SpdmConfig](#spdmconfig)). |
+| `bgp_leaf_session_password` | `Option<BgpLeafSessionPassword>` | — | Selects the credential source for leaf-facing BGP session passwords returned to agents in managed host network config. Supported value: `site_wide`. |
 | `site_global_vpc_vni` | `Option<u32>` | — | Forces all VRFs to share a single VNI (Cumulus Linux route-leaking workaround). Limits DPU to one VRF. |
 | `dpf` | `DpfConfig` | *(see below)* | DPF (DPU Platform Framework) Kubernetes deployment (see [DpfConfig](#dpfconfig)). |
 | `x86_pxe_boot_url_override` | `Option<String>` | — | Override PXE boot URL for x86 machines. |
@@ -305,7 +305,7 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `true` | Master switch for machine identity APIs. |
+| `enabled` | `bool` | `false` | Master switch for machine identity APIs (opt-in; set `true` with `current_encryption_key_id` and credentials). |
 | `algorithm` | `String` | `"ES256"` | Signing algorithm for per-org keys. |
 | `token_ttl_min_sec` | `u32` | `60` | Minimum token TTL in seconds. |
 | `token_ttl_max_sec` | `u32` | `86400` | Maximum token TTL in seconds. |
