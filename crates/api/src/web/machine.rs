@@ -32,7 +32,7 @@ use serde::Deserialize;
 use utils::managed_host_display::to_time;
 
 use super::filters;
-use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
+use super::state_history::StateHistoryTable;
 use crate::api::Api;
 use crate::web::action_status::{self, ActionStatus};
 
@@ -441,7 +441,7 @@ struct MachineDetail<'a> {
     machine_type: String,
     is_host: bool,
     network_config: String,
-    history: MachineStateHistoryTable,
+    history: StateHistoryTable,
     bios_version: String,
     board_version: String,
     product_name: String,
@@ -528,16 +528,8 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
     fn from(m: forgerpc::Machine) -> Self {
         let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
-        let history = MachineStateHistoryTable {
-            records: m
-                .events
-                .into_iter()
-                .rev()
-                .map(|e| MachineStateHistoryRecord {
-                    state: e.event,
-                    version: e.version,
-                })
-                .collect(),
+        let history = StateHistoryTable {
+            records: m.events.into_iter().rev().map(Into::into).collect(),
         };
 
         let interfaces: Vec<_> = m

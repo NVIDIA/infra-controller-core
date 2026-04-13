@@ -81,7 +81,6 @@ mod instance_type;
 mod interface;
 mod ipam;
 mod machine;
-mod machine_state_history;
 mod machine_validation;
 pub mod managed_host;
 mod network_device;
@@ -91,15 +90,14 @@ mod network_status;
 mod nmxm_browser;
 mod nvlink;
 mod power_shelf;
-mod power_shelf_state_history;
 mod rack;
 mod redfish_actions;
 mod redfish_browser;
 mod resource_pool;
 mod search;
 mod sku;
+mod state_history;
 mod switch;
-mod switch_state_history;
 mod tenant;
 mod tenant_keyset;
 mod ufm_browser;
@@ -401,36 +399,44 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route(
                 "/machine/{machine_id}/state-history",
-                get(machine_state_history::show_state_history),
+                get(state_history::show_machine_state_history),
             )
             .route(
                 "/machine/{machine_id}/state-history.json",
-                get(machine_state_history::show_state_history_json),
+                get(state_history::show_machine_state_history_json),
             )
             .route("/power-shelf", get(power_shelf::show_html))
             .route("/power-shelf.json", get(power_shelf::show_json))
             .route("/power-shelf/{power_shelf_id}", get(power_shelf::detail))
             .route(
                 "/power-shelf/{power_shelf_id}/state-history",
-                get(power_shelf_state_history::show_state_history),
+                get(state_history::show_power_shelf_state_history),
             )
             .route(
                 "/power-shelf/{power_shelf_id}/state-history.json",
-                get(power_shelf_state_history::show_state_history_json),
+                get(state_history::show_power_shelf_state_history_json),
             )
             .route("/rack", get(rack::show_html))
             .route("/rack.json", get(rack::show_json))
             .route("/rack/{rack_id}", get(rack::detail))
+            .route(
+                "/rack/{rack_id}/state-history",
+                get(state_history::show_rack_state_history),
+            )
+            .route(
+                "/rack/{rack_id}/state-history.json",
+                get(state_history::show_rack_state_history_json),
+            )
             .route("/switch", get(switch::show_html))
             .route("/switch.json", get(switch::show_json))
             .route("/switch/{switch_id}", get(switch::detail))
             .route(
                 "/switch/{switch_id}/state-history",
-                get(switch_state_history::show_state_history),
+                get(state_history::show_switch_state_history),
             )
             .route(
                 "/switch/{switch_id}/state-history.json",
-                get(switch_state_history::show_state_history_json),
+                get(state_history::show_switch_state_history_json),
             )
             .route(
                 "/machine/{machine_id}/health/override/add",
