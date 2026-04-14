@@ -11,6 +11,9 @@ spec:
   replicas: {{ .Values.replicas }}
   strategy:
     type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "carbide-bmc-proxy.selectorLabels" . | nindent 6 }}
@@ -29,7 +32,7 @@ spec:
       {{- end }}
       containers:
         - name: carbide-bmc-proxy
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ include "carbide-bmc-proxy.image" . }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
           command:
             {{- toYaml .Values.command | nindent 12 }}

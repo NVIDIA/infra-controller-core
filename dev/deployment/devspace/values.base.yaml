@@ -102,6 +102,7 @@ carbide-api:
 
 carbide-bmc-proxy:
   enabled: true
+  replicas: 1 # save on local resources
   configFiles:
     enabled: true
     carbideBmcProxyConfig: |
@@ -117,9 +118,6 @@ carbide-bmc-proxy:
       root_cafile_path = "/var/run/secrets/spiffe.io/ca.crt"
       admin_root_cafile_path = "/etc/forge/carbide-bmc-proxy/site/admin_root_cert_pem"
 
-      [auth]
-      permissive_mode = false
-
       [auth.trust]
       spiffe_trust_domain = "forge.local"
       spiffe_service_base_paths = [
@@ -128,11 +126,6 @@ carbide-bmc-proxy:
       ]
       spiffe_machine_base_path = "/forge-system/machine/"
       additional_issuer_cns = []
-
-  bmcProxy:
-    listen: "[::]:1079"
-    allowedPrincipals:
-      - "trusted-certificate"
 
 carbide-dhcp:
   enabled: false

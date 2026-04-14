@@ -26,7 +26,7 @@ image:
 
 namespaceOverride: ""
 
-replicas: 1
+replicas: 2
 serviceAccountName: carbide-bmc-proxy
 automountServiceAccountToken: true
 annotations:

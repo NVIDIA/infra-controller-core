@@ -409,6 +409,7 @@ carbide-api:
     FORGE_VAULT_MOUNT: ${VAULT_KV_MOUNT}
     FORGE_VAULT_PKI_MOUNT: ${VAULT_PKI_MOUNT}
   databaseConfig: {}
+${disable_tls_enforcement}
 
 carbide-bmc-proxy:
   automountServiceAccountToken: ${automount}

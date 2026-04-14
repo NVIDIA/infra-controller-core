@@ -9,6 +9,19 @@ Allow the release namespace to be overridden for multi-namespace deployments.
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/*
+What image to use: Use subchart-local image if defined, fall back on global
+image. In devspace deployments, carbide-bmc-proxy gets its own image. In other
+deployments, the main carbide image contains all binaries, so we can use that.
+*/}}
+{{- define "carbide-bmc-proxy.image" -}}
+{{- if not (eq (toString (.Values.image.repository | default "")) "") }}
+{{- .Values.image.repository }}:{{ .Values.image.tag | default "latest" }}
+{{- else }}
+{{- .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+{{- end }}
+{{- end }}
+
 {{- define "carbide-bmc-proxy.labels" -}}
 helm.sh/chart: {{ include "carbide-bmc-proxy.chart" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
