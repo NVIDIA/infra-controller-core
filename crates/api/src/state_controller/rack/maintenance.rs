@@ -211,18 +211,19 @@ async fn rms_start_firmware_upgrade(
         .filter(|device| device.status == "completed")
         .count();
     let total = all_devices.len();
+    let terminal = completed + failed;
 
     job.status = Some(
-        if total > 0 && completed == total {
-            "completed"
-        } else if failed > 0 && failed == total {
+        if total > 0 && terminal < total {
+            "in_progress"
+        } else if failed > 0 {
             "failed"
         } else {
-            "in_progress"
+            "completed"
         }
         .into(),
     );
-    if total > 0 && completed == total {
+    if total > 0 && terminal == total {
         job.completed_at = Some(chrono::Utc::now());
     }
 
@@ -336,18 +337,19 @@ async fn rms_get_firmware_upgrade_status(
         .filter(|device| device.status == "completed")
         .count();
     let total = all_devices.len();
+    let terminal = completed + failed;
 
     updated.status = Some(
-        if failed > 0 {
-            "failed"
-        } else if total > 0 && completed == total {
-            "completed"
-        } else {
+        if total > 0 && terminal < total {
             "in_progress"
+        } else if failed > 0 {
+            "failed"
+        } else {
+            "completed"
         }
         .into(),
     );
-    updated.completed_at = if total > 0 && completed + failed == total {
+    updated.completed_at = if total > 0 && terminal == total {
         Some(chrono::Utc::now())
     } else {
         None
@@ -584,6 +586,17 @@ pub async fn handle_maintenance(
                 let total = all.len();
                 let completed = all.iter().filter(|d| d.status == "completed").count();
                 let failed = all.iter().filter(|d| d.status == "failed").count();
+                let terminal = completed + failed;
+
+                if terminal < total {
+                    db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
+                    state.firmware_upgrade_job = Some(job);
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "firmware upgrade: {}/{} devices terminal (completed={}, failed={})",
+                        terminal, total, completed, failed
+                    ))
+                    .with_txn(txn));
+                }
 
                 if failed > 0 {
                     db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
@@ -594,16 +607,6 @@ pub async fn handle_maintenance(
                             failed, total
                         ),
                     })
-                    .with_txn(txn));
-                }
-
-                if completed < total {
-                    db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
-                    state.firmware_upgrade_job = Some(job);
-                    return Ok(StateHandlerOutcome::wait(format!(
-                        "firmware upgrade: {}/{} devices completed",
-                        completed, total
-                    ))
                     .with_txn(txn));
                 }
 
