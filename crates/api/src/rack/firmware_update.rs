@@ -21,8 +21,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{
-    machine as db_machine, machine_interface as db_machine_interface,
-    machine_topology as db_machine_topology, switch as db_switch,
+    machine as db_machine, machine_topology as db_machine_topology, switch as db_switch,
 };
 use eyre::{Result, eyre};
 use forge_secrets::credentials::{
@@ -87,7 +86,7 @@ pub async fn load_rack_firmware_inventory(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
 ) -> Result<RackFirmwareInventory> {
-    let (machine_ids, m_bmc_pairs, machine_intfs, switch_ids, switch_endpoints) = {
+    let (machine_ids, machine_topologies, switch_ids, switch_endpoints) = {
         let mut txn = db_pool.begin().await?;
 
         let machine_ids = db_machine::find_machine_ids(
@@ -98,13 +97,8 @@ pub async fn load_rack_firmware_inventory(
             },
         )
         .await?;
-        let m_bmc_pairs = db_machine_topology::find_machine_bmc_pairs_by_machine_id(
-            txn.as_mut(),
-            machine_ids.clone(),
-        )
-        .await?;
-        let machine_intfs =
-            db_machine_interface::find_by_machine_ids(txn.as_mut(), &machine_ids).await?;
+        let machine_topologies =
+            db_machine_topology::find_latest_by_machine_ids(txn.as_mut(), &machine_ids).await?;
 
         let switch_ids = db_switch::find_ids(
             txn.as_mut(),
@@ -120,21 +114,26 @@ pub async fn load_rack_firmware_inventory(
         txn.commit().await?;
         (
             machine_ids,
-            m_bmc_pairs,
-            machine_intfs,
+            machine_topologies,
             switch_ids,
             switch_endpoints,
         )
     };
 
-    let mut machines = Vec::with_capacity(m_bmc_pairs.len());
-    for (machine_id, bmc_ip) in &m_bmc_pairs {
-        let bmc_mac = machine_intfs
+    let mut machines = Vec::with_capacity(machine_ids.len());
+    for machine_id in &machine_ids {
+        let topology = machine_topologies
             .get(machine_id)
-            .and_then(|intfs| intfs.iter().find(|i| i.primary_interface))
-            .map(|i| i.mac_address)
-            .ok_or_else(|| eyre!("machine {} missing primary interface", machine_id))?;
-        let bmc_ip = bmc_ip
+            .ok_or_else(|| eyre!("machine {} missing topology", machine_id))?;
+        let bmc_mac = topology
+            .topology()
+            .bmc_info
+            .mac
+            .ok_or_else(|| eyre!("machine {} missing BMC MAC", machine_id))?;
+        let bmc_ip = topology
+            .topology()
+            .bmc_info
+            .ip
             .as_deref()
             .ok_or_else(|| eyre!("machine {} missing BMC IP", machine_id))?;
         let (bmc_username, bmc_password) =
