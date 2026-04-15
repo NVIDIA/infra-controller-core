@@ -41,15 +41,11 @@ pub async fn handle_reprovisioning(
 
     match reprovisioning_state {
         ReProvisioningState::WaitingForRackFirmwareUpgrade => {
-            let Some(requested_at) = state
+            let requested_at = state
                 .switch_reprovisioning_requested
                 .as_ref()
                 .map(|request| request.requested_at)
-            else {
-                return Ok(StateHandlerOutcome::wait(
-                    "waiting for rack firmware reprovision request".into(),
-                ));
-            };
+                .expect("WaitingForRackFirmwareUpgrade requires a rack reprovision request");
             let Some(firmware_upgrade_status) = state.firmware_upgrade_status.as_ref() else {
                 return Ok(StateHandlerOutcome::wait(
                     "waiting for switch firmware upgrade status".into(),

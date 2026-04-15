@@ -6693,16 +6693,12 @@ impl HostUpgradeState {
         scenario: HostFirmwareScenario,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let machine_id = state.host_snapshot.id;
-        let Some(requested_at) = state
+        let requested_at = state
             .host_snapshot
             .host_reprovision_requested
             .as_ref()
             .map(|request| request.requested_at)
-        else {
-            return Ok(StateHandlerOutcome::wait(
-                "waiting for rack firmware reprovision request".into(),
-            ));
-        };
+            .expect("WaitingForRackFirmwareUpgrade requires a rack reprovision request");
         let Some(rack_fw_status) = state.host_snapshot.rack_fw_details.as_ref() else {
             return Ok(StateHandlerOutcome::wait(
                 "waiting for rack firmware status".into(),
