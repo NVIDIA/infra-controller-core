@@ -24,6 +24,12 @@ build:
           - "carbide"
           - pxe/templates/*
           - pxe/static/*
+    - image: carbide-imagecache
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.imagecache.localdev
+      sync:
+        infer:
+          - "carbide-imagecache"
     - image: nginx
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.nginx.localdev
