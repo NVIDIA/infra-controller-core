@@ -40,6 +40,7 @@ pub struct NewPowerShelf {
     pub id: PowerShelfId,
     pub config: PowerShelfConfig,
     pub metadata: Option<Metadata>,
+    pub rack_id: Option<RackId>,
 }
 
 impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
@@ -56,10 +57,13 @@ impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
 
         let id = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
+        let config = PowerShelfConfig::try_from(conf)?;
+
         Ok(NewPowerShelf {
             id,
-            config: PowerShelfConfig::try_from(conf)?,
+            config,
             metadata: None,
+            rack_id: None,
         })
     }
 }
@@ -67,9 +71,8 @@ impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PowerShelfConfig {
     pub name: String,
-    pub capacity: Option<u32>,    // Power capacity in watts
-    pub voltage: Option<u32>,     // Voltage in volts
-    pub location: Option<String>, // Physical location
+    pub capacity: Option<u32>, // Power capacity in watts
+    pub voltage: Option<u32>,  // Voltage in volts
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +95,9 @@ pub struct PowerShelf {
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+
+    /// The rack that this power shelf is associated with.
+    pub rack_id: Option<RackId>,
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
@@ -126,6 +132,7 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
             metadata,
             version: row.try_get("version")?,
+            rack_id: row.try_get("rack_id").ok().flatten(),
         })
     }
 }
@@ -138,7 +145,6 @@ impl TryFrom<rpc::PowerShelfConfig> for PowerShelfConfig {
             name: conf.name,
             capacity: conf.capacity.map(|c| c as u32),
             voltage: conf.voltage.map(|v| v as u32),
-            location: conf.location,
         })
     }
 }
@@ -177,7 +183,6 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             name: src.config.name,
             capacity: src.config.capacity.map(|c| c as i32),
             voltage: src.config.voltage.map(|v| v as i32),
-            location: src.config.location,
         };
 
         let deleted = if src.deleted.is_some() {
@@ -196,6 +201,7 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             version: src.version.version_string(),
             bmc_info: None,
             state_version,
+            rack_id: src.rack_id,
         })
     }
 }
@@ -250,25 +256,6 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
             std::time::Duration::from_secs(slas::DELETING),
             time_in_state,
         ),
-    }
-}
-
-/// History of Power Shelf states for a single Power Shelf
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PowerShelfStateHistoryRecord {
-    /// The state that was entered
-    pub state: String,
-    // The version number associated with the state change
-    pub state_version: ConfigVersion,
-}
-
-impl From<PowerShelfStateHistoryRecord> for rpc::PowerShelfStateHistoryRecord {
-    fn from(value: PowerShelfStateHistoryRecord) -> rpc::PowerShelfStateHistoryRecord {
-        rpc::PowerShelfStateHistoryRecord {
-            state: value.state,
-            version: value.state_version.version_string(),
-            time: Some(value.state_version.timestamp().into()),
-        }
     }
 }
 

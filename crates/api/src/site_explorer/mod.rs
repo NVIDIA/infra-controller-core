@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::panic::Location;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -27,20 +27,16 @@ use std::time::Instant;
 
 use carbide_network::sanitized_mac;
 use carbide_uuid::machine::MachineType;
-use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config_version::ConfigVersion;
-use db::{
-    self, DatabaseError, ObjectFilter, Transaction, machine, network_segment as db_network_segment,
-    power_shelf as db_power_shelf,
-};
+use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
+use forge_secrets::credentials::CredentialManager;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
-use librms::protos::rack_manager::{NewNodeInfo, NodeType as RmsNodeType};
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
@@ -62,7 +58,6 @@ use version_compare::Cmp;
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
 use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
-
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
 mod credentials;
@@ -70,16 +65,13 @@ mod metrics;
 pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
-pub mod rms;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 mod boot_order_tracker;
 use boot_order_tracker::BootOrderTracker;
-
 mod machine_creator;
 pub use machine_creator::MachineCreator;
 pub mod explored_endpoint_index;
 mod managed_host;
-
 use db::ObjectColumnFilter;
 use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
@@ -88,10 +80,76 @@ use model::firmware::FirmwareComponentType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 mod switch_creator;
+use carbide_uuid::rack::RackId;
+use model::rack::Rack;
 pub use switch_creator::SwitchCreator;
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
+
+/// Ensures a rack row exists for the given `rack_id`.
+///
+/// If the rack already exists, returns it. Otherwise creates a new rack only
+/// when a matching expected rack record exists. Returns `None` when no
+/// expected rack record is found, allowing callers to proceed without a rack.
+pub(crate) async fn ensure_rack_exists(
+    txn: &mut sqlx::PgConnection,
+    rack_id: &RackId,
+) -> CarbideResult<Option<Rack>> {
+    match db::rack::get(&mut *txn, rack_id).await {
+        Ok(rack) => Ok(Some(rack)),
+        Err(DatabaseError::NotFoundError { .. }) => {
+            let expected = db::expected_rack::find_by_rack_id(&mut *txn, rack_id)
+                .await
+                .map_err(CarbideError::from)?;
+
+            let Some(expected) = expected else {
+                tracing::warn!(
+                    %rack_id,
+                    "No expected rack record found; skipping rack creation"
+                );
+                return Ok(None);
+            };
+
+            tracing::info!(%rack_id, "Rack does not exist, creating from expected rack");
+            let config = model::rack::RackConfig {
+                rack_type: Some(expected.rack_type.clone()),
+                ..Default::default()
+            };
+            let rack = db::rack::create(&mut *txn, rack_id, &config, Some(&expected.metadata))
+                .await
+                .map_err(CarbideError::from)?;
+
+            Ok(Some(rack))
+        }
+        Err(e) => Err(CarbideError::from(e)),
+    }
+}
+
+/// Fetches slot_number and tray_index from the RMS for a given rack/node pair.
+/// Returns `(None, None)` on any failure, logging a warning with `entity_label`.
+pub(crate) async fn fetch_slot_and_tray(
+    rms_client: &dyn librms::RmsApi,
+    request: librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest,
+) -> (Option<i32>, Option<i32>) {
+    match rms_client.get_device_info_by_device_list(request).await {
+        Ok(info) => {
+            if !info.node_device_info.is_empty() {
+                let node_device_info = info.node_device_info.first().unwrap();
+                (node_device_info.slot_number, node_device_info.tray_index)
+            } else {
+                (None, None)
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                %e,
+                "Failed to get device info from RMS, slot_number and tray_index will be unset"
+            );
+            (None, None)
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Endpoint<'a> {
@@ -136,7 +194,7 @@ pub struct SiteExplorer {
     machine_creator: MachineCreator,
     switch_creator: SwitchCreator,
     boot_order_tracker: BootOrderTracker,
-    rms_client: Option<Arc<dyn RmsApi>>,
+    // rms_client: Option<Arc<dyn RmsApi>>,
 }
 
 impl SiteExplorer {
@@ -152,6 +210,7 @@ impl SiteExplorer {
         common_pools: Arc<CommonPools>,
         work_lock_manager_handle: WorkLockManagerHandle,
         rms_client: Option<Arc<dyn RmsApi>>,
+        credential_manager: Arc<dyn CredentialManager>,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -168,6 +227,7 @@ impl SiteExplorer {
                 explorer_config.clone(),
                 common_pools,
                 rms_client.clone(),
+                credential_manager,
             ),
             switch_creator: SwitchCreator::new(
                 database_connection.clone(),
@@ -181,7 +241,6 @@ impl SiteExplorer {
             firmware_config,
             work_lock_manager_handle,
             boot_order_tracker: BootOrderTracker::default(),
-            rms_client,
         }
     }
 
@@ -576,7 +635,7 @@ impl SiteExplorer {
         explored_power_shelves: Vec<(ExploredEndpoint, EndpointExplorationReport)>,
         expected_endpoint_index: &ExploredEndpointIndex,
     ) -> CarbideResult<()> {
-        for (endpoint, report) in explored_power_shelves {
+        for (endpoint, _report) in explored_power_shelves {
             let address = endpoint.address;
             let Some(expected_power_shelf) =
                 expected_endpoint_index.matched_expected_power_shelf(&endpoint.address)
@@ -589,12 +648,7 @@ impl SiteExplorer {
             };
 
             match self
-                .create_power_shelf(
-                    endpoint,
-                    report,
-                    expected_power_shelf,
-                    &self.database_connection,
-                )
+                .create_power_shelf(endpoint, expected_power_shelf, &self.database_connection)
                 .await
             {
                 Ok(true) => {
@@ -618,7 +672,6 @@ impl SiteExplorer {
     pub async fn create_power_shelf(
         &self,
         explored_endpoint: ExploredEndpoint,
-        report: EndpointExplorationReport,
         expected_shelf: &ExpectedPowerShelf,
         pool: &PgPool,
     ) -> CarbideResult<bool> {
@@ -637,7 +690,6 @@ impl SiteExplorer {
             let existing_power_shelves = db_power_shelf::find_by(
                 &mut txn,
                 ObjectColumnFilter::All::<db::power_shelf::NameColumn>,
-                db_power_shelf::PowerShelfSearchConfig::default(),
             )
             .await?;
 
@@ -664,9 +716,6 @@ impl SiteExplorer {
         let power_shelf_serial = expected_shelf.metadata.name.as_str();
         let power_shelf_vendor = "NVIDIA"; // Default vendor for power shelves
         let power_shelf_model = "PowerShelf"; // Default model identifier
-        // TODO: Fetch power shelf location from chassis metadata or configuration
-        // NOTE: Metadata does not have a 'location' field, so use a default for now.
-
         let power_shelf_id = match model::power_shelf::power_shelf_id::from_hardware_info(
             power_shelf_serial,
             power_shelf_vendor,
@@ -687,70 +736,31 @@ impl SiteExplorer {
             name: expected_shelf.metadata.name.clone(),
             capacity: Some(100),
             voltage: Some(240),
-            location: Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string()),
         };
 
         let new_power_shelf = NewPowerShelf {
             id: power_shelf_id,
             config,
             metadata: Some(expected_shelf.metadata.clone()),
+            rack_id: expected_shelf.rack_id.clone(),
         };
 
         db_power_shelf::create(&mut txn, &new_power_shelf).await?;
 
-        let mac_addresses = report.all_mac_addresses();
-        for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
-            if let Some(interface) = mi.first() {
-                db::machine_interface::associate_interface_with_machine(
-                    &interface.id,
-                    MachineInterfaceAssociation::PowerShelf(power_shelf_id),
-                    &mut txn,
-                )
+        let mi =
+            db::machine_interface::find_by_mac_address(&mut *txn, expected_shelf.bmc_mac_address)
                 .await?;
-            }
-        }
-
-        let mac_addresses = report.all_mac_addresses();
-        for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
-            if let Some(interface) = mi.first() {
-                db::machine_interface::associate_interface_with_machine(
-                    &interface.id,
-                    MachineInterfaceAssociation::PowerShelf(power_shelf_id),
-                    &mut txn,
-                )
-                .await?;
-            }
+        if let Some(interface) = mi.first() {
+            db::machine_interface::associate_interface_with_machine(
+                &interface.id,
+                MachineInterfaceAssociation::PowerShelf(power_shelf_id),
+                &mut txn,
+            )
+            .await?;
         }
 
         if let Some(ref rack_id) = expected_shelf.rack_id {
-            let rack = match db::rack::get(txn.as_mut(), rack_id).await {
-                Ok(rack) => rack,
-                Err(_) => {
-                    let expected_rack_metadata =
-                        db::expected_rack::find_by_rack_id(txn.as_mut(), rack_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .map(|er| er.metadata);
-                    db::rack::create(
-                        &mut txn,
-                        rack_id,
-                        vec![],
-                        vec![],
-                        vec![expected_shelf.bmc_mac_address],
-                        expected_rack_metadata.as_ref(),
-                    )
-                    .await
-                    .map_err(CarbideError::from)?
-                }
-            };
-            let mut config = rack.config.clone();
-            config.power_shelves.push(power_shelf_id);
-            db::rack::update(&mut txn, rack_id, &config)
-                .await
-                .map_err(CarbideError::from)?;
+            let _ = crate::site_explorer::ensure_rack_exists(txn.as_mut(), rack_id).await?;
         }
         // No need to update the power shelf name again; it was already set in config above.
         txn.commit()
@@ -762,43 +772,6 @@ impl SiteExplorer {
             power_shelf_id,
             explored_endpoint.address
         );
-
-        // Register the power shelf with Rack Manager if RMS client is available
-        if let Some(rms_client) = &self.rms_client {
-            if let Some(ref rack_id) = expected_shelf.rack_id {
-                let new_node_info = NewNodeInfo {
-                    rack_id: rack_id.to_string(),
-                    node_id: power_shelf_id.to_string(),
-                    mac_address: expected_shelf.bmc_mac_address.to_string(),
-                    ip_address: explored_endpoint.address.to_string(),
-                    port: 443,
-                    username: None,
-                    password: None,
-                    r#type: Some(RmsNodeType::Powershelf.into()),
-                    vault_path: String::new(),
-                    host_ip_addresses: vec![],
-                    host_mac_addresses: vec![],
-                };
-                if let Err(e) = rms::add_node_to_rms(rms_client.as_ref(), new_node_info).await {
-                    tracing::warn!(
-                        "Failed to add power shelf {} to Rack Manager: {}",
-                        power_shelf_id,
-                        e
-                    );
-                } else {
-                    tracing::info!(
-                        "Added power shelf {} to Rack Manager for endpoint {}",
-                        power_shelf_id,
-                        explored_endpoint.address,
-                    );
-                }
-            } else {
-                tracing::warn!(
-                    "Cannot add power shelf {} to Rack Manager: rack_id is missing",
-                    power_shelf_id
-                );
-            }
-        }
 
         Ok(true)
     }
@@ -1335,39 +1308,14 @@ impl SiteExplorer {
         // Note: As a side effect of this, OOB interfaces might for a short time be scanned,
         // until the machine is ingested. At that point in time this filter will remove them
         // from the to-be-scanned list.
-        let underlay_interfaces: Vec<MachineInterfaceSnapshot> = {
-            // Get all underlay interfaces from the database
-            let underlay_interfaces = interfaces.into_iter().filter(|iface| {
+        // Get all underlay interfaces from the database, which includes interfaces
+        // which have come from both DHCP and/or static assignments.
+        let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
+            .into_iter()
+            .filter(|iface| {
                 underlay_segments.contains(&iface.segment_id) && iface.machine_id.is_none()
-            });
-
-            // For power shelves, currently adding a bogus static IP as an underlay interface if
-            // configured to do so.
-            if explore_power_shelves_from_static_ip {
-                let underlay_segment_id = self.get_underlay_segment_id().await?;
-                underlay_interfaces
-                    .chain(expected_power_shelves.iter().map(|expected_power_shelf| {
-                        let fake_ip = self.get_static_ip_for_power_shelf(
-                            &expected_power_shelf.bmc_mac_address,
-                            expected_power_shelf.ip_address,
-                        );
-                        // Create a fake machine interface for the power shelf
-                        let mut fake_interface = MachineInterfaceSnapshot::mock_with_mac(
-                            expected_power_shelf.bmc_mac_address,
-                        );
-                        fake_interface.hostname =
-                            format!("power-shelf-{}", expected_power_shelf.serial_number);
-                        fake_interface.segment_id = underlay_segment_id;
-                        fake_interface.addresses = vec![fake_ip];
-                        fake_interface.network_segment_type = Some(NetworkSegmentType::Underlay);
-                        fake_interface.vendors = vec!["PowerShelf".to_string()];
-                        fake_interface
-                    }))
-                    .collect()
-            } else {
-                underlay_interfaces.collect()
-            }
-        };
+            })
+            .collect();
 
         // Start an index of all underlay interfaces, expected machines, expected power shelves, and expected switches.
         let index = ExploredEndpointIndex::builder(explored_endpoints, underlay_interfaces)
@@ -1735,55 +1683,6 @@ impl SiteExplorer {
         }
 
         Ok(index)
-    }
-
-    // TODO(chet): Follow up with RMS team re: code cleanup, or
-    // just take care of it myself (import/merge feedback).
-    fn get_static_ip_for_power_shelf(
-        &self,
-        _mac_address: &MacAddress,
-        ip_address: Option<IpAddr>,
-    ) -> IpAddr {
-        // Convert MAC address to a deterministic IP address
-        // We'll use a private IP range (192.168.0.0/16) and derive the IP from MAC
-        //TODO will check this later needd better logic
-        // let mac_bytes = mac_address.bytes();
-        // let ip_bytes = [192, 168, mac_bytes[4], mac_bytes[5]];
-        // IpAddr::V4(std::net::Ipv4Addr::new(
-        //     ip_bytes[0],
-        //     ip_bytes[1],
-        //     ip_bytes[2],
-        //     ip_bytes[3],
-        // ));
-        // if ip_address.is_some() {
-        //     return ip_address.unwrap();
-        // }
-        ip_address.unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
-    }
-
-    /// Get the underlay segment ID for power shelf interfaces
-    async fn get_underlay_segment_id(&self) -> CarbideResult<NetworkSegmentId> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::new("begin get underlay segment id", e))?;
-
-        let underlay_segments =
-            db_network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
-                .await?;
-        txn.rollback()
-            .await
-            .map_err(|e| DatabaseError::new("end get underlay segment id", e))?;
-
-        // Return the first underlay segment, or create a default one if none exist
-        underlay_segments
-            .first()
-            .copied()
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "underlay_segment",
-                id: "no_underlay_segments_found".to_string(),
-            })
     }
 
     pub async fn handle_redfish_error(
@@ -2246,30 +2145,37 @@ impl SiteExplorer {
         let mut ingest_host = true;
 
         if !matches!(system.power_state, PowerState::On) {
-            tracing::warn!(
-                "Site Explorer found an uningested host (bmc_ip_address: {}) that isnt on: {:#?}",
-                host_endpoint.address,
-                system.power_state
-            );
+            if host_endpoint.pause_remediation {
+                tracing::info!(
+                    "Site Explorer found an uningested host (bmc_ip_address: {}) that is off, but remediation is paused — skipping power-on",
+                    host_endpoint.address,
+                );
+            } else {
+                tracing::warn!(
+                    "Site Explorer found an uningested host (bmc_ip_address: {}) that isnt on: {:#?}",
+                    host_endpoint.address,
+                    system.power_state
+                );
 
-            let interface = self
-                .find_machine_interface_for_ip(host_endpoint.address)
-                .await?;
+                let interface = self
+                    .find_machine_interface_for_ip(host_endpoint.address)
+                    .await?;
 
-            self.endpoint_explorer
-                .redfish_power_control(
-                    bmc_target_addr,
-                    &interface,
-                    libredfish::SystemPowerControl::On,
-                )
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        "Site Explorer failed to turn on host (bmc_ip_address: {}) through redfish: {}",
-                        host_endpoint.address,
-                        err
+                self.endpoint_explorer
+                    .redfish_power_control(
+                        bmc_target_addr,
+                        &interface,
+                        libredfish::SystemPowerControl::On,
                     )
-                }).ok();
+                    .await
+                    .map_err(|err| {
+                        tracing::error!(
+                            "Site Explorer failed to turn on host (bmc_ip_address: {}) through redfish: {}",
+                            host_endpoint.address,
+                            err
+                        )
+                    }).ok();
+            }
 
             ingest_host = false;
         }

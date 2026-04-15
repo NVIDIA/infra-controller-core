@@ -40,6 +40,7 @@ use crate::machine::{
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
+use crate::rack::RackFirmwareUpgradeStatus;
 use crate::sku::SkuStatus;
 
 /// This represents the structure of a machine we get from postgres via the row_to_json or
@@ -104,6 +105,12 @@ pub struct MachineSnapshotPgJson {
     pub update_complete: bool,
     pub nvlink_info: Option<MachineNvLinkInfo>,
     pub dpf: Dpf,
+    #[serde(default)]
+    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
+    #[serde(default)]
+    pub slot_number: Option<i32>,
+    #[serde(default)]
+    pub tray_index: Option<i32>,
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -216,6 +223,9 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             update_complete: value.update_complete,
             nvlink_info: value.nvlink_info,
             dpf: value.dpf,
+            rack_fw_details: value.rack_fw_details,
+            slot_number: value.slot_number,
+            tray_index: value.tray_index,
         })
     }
 }

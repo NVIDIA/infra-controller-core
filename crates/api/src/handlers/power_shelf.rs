@@ -42,7 +42,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &id),
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -53,7 +52,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_power_shelf::NameColumn, &name),
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -64,7 +62,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::<db_power_shelf::IdColumn>::All,
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -127,7 +124,6 @@ pub async fn find_by_ids(
     let power_shelf_list = db_power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::List(db_power_shelf::IdColumn, &power_shelf_ids),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -201,7 +197,6 @@ pub async fn delete_power_shelf(
     let mut power_shelf_list = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await
     .map_err(|e| CarbideError::Internal {
@@ -230,6 +225,113 @@ pub async fn delete_power_shelf(
     Ok(Response::new(rpc::PowerShelfDeletionResult {}))
 }
 
+/// Force deletes a power shelf and optionally its associated interfaces from the database.
+/// Unlike `delete_power_shelf` (soft delete), this immediately hard-deletes the power shelf,
+/// its state history, and optionally its machine interfaces.
+pub async fn admin_force_delete_power_shelf(
+    api: &Api,
+    request: Request<rpc::AdminForceDeletePowerShelfRequest>,
+) -> Result<Response<rpc::AdminForceDeletePowerShelfResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    let power_shelf_id = request
+        .power_shelf_id
+        .ok_or_else(|| CarbideError::InvalidArgument("power_shelf_id is required".to_string()))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    // Verify the power shelf exists.
+    let power_shelf_list = db_power_shelf::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    if power_shelf_list.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        }
+        .into());
+    }
+
+    // Optionally delete associated machine interfaces.
+    let mut interfaces_deleted: u32 = 0;
+    if request.delete_interfaces {
+        let interface_ids =
+            db::machine_interface::find_ids_by_power_shelf_id(&mut txn, &power_shelf_id)
+                .await
+                .map_err(CarbideError::from)?;
+        for interface_id in &interface_ids {
+            db::machine_interface::delete(interface_id, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+        interfaces_deleted = interface_ids.len() as u32;
+    }
+
+    // Delete state history.
+    db::power_shelf_state_history::delete_by_power_shelf_id(&mut txn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    // Hard-delete the power shelf.
+    db_power_shelf::final_delete(power_shelf_id, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::AdminForceDeletePowerShelfResponse {
+        power_shelf_id: power_shelf_id.to_string(),
+        interfaces_deleted,
+    }))
+}
+
+pub async fn find_power_shelf_state_histories(
+    api: &Api,
+    request: Request<rpc::PowerShelfStateHistoriesRequest>,
+) -> Result<Response<rpc::StateHistories>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let power_shelf_ids = request.power_shelf_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if power_shelf_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if power_shelf_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let results =
+        db::power_shelf_state_history::find_by_power_shelf_ids(&mut txn, &power_shelf_ids)
+            .await
+            .map_err(CarbideError::from)?;
+
+    let mut response = rpc::StateHistories::default();
+    for (power_shelf_id, records) in results {
+        response.histories.insert(
+            power_shelf_id.to_string(),
+            ::rpc::forge::StateHistoryRecords {
+                records: records.into_iter().map(Into::into).collect(),
+            },
+        );
+    }
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(response))
+}
+
 pub(crate) async fn update_power_shelf_metadata(
     api: &Api,
     request: Request<rpc::PowerShelfMetadataUpdateRequest>,
@@ -255,7 +357,6 @@ pub(crate) async fn update_power_shelf_metadata(
     let power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await
     .map_err(CarbideError::from)?;

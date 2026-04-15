@@ -23,7 +23,7 @@ use tokio::time::Instant;
 pub mod ipmi;
 
 mod bmc_state;
-mod bug;
+pub mod bug;
 mod combined_server;
 mod combined_service;
 mod http;
@@ -36,7 +36,7 @@ mod redfish;
 pub mod test_support;
 pub mod tls;
 
-pub use bmc_state::BmcState;
+pub use bmc_state::{BmcEvent, BmcState};
 pub use combined_server::{CombinedServer, ListenerOrAddress};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
@@ -208,7 +208,7 @@ pub trait LogService: Send + Sync {
     fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value>;
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BootOptionKind {
     Disk,
     Network,

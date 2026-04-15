@@ -50,8 +50,6 @@ pub struct InitDpfResourcesConfig {
     /// Rendered bf.cfg template content for the DPU configuration ConfigMap.
     /// When set, a ConfigMap is created during initialization.
     pub bfcfg_template: Option<String>,
-    /// Custom fields for DPUFlavor
-    pub dpu_flavor: Option<DpuFlavorDefinition>,
 }
 
 impl Default for InitDpfResourcesConfig {
@@ -62,7 +60,6 @@ impl Default for InitDpfResourcesConfig {
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
             bfcfg_template: None,
-            dpu_flavor: None,
         }
     }
 }
@@ -82,6 +79,23 @@ pub struct ServiceConfigPort {
     pub port: i64,
     pub protocol: ServiceConfigPortProtocol,
     pub node_port: Option<i64>,
+}
+
+/// Service Network Attachment Definition (NAD)
+#[derive(Debug, Clone)]
+pub enum ServiceNADResourceType {
+    Vf,
+    Sf,
+    Veth,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServiceNAD {
+    pub name: String,
+    pub bridge: Option<String>,
+    pub ipam: Option<bool>,
+    pub resource_type: ServiceNADResourceType,
+    pub mtu: Option<i64>,
 }
 
 /// Protocol for a config port.
@@ -116,6 +130,32 @@ pub struct ServiceDefinition {
     pub service_chain_switches: Vec<ServiceChainSwitch>,
     /// Optional annotations for the service DaemonSet (e.g. Multus CNI networks).
     pub service_daemon_set_annotations: Option<std::collections::BTreeMap<String, String>>,
+    /// Optional service Network Attachment Definition specification
+    pub service_nad: Option<ServiceNAD>,
+}
+
+/// Service Network Attachment Definition (NAD)
+#[derive(Debug, Clone)]
+pub enum DpuServiceInterfaceTemplateType {
+    Vlan,
+    Physical,
+    Pf,
+    Vf,
+    Ovn,
+    Service,
+}
+
+/// Network interface for a DPU service.
+#[derive(Debug, Clone)]
+pub struct DpuServiceInterfaceTemplateDefinition {
+    /// Interface name.
+    pub name: String,
+    /// Interface Type
+    pub iface_type: DpuServiceInterfaceTemplateType,
+    /// PF Interface ID
+    pub pf_id: i64,
+    /// VF Interface ID
+    pub vf_id: i64,
 }
 
 /// Network interface for a DPU service.
@@ -154,14 +194,6 @@ impl ServiceDefinition {
             ..Default::default()
         }
     }
-}
-
-/// Definition of a DPUFlavor. This struct contains only customizable fields.
-#[derive(Debug, Clone, Default)]
-pub struct DpuFlavorDefinition {
-    pub carbide_hbn_reps: Option<String>,
-    pub carbide_hbn_sfs: Option<String>,
-    pub bridge_def: Option<DpuFlavorBridgeDefinition>,
 }
 
 #[derive(Debug, Clone, Default)]

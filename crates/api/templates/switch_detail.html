@@ -14,10 +14,7 @@
 		<th>ID</th>
 		<td>{{ id }}</td>
 	</tr>
-	<tr>
-		<th>Rack ID</th>
-		<td>TBD</td>
-	</tr>
+	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
 	<tr>
 		<th>State</th>
 		<td>
@@ -71,8 +68,12 @@
 		<td>{{ name }}</td>
 	</tr>
 	<tr>
-		<th>Location</th>
-		<td>{{ location }}</td>
+		<th>Slot Number</th>
+		<td>{{ slot_number }}</td>
+	</tr>
+	<tr>
+		<th>Tray Index</th>
+		<td>{{ tray_index }}</td>
 	</tr>
 	<tr>
 		<th>Enable NMXC</th>

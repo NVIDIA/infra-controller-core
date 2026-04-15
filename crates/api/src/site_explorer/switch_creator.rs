@@ -160,16 +160,23 @@ impl SwitchCreator {
             name,
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string()),
         };
+
         let new_switch = model::switch::NewSwitch {
             id: switch_id,
+            slot_number: None,
+            tray_index: None,
             config,
             bmc_mac_address: Some(expected_switch.bmc_mac_address),
             metadata: Some(expected_switch.metadata.clone()),
+            rack_id: expected_switch.rack_id.clone(),
         };
 
         _ = db::switch::create(txn, &new_switch).await?;
+
+        if let Some(ref rack_id) = expected_switch.rack_id {
+            let _ = crate::site_explorer::ensure_rack_exists(&mut *txn, rack_id).await?;
+        }
 
         Ok(())
     }

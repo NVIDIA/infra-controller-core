@@ -15,10 +15,12 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
 use mac_address::MacAddress;
+use model::address_selection_strategy::AddressSelectionStrategy;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpireDhcpLeaseRequest, ExpireDhcpLeaseStatus};
 use tonic::Request;
@@ -180,6 +182,113 @@ async fn test_discover_reallocates_after_expiration(
     // Verify the interface is be the same one (preserved across expiration).
     assert_eq!(
         response1.machine_interface_id, response2.machine_interface_id,
+        "should reuse the same interface"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_expire_does_not_delete_static_allocation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let static_ip: IpAddr = "192.0.2.200".parse().unwrap();
+
+    // Create an interface with a static IP via the proper create path.
+    let mut txn = env.pool.begin().await?;
+    let segment = db::network_segment::admin(&mut txn).await?;
+    let interface = db::machine_interface::create(
+        &mut txn,
+        &segment,
+        &MacAddress::from_str("aa:bb:cc:dd:ee:08").unwrap(),
+        segment.subdomain_id,
+        true,
+        AddressSelectionStrategy::StaticAddress(static_ip),
+    )
+    .await?;
+    txn.commit().await?;
+
+    assert_eq!(interface.addresses[0], static_ip);
+
+    // Try to expire it -- should NOT delete because it's static.
+    let response = env
+        .api
+        .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
+            ip_address: static_ip.to_string(),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(
+        response.status(),
+        ExpireDhcpLeaseStatus::NotFound,
+        "static allocation should not be expired"
+    );
+
+    // Verify the address still exists.
+    let mut txn = env.pool.begin().await?;
+    let addr =
+        db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await?;
+    assert_eq!(addr.address, static_ip, "static address should still exist");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_static_address_survives_expiration_and_rediscover(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mac = MacAddress::from_str("aa:bb:cc:dd:ee:09").unwrap();
+    let static_ip: IpAddr = "192.0.2.201".parse().unwrap();
+
+    // Create an interface with a static IP via the proper create path.
+    let mut txn = env.pool.begin().await?;
+    let segment = db::network_segment::admin(&mut txn).await?;
+    let interface = db::machine_interface::create(
+        &mut txn,
+        &segment,
+        &mac,
+        segment.subdomain_id,
+        true,
+        AddressSelectionStrategy::StaticAddress(static_ip),
+    )
+    .await?;
+    txn.commit().await?;
+
+    assert_eq!(interface.addresses[0], static_ip);
+
+    // Device goes offline, Kea expires the lease.
+    let expire_response = env
+        .api
+        .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
+            ip_address: static_ip.to_string(),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(
+        expire_response.status(),
+        ExpireDhcpLeaseStatus::NotFound,
+        "static address should not be expired"
+    );
+
+    // Device comes back online, sends DHCP discover.
+    let mac_str = mac.to_string();
+    let discover_response = env
+        .api
+        .discover_dhcp(DhcpDiscovery::builder(&mac_str, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request())
+        .await?
+        .into_inner();
+
+    // Should get the same static IP back, on the same interface.
+    assert_eq!(
+        discover_response.address,
+        static_ip.to_string(),
+        "should get the same static IP back"
+    );
+    assert_eq!(
+        discover_response.machine_interface_id.unwrap(),
+        interface.id,
         "should reuse the same interface"
     );
 

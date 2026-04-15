@@ -80,8 +80,8 @@ mod instance;
 mod instance_type;
 mod interface;
 mod ipam;
+mod ipxe_template;
 mod machine;
-mod machine_state_history;
 mod machine_validation;
 pub mod managed_host;
 mod network_device;
@@ -90,16 +90,16 @@ mod network_segment;
 mod network_status;
 mod nmxm_browser;
 mod nvlink;
+mod operating_system;
 mod power_shelf;
-mod power_shelf_state_history;
 mod rack;
 mod redfish_actions;
 mod redfish_browser;
 mod resource_pool;
 mod search;
 mod sku;
+mod state_history;
 mod switch;
-mod switch_state_history;
 mod tenant;
 mod tenant_keyset;
 mod ufm_browser;
@@ -401,35 +401,44 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route(
                 "/machine/{machine_id}/state-history",
-                get(machine_state_history::show_state_history),
+                get(state_history::show_machine_state_history),
             )
             .route(
                 "/machine/{machine_id}/state-history.json",
-                get(machine_state_history::show_state_history_json),
+                get(state_history::show_machine_state_history_json),
             )
             .route("/power-shelf", get(power_shelf::show_html))
             .route("/power-shelf.json", get(power_shelf::show_json))
+            .route("/power-shelf/{power_shelf_id}", get(power_shelf::detail))
             .route(
                 "/power-shelf/{power_shelf_id}/state-history",
-                get(power_shelf_state_history::show_state_history),
+                get(state_history::show_power_shelf_state_history),
             )
             .route(
                 "/power-shelf/{power_shelf_id}/state-history.json",
-                get(power_shelf_state_history::show_state_history_json),
+                get(state_history::show_power_shelf_state_history_json),
             )
             .route("/rack", get(rack::show_html))
             .route("/rack.json", get(rack::show_json))
             .route("/rack/{rack_id}", get(rack::detail))
+            .route(
+                "/rack/{rack_id}/state-history",
+                get(state_history::show_rack_state_history),
+            )
+            .route(
+                "/rack/{rack_id}/state-history.json",
+                get(state_history::show_rack_state_history_json),
+            )
             .route("/switch", get(switch::show_html))
             .route("/switch.json", get(switch::show_json))
             .route("/switch/{switch_id}", get(switch::detail))
             .route(
                 "/switch/{switch_id}/state-history",
-                get(switch_state_history::show_state_history),
+                get(state_history::show_switch_state_history),
             )
             .route(
                 "/switch/{switch_id}/state-history.json",
-                get(switch_state_history::show_state_history_json),
+                get(state_history::show_switch_state_history_json),
             )
             .route(
                 "/machine/{machine_id}/health/override/add",
@@ -490,6 +499,9 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/network-security-group/{network_security_group_id}/delete",
                 post(network_security_group::delete),
             )
+            .route("/ipxe-template", get(ipxe_template::show_html))
+            .route("/ipxe-template.json", get(ipxe_template::show_all_json))
+            .route("/ipxe-template/{name}", get(ipxe_template::detail))
             .route("/network-segment", get(network_segment::show_html))
             .route("/network-segment.json", get(network_segment::show_all_json))
             .route(
@@ -498,6 +510,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/network-status", get(network_status::show_html))
             .route("/network-status.json", get(network_status::show_all_json))
+            .route("/operating-system", get(operating_system::show_html))
+            .route(
+                "/operating-system.json",
+                get(operating_system::show_all_json),
+            )
+            .route("/operating-system/{os_id}", get(operating_system::detail))
             .route("/nmxm-browser", get(nmxm_browser::query))
             .route(
                 "/nvlink-partition",
