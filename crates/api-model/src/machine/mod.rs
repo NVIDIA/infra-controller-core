@@ -67,7 +67,7 @@ use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
 
-mod slas;
+pub mod slas;
 
 pub mod capabilities;
 pub mod health_override;

@@ -50,3 +50,7 @@ pub const ASSIGNED: Duration = Duration::from_secs(30 * 60);
 // ASSIGNED state, HostPlatformConfiguration substate
 pub const ASSIGNED_HOST_PLATFORM_CONFIGURATION: Duration = Duration::from_secs(90 * 60);
 pub const VALIDATION: Duration = Duration::from_secs(30 * 60);
+
+/// Configuration for machine state SLA durations.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MachineSlaConfig {}
