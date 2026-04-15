@@ -951,6 +951,7 @@ mod tests {
                     bmc_ip_address: None,
                     metadata: Metadata::default(),
                     rack_id: rack_id.cloned(),
+                    bmc_retain_credentials: None,
                 },
             )
             .await

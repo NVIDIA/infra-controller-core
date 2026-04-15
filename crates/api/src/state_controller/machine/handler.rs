@@ -8973,7 +8973,8 @@ async fn call_machine_setup_and_handle_no_dpu_error(
             );
             Ok(())
         }
-        (Ok(()), _, _) => Ok(()),
+        // TODO: handle the job id returned from machine setup
+        (Ok(_), _, _) => Ok(()),
         (Err(e), _, _) => Err(e),
     }
 }
