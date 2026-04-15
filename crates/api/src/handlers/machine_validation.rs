@@ -36,10 +36,23 @@ use crate::api::{Api, log_request_data};
 use crate::cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode};
 use crate::handlers::utils::convert_and_log_machine_id;
 
-/// Temporary: when `true`, MV mutation handlers no-op (OK, no DB). Remove or set `false` once
-/// add/update (and external-config update) paths are hardened; until then this avoids persisting
-/// unsafe or unreviewed definitions regardless of RBAC mode.
+/// Temporary: when `true`, MV mutation handlers return `FailedPrecondition` and do not write to the DB.
+///
+/// **Why here and not only `internal_rbac_rules`?** Principal lists in `internal_rbac_rules` are
+/// enforced only by `InternalRBACHandler`, which is **not** registered when
+/// [`crate::cfg::file::CarbideConfig::bypass_rbac`] is `true` (see `crates/api/src/listener.rs`). In
+/// that mode—common for local/dev—those rules never run, so tightening RBAC alone does not stop
+/// clients from reaching these handlers and persisting. A check in the handler applies regardless
+/// of `bypass_rbac`. Casbin may still apply separately; this guard is independent.
+///
+/// Remove or set `false` once add/update (and external-config update) paths are hardened.
 const MACHINE_VALIDATION_MUTATION_NOOP: bool = true;
+
+fn machine_validation_mutation_disabled_status() -> Status {
+    Status::failed_precondition(
+        "machine validation definition mutations are disabled until add/update paths are hardened",
+    )
+}
 
 // machine has completed validation
 pub(crate) async fn mark_machine_validation_complete(
@@ -329,9 +342,9 @@ pub(crate) async fn add_update_machine_validation_external_config(
 ) -> Result<tonic::Response<()>, Status> {
     log_request_data(&request);
     if MACHINE_VALIDATION_MUTATION_NOOP {
-        tracing::warn!("AddUpdateMachineValidationExternalConfig: no-op; skipping persistence");
+        tracing::warn!("AddUpdateMachineValidationExternalConfig: rejecting mutation (no-op)");
         let _ = request.into_inner();
-        return Ok(tonic::Response::new(()));
+        return Err(machine_validation_mutation_disabled_status());
     }
 
     let mut txn = api.txn_begin().await?;
@@ -524,14 +537,9 @@ pub(crate) async fn update_machine_validation_test(
 ) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
     log_request_data(&request);
     if MACHINE_VALIDATION_MUTATION_NOOP {
-        tracing::warn!("UpdateMachineValidationTest: no-op; skipping persistence");
+        tracing::warn!("UpdateMachineValidationTest: rejecting mutation (no-op)");
         let _ = request.into_inner();
-        return Ok(tonic::Response::new(
-            rpc::MachineValidationTestAddUpdateResponse {
-                test_id: String::new(),
-                version: String::new(),
-            },
-        ));
+        return Err(machine_validation_mutation_disabled_status());
     }
 
     let req = request.into_inner();
@@ -571,14 +579,9 @@ pub(crate) async fn add_machine_validation_test(
 ) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
     log_request_data(&request);
     if MACHINE_VALIDATION_MUTATION_NOOP {
-        tracing::warn!("AddMachineValidationTest: no-op; skipping persistence");
+        tracing::warn!("AddMachineValidationTest: rejecting mutation (no-op)");
         let _ = request.into_inner();
-        return Ok(tonic::Response::new(
-            rpc::MachineValidationTestAddUpdateResponse {
-                test_id: String::new(),
-                version: String::new(),
-            },
-        ));
+        return Err(machine_validation_mutation_disabled_status());
     }
 
     let req = request.into_inner();
