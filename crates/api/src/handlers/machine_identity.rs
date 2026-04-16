@@ -93,10 +93,10 @@ async fn load_enabled_identity_for_well_known(
     Ok(cfg)
 }
 
-/// SPIFFE `sub` claim: stored prefix plus `/machine/<machine-id>` (single slash join).
+/// SPIFFE `sub` claim: stored prefix plus `/<machine-id>` (single slash join).
 fn jwt_sub_claim(subject_prefix: &str, machine_id: &MachineId) -> String {
     let base = subject_prefix.trim_end_matches('/');
-    format!("{base}/machine/{machine_id}")
+    format!("{base}/{machine_id}")
 }
 
 fn audiences_for_jwt(
