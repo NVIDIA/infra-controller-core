@@ -28,6 +28,7 @@ use std::{fmt, fs};
 
 use arc_swap::ArcSwap;
 use bmc_vendor::BMCVendor;
+use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -394,6 +395,25 @@ pub struct CarbideConfig {
     /// per-model override exists.
     #[serde(default)]
     pub selected_profile: libredfish::BiosProfileType,
+
+    /// Vendor-specific iDRAC/BMC manager attributes applied during machine_setup,
+    /// before BMC lockdown. Keyed by vendor → model → profile → attribute name.
+    ///
+    /// These target the manager OEM attributes endpoint (e.g.
+    /// `Managers/{id}/Oem/Dell/DellAttributes/{id}` on Dell), as opposed to
+    /// `bios_profiles` which targets BIOS settings.
+    ///
+    /// Model names are normalized to lowercase with spaces replaced by underscores
+    /// (e.g. `"PowerEdge R760"` → `"poweredge_r760"`).
+    ///
+    /// Example (carbide.toml):
+    /// ```toml
+    /// # Disable PSU Hot Spare on Dell R760 to prevent fan spin-up (nvbugs-5834644)
+    /// [oem_manager_profiles.Dell.poweredge_r760.performance]
+    /// "ServerPwr.1.PSRapidOn" = "Disabled"
+    /// ```
+    #[serde(default)]
+    pub oem_manager_profiles: libredfish::BiosProfileVendor,
 
     /// DpaConfig refers to East West Ethernet (aka
     /// Cluster Interconnect Network) configuration
@@ -1980,40 +2000,6 @@ pub struct AuthConfig {
     pub trust: Option<TrustConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TrustConfig {
-    /// The SPIFFE trust domain which client certs must adhere to
-    pub spiffe_trust_domain: String,
-    /// Allowed base paths for valid client cert spiffe:// URIs for services
-    pub spiffe_service_base_paths: Vec<String>,
-    /// Allowed base path for client cert spiffe:// URIs for machines
-    pub spiffe_machine_base_path: String,
-    /// Additional issuer CN's to trust other than the SPIFFE issuer, useful for external user certs.
-    pub additional_issuer_cns: Vec<String>,
-}
-
-#[derive(Eq, PartialEq, Hash, Clone, Debug, Deserialize, Serialize)]
-pub enum CertComponent {
-    IssuerO,
-    IssuerOU,
-    IssuerCN,
-    SubjectO,
-    SubjectOU,
-    SubjectCN,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct AllowedCertCriteria {
-    /// These components of the cert must equal the given values to be approved
-    pub required_equals: HashMap<CertComponent, String>,
-    /// Use this cert component to specify the group it should be reported as
-    pub group_from: Option<CertComponent>,
-    /// Use this cert component to pick the username
-    pub username_from: Option<CertComponent>,
-    /// If not using username_from, specify the username used for all certs of this type
-    pub username: Option<String>,
-}
-
 fn default_listen() -> SocketAddr {
     "[::]:1079".parse().unwrap()
 }
@@ -3293,6 +3279,7 @@ pub fn default_host_intercept_bridge_port() -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_authn::config::CertComponent;
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};

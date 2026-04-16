@@ -6693,15 +6693,53 @@ impl HostUpgradeState {
         scenario: HostFirmwareScenario,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let machine_id = state.host_snapshot.id;
+        let requested_at = state
+            .host_snapshot
+            .host_reprovision_requested
+            .as_ref()
+            .map(|request| request.requested_at)
+            .expect("WaitingForRackFirmwareUpgrade requires a rack reprovision request");
+        let Some(rack_fw_status) = state.host_snapshot.rack_fw_details.as_ref() else {
+            return Ok(StateHandlerOutcome::wait(
+                "waiting for rack firmware status".into(),
+            ));
+        };
+        if !rack_fw_status.is_current_for(requested_at) {
+            return Ok(StateHandlerOutcome::wait(
+                "waiting for current rack firmware cycle".into(),
+            ));
+        }
+        if !rack_fw_status.is_terminal() {
+            return Ok(StateHandlerOutcome::wait(
+                "waiting for rack firmware completion".into(),
+            ));
+        }
 
-        let outcome = StateHandlerOutcome::transition(scenario.actual_new_state(
-            HostReprovisionState::CheckingFirmwareRepeatV2 {
-                firmware_type: None,
-                firmware_number: None,
-            },
-            state.managed_state.get_host_repro_retry_count(),
-        ));
-        return Ok(outcome
+        let next_state = match &rack_fw_status.status {
+            model::rack::RackFirmwareUpgradeState::Completed => scenario.actual_new_state(
+                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_type: None,
+                    firmware_number: None,
+                },
+                state.managed_state.get_host_repro_retry_count(),
+            ),
+            model::rack::RackFirmwareUpgradeState::Failed { cause } => scenario.actual_new_state(
+                HostReprovisionState::FailedFirmwareUpgrade {
+                    firmware_type: FirmwareComponentType::Unknown,
+                    report_time: Some(Utc::now()),
+                    reason: Some(cause.clone()),
+                },
+                state.managed_state.get_host_repro_retry_count(),
+            ),
+            model::rack::RackFirmwareUpgradeState::Started
+            | model::rack::RackFirmwareUpgradeState::InProgress => {
+                return Ok(StateHandlerOutcome::wait(
+                    "waiting for rack firmware completion".into(),
+                ));
+            }
+        };
+
+        Ok(StateHandlerOutcome::transition(next_state)
             .in_transaction(&ctx.services.db_pool, move |txn| {
                 async move {
                     db::host_machine_update::clear_host_reprovisioning_request(txn, &machine_id)
@@ -6710,7 +6748,7 @@ impl HostUpgradeState {
                 }
                 .boxed()
             })
-            .await??);
+            .await??)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -8921,7 +8959,7 @@ async fn call_machine_setup_and_handle_no_dpu_error(
             boot_interface_mac,
             &site_config.bios_profiles,
             site_config.selected_profile,
-            &HashMap::default(),
+            &site_config.oem_manager_profiles,
         )
         .await;
     match (
@@ -8935,7 +8973,8 @@ async fn call_machine_setup_and_handle_no_dpu_error(
             );
             Ok(())
         }
-        (Ok(()), _, _) => Ok(()),
+        // TODO: handle the job id returned from machine setup
+        (Ok(_), _, _) => Ok(()),
         (Err(e), _, _) => Err(e),
     }
 }
@@ -9945,6 +9984,67 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
+
+    /// Verify that `oem_manager_profiles` from the site config is forwarded to `machine_setup`.
+    ///
+    /// This test catches regressions where the argument gets dropped or replaced with an empty map.
+    #[tokio::test]
+    async fn test_oem_manager_profiles_passed_to_machine_setup() {
+        use libredfish::BiosProfileType;
+        use libredfish::model::service_root::RedfishVendor;
+
+        use crate::redfish::RedfishClientPool;
+        use crate::redfish::test_support::{RedfishSim, RedfishSimAction};
+
+        let mut config = crate::tests::common::api_fixtures::get_config();
+        // Build an oem_manager_profiles map with a Dell R760 PSU Hot Spare setting.
+        // This mirrors the fix for the Dell R760 PSU fan issue (nvbugs-5834644).
+        config.oem_manager_profiles = HashMap::from([(
+            RedfishVendor::Dell,
+            HashMap::from([(
+                "r760".to_string(),
+                HashMap::from([(
+                    BiosProfileType::Performance,
+                    HashMap::from([(
+                        "ServerPwr.1.PSRapidOn".to_string(),
+                        serde_json::Value::String("Disabled".to_string()),
+                    )]),
+                )]),
+            )]),
+        )]);
+
+        use forge_secrets::credentials::{CredentialKey, CredentialType};
+
+        use crate::redfish::RedfishAuth;
+
+        let sim = RedfishSim::default();
+        let timepoint = sim.timepoint();
+        let client = sim
+            .create_client(
+                "test-host",
+                None,
+                RedfishAuth::Key(CredentialKey::HostRedfish {
+                    credential_type: CredentialType::SiteDefault,
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let result =
+            call_machine_setup_and_handle_no_dpu_error(client.as_ref(), None, 1, &config).await;
+
+        assert!(result.is_ok());
+
+        let actions = sim.actions_since(&timepoint).all_hosts();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            actions[0],
+            RedfishSimAction::MachineSetup {
+                oem_manager_profiles: config.oem_manager_profiles,
+            }
+        );
+    }
 
     #[test]
     fn test_cycle_1() {
