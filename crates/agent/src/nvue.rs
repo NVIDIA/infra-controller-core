@@ -36,13 +36,14 @@ const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.con
 const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 
 /// Returns the NVUE template for the given virtualization type.
+/// EthernetVirtualizerWithNvue is hanging around for a bit longer in here
+/// just for an extra sense of security and compatibilty; it all goes
+/// to EthernetVirtualizer.
 pub fn template_for(vtype: VpcVirtualizationType) -> eyre::Result<&'static str> {
     match vtype {
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(TMPL_ETV_WITH_NVUE),
+        VpcVirtualizationType::EthernetVirtualizer
+        | VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(TMPL_ETV_WITH_NVUE),
         VpcVirtualizationType::Fnn => Ok(TMPL_FNN),
-        VpcVirtualizationType::EthernetVirtualizer => Err(eyre::eyre!(
-            "Legacy EthernetVirtualizer is no longer supported"
-        )),
     }
 }
 
@@ -125,6 +126,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         .ct_routing_profile
         .as_ref()
         .map(|rt| TmplRoutingProfile {
+            TenantLeakCommunitiesAccepted: rt.tenant_leak_communities_accepted,
             LeakDefaultRouteFromUnderlay: rt.leak_default_route_from_underlay,
             LeakTenantHostRoutesToUnderlay: rt.leak_tenant_host_routes_to_underlay,
             RouteTargetImports: rt
@@ -407,6 +409,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         split_prefixes_by_family(&conf.deny_prefixes, 1000 + deny_prefix_index_offset);
 
     let params = TmplNvue {
+        HasBgpLeafSessionPassword: conf.bgp_leaf_session_password.is_some(),
+        BgpLeafSessionPassword: conf.bgp_leaf_session_password.unwrap_or_default(),
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
         HasSiteGlobalVpcVni: conf.site_global_vpc_vni.is_some(),
@@ -737,11 +741,14 @@ pub async fn hack_platform_config_for_nvue() -> eyre::Result<()> {
 }
 
 // Apply the config at `config_path`.
-pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<()> {
+//
+// Returns true if we performed `nv config apply`, false when pending config matched
+// applied config and was detached without applying.
+pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<bool> {
     match run_apply(hbn_root, &config_path.0).await {
-        Ok(_) => {
+        Ok(applied) => {
             config_path.del("BAK");
-            Ok(())
+            Ok(applied)
         }
         Err(err) => {
             tracing::error!("update_nvue post command failed: {err:#}");
@@ -783,7 +790,7 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
 }
 
 // Ask NVUE to use the config at `path`
-async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
+async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<bool> {
     let mut in_container_path = path
         .strip_prefix(hbn_root)
         .wrap_err("Stripping hbn_root prefix from path to make in-container path")?
@@ -809,6 +816,20 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
     .await?;
     if !stdout.is_empty() {
         tracing::info!("nv config replace: {stdout}");
+    }
+
+    // Compare pending to applied config at NVUE layer.
+    // This avoids no-op apply cycles when textual YAML ordering changes but
+    // semantic config does not.
+    let stdout =
+        super::hbn::run_in_container(&container_id, &["nv", "config", "diff"], true).await?;
+    if stdout.is_empty() {
+        let stdout =
+            super::hbn::run_in_container(&container_id, &["nv", "config", "detach"], true).await?;
+        if !stdout.is_empty() {
+            tracing::info!("nv config detach: {stdout}");
+        }
+        return Ok(false);
     }
 
     // Apply the pending config.
@@ -841,7 +862,7 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
         tracing::info!("nl2doca restart: {stdout}");
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// vni_to_svimac takes an VNI (which is a 24 bit integer whose range
@@ -872,6 +893,7 @@ pub struct NvueConfig {
     pub site_global_vpc_vni: Option<u32>,
     pub common_internal_route_target: Option<RouteTargetConfig>,
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
+    pub bgp_leaf_session_password: Option<String>,
 
     pub secondary_overlay_vtep_ip: Option<String>,
     pub vf_intercept_bridge_port_name: Option<String>,
@@ -921,6 +943,7 @@ pub struct RoutingProfile {
     pub leak_tenant_host_routes_to_underlay: bool,
     pub route_target_imports: Vec<RouteTargetConfig>,
     pub route_targets_on_exports: Vec<RouteTargetConfig>,
+    pub tenant_leak_communities_accepted: bool,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -1137,6 +1160,11 @@ struct TmplNvue {
     StorageLoopback: String,  // XXX (Classic, L3)
     DPUstorageprefix: String, // XXX (Classic, L3)
     IncludeBridge: bool,
+
+    HasBgpLeafSessionPassword: bool,
+    /// A password to use for the BGP session with the
+    /// leaf TOR.
+    BgpLeafSessionPassword: String,
 }
 
 #[allow(non_snake_case)]
@@ -1178,6 +1206,7 @@ struct TmplRoutingProfile {
     LeakDefaultRouteFromUnderlay: bool,
     RouteTargetImports: Vec<TmplRouteTargetConfig>,
     RouteTargetsOnExports: Vec<TmplRouteTargetConfig>,
+    TenantLeakCommunitiesAccepted: bool,
 }
 
 #[allow(non_snake_case)]
@@ -1455,11 +1484,12 @@ mod tests {
     }
 
     /// Helper to build a minimal NvueConfig for template rendering tests.
-    /// Uses EthernetVirtualizerWithNvue (ETV) by default.
+    /// Uses EthernetVirtualizer (ETV) by default.
     fn minimal_nvue_config() -> NvueConfig {
         NvueConfig {
+            bgp_leaf_session_password: None,
             is_fnn: false,
-            vpc_virtualization_type: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+            vpc_virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
             use_admin_network: false,
             loopback_ip: "10.0.0.1".to_string(),
             asn: 65000,
@@ -1498,22 +1528,19 @@ mod tests {
     }
 
     #[test]
-    fn test_template_for_etv_nvue() {
+    fn test_template_for_etv() {
+        assert!(template_for(VpcVirtualizationType::EthernetVirtualizer).is_ok());
+    }
+
+    #[test]
+    fn test_template_for_etv_with_nvue() {
+        // EthernetVirtualizerWithNvue is kept for wire compat with older API servers
         assert!(template_for(VpcVirtualizationType::EthernetVirtualizerWithNvue).is_ok());
     }
 
     #[test]
     fn test_template_for_fnn() {
         assert!(template_for(VpcVirtualizationType::Fnn).is_ok());
-    }
-
-    #[test]
-    fn test_template_for_rejects_legacy_etv() {
-        let err = template_for(VpcVirtualizationType::EthernetVirtualizer).unwrap_err();
-        assert!(
-            err.to_string().contains("EthernetVirtualizer"),
-            "unexpected error: {err}"
-        );
     }
 
     /// Helper to compare build() output against a golden file, using the same
@@ -1529,15 +1556,10 @@ mod tests {
     }
 
     #[test]
-    fn test_build_rejects_legacy_ethernet_virtualizer() {
+    fn test_build_accepts_ethernet_virtualizer() {
         let mut conf = minimal_nvue_config();
         conf.vpc_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
-        let err = build(conf).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("EthernetVirtualizer"),
-            "unexpected error message: {msg}"
-        );
+        assert!(build(conf).is_ok());
     }
 
     #[test]
@@ -1583,6 +1605,7 @@ mod tests {
         conf.deny_prefixes = vec!["192.0.2.0/24".into(), "2001:db8:bad::/48".into()];
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00:abcd::/32".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],
@@ -1657,6 +1680,7 @@ mod tests {
         conf.deny_prefixes = vec!["192.0.2.0/24".into()];
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/48".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
 
@@ -1736,6 +1760,7 @@ mod tests {
         conf.use_vpc_isolation = true;
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/32".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],

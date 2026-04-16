@@ -134,7 +134,8 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
-    create_tenant_network_segment, create_underlay_network_segment,
+    create_static_assignments_segment, create_tenant_network_segment,
+    create_underlay_network_segment,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 use crate::tests::common::test_certificates::TestCertificateProvider;
@@ -285,6 +286,7 @@ impl TestEnvOverrides {
                             route_targets_on_exports: vec![],
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
+                            tenant_leak_communities_accepted: false,
                         },
                     ),
                     (
@@ -295,6 +297,7 @@ impl TestEnvOverrides {
                             route_targets_on_exports: vec![],
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
+                            tenant_leak_communities_accepted: false,
                         },
                     ),
                 ]),
@@ -372,6 +375,7 @@ impl TestEnv {
             site_config: self.config.clone(),
             dpa_info: None,
             rms_client: self.rms_sim.as_rms_client(),
+            credential_manager: self.test_credential_manager.clone(),
         }
     }
 
@@ -395,8 +399,6 @@ impl TestEnv {
     ) -> ManagedHostState {
         //This block is to fill data that is populated within statemachine
         match state.clone() {
-            ManagedHostState::RegisterRmsMembership => state.clone(),
-            ManagedHostState::VerifyRmsMembership => state.clone(),
             ManagedHostState::DpuDiscoveringState { .. } => state.clone(),
             ManagedHostState::DPUInit { .. } => state.clone(),
             ManagedHostState::HostInit { machine_state } => {
@@ -1047,6 +1049,11 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
 
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
+        bgp_leaf_session_password: None,
+        rack_validation_config: crate::cfg::file::RackValidationConfig {
+            enabled: true,
+            ..Default::default()
+        },
         site_global_vpc_vni: None,
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
         metrics_endpoint: None,
@@ -1168,6 +1175,7 @@ pub fn get_config() -> CarbideConfig {
         fnn: None,
         bios_profiles: HashMap::default(),
         selected_profile: libredfish::BiosProfileType::Performance,
+        oem_manager_profiles: HashMap::default(),
         bom_validation: BomValidationConfig::default(),
         listen_mode: ListenMode::Tls,
         listen_only: false,
@@ -1196,9 +1204,12 @@ pub fn get_config() -> CarbideConfig {
         }),
         mlxconfig_profiles: None,
         rack_management_enabled: false,
-        rms_api_url: Some(
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
-        ),
+        rms: crate::cfg::file::RmsConfig {
+            api_url: Some(
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
+            ),
+            ..Default::default()
+        },
         rack_types: Default::default(),
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
@@ -1207,12 +1218,19 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             nras_config: Some(nras::Config::default()),
         },
-        machine_identity: crate::cfg::file::MachineIdentityConfig::default(),
+        machine_identity: crate::cfg::file::MachineIdentityConfig {
+            enabled: true,
+            current_encryption_key_id: Some("test".to_string()),
+            ..Default::default()
+        },
         dsx_exchange_event_bus: None,
         force_dpu_nic_mode: Arc::new(false.into()),
         dpf: crate::cfg::file::DpfConfig::default(),
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
+        external_api_url: None,
+        external_pxe_url: None,
+        external_static_pxe_url: None,
         supernic_firmware_profiles: HashMap::default(),
         component_manager: None,
     }
@@ -1549,6 +1567,7 @@ pub async fn create_test_env_with_overrides(
         site_config: config.clone(),
         dpa_info: None,
         rms_client: rms_sim.as_rms_client(),
+        credential_manager: credential_manager.clone(),
     });
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();
@@ -1667,6 +1686,7 @@ pub async fn create_test_env_with_overrides(
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_sim.as_rms_client(),
+        credential_manager.clone(),
     );
 
     // Create some instance types
@@ -1717,6 +1737,13 @@ pub async fn create_test_env_with_overrides(
 
         // Create underlay network
         let underlay = Some(create_underlay_network_segment(&api).await);
+        network_controller.run_single_iteration().await;
+        network_controller.run_single_iteration().await;
+
+        // Synthetic segment for operator static IPs outside Carbide-managed prefixes (expected
+        // machine / switch / shelf BMC pre-allocation). Required for static-BMC integration tests.
+        // Pass the domain to match production behavior (db_init passes Some(domain_id)).
+        create_static_assignments_segment(&api, Some(domain)).await;
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
 
@@ -1898,6 +1925,12 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
 }
 
 fn test_static_credential_snapshot() -> CredentialSnapshot {
+    use std::collections::HashMap;
+
+    use base64::Engine;
+    let test_key_b64 = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
+    let mut encryption_keys = HashMap::new();
+    encryption_keys.insert("test".to_string(), test_key_b64);
     CredentialSnapshot {
         dpu_redfish_factory_default: Some(UsernamePassword {
             username: "root".to_string(),
@@ -1911,6 +1944,7 @@ fn test_static_credential_snapshot() -> CredentialSnapshot {
             username: "root".to_string(),
             password: "hostredfish_sitedefault".to_string(),
         }),
+        machine_identity: Some(forge_secrets::MachineIdentityConfig { encryption_keys }),
         ..Default::default()
     }
 }

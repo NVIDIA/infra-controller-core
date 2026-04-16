@@ -52,6 +52,7 @@ fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
                         vendor: None,
                         slot_ids: None,
                     },
+                    ..Default::default()
                 },
             ),
             (
@@ -75,6 +76,7 @@ fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
                         vendor: None,
                         slot_ids: None,
                     },
+                    ..Default::default()
                 },
             ),
         ]
@@ -97,6 +99,7 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
         &model::expected_rack::ExpectedRack {
             rack_id: ids[0].clone(),
             rack_type: "NVL72".to_string(),
+
             metadata: model::metadata::Metadata {
                 name: "rack-1".to_string(),
                 description: "Test rack 1".to_string(),
@@ -112,6 +115,7 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
         &model::expected_rack::ExpectedRack {
             rack_id: ids[1].clone(),
             rack_type: "NVL72".to_string(),
+
             metadata: model::metadata::Metadata {
                 name: "rack-2".to_string(),
                 description: "Test rack 2".to_string(),
@@ -127,6 +131,7 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
         &model::expected_rack::ExpectedRack {
             rack_id: ids[2].clone(),
             rack_type: "NVL36".to_string(),
+
             metadata: model::metadata::Metadata {
                 name: "rack-3".to_string(),
                 description: "Test rack 3".to_string(),
@@ -198,6 +203,7 @@ async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         &model::expected_rack::ExpectedRack {
             rack_id: rack_id.clone(),
             rack_type: "NVL72".to_string(),
+
             metadata,
         },
     )
@@ -228,6 +234,7 @@ async fn test_db_duplicate_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         &model::expected_rack::ExpectedRack {
             rack_id: ids[0].clone(),
             rack_type: "NVL72".to_string(),
+
             metadata: model::metadata::Metadata::default(),
         },
     )
@@ -772,7 +779,12 @@ async fn test_add_expected_rack_creates_rack_entry(pool: sqlx::PgPool) {
         .await
         .expect("unable to add expected rack");
 
-    // Verify the rack was also created in the racks table with the rack_type set.
-    let rack = db::rack::get(&pool, &rack_id).await.unwrap();
-    assert_eq!(rack.config.rack_type.as_deref(), Some("NVL72"));
+    // Verify the expected_rack entry was created (racks row is created lazily
+    // by ensure_rack_exists when the first device is discovered).
+    let mut txn = pool.acquire().await.unwrap();
+    let expected = db::expected_rack::find_by_rack_id(&mut txn, &rack_id)
+        .await
+        .unwrap();
+    assert!(expected.is_some(), "expected_rack entry should exist");
+    assert_eq!(expected.unwrap().rack_type, "NVL72");
 }
