@@ -40,7 +40,7 @@ pub async fn trigger_reprovisioning_set(
 
         if let Some(host_machine) = host_machine
             && host_machine
-                .health_overrides
+                .health_sources
                 .iter()
                 .any(|or| or.source == "host-update")
         {

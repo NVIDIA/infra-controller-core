@@ -518,12 +518,9 @@ impl MachineStateHandler {
             }
         }
 
-        ctx.metrics.num_merge_overrides = state.host_snapshot.health_report_overrides.merges.len();
-        ctx.metrics.replace_override_enabled = state
-            .host_snapshot
-            .health_report_overrides
-            .replace
-            .is_some();
+        ctx.metrics.num_merge_overrides = state.host_snapshot.health_report_sources.merges.len();
+        ctx.metrics.replace_override_enabled =
+            state.host_snapshot.health_report_sources.replace.is_some();
     }
 
     fn record_health_history(
@@ -1551,7 +1548,7 @@ impl MachineStateHandler {
         let timeout_threshold = self.reachability_params.scout_reporting_timeout;
         let scout_timeout_alert_exists = mh_snapshot
             .host_snapshot
-            .health_report_overrides
+            .health_report_sources
             .merges
             .contains_key("scout");
 

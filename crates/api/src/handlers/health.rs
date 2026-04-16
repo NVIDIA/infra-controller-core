@@ -46,7 +46,7 @@ pub async fn list_health_report_overrides(
 
     Ok(Response::new(rpc::ListHealthReportOverrideResponse {
         overrides: host_machine
-            .health_report_overrides
+            .health_report_sources
             .clone()
             .into_iter()
             .map(|o| HealthReportOverride {
@@ -80,7 +80,7 @@ async fn remove_by_source(
 
     // Ensure this source already exists in override list
     let mode = if host_machine
-        .health_report_overrides
+        .health_report_sources
         .replace
         .as_ref()
         .map(|o| &o.source)
@@ -88,7 +88,7 @@ async fn remove_by_source(
     {
         OverrideMode::Replace
     } else if host_machine
-        .health_report_overrides
+        .health_report_sources
         .merges
         .contains_key(&source)
     {

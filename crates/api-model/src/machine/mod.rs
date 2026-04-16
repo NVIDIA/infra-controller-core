@@ -36,7 +36,7 @@ use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
-use rpc::forge::HealthOverrideOrigin;
+use rpc::forge::HealthSourceOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
@@ -62,7 +62,7 @@ use crate::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
-use crate::machine::health_override::HealthReportOverrides;
+use crate::machine::health_override::HealthReportSources;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
@@ -123,14 +123,14 @@ pub struct ManagedHostStateSnapshot {
     pub aggregate_health: health_report::HealthReport,
     /// Health overrides inherited from the rack this host belongs to (if any).
     /// Populated at read time; not stored on the machines table.
-    pub rack_health_overrides: Option<HealthReportOverrides>,
+    pub rack_health_overrides: Option<HealthReportSources>,
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         #[derive(Deserialize)]
         struct RackHealthOverrides {
-            json: HealthReportOverrides,
+            json: HealthReportSources,
         }
 
         let host_snapshot: sqlx::types::Json<MachineSnapshotPgJson> =
@@ -246,7 +246,7 @@ impl ManagedHostStateSnapshot {
         report: &mut HealthReport,
         hardware_health_config: HardwareHealthReportsConfig,
     ) -> bool {
-        if HealthReportOverrides::is_hardware_health_override_source(source) {
+        if HealthReportSources::is_hardware_health_override_source(source) {
             match hardware_health_config {
                 HardwareHealthReportsConfig::Disabled => {}
                 HardwareHealthReportsConfig::MonitorOnly => {
@@ -314,7 +314,7 @@ impl ManagedHostStateSnapshot {
         // If there is an [`OverrideMode::Replace`] health report override on
         // the host, then use that. A host-level Replace takes full precedence,
         // including over any rack-level overrides.
-        if let Some(mut over) = self.host_snapshot.health_report_overrides.replace.clone() {
+        if let Some(mut over) = self.host_snapshot.health_report_sources.replace.clone() {
             over.source = source;
             over.observed_at = observed_at;
             self.aggregate_health = over;
@@ -384,7 +384,7 @@ impl ManagedHostStateSnapshot {
                 output.merge(report);
             }
 
-            for (source, over) in snapshot.health_report_overrides.merges.iter_mut() {
+            for (source, over) in snapshot.health_report_sources.merges.iter_mut() {
                 let merged_hardware = Self::merge_override_report_with_hw_health(
                     &mut output,
                     source,
@@ -395,7 +395,7 @@ impl ManagedHostStateSnapshot {
             }
         }
 
-        for (source, over) in self.host_snapshot.health_report_overrides.merges.iter_mut() {
+        for (source, over) in self.host_snapshot.health_report_sources.merges.iter_mut() {
             let merged_hardware = Self::merge_override_report_with_hw_health(
                 &mut output,
                 source,
@@ -736,8 +736,8 @@ pub struct Machine {
     /// Latest health report submitted by site-explorer
     pub site_explorer_health_report: Option<HealthReport>,
 
-    /// All health report overrides
-    pub health_report_overrides: HealthReportOverrides,
+    /// All health report sources
+    pub health_report_sources: HealthReportSources,
 
     // Inventory related to a DPU machine as reported by the agent there.
     // Software and versions installed on the machine.
@@ -1091,10 +1091,10 @@ impl From<Machine> for rpc::forge::Machine {
                 if let Some(hr) = machine.site_explorer_health_report.as_ref() {
                     health.merge(hr);
                 }
-                match machine.health_report_overrides.replace.as_ref() {
+                match machine.health_report_sources.replace.as_ref() {
                     Some(over) => over.clone(),
                     None => {
-                        for over in machine.health_report_overrides.merges.values() {
+                        for over in machine.health_report_sources.merges.values() {
                             health.merge(over);
                         }
                         health
@@ -1106,7 +1106,7 @@ impl From<Machine> for rpc::forge::Machine {
 
         let (maintenance_reference, maintenance_start_time) = if !machine.is_dpu() {
             machine
-                .health_report_overrides
+                .health_report_sources
                 .maintenance_override()
                 .map(|o| (Some(o.maintenance_reference), o.maintenance_start_time))
                 .unwrap_or_default()
@@ -1188,10 +1188,10 @@ impl From<Machine> for rpc::forge::Machine {
             state_reason: machine.controller_state_outcome.map(|r| r.into()),
             health: Some(health.into()),
             firmware_autoupdate: machine.firmware_autoupdate,
-            health_overrides: machine
-                .health_report_overrides
+            health_sources: machine
+                .health_report_sources
                 .into_iter()
-                .map(|(hr, m)| HealthOverrideOrigin {
+                .map(|(hr, m)| HealthSourceOrigin {
                     mode: m as i32,
                     source: hr.source,
                 })

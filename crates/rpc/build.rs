@@ -258,7 +258,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.HealthReportOverride", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.HealthOverrideOrigin", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.HealthSourceOrigin", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
             "forge.ManagedHostNetworkConfig",
             "#[derive(serde::Serialize)]",

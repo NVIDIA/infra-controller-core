@@ -199,7 +199,7 @@ async fn test_remove_machine_update_markers(
     assert!(
         !managed_host
             .host_snapshot
-            .health_report_overrides
+            .health_report_sources
             .merges
             .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE)
     );

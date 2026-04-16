@@ -1692,7 +1692,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_ready_transition(pool: sq
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(
-        !host.health_report_overrides.merges.contains_key("scout"),
+        !host.health_report_sources.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to be cleared when leaving Ready"
     );
 }
@@ -1768,7 +1768,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transit
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(
-        !host.health_report_overrides.merges.contains_key("scout"),
+        !host.health_report_sources.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to be cleared when leaving Ready via instance creation"
     );
 }
@@ -1830,7 +1830,7 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     assert!(
-        host.health_report_overrides.merges.contains_key("scout"),
+        host.health_report_sources.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to remain when unhealthy allocation is blocked"
     );
 }

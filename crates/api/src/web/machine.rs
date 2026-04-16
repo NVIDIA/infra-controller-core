@@ -111,12 +111,12 @@ impl MachineRowDisplay {
             num_nvlink_gpus = nvlink_info.gpus.len();
         }
         let replace_count = m
-            .health_overrides
+            .health_sources
             .iter()
             .filter(|o| o.mode() == OverrideMode::Replace)
             .count();
         let merge_count = m
-            .health_overrides
+            .health_sources
             .iter()
             .filter(|o| o.mode() == OverrideMode::Merge)
             .count();
@@ -703,11 +703,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                         .unwrap_or_else(health_report::HealthReport::malformed_report)
                 })
                 .unwrap_or_else(health_report::HealthReport::missing_report),
-            health_overrides: m
-                .health_overrides
-                .iter()
-                .map(|o| o.source.clone())
-                .collect(),
+            health_overrides: m.health_sources.iter().map(|o| o.source.clone()).collect(),
             discovery_info_json,
             capabilities_json: m
                 .capabilities

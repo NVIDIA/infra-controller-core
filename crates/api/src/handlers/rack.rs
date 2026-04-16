@@ -300,7 +300,7 @@ pub async fn list_rack_health_report_overrides(
 
     Ok(Response::new(rpc::ListHealthReportOverrideResponse {
         overrides: rack
-            .health_report_overrides
+            .health_report_sources
             .into_iter()
             .map(|o| HealthReportOverride {
                 report: Some(o.0.into()),
@@ -408,14 +408,14 @@ async fn remove_rack_override_by_source(
     source: String,
 ) -> Result<(), CarbideError> {
     let mode = if rack
-        .health_report_overrides
+        .health_report_sources
         .replace
         .as_ref()
         .map(|o| &o.source)
         == Some(&source)
     {
         OverrideMode::Replace
-    } else if rack.health_report_overrides.merges.contains_key(&source) {
+    } else if rack.health_report_sources.merges.contains_key(&source) {
         OverrideMode::Merge
     } else {
         return Err(CarbideError::NotFoundError {

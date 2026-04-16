@@ -17,18 +17,18 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc, RemoveHealthReportOverrideRequest};
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::forge::RemoveHealthReportOverrideRequest;
 use chrono::Utc;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
-use prettytable::{Table, row};
 
 use super::args::{Args, HealthOverrideTemplates};
+use crate::health_utils;
 use crate::rpc::ApiClient;
 
-fn get_empty_template() -> HealthReport {
+pub fn get_empty_template() -> HealthReport {
     HealthReport {
         source: "".to_string(),
         triggered_by: None,
@@ -160,55 +160,14 @@ pub async fn handle_override(
                 .0
                 .list_health_report_overrides(machine_id)
                 .await?;
-            let mut rows = vec![];
-            for r#override in response.overrides {
-                let report = r#override.report.ok_or(CarbideCliError::GenericError(
-                    "missing response".to_string(),
-                ))?;
-                let mode = match ::rpc::forge::OverrideMode::try_from(r#override.mode)
-                    .map_err(|_| CarbideCliError::GenericError("invalide response".to_string()))?
-                {
-                    forgerpc::OverrideMode::Merge => "Merge",
-                    forgerpc::OverrideMode::Replace => "Replace",
-                };
-                rows.push((report, mode));
-            }
-            match output_format {
-                OutputFormat::Json => println!(
-                    "{}",
-                    serde_json::to_string_pretty(
-                        &rows
-                            .into_iter()
-                            .map(|r| {
-                                serde_json::json!({
-                                    "report": r.0,
-                                    "mode": r.1,
-                                })
-                            })
-                            .collect::<Vec<_>>(),
-                    )?
-                ),
-                _ => {
-                    let mut table = Table::new();
-                    table.set_titles(row!["Report", "Mode"]);
-                    for row in rows {
-                        table.add_row(row![serde_json::to_string(&row.0)?, row.1]);
-                    }
-                    table.printstd();
-                }
-            }
+            health_utils::display_overrides(response.overrides, output_format)?;
         }
         Args::Add(options) => {
-            let report = if let Some(template) = options.template {
-                get_health_report(template, options.message)
-            } else if let Some(health_report) = options.health_report {
-                serde_json::from_str::<health_report::HealthReport>(&health_report)
-                    .map_err(CarbideCliError::JsonError)?
-            } else {
-                return Err(CarbideCliError::GenericError(
-                    "Either health_report or template name must be provided.".to_string(),
-                ));
-            };
+            let report = health_utils::resolve_health_report(
+                options.template,
+                options.health_report,
+                options.message,
+            )?;
 
             if options.print_only {
                 println!("{}", serde_json::to_string_pretty(&report).unwrap());
@@ -236,10 +195,7 @@ pub async fn handle_override(
                 .await?;
         }
         Args::PrintEmptyTemplate => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&get_empty_template()).unwrap()
-            );
+            health_utils::print_empty_template();
         }
     }
 

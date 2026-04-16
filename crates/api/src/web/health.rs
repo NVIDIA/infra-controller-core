@@ -24,7 +24,7 @@ use axum::response::{Html, IntoResponse, Response};
 use carbide_uuid::machine::{MachineId, MachineType};
 use health_report::HealthReport;
 use hyper::http::StatusCode;
-use model::machine::health_override::HealthReportOverrides;
+use model::health::HealthReportSources;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
@@ -150,7 +150,7 @@ pub async fn health(
             .as_ref()
             .map(|report| report.source.as_str())
             .unwrap_or_default();
-        if HealthReportOverrides::is_hardware_health_override_source(source) {
+        if HealthReportSources::is_hardware_health_override_source(source) {
             if let Some(report) = override_entry.report {
                 let report = health_report_from_rpc_convert_invalid(report);
                 if let Some(aggregated) = hardware_health.as_mut() {

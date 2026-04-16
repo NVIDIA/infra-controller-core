@@ -48,11 +48,12 @@ pub enum Cmd {
     #[clap(subcommand, about = "Networking information")]
     Network(network::Args),
     #[clap(
-        about = "Health override related handling",
+        about = "Manage health report sources",
         subcommand,
-        visible_alias = "ho"
+        visible_alias = "hr",
+        alias = "health-override"
     )]
-    HealthOverride(health_override::Args),
+    HealthReport(health_override::Args),
     #[clap(about = "Reboot a machine")]
     Reboot(reboot::Args),
     #[clap(about = "Force delete a machine")]

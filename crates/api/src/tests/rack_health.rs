@@ -463,7 +463,7 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
     assert!(
         snapshot
             .host_snapshot
-            .health_report_overrides
+            .health_report_sources
             .replace
             .is_some(),
         "Host-level Replace override should still be present"
@@ -593,10 +593,10 @@ async fn test_rack_health_visible_in_find_racks_by_ids(
         "Rack health should contain alerts"
     );
 
-    assert_eq!(rack.health_overrides.len(), 1);
-    assert_eq!(rack.health_overrides[0].source, "dsx-exchange-consumer");
+    assert_eq!(rack.health_sources.len(), 1);
+    assert_eq!(rack.health_sources[0].source, "dsx-exchange-consumer");
     assert_eq!(
-        rack.health_overrides[0].mode,
+        rack.health_sources[0].mode,
         rpc_forge::OverrideMode::Merge as i32
     );
 

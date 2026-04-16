@@ -138,7 +138,7 @@ fn parse_health_override_show() {
         .expect("should parse health-override show");
 
     match cmd {
-        Cmd::HealthOverride(OverrideCommand::Show { machine_id }) => {
+        Cmd::HealthReport(OverrideCommand::Show { machine_id }) => {
             assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
         }
         _ => panic!("expected HealthOverride Show variant"),
@@ -160,7 +160,7 @@ fn parse_health_override_add_with_template() {
     .expect("should parse health-override add with template");
 
     match cmd {
-        Cmd::HealthOverride(OverrideCommand::Add(args)) => {
+        Cmd::HealthReport(OverrideCommand::Add(args)) => {
             assert!(args.template.is_some());
             assert!(args.health_report.is_none());
         }

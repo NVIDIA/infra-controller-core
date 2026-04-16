@@ -200,29 +200,7 @@ pub async fn insert_health_report_override(
     mode: OverrideMode,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-        OverrideMode::Replace => "replace".to_string(),
-    };
-
-    let query = format!(
-        "UPDATE racks SET {column_name} = jsonb_set(
-            coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
-            '{{{path}}}',
-            $1::jsonb
-        ) WHERE id = $2
-        RETURNING id"
-    );
-
-    let _id: (RackId,) = sqlx::query_as(&query)
-        .bind(sqlx::types::Json(health_report))
-        .bind(rack_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("insert rack health report override", e))?;
-
-    Ok(())
+    crate::health_report::insert_health_report(txn, "racks", rack_id, mode, health_report).await
 }
 
 pub async fn remove_health_report_override(
@@ -231,23 +209,7 @@ pub async fn remove_health_report_override(
     mode: OverrideMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,{source}"),
-        OverrideMode::Replace => "replace".to_string(),
-    };
-    let query = format!(
-        "UPDATE racks SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1
-            RETURNING id"
-    );
-
-    let _id: (RackId,) = sqlx::query_as(&query)
-        .bind(rack_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("remove rack health report override", e))?;
-
-    Ok(())
+    crate::health_report::remove_health_report(txn, "racks", rack_id, mode, source).await
 }
 
 pub async fn update_metadata(

@@ -90,7 +90,7 @@ async fn apply_health_override(
 
         if let Some(host_machine) = host_machine
             && host_machine
-                .health_overrides
+                .health_sources
                 .iter()
                 .any(|or| or.source == "host-update")
         {

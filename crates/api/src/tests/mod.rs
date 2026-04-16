@@ -111,6 +111,7 @@ mod static_address_management;
 mod storage;
 mod switch;
 mod switch_find;
+mod switch_health;
 mod switch_metadata;
 mod switch_state_controller;
 mod tenant_keyset_find;

@@ -412,7 +412,7 @@ async fn handle_instance_release_from_repair_tenant(
     tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
     let has_request_repair = machine
-        .health_report_overrides
+        .health_report_sources
         .merges
         .contains_key("repair-request");
 
