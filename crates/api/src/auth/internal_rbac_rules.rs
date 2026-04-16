@@ -625,7 +625,7 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetAllExpectedPowerShelves",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
         );
         x.perm(
             "ReplaceAllExpectedPowerShelves",
@@ -637,7 +637,7 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetAllExpectedPowerShelvesLinked",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
         );
         x.perm(
             "FindPowerShelfStateHistories",
@@ -663,7 +663,7 @@ impl InternalRBACRules {
         x.perm("GetExpectedSwitch", vec![ForgeAdminCLI, Machineatron, Rla]);
         x.perm(
             "GetAllExpectedSwitches",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
         );
         x.perm(
             "ReplaceAllExpectedSwitches",
@@ -675,7 +675,7 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetAllExpectedSwitchesLinked",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
         );
         x.perm(
             "AddExpectedRack",
@@ -1004,6 +1004,23 @@ mod rbac_rule_tests {
                 "carbide-maintenance-jobs".to_string()
             )]
         ));
+
+        for method in [
+            "GetAllExpectedSwitches",
+            "GetAllExpectedSwitchesLinked",
+            "GetAllExpectedPowerShelves",
+            "GetAllExpectedPowerShelvesLinked",
+        ] {
+            assert!(
+                InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier(
+                        "elektra-site-agent".to_string()
+                    )]
+                ),
+                "{method} should allow SiteAgent"
+            );
+        }
 
         assert!(InternalRBACRules::allowed_from_static(
             "SetMaintenance",
