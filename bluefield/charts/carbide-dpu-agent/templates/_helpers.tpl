@@ -54,3 +54,14 @@ Server Port
 {{- define "carbide-dpu-agent.serverPort" -}}
 {{- default 8888 .Values.serverPort -}}
 {{- end -}}
+
+{{/*
+NVUE credentials secret name: use explicit value if set, otherwise the chart-generated name.
+*/}}
+{{- define "carbide-dpu-agent.nvueSecretName" -}}
+{{- if .Values.hbn.nvue_credentials_secret_name -}}
+{{- .Values.hbn.nvue_credentials_secret_name -}}
+{{- else -}}
+{{- include "carbide-dpu-agent.fullname" . -}}-nvue-creds
+{{- end -}}
+{{- end -}}

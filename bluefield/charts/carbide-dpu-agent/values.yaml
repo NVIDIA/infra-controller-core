@@ -31,6 +31,8 @@ hbn:
   nvue_credentials_secret_name: ""
   nvue_username_key: "username"
   nvue_password_key: "password"
+  nvue_username: "cumulus"
+  nvue_password: "CumuluS!"
 discovery:
   hardware_file: "/etc/carbide/discovery_info.json"
 dhcp_server:

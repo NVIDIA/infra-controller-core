@@ -93,12 +93,12 @@ spec:
             - name: NVUE_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.hbn.nvue_credentials_secret_name }}
+                  name: {{ include "carbide-dpu-agent.nvueSecretName" . }}
                   key: {{ .Values.hbn.nvue_username_key }}
             - name: NVUE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.hbn.nvue_credentials_secret_name }}
+                  name: {{ include "carbide-dpu-agent.nvueSecretName" . }}
                   key: {{ .Values.hbn.nvue_password_key }}
           volumeMounts:
             - name: forge-certs

@@ -425,6 +425,7 @@ pub async fn start_api(
             crate::dpf_services::dhcp_server_service(&reg),
             crate::dpf_services::doca_hbn_service(&reg),
             crate::dpf_services::dpu_agent_service(&reg),
+            crate::dpf_services::fmds_service(&reg),
         ];
 
         let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {

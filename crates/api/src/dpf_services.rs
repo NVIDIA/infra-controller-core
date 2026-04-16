@@ -28,13 +28,13 @@ use carbide_dpf::{
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
 pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
-    "https://gitlab-master.nvidia.com/aadvani/my-helm-project/-/raw/main/charts-repo";
+    "https://helm.ngc.nvidia.com/0837451325059433/carbide-dev";
 
 /// Default DOCA container image registry prefix.
 pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 
 /// Default Carbide container image registry prefix.
-pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "gitlab-master.nvidia.com/aadvani/my-helm-project";
+pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
@@ -44,21 +44,27 @@ pub const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca-hbn";
 pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
 pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 
+/// Common DPU Service Helm Version and Tags
+pub const DPU_COMMON_SERVICE_HELM_VERSION: &str = "0.8.0-pr-27.g44dd729b";
+pub const DPU_COMMON_SERVICE_IMAGE_TAG: &str = "v0.8.0-pr-27-g44dd729b";
+pub const DPU_COMMON_SERVICE_MTU: i64 = 1500;
+
 /// DHCP Service Definitions
 pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
 pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "carbide-dhcp-server";
-pub const DHCP_SERVER_SERVICE_HELM_VERSION: &str = "2.0.9";
 pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
-pub const DHCP_SERVER_SERVICE_IMAGE_TAG: &str = "v1.9.5-arm64-distroless";
 pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
-pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
 
-// DPU Agent Service Definitions
+/// DPU Agent Service Definitions
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
-pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = "0.4.0";
 pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
-pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = "v0.3-arm64-multistage";
+
+/// FMDS Agent Service Definitions
+pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
+pub const FMDS_SERVICE_HELM_NAME: &str = "carbide-fmds";
+pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
+pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
 
 /// Extended registry configuration for Carbide DPU services.
 #[derive(Debug, Clone)]
@@ -181,7 +187,7 @@ pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinitio
             "image": {
                 "repository": format!("{}/{}", reg.carbide_image_registry,
                     DPU_AGENT_SERVICE_IMAGE_NAME),
-                "tag": DPU_AGENT_SERVICE_IMAGE_TAG,
+                "tag": DPU_COMMON_SERVICE_IMAGE_TAG,
             }
         })),
 
@@ -191,7 +197,7 @@ pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinitio
             DPU_AGENT_SERVICE_NAME,
             &reg.carbide_helm_registry,
             DPU_AGENT_SERVICE_HELM_NAME,
-            DPU_AGENT_SERVICE_HELM_VERSION,
+            DPU_COMMON_SERVICE_HELM_VERSION,
         )
     }
 }
@@ -204,7 +210,7 @@ pub fn dhcp_server_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinit
             "image": {
                 "repository": format!("{}/{}", reg.carbide_image_registry,
                     DHCP_SERVER_SERVICE_IMAGE_NAME),
-                "tag": DHCP_SERVER_SERVICE_IMAGE_TAG,
+                "tag": DPU_COMMON_SERVICE_IMAGE_TAG,
             }
         })),
 
@@ -220,14 +226,14 @@ pub fn dhcp_server_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinit
             bridge: Some("br-sfc".to_string()),
             resource_type: ServiceNADResourceType::Sf,
             ipam: Some(false),
-            mtu: Some(DHCP_SERVER_SERVICE_MTU),
+            mtu: Some(DPU_COMMON_SERVICE_MTU),
         }),
 
         ..ServiceDefinition::new(
             DHCP_SERVER_SERVICE_NAME,
             &reg.carbide_helm_registry,
             DHCP_SERVER_SERVICE_HELM_NAME,
-            DHCP_SERVER_SERVICE_HELM_VERSION,
+            DPU_COMMON_SERVICE_HELM_VERSION,
         )
     }
 }
@@ -242,4 +248,42 @@ pub fn dpu_otel_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefi
         "forge-dpu-otel-agent",
         "0.1.0",
     )
+}
+
+/// FMDS Service
+pub fn fmds_service (reg: &CarbideServiceRegistryConfig) -> ServiceDefinition
+{
+    ServiceDefinition {
+        helm_values:  Some(serde_json::json!({
+            "image": {
+                "repository": format!("{}/{}", reg.carbide_image_registry,
+                    FMDS_SERVICE_IMAGE_NAME),
+                "tag": DPU_COMMON_SERVICE_IMAGE_TAG,
+            }
+        })),
+
+        interfaces: vec![ServiceInterface {
+            name: "f_pf0hpf_if".to_string(),
+            network: FMDS_SERVICE_NAD_NAME.to_string(),
+        }],
+
+        service_daemon_set_annotations: Some(BTreeMap::new()),
+
+        service_nad: Some(ServiceNAD {
+            name: FMDS_SERVICE_NAD_NAME.to_string(),
+            bridge: Some("br-sfc".to_string()),
+            resource_type: ServiceNADResourceType::Sf,
+            ipam: Some(false),
+            mtu: Some(DPU_COMMON_SERVICE_MTU),
+        }),
+
+        ..ServiceDefinition::new(
+            FMDS_SERVICE_NAME,
+            &reg.carbide_helm_registry,
+            FMDS_SERVICE_HELM_NAME,
+            DPU_COMMON_SERVICE_HELM_VERSION,
+        )
+
+    }
+
 }
