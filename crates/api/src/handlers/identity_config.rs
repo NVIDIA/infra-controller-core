@@ -52,10 +52,16 @@ async fn tenant_identity_with_decrypted_token_delegation(
     let auth_method_config = decrypt_token_delegation_encrypted_blob(
         credentials,
         &cfg.encryption_key_id,
-        cfg.organization_id.as_str(),
         cfg.encrypted_auth_method_config.as_deref(),
     )
-    .await?;
+    .await
+    .inspect_err(|e| {
+        tracing::error!(
+            org_id = %cfg.organization_id.as_str(),
+            message = %e.message(),
+            "token delegation auth config decrypt failed"
+        );
+    })?;
     Ok(TenantIdentityConfigDecrypted {
         row: cfg,
         auth_method_config,

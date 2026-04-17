@@ -595,6 +595,16 @@ impl IdentityConfig {
                 bounds.token_ttl_min_sec, bounds.token_ttl_max_sec
             )));
         }
+        if !value.allowed_audiences.is_empty()
+            && !value
+                .allowed_audiences
+                .iter()
+                .any(|a| a == &value.default_audience)
+        {
+            return Err(IdentityConfigValidationError(
+                "default_audience must be in allowed_audiences".to_string(),
+            ));
+        }
         Ok(IdentityConfig {
             issuer,
             default_audience: value.default_audience,

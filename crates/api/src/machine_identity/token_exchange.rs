@@ -29,6 +29,23 @@ use crate::CarbideError;
 const OAUTH_GRANT_TYPE_TOKEN_EXCHANGE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
 const OAUTH_TOKEN_TYPE_JWT: &str = "urn:ietf:params:oauth:token-type:jwt";
 
+/// `expires_in` from a token response: integer (RFC-shaped) or string (lenient).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ExpiresInField {
+    Seconds(i64),
+    SecondsStr(String),
+}
+
+impl ExpiresInField {
+    fn into_proto_field(self) -> String {
+        match self {
+            Self::Seconds(n) => n.to_string(),
+            Self::SecondsStr(s) => s,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct TokenExchangeHttpResponseBody {
     access_token: String,
@@ -37,15 +54,7 @@ struct TokenExchangeHttpResponseBody {
     #[serde(default)]
     token_type: Option<String>,
     #[serde(default)]
-    expires_in: Option<serde_json::Value>,
-}
-
-fn expires_in_json_to_string(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => s.clone(),
-        _ => v.to_string(),
-    }
+    expires_in: Option<ExpiresInField>,
 }
 
 /// Builds the HTTP client used only for RFC 8693 calls to per-org `token_endpoint`.
@@ -148,8 +157,7 @@ pub(crate) async fn token_exchange_request(
     let token_type = parsed.token_type.unwrap_or_else(|| "Bearer".to_string());
     let expires_in = parsed
         .expires_in
-        .as_ref()
-        .map(expires_in_json_to_string)
+        .map(ExpiresInField::into_proto_field)
         .unwrap_or_default();
 
     Ok(MachineIdentityResponse {
@@ -165,11 +173,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn expires_in_json_to_string_formats() {
-        assert_eq!(expires_in_json_to_string(&serde_json::json!(3600)), "3600");
+    fn token_exchange_body_deserializes_expires_in_as_int_or_string() {
+        let n: TokenExchangeHttpResponseBody =
+            serde_json::from_str(r#"{"access_token":"t","expires_in":3600}"#).unwrap();
         assert_eq!(
-            expires_in_json_to_string(&serde_json::json!("7200")),
-            "7200"
+            n.expires_in.map(ExpiresInField::into_proto_field),
+            Some("3600".to_string())
+        );
+        let s: TokenExchangeHttpResponseBody =
+            serde_json::from_str(r#"{"access_token":"t","expires_in":"7200"}"#).unwrap();
+        assert_eq!(
+            s.expires_in.map(ExpiresInField::into_proto_field),
+            Some("7200".to_string())
         );
     }
 

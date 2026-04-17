@@ -26,7 +26,7 @@ use ::rpc::forge::{
 };
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use db::{DatabaseError, WithTransaction, instance, tenant, tenant_identity_config};
+use db::{WithTransaction, tenant_identity_config};
 use forge_secrets::key_encryption;
 use model::tenant::{
     InvalidTenantOrg, TENANT_IDENTITY_SIGNING_JWT_ALG, TenantIdentityConfig, TenantOrganizationId,
@@ -69,15 +69,11 @@ async fn load_enabled_identity_for_well_known(
     org_id: &TenantOrganizationId,
 ) -> Result<TenantIdentityConfig, Status> {
     let org_id_str = org_id.as_str().to_string();
-    let (cfg, _tenant) = api
+    let cfg = api
         .database_connection
         .with_txn(|txn| {
             let org_id = org_id.clone();
-            Box::pin(async move {
-                let cfg = tenant_identity_config::find(&org_id, txn).await?;
-                let tenant = tenant::find(org_id.as_str(), false, txn).await?;
-                Ok::<_, db::DatabaseError>((cfg, tenant))
-            })
+            Box::pin(async move { tenant_identity_config::find(&org_id, txn).await })
         })
         .await??;
     let cfg = match cfg {
@@ -99,25 +95,19 @@ fn jwt_sub_claim(subject_prefix: &str, machine_id: &MachineId) -> String {
     format!("{base}/{machine_id}")
 }
 
-fn audiences_for_jwt(
-    requested: &[String],
-    default_audience: &str,
-    allowed_audiences: &[String],
-) -> Result<Vec<String>, Status> {
-    let chosen: Vec<String> = if requested.is_empty() {
-        vec![default_audience.to_string()]
-    } else {
-        requested.to_vec()
-    };
-    for a in &chosen {
-        if !allowed_audiences.iter().any(|x| x == a) {
+fn validate_audiences_in_allowlist(
+    audiences: &[String],
+    allowlist: &[String],
+) -> Result<(), Status> {
+    for a in audiences {
+        if !allowlist.iter().any(|x| x == a) {
             return Err(CarbideError::InvalidArgument(format!(
                 "audience {a:?} is not in allowed_audiences for this organization"
             ))
             .into());
         }
     }
-    Ok(chosen)
+    Ok(())
 }
 
 /// Handles the SignMachineIdentity gRPC call: validates the request, extracts
@@ -168,34 +158,9 @@ pub(crate) async fn sign_machine_identity(
     let identity_row = api
         .database_connection
         .with_txn(|txn| {
-            Box::pin(async move {
-                let inst = instance::find_by_machine_id(txn, &machine_id)
-                    .await?
-                    .ok_or_else(|| DatabaseError::NotFoundError {
-                        kind: "instance",
-                        id: machine_id.to_string(),
-                    })?;
-                if inst.deleted.is_some() {
-                    return Err(DatabaseError::NotFoundError {
-                        kind: "instance",
-                        id: machine_id.to_string(),
-                    });
-                }
-                let org_id = inst.config.tenant.tenant_organization_id.clone();
-                let row = tenant_identity_config::find(&org_id, txn)
-                    .await?
-                    .ok_or_else(|| DatabaseError::NotFoundError {
-                        kind: "tenant_identity_config",
-                        id: org_id.to_string(),
-                    })?;
-                if !row.enabled {
-                    return Err(DatabaseError::NotFoundError {
-                        kind: "tenant_identity_config",
-                        id: org_id.to_string(),
-                    });
-                }
-                Ok::<_, DatabaseError>(row)
-            })
+            Box::pin(
+                async move { tenant_identity_config::find_by_machine_id(txn, &machine_id).await },
+            )
         })
         .await??;
 
@@ -215,7 +180,12 @@ pub(crate) async fn sign_machine_identity(
     }
 
     let allowed: &[String] = identity_row.allowed_audiences.0.as_slice();
-    let audiences = audiences_for_jwt(&req.audience, &identity_row.default_audience, allowed)?;
+    let audiences: Vec<String> = if req.audience.is_empty() {
+        vec![identity_row.default_audience.clone()]
+    } else {
+        req.audience.clone()
+    };
+    validate_audiences_in_allowlist(&audiences, allowed)?;
 
     let aes = machine_identity_encryption_secret(
         api.credential_manager.as_ref(),
@@ -269,10 +239,16 @@ pub(crate) async fn sign_machine_identity(
         let delegation_plain = decrypt_token_delegation_encrypted_blob(
             api.credential_manager.as_ref(),
             &identity_row.encryption_key_id,
-            identity_row.organization_id.as_str(),
             identity_row.encrypted_auth_method_config.as_deref(),
         )
-        .await?;
+        .await
+        .inspect_err(|e| {
+            tracing::error!(
+                org_id = %identity_row.organization_id.as_str(),
+                message = %e.message(),
+                "token delegation auth config decrypt failed"
+            );
+        })?;
         let delegation_creds =
             token_delegation_credentials(auth_method, delegation_plain.as_deref())?;
         let http = token_exchange_http_client(
@@ -437,13 +413,36 @@ mod tests {
     }
 
     #[test]
-    fn audiences_for_jwt_default_and_validation() {
+    fn audiences_empty_request_uses_default_then_validate() {
         let allowed = vec!["a".to_string(), "b".to_string()];
-        let d = audiences_for_jwt(&[], "a", &allowed).unwrap();
-        assert_eq!(d, vec!["a".to_string()]);
-        let d = audiences_for_jwt(&["b".to_string()], "a", &allowed).unwrap();
-        assert_eq!(d, vec!["b".to_string()]);
-        let err = audiences_for_jwt(&["x".to_string()], "a", &allowed).unwrap_err();
+        let req: Vec<String> = vec![];
+        let audiences: Vec<String> = if req.is_empty() {
+            vec!["a".to_string()]
+        } else {
+            req
+        };
+        validate_audiences_in_allowlist(&audiences, &allowed).unwrap();
+        assert_eq!(audiences, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn audiences_requested_must_each_be_allowed() {
+        let allowed = vec!["a".to_string(), "b".to_string()];
+        let req = vec!["b".to_string()];
+        let audiences: Vec<String> = if req.is_empty() {
+            vec!["a".to_string()]
+        } else {
+            req
+        };
+        validate_audiences_in_allowlist(&audiences, &allowed).unwrap();
+        assert_eq!(audiences, vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn audiences_not_in_allowed_errors() {
+        let allowed = vec!["a".to_string(), "b".to_string()];
+        let audiences = vec!["x".to_string()];
+        let err = validate_audiences_in_allowlist(&audiences, &allowed).unwrap_err();
         assert!(err.message().contains("allowed_audiences"));
     }
 }

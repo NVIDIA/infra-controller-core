@@ -54,7 +54,6 @@ pub(crate) async fn machine_identity_encryption_secret(
 pub(crate) async fn decrypt_token_delegation_encrypted_blob(
     credentials: &dyn CredentialReader,
     encryption_key_id: &str,
-    organization_id_log: &str,
     encrypted_auth_method_config: Option<&str>,
 ) -> Result<Option<String>, Status> {
     let Some(enc) = encrypted_auth_method_config else {
@@ -65,24 +64,14 @@ pub(crate) async fn decrypt_token_delegation_encrypted_blob(
     }
     let aes = machine_identity_encryption_secret(credentials, encryption_key_id).await?;
     let plain = key_encryption::decrypt(enc, &aes).map_err(|e| {
-        tracing::error!(
-            error = %e,
-            org_id = %organization_id_log,
-            "token delegation auth config decrypt failed"
-        );
-        CarbideError::internal(
-            "stored token delegation configuration could not be decrypted".to_string(),
-        )
+        CarbideError::internal(format!(
+            "stored token delegation configuration could not be decrypted: {e}"
+        ))
     })?;
     let utf8 = String::from_utf8(plain).map_err(|e| {
-        tracing::error!(
-            error = %e,
-            org_id = %organization_id_log,
-            "token delegation auth config plaintext was not UTF-8"
-        );
-        CarbideError::internal(
-            "stored token delegation configuration could not be decrypted".to_string(),
-        )
+        CarbideError::internal(format!(
+            "stored token delegation configuration plaintext was not valid UTF-8: {e}"
+        ))
     })?;
     Ok(Some(utf8))
 }

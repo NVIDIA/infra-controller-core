@@ -18,6 +18,7 @@
 //! Tenant identity config for SPIFFE JWT-SVID machine identity.
 //! Stores per-org identity config and signing keys in `tenant_identity_config` table.
 
+use carbide_uuid::machine::MachineId;
 use model::tenant::{
     IdentityConfig, SigningKeyMaterial, TenantIdentityConfig, TenantOrganizationId,
     TokenDelegation, TokenDelegationAuthMethod,
@@ -39,15 +40,6 @@ pub async fn set(
     let allowed: Vec<String> = if config.allowed_audiences.is_empty() {
         vec![config.default_audience.clone()]
     } else {
-        if !config
-            .allowed_audiences
-            .iter()
-            .any(|a| a == &config.default_audience)
-        {
-            return Err(DatabaseError::InvalidArgument(
-                "default_audience must be in allowed_audiences".into(),
-            ));
-        }
         config.allowed_audiences.clone()
     };
 
@@ -129,6 +121,33 @@ pub async fn find(
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
+}
+
+pub async fn find_by_machine_id(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> DatabaseResult<TenantIdentityConfig> {
+    const QUERY: &str = r#"
+SELECT tic.organization_id, tic.issuer, tic.default_audience, tic.allowed_audiences, tic.token_ttl_sec, tic.subject_prefix,
+    tic.enabled, tic.created_at, tic.updated_at, tic.encrypted_signing_key, tic.signing_key_public, tic.key_id, tic.algorithm,
+    tic.encryption_key_id, tic.token_endpoint, tic.auth_method, tic.encrypted_auth_method_config, tic.subject_token_audience,
+    tic.token_delegation_created_at
+FROM tenant_identity_config tic
+INNER JOIN instances i ON tic.organization_id = i.tenant_org
+WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true
+"#;
+    let row = sqlx::query_as::<_, TenantIdentityConfig>(QUERY)
+        .bind(machine_id)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))?;
+    let Some(cfg) = row else {
+        return Err(DatabaseError::NotFoundError {
+            kind: "machine_identity",
+            id: machine_id.to_string(),
+        });
+    };
+    Ok(cfg)
 }
 
 /// Set token delegation for an org. Identity config must exist first.
