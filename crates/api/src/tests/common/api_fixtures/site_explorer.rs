@@ -1610,13 +1610,7 @@ impl TestRackDbBuilder {
                 .map(|rack_profile_id| rack_profile_id.as_str().to_string()),
             ..Default::default()
         };
-        db_rack::create(
-            txn,
-            &self.rack_id,
-            &rack_config,
-            None,
-        )
-        .await?;
+        db_rack::create(txn, &self.rack_id, &rack_config, None).await?;
 
         Ok(self.rack_id.clone())
     }

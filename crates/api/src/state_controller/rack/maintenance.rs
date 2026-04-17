@@ -1166,7 +1166,7 @@ pub async fn handle_maintenance(
                 state.firmware_upgrade_job = None;
 
                 let next_maintenance_state = if let Some(artifact) =
-                        resolve_default_nvos_artifact(id, rack_profile_id, ctx).await?
+                    resolve_default_nvos_artifact(id, rack_profile_id, ctx).await?
                 {
                     tracing::info!(
                         "Rack {} has a default NVOS artifact available; advancing to NVOSUpdate(Start) with firmware {} ({})",
