@@ -29,7 +29,7 @@ pub async fn trigger_reprovisioning_set(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     if let Some(update_message) = data.update_message.clone() {
-        // Set a HostUpdateInProgress health override on the Host
+        // Set a HostUpdateInProgress health report entry on the Host
 
         let host_machine = api_client
             .get_machines_by_ids(&[data.id])
@@ -45,7 +45,7 @@ pub async fn trigger_reprovisioning_set(
                 .any(|or| or.source == "host-update")
         {
             return Err(CarbideCliError::GenericError(format!(
-                "Host machine: {:?} already has a \"host-update\" override.",
+                "Host machine: {:?} already has a \"host-update\" health report entry.",
                 host_machine.id,
             )));
         }

@@ -20,13 +20,13 @@ use clap::{ArgGroup, Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
 pub enum Args {
-    #[clap(about = "List the health reports overrides")]
+    #[clap(about = "List the health report entries")]
     Show { machine_id: MachineId },
-    #[clap(about = "Insert a health report override")]
+    #[clap(about = "Insert a health report entry")]
     Add(HealthAddOptions),
-    #[clap(about = "Print a empty health override template, which user can modify and use")]
+    #[clap(about = "Print an empty health report template, which user can modify and use")]
     PrintEmptyTemplate,
-    #[clap(about = "Remove a health report override")]
+    #[clap(about = "Remove a health report entry")]
     Remove {
         machine_id: MachineId,
         report_source: String,
@@ -34,7 +34,7 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(ArgGroup::new("override_health").required(true).args(&["health_report", "template"])))]
+#[clap(group(ArgGroup::new("health_report_source").required(true).args(&["health_report", "template"])))]
 pub struct HealthAddOptions {
     pub machine_id: MachineId,
     #[clap(long, help = "New health report as json")]
