@@ -381,7 +381,7 @@ impl From<NmxmPartitionOperationType> for NmxmPartitionOperations {
         match value {
             NmxmPartitionOperationType::Create => NmxmPartitionOperations::Create,
             NmxmPartitionOperationType::Remove(_) => NmxmPartitionOperations::Remove,
-            NmxmPartitionOperationType::RemoveUnknownPartition(_) => {
+            NmxmPartitionOperationType::RemoveDefaultPartition(_) => {
                 NmxmPartitionOperations::RemoveDefaultPartition
             }
             NmxmPartitionOperationType::Update(_) => NmxmPartitionOperations::Update,
