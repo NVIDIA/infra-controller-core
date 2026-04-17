@@ -13,24 +13,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Validates Fern docs configuration on pull requests.
+# Publishes the Fern documentation site when a docs tag is pushed or manually triggered.
+#
+# To publish:  git tag docs/v1.2.0 && git push origin docs/v1.2.0
+# Or use the "Run workflow" button in the Actions tab.
+#
+# Required configuration:
+# - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
 
-name: Fern docs (check)
+name: Publish Fern Docs
 
 on:
-  pull_request:
+  push:
+    branches:
+      - main
     paths:
       - 'fern/**'
-      - '.github/workflows/fern-docs-ci.yml'
+      - '.github/workflows/publish-fern-docs.yml'
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
+concurrency:
+  group: fern-publish
+  cancel-in-progress: true
+
 jobs:
-  check:
-    name: Fern Check
+  publish:
     runs-on: linux-amd64-cpu4
-    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,5 +54,14 @@ jobs:
       - name: Install Fern CLI
         run: npm install -g fern-api@$(node -e "console.log(require('./fern/fern.config.json').version)")
 
-      - name: Validate Fern configuration
-        run: fern check
+      - name: Publish Docs
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        working-directory: ./fern
+        run: |
+          OUTPUT=$(fern generate --docs 2>&1)
+          echo "$OUTPUT"
+          URL=$(echo "$OUTPUT" | grep -oP 'Published docs to \K.*(?= \()')
+          if [ -n "$URL" ]; then
+            echo "### Published: [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"
+          fi
