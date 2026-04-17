@@ -44,6 +44,12 @@ pub struct RackFirmwareInventory {
 }
 
 #[derive(Debug, Clone)]
+pub struct RackSwitchFirmwareInventory {
+    pub switch_ids: Vec<SwitchId>,
+    pub switches: Vec<FirmwareUpgradeDeviceInfo>,
+}
+
+#[derive(Debug, Clone)]
 pub struct FirmwareUpdateBatchRequest {
     pub display_name: &'static str,
     pub devices: Vec<FirmwareUpgradeDeviceInfo>,
@@ -84,7 +90,7 @@ pub async fn load_rack_firmware_inventory(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
 ) -> Result<RackFirmwareInventory> {
-    let (machine_ids, machine_topologies, switch_ids, switch_endpoints) = {
+    let (machine_ids, machine_topologies) = {
         let mut txn = db_pool.begin().await?;
 
         let machine_ids = db_machine::find_machine_ids(
@@ -98,24 +104,8 @@ pub async fn load_rack_firmware_inventory(
         let machine_topologies =
             db_machine_topology::find_latest_by_machine_ids(txn.as_mut(), &machine_ids).await?;
 
-        let switch_ids = db_switch::find_ids(
-            txn.as_mut(),
-            model::switch::SwitchSearchFilter {
-                rack_id: Some(rack_id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let switch_endpoints =
-            db_switch::find_switch_endpoints_by_ids(txn.as_mut(), &switch_ids).await?;
-
         txn.commit().await?;
-        (
-            machine_ids,
-            machine_topologies,
-            switch_ids,
-            switch_endpoints,
-        )
+        (machine_ids, machine_topologies)
     };
 
     let mut machines = Vec::with_capacity(machine_ids.len());
@@ -149,6 +139,42 @@ pub async fn load_rack_firmware_inventory(
         });
     }
 
+    let RackSwitchFirmwareInventory {
+        switch_ids,
+        switches,
+    } = load_rack_switch_firmware_inventory(db_pool, credential_manager, rack_id).await?;
+
+    Ok(RackFirmwareInventory {
+        machine_ids,
+        switch_ids,
+        machines,
+        switches,
+    })
+}
+
+pub async fn load_rack_switch_firmware_inventory(
+    db_pool: &PgPool,
+    credential_manager: &dyn CredentialManager,
+    rack_id: &RackId,
+) -> Result<RackSwitchFirmwareInventory> {
+    let (switch_ids, switch_endpoints) = {
+        let mut txn = db_pool.begin().await?;
+
+        let switch_ids = db_switch::find_ids(
+            txn.as_mut(),
+            model::switch::SwitchSearchFilter {
+                rack_id: Some(rack_id.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+        let switch_endpoints =
+            db_switch::find_switch_endpoints_by_ids(txn.as_mut(), &switch_ids).await?;
+
+        txn.commit().await?;
+        (switch_ids, switch_endpoints)
+    };
+
     let mut switches = Vec::with_capacity(switch_endpoints.len());
     for switch in &switch_endpoints {
         let (bmc_username, bmc_password) =
@@ -167,10 +193,8 @@ pub async fn load_rack_firmware_inventory(
         });
     }
 
-    Ok(RackFirmwareInventory {
-        machine_ids,
+    Ok(RackSwitchFirmwareInventory {
         switch_ids,
-        machines,
         switches,
     })
 }

@@ -38,7 +38,8 @@ use model::rack_type::RackHardwareType;
 
 use crate::rack::firmware_update::{
     RackFirmwareInventory, build_firmware_update_batches, build_new_node_info,
-    firmware_type_for_profile, load_rack_firmware_inventory, submit_firmware_update_batches,
+    firmware_type_for_profile, load_rack_firmware_inventory, load_rack_switch_firmware_inventory,
+    submit_firmware_update_batches,
 };
 use crate::rack::rms_client::SwitchSystemImageRmsClient;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -1546,7 +1547,7 @@ pub async fn handle_maintenance(
             let Some(rms_client) = ctx.services.rms_client.as_ref() else {
                 return transition_to_rack_error(id, state, "RMS client not configured", ctx).await;
             };
-            let inventory = load_rack_firmware_inventory(
+            let mut switch_inventory = load_rack_switch_firmware_inventory(
                 &ctx.services.db_pool,
                 ctx.services.credential_manager.as_ref(),
                 id,
@@ -1554,13 +1555,30 @@ pub async fn handle_maintenance(
             .await
             .map_err(|error| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to load rack firmware inventory for ConfigureNmxCluster: {}",
+                    "failed to load rack switch firmware inventory for ConfigureNmxCluster: {}",
                     error
                 ))
             })?;
-            let inventory = filter_inventory_by_scope(inventory, scope);
+            if !scope.is_full_rack() {
+                if scope.switch_ids.is_empty() {
+                    switch_inventory.switch_ids.clear();
+                    switch_inventory.switches.clear();
+                } else {
+                    let allowed: std::collections::HashSet<_> = scope.switch_ids.iter().collect();
+                    switch_inventory
+                        .switch_ids
+                        .retain(|switch_id| allowed.contains(switch_id));
+                    switch_inventory.switches.retain(|device| match device
+                        .node_id
+                        .parse::<carbide_uuid::switch::SwitchId>(
+                    ) {
+                        Ok(ref switch_id) => allowed.contains(switch_id),
+                        Err(_) => false,
+                    });
+                }
+            }
 
-            if inventory.switches.is_empty() {
+            if switch_inventory.switches.is_empty() {
                 return Ok(skip_configure_nmx_cluster_outcome(
                     id,
                     "rack has no switches in inventory",
@@ -1568,7 +1586,9 @@ pub async fn handle_maintenance(
                 ));
             }
 
-            if let Err(cause) = validate_switch_inventory_for_nmx_cluster(&inventory.switches) {
+            if let Err(cause) =
+                validate_switch_inventory_for_nmx_cluster(&switch_inventory.switches)
+            {
                 return transition_to_rack_error(id, state, cause, ctx).await;
             }
 
@@ -1603,7 +1623,7 @@ pub async fn handle_maintenance(
             let response = match rms_client
                 .get_device_info_by_device_list(build_switch_device_info_request(
                     id,
-                    &inventory.switches,
+                    &switch_inventory.switches,
                 ))
                 .await
             {
@@ -1618,7 +1638,8 @@ pub async fn handle_maintenance(
                     .await;
                 }
             };
-            let primary_switch = match select_primary_switch(&inventory.switches, &response) {
+            let primary_switch = match select_primary_switch(&switch_inventory.switches, &response)
+            {
                 Ok(primary_switch) => primary_switch,
                 Err(cause) => return transition_to_rack_error(id, state, cause, ctx).await,
             };
@@ -1630,7 +1651,7 @@ pub async fn handle_maintenance(
                 tray_index = primary_switch.tray_index,
                 slot_number = primary_switch.slot_number,
                 topology_type = %topology_type,
-                switch_count = inventory.switches.len(),
+                switch_count = switch_inventory.switches.len(),
                 "Configuring NMX cluster on primary switch"
             );
             let response = match rms_client
