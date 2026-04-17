@@ -179,9 +179,13 @@ impl<IO: StateControllerIO> Builder<IO> {
             StateControllerBuildError::MissingArgument("work_lock_manager_handle"),
         )?;
 
-        let period_enqueuer_metric_emitter = meter
-            .clone()
-            .map(|meter| EnqueuerMetricsEmitter::new(&controller_name, &meter));
+        let period_enqueuer_metric_emitter = meter.clone().map(|meter| {
+            EnqueuerMetricsEmitter::new(
+                &controller_name,
+                &meter,
+                self.iteration_config.metric_hold_time,
+            )
+        });
 
         let enqueuer = PeriodicEnqueuer::<IO> {
             pool: database.clone(),

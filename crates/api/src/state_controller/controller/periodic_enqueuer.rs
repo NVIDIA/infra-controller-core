@@ -19,10 +19,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::db::work_lock_manager::WorkLockManagerHandle;
+use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
+use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::periodic_timer::PeriodicTimer;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{
@@ -218,9 +220,12 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         // The transactions for listing and enqueuing are decoupled to avoid
         // any locking side-effects
         let mut txn = self.pool.begin().await?;
+        // Get wait time before inserting: We should expect the typical "number of objects waiting"
+        // to be zero in the common case.
+        iteration_metrics.queue_wait_metrics =
+            db::fetch_queue_wait_metrics(txn.as_mut(), IO::DB_QUEUED_OBJECTS_TABLE_NAME).await?;
         iteration_metrics.num_enqueued_objects =
             db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queued_objects).await?;
-
         txn.commit().await?;
 
         Ok(())
@@ -238,6 +243,8 @@ pub(super) struct PeriodicEnqueuerMetrics {
     pub iteration_id: Option<ControllerIterationId>,
     /// The amount of objects which have been enqueued in this run
     pub num_enqueued_objects: usize,
+    /// Snapshot metrics for queued objects that are still waiting to be processed
+    pub queue_wait_metrics: QueueWaitMetricsSnapshot,
 }
 
 impl Default for PeriodicEnqueuerMetrics {
@@ -247,18 +254,76 @@ impl Default for PeriodicEnqueuerMetrics {
             recording_finished_at: std::time::Instant::now(),
             iteration_id: None,
             num_enqueued_objects: 0,
+            queue_wait_metrics: QueueWaitMetricsSnapshot::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct QueueWaitMetricsSnapshot {
+    pub num_waiting_objects: u64,
+    pub oldest_wait_seconds: f64,
+    pub mean_wait_seconds: f64,
+    pub p50_wait_seconds: f64,
+    pub p95_wait_seconds: f64,
+    pub p99_wait_seconds: f64,
 }
 
 #[derive(Debug)]
 pub(super) struct EnqueuerMetricsEmitter {
     enqueuer_iteration_latency: Histogram<f64>,
     num_enqueued_objects_counter: Counter<u64>,
+    queue_wait_metrics: SharedMetricsHolder<QueueWaitMetricsSnapshot>,
 }
 
 impl EnqueuerMetricsEmitter {
-    pub(super) fn new(object_type: &str, meter: &Meter) -> Self {
+    pub(super) fn new(object_type: &str, meter: &Meter, metric_hold_time: Duration) -> Self {
+        let fresh_period = metric_hold_time.saturating_add(Duration::from_secs(60));
+        let queue_wait_metrics =
+            SharedMetricsHolder::<QueueWaitMetricsSnapshot>::with_fresh_period(fresh_period);
+
+        {
+            let metrics = queue_wait_metrics.clone();
+            meter
+                .u64_observable_gauge(format!("{object_type}_queued_objects_waiting"))
+                .with_description(format!(
+                    "The number of {object_type} objects currently waiting in the queued-objects table"
+                ))
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(metrics.num_waiting_objects, attrs);
+                    });
+                })
+                .build();
+        }
+
+        {
+            let metrics = queue_wait_metrics.clone();
+            meter
+                .f64_observable_gauge(format!("{object_type}_queued_object_wait_time"))
+                .with_description(format!(
+                    "Snapshot statistics for how long queued {object_type} objects have been waiting to start processing"
+                ))
+                .with_unit("s")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (stat, value) in [
+                            ("oldest", metrics.oldest_wait_seconds),
+                            ("mean", metrics.mean_wait_seconds),
+                            ("p50", metrics.p50_wait_seconds),
+                            ("p95", metrics.p95_wait_seconds),
+                            ("p99", metrics.p99_wait_seconds),
+                        ] {
+                            observer.observe(
+                                value,
+                                &[attrs, &[KeyValue::new("stat", stat)]].concat(),
+                            );
+                        }
+                    });
+                })
+                .build();
+        }
+
         let enqueuer_iteration_latency = meter
             .f64_histogram(format!("{object_type}_enqueuer_iteration_latency"))
             .with_description(format!(
@@ -277,6 +342,7 @@ impl EnqueuerMetricsEmitter {
         Self {
             enqueuer_iteration_latency,
             num_enqueued_objects_counter,
+            queue_wait_metrics,
         }
     }
 
@@ -292,6 +358,8 @@ impl EnqueuerMetricsEmitter {
 
         self.num_enqueued_objects_counter
             .add(iteration_metrics.num_enqueued_objects as u64, &[]);
+        self.queue_wait_metrics
+            .update(iteration_metrics.queue_wait_metrics.clone());
     }
 
     /// Emits the metrics that had been collected during a state controller iteration
@@ -314,5 +382,62 @@ impl EnqueuerMetricsEmitter {
         if let Some(iteration_id) = iteration_metrics.iteration_id.as_ref() {
             span.record("iteration_id", iteration_id.0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::tests::common::test_meter::TestMeter;
+
+    #[test]
+    fn test_enqueuer_queue_wait_metrics_are_exported() {
+        let test_meter = TestMeter::default();
+        let emitter =
+            EnqueuerMetricsEmitter::new("test_objects", &test_meter.meter(), Duration::MAX);
+
+        let mut iteration_metrics = PeriodicEnqueuerMetrics::default();
+        iteration_metrics.queue_wait_metrics = QueueWaitMetricsSnapshot {
+            num_waiting_objects: 4,
+            oldest_wait_seconds: 42.0,
+            mean_wait_seconds: 21.0,
+            p50_wait_seconds: 20.0,
+            p95_wait_seconds: 39.0,
+            p99_wait_seconds: 41.0,
+        };
+
+        emitter.emit_iteration_counters_and_histograms(&iteration_metrics);
+
+        assert_eq!(
+            test_meter.formatted_metric("test_objects_queued_objects_waiting{fresh=\"true\"}"),
+            Some("4".to_string())
+        );
+        assert_eq!(
+            test_meter.parsed_metrics("test_objects_queued_object_wait_time_seconds"),
+            vec![
+                (
+                    "{fresh=\"true\",stat=\"mean\"}".to_string(),
+                    "21".to_string()
+                ),
+                (
+                    "{fresh=\"true\",stat=\"oldest\"}".to_string(),
+                    "42".to_string()
+                ),
+                (
+                    "{fresh=\"true\",stat=\"p50\"}".to_string(),
+                    "20".to_string()
+                ),
+                (
+                    "{fresh=\"true\",stat=\"p95\"}".to_string(),
+                    "39".to_string()
+                ),
+                (
+                    "{fresh=\"true\",stat=\"p99\"}".to_string(),
+                    "41".to_string()
+                ),
+            ]
+        );
     }
 }
