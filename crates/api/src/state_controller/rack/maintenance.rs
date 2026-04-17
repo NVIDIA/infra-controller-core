@@ -188,6 +188,161 @@ fn build_switch_device_info_request(
     }
 }
 
+fn build_scale_up_fabric_services_status_request(
+    rack_id: &RackId,
+    switches: &[FirmwareUpgradeDeviceInfo],
+) -> rms::GetScaleUpFabricServicesStatusRequest {
+    rms::GetScaleUpFabricServicesStatusRequest {
+        nodes: Some(rms::NodeSet {
+            devices: switches
+                .iter()
+                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+                .collect(),
+        }),
+        verify_ssl: false,
+        ..Default::default()
+    }
+}
+
+async fn get_scale_up_fabric_services_status(
+    rms_config: crate::cfg::file::RmsConfig,
+    rack_id: &RackId,
+    switches: &[FirmwareUpgradeDeviceInfo],
+) -> Result<rms::GetScaleUpFabricServicesStatusResponse, String> {
+    let Some(url) = rms_config.api_url.as_deref().filter(|url| !url.is_empty()) else {
+        return Err("RMS client not configured".to_string());
+    };
+
+    // The pinned librms::RmsApi trait does not yet expose this RPC, so keep
+    // the direct concrete-client use local to ConfigureNmxCluster.
+    let rms_client_config = librms::client_config::RmsClientConfig::new(
+        rms_config.root_ca_path.clone(),
+        rms_config.client_cert.clone(),
+        rms_config.client_key.clone(),
+        rms_config.enforce_tls,
+    );
+    let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+    let rms_client = librms::RackManagerApi::new(&rms_api_config);
+
+    rms_client
+        .client
+        .get_scale_up_fabric_services_status(build_scale_up_fabric_services_status_request(
+            rack_id, switches,
+        ))
+        .await
+        .map_err(|error| format!("RMS GetScaleUpFabricServicesStatus failed: {}", error))
+}
+
+fn fabric_manager_status_from_entry(
+    node_id: &str,
+    entry: &rms::ScaleUpFabricServiceStatusEntry,
+) -> &'static str {
+    if !entry.error_message.trim().is_empty() {
+        return "not_running";
+    }
+
+    if entry.status_json.trim().is_empty() {
+        return "not_running";
+    }
+
+    let status_json = match serde_json::from_str::<serde_json::Value>(&entry.status_json) {
+        Ok(status_json) => status_json,
+        Err(error) => {
+            tracing::warn!(
+                switch_id = %node_id,
+                %error,
+                status_json = %entry.status_json,
+                "Failed to parse RMS fabric-manager status JSON"
+            );
+            return "not_running";
+        }
+    };
+
+    let status = status_json
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let addition_info = status_json
+        .get("addition-info")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+
+    if status == "ok" && addition_info == "CONTROL_PLANE_STATE_CONFIGURED" {
+        "running"
+    } else {
+        "not_running"
+    }
+}
+
+async fn persist_fabric_manager_statuses(
+    txn: &mut sqlx::PgConnection,
+    rack_id: &RackId,
+    switches: &[FirmwareUpgradeDeviceInfo],
+    response: &rms::GetScaleUpFabricServicesStatusResponse,
+) -> Result<(), String> {
+    if response.status != rms::ReturnCode::Success as i32 {
+        return Err(
+            "RMS GetScaleUpFabricServicesStatus returned failure for ConfigureNmxCluster"
+                .to_string(),
+        );
+    }
+
+    let expected_node_ids: HashSet<&str> = switches
+        .iter()
+        .map(|switch| switch.node_id.as_str())
+        .collect();
+    let unexpected_switches = response
+        .device_info_result
+        .keys()
+        .filter(|node_id| !expected_node_ids.contains(node_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unexpected_switches.is_empty() {
+        return Err(format!(
+            "RMS returned fabric-manager status for unexpected switches: {}",
+            unexpected_switches.join(", ")
+        ));
+    }
+
+    for switch in switches {
+        let Some(entry) = response.device_info_result.get(switch.node_id.as_str()) else {
+            return Err(format!(
+                "RMS did not return fabric-manager status for switch {}",
+                switch.node_id
+            ));
+        };
+        let switch_id = switch
+            .node_id
+            .parse::<carbide_uuid::switch::SwitchId>()
+            .map_err(|error| {
+                format!(
+                    "invalid switch id {} while persisting fabric-manager status: {}",
+                    switch.node_id, error
+                )
+            })?;
+        let fabric_manager_status = fabric_manager_status_from_entry(&switch.node_id, entry);
+
+        db_switch::update_fabric_manager_status(txn, switch_id, Some(fabric_manager_status))
+            .await
+            .map_err(|error| {
+                format!(
+                    "failed to persist fabric-manager status for switch {}: {}",
+                    switch.node_id, error
+                )
+            })?;
+
+        tracing::info!(
+            rack_id = %rack_id,
+            switch_id = %switch.node_id,
+            fabric_manager_status,
+            error_message = %entry.error_message,
+            "Persisted FabricManager status for switch"
+        );
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 struct SwitchPlacement {
     device: FirmwareUpgradeDeviceInfo,
@@ -902,6 +1057,28 @@ pub async fn handle_maintenance(
                 ));
             }
 
+            let fabric_status_response = match get_scale_up_fabric_services_status(
+                ctx.services.site_config.rms.clone(),
+                id,
+                &inventory.switches,
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(cause) => return Ok(transition_to_rack_error(id, cause)),
+            };
+            let mut txn = ctx.services.db_pool.begin().await?;
+            if let Err(cause) = persist_fabric_manager_statuses(
+                txn.as_mut(),
+                id,
+                &inventory.switches,
+                &fabric_status_response,
+            )
+            .await
+            {
+                return Ok(transition_to_rack_error(id, cause));
+            }
+
             tracing::info!(
                 rack_id = %id,
                 primary_switch = %primary_switch.device.node_id,
@@ -915,9 +1092,9 @@ pub async fn handle_maintenance(
                 },
                 scale_up_fabric_state_enabled = response.scale_up_fabric_state_enabled,
                 grpc_enabled = response.grpc_enabled,
-                "Rack ConfigureNmxCluster complete, advancing to PowerSequence"
+                "Rack ConfigureNmxCluster complete, FabricManager status persisted, advancing to PowerSequence"
             );
-            Ok(transition_to_power_sequence())
+            Ok(transition_to_power_sequence().with_txn(txn))
         }
         RackMaintenanceState::PowerSequence { rack_power } => match rack_power {
             RackPowerState::PoweringOn => {
