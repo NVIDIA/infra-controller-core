@@ -26,12 +26,12 @@ pub use source_mapping::{SourceId, SourceUpdate, SourceValue};
 pub const GOOD_QUALITY: &str = "1";
 
 const OBJECT_TYPE_RACK: &str = "Rack";
-const OBJECT_TYPE_HEARTBEAT: &str = "Heartbeat";
+const OBJECT_TYPE_SYSTEM: &str = "System";
 
-const POINT_TYPE_RACK_TRAY_LEAK: &str = "RackLeakDetectTrayMetadata";
+const POINT_TYPE_RACK_TRAY_LEAK: &str = "RackLeakDetectTray";
 const POINT_TYPE_RACK_LIQUID_ISOLATION_REQUEST: &str = "RackLiquidIsolationRequest";
 const POINT_TYPE_RACK_ELECTRICAL_ISOLATION_REQUEST: &str = "RackElectricalIsolationRequest";
-const POINT_TYPE_HEARTBEAT_TIMESTAMP_INTEGRATION: &str = "TimestampIntegration";
+const POINT_TYPE_HEARTBEAT_TIMESTAMP_INTEGRATION: &str = "HearbeatTimestampIntegration";
 
 #[derive(Debug, thiserror::Error)]
 pub enum BmsDsxExchangeError {
@@ -264,7 +264,7 @@ impl SupportedMetadata {
                     value_topic: value_topic()?,
                 }),
             )),
-            (OBJECT_TYPE_HEARTBEAT, POINT_TYPE_HEARTBEAT_TIMESTAMP_INTEGRATION) => {
+            (OBJECT_TYPE_SYSTEM, POINT_TYPE_HEARTBEAT_TIMESTAMP_INTEGRATION) => {
                 Ok(Some(Self::Heartbeat(HeartbeatMetadata {
                     integration: integration()?,
                     value_topic: value_topic()?,
@@ -325,6 +325,30 @@ mod tests {
                 "timestamp": 1_712_345_678_901_i64,
                 "quality": "1"
             })
+        );
+    }
+
+    #[test]
+    fn parses_heartbeat_metadata() {
+        let metadata = parse_supported_metadata(
+            r#"{
+                "pointType": "HearbeatTimestampIntegration",
+                "objectType": "System",
+                "integration": "CM",
+                "valueTopic": "BMS/v1/CM/Value/System/HearbeatTimestampIntegration/site"
+            }"#,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            metadata.point_type(),
+            POINT_TYPE_HEARTBEAT_TIMESTAMP_INTEGRATION
+        );
+        assert_eq!(metadata.integration(), "CM");
+        assert_eq!(
+            metadata.value_topic(),
+            "BMS/v1/CM/Value/System/HearbeatTimestampIntegration/site"
         );
     }
 }

@@ -222,10 +222,10 @@ mod tests {
     fn heartbeat_metadata() -> SupportedMetadata {
         parse_supported_metadata(
             r#"{
-                "pointType": "TimestampIntegration",
-                "objectType": "Heartbeat",
+                "pointType": "HearbeatTimestampIntegration",
+                "objectType": "System",
                 "integration": "CM",
-                "valueTopic": "BMS/v1/CM/Value/Heartbeat/TimestampIntegration/site"
+                "valueTopic": "BMS/v1/CM/Value/System/HearbeatTimestampIntegration/site"
             }"#,
         )
         .unwrap()
