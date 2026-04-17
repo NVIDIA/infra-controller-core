@@ -904,6 +904,8 @@ async fn test_site_explorer_audit_exploration_results(
         switches_created_per_run: 1,
         rotate_switch_nvos_credentials: Arc::new(false.into()),
         force_dpu_nic_mode: Arc::new(false.into()),
+        strict_switch_serial_validation: false,
+        strict_power_shelf_serial_validation: false,
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
@@ -4744,6 +4746,347 @@ async fn test_get_machine_position_info_no_endpoint(
     assert_eq!(info.compute_tray_index, None);
     assert_eq!(info.topology_id, None);
     assert_eq!(info.revision_id, None);
+
+    Ok(())
+}
+
+// Tests for the BMC MAC guard + strict serial validation introduced to
+// prevent duplicate `switches` / `power_shelves` rows when a chassis reports NA
+// for the serial number.
+fn explored_switch_fixture(
+    bmc_ip: IpAddr,
+    nv_os_mac: MacAddress,
+    chassis_serial: Option<&str>,
+) -> model::site_explorer::ExploredManagedSwitch {
+    model::site_explorer::ExploredManagedSwitch {
+        bmc_ip,
+        nv_os_mac_addresses: vec![nv_os_mac],
+        report: EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            last_exploration_error: None,
+            last_exploration_latency: None,
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+            machine_id: None,
+            managers: Vec::new(),
+            systems: Vec::new(),
+            chassis: vec![Chassis {
+                id: "mgx_nvswitch_0".to_string(),
+                model: Some("Switch".to_string()),
+                manufacturer: Some("NVIDIA".to_string()),
+                serial_number: chassis_serial.map(String::from),
+                part_number: chassis_serial.map(String::from),
+                ..Default::default()
+            }],
+            service: Vec::new(),
+            versions: HashMap::default(),
+            model: Some("Switch".to_string()),
+            machine_setup_status: None,
+            secure_boot_status: None,
+            lockdown_status: None,
+            power_shelf_id: None,
+            switch_id: None,
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
+        },
+    }
+}
+
+fn expected_switch_fixture(
+    bmc_mac: MacAddress,
+    nvos_mac: MacAddress,
+    serial: &str,
+) -> model::expected_switch::ExpectedSwitch {
+    model::expected_switch::ExpectedSwitch {
+        expected_switch_id: None,
+        bmc_mac_address: bmc_mac,
+        nvos_mac_addresses: vec![nvos_mac],
+        serial_number: serial.to_string(),
+        bmc_username: "ADMIN".to_string(),
+        bmc_password: "Pwd2023".to_string(),
+        nvos_username: None,
+        nvos_password: None,
+        bmc_ip_address: None,
+        metadata: Metadata {
+            name: format!("Test Switch {serial}"),
+            description: String::new(),
+            labels: HashMap::new(),
+        },
+        rack_id: None,
+        bmc_retain_credentials: None,
+    }
+}
+
+/// ..and a second discovery for the same BMC MAC that produces a different
+/// `SwitchId` must not spawn a second `switches` row -- the BMC MAC check
+/// in `SwitchCreator::create_switch` should catch it and keep the original.
+#[crate::sqlx_test]
+async fn switch_mac_dedup_skips_creation_on_fingerprint_drift(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let bmc_mac: MacAddress = "B8:3F:D2:90:97:D0".parse().unwrap();
+    let nvos_mac: MacAddress = "B8:3F:D2:90:97:D1".parse().unwrap();
+
+    let expected_switch = expected_switch_fixture(bmc_mac, nvos_mac, "SW-DRIFT-01");
+    let mut txn = env.pool.begin().await?;
+    db::expected_switch::create(&mut txn, expected_switch.clone()).await?;
+    txn.commit().await?;
+
+    let switch_creator =
+        crate::site_explorer::SwitchCreator::new(env.pool.clone(), SiteExplorerConfig::default());
+
+    // First discovery generates a SwitchId and inserts a row.
+    let created = switch_creator
+        .create_managed_switch(
+            &explored_switch_fixture(
+                "10.0.0.1".parse().unwrap(),
+                nvos_mac,
+                Some("SW-DRIFT-01-v1"),
+            ),
+            &expected_switch,
+            &env.pool,
+        )
+        .await?;
+    assert!(created, "first discovery must create a switch row");
+
+    let mut txn = env.pool.begin().await?;
+    let ids_after_first = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
+    txn.commit().await?;
+    assert_eq!(ids_after_first.len(), 1);
+    let original_id = ids_after_first[0];
+
+    // Second discovery reports a different chassis serial for the same BMC MAC;
+    // the hash will differ from `original_id`. Without the BMC MAC check, this
+    // would INSERT a second row; with it, creation must be skipped.
+    let created_again = switch_creator
+        .create_managed_switch(
+            &explored_switch_fixture(
+                "10.0.0.1".parse().unwrap(),
+                nvos_mac,
+                Some("SW-DRIFT-01-v2"),
+            ),
+            &expected_switch,
+            &env.pool,
+        )
+        .await?;
+    assert!(
+        !created_again,
+        "second discovery with drifted fingerprint must not create a duplicate row"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let ids_after_second =
+        db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
+    txn.commit().await?;
+    assert_eq!(
+        ids_after_second.len(),
+        1,
+        "exactly one switch row must exist after the drifted discovery"
+    );
+    assert_eq!(
+        ids_after_second[0], original_id,
+        "the original SwitchId must be preserved"
+    );
+
+    Ok(())
+}
+
+/// A chassis returning the literal placeholder `"NA"` as its serial must not
+/// generate a `SwitchId` when strict validation is explicitly enabled.
+#[crate::sqlx_test]
+async fn switch_strict_serial_validation_rejects_placeholder_na(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let bmc_mac: MacAddress = "B8:3F:D2:90:97:D2".parse().unwrap();
+    let nvos_mac: MacAddress = "B8:3F:D2:90:97:D3".parse().unwrap();
+
+    let expected_switch = expected_switch_fixture(bmc_mac, nvos_mac, "SW-PLACEHOLDER-01");
+    let mut txn = env.pool.begin().await?;
+    db::expected_switch::create(&mut txn, expected_switch.clone()).await?;
+    txn.commit().await?;
+
+    let strict_config = SiteExplorerConfig {
+        strict_switch_serial_validation: true,
+        ..Default::default()
+    };
+    let switch_creator = crate::site_explorer::SwitchCreator::new(env.pool.clone(), strict_config);
+
+    let created = switch_creator
+        .create_managed_switch(
+            &explored_switch_fixture("10.0.0.2".parse().unwrap(), nvos_mac, Some("NA")),
+            &expected_switch,
+            &env.pool,
+        )
+        .await?;
+    assert!(
+        !created,
+        "strict mode must skip creation when chassis.serial_number is \"NA\""
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let ids = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
+    txn.commit().await?;
+    assert!(
+        ids.is_empty(),
+        "no switch row must be inserted in strict mode"
+    );
+
+    Ok(())
+}
+
+/// In "permissive mode", an `"NA"` serial is accepted with a warn log;
+/// a device is discovered.
+#[crate::sqlx_test]
+async fn switch_permissive_serial_validation_accepts_placeholder_na(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let bmc_mac: MacAddress = "B8:3F:D2:90:97:D4".parse().unwrap();
+    let nvos_mac: MacAddress = "B8:3F:D2:90:97:D5".parse().unwrap();
+
+    let expected_switch = expected_switch_fixture(bmc_mac, nvos_mac, "SW-PLACEHOLDER-02");
+    let mut txn = env.pool.begin().await?;
+    db::expected_switch::create(&mut txn, expected_switch.clone()).await?;
+    txn.commit().await?;
+
+    let permissive_config = SiteExplorerConfig {
+        strict_switch_serial_validation: false,
+        ..Default::default()
+    };
+    let switch_creator =
+        crate::site_explorer::SwitchCreator::new(env.pool.clone(), permissive_config);
+
+    let created = switch_creator
+        .create_managed_switch(
+            &explored_switch_fixture("10.0.0.3".parse().unwrap(), nvos_mac, Some("NA")),
+            &expected_switch,
+            &env.pool,
+        )
+        .await?;
+    assert!(
+        created,
+        "permissive mode must accept a placeholder serial (with a warn log)"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let ids = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
+    txn.commit().await?;
+    assert_eq!(ids.len(), 1);
+
+    Ok(())
+}
+
+/// Strict mode must skip a power shelf whose serial input (currently
+/// `expected_shelf.metadata.name`) is the literal placeholder `"NA"`.
+#[crate::sqlx_test]
+async fn power_shelf_strict_serial_validation_rejects_placeholder_na(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    let test_meter = TestMeter::default();
+    let explorer_config = SiteExplorerConfig {
+        create_power_shelves: Arc::new(true.into()),
+        strict_power_shelf_serial_validation: true,
+        ..Default::default()
+    };
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
+    );
+
+    // An expected power shelf whose "operator"-declared name happens to be the
+    // placeholder "NA" (e.g. the operator typo'd, or some future flow started
+    // sourcing the name from a flaky BMC field).
+    let expected_power_shelf = model::expected_power_shelf::ExpectedPowerShelf {
+        expected_power_shelf_id: None,
+        bmc_mac_address: "B8:3F:D2:90:97:E0".parse().unwrap(),
+        bmc_username: "admin".to_string(),
+        bmc_password: "password".to_string(),
+        serial_number: "PS-PLACEHOLDER-01".to_string(),
+        bmc_ip_address: Some("192.168.1.200".parse().unwrap()),
+        metadata: Metadata {
+            name: "NA".to_string(),
+            description: String::new(),
+            labels: HashMap::new(),
+        },
+        rack_id: None,
+        bmc_retain_credentials: None,
+    };
+    let mut txn = env.pool.begin().await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    txn.commit().await?;
+
+    let explored_endpoint = ExploredEndpoint {
+        address: "192.168.1.200".parse().unwrap(),
+        report: EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            last_exploration_error: None,
+            last_exploration_latency: None,
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+            machine_id: None,
+            managers: Vec::new(),
+            systems: Vec::new(),
+            chassis: vec![Chassis::default()],
+            service: Vec::new(),
+            versions: HashMap::default(),
+            model: None,
+            machine_setup_status: None,
+            secure_boot_status: None,
+            lockdown_status: None,
+            power_shelf_id: None,
+            switch_id: None,
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
+        },
+        report_version: ConfigVersion::initial(),
+        preingestion_state: PreingestionState::Complete,
+        waiting_for_explorer_refresh: false,
+        exploration_requested: false,
+        last_redfish_bmc_reset: None,
+        last_ipmitool_bmc_reset: None,
+        last_redfish_reboot: None,
+        last_redfish_powercycle: None,
+        pause_remediation: false,
+        boot_interface_mac: None,
+        pause_ingestion_and_poweron: false,
+    };
+
+    let created = explorer
+        .create_power_shelf(explored_endpoint, &expected_power_shelf, &env.pool)
+        .await?;
+    assert!(
+        !created,
+        "strict mode must skip creation when the power-shelf serial is \"NA\""
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let shelves = db::power_shelf::find_by(
+        &mut txn,
+        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
+    )
+    .await?;
+    txn.commit().await?;
+    assert!(
+        shelves.is_empty(),
+        "no power_shelves row must be inserted in strict mode"
+    );
 
     Ok(())
 }

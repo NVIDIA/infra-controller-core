@@ -662,6 +662,7 @@ async fn test_max_one_interface_association(
     let power_shelf_id = PowerShelfId::from(uuid::Uuid::new_v4());
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
+        bmc_mac_address: None,
         config: PowerShelfConfig {
             name: "Test Power Shelf".to_string(),
             capacity: None,
@@ -714,6 +715,7 @@ async fn test_power_shelf_association(
     let power_shelf_id = PowerShelfId::from(uuid::Uuid::new_v4());
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
+        bmc_mac_address: None,
         config: PowerShelfConfig {
             name: "Test Power Shelf".to_string(),
             capacity: Some(10000),

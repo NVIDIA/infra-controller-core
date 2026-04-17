@@ -1761,6 +1761,29 @@ pub struct SiteExplorerConfig {
         serialize_with = "serialize_arc_atomic_bool"
     )]
     pub force_dpu_nic_mode: Arc<AtomicBool>,
+
+    /// When `true`, a switch whose chassis serial is the literal placeholder
+    /// `"NA"` is skipped for the current exploration cycle with an `ERROR` log,
+    /// rather than generating a `SwitchId` from a garbage fingerprint.
+    ///
+    /// When `false` (default), the raw value is accepted regardless but a `WARN`
+    /// is emitted when the placeholder is seen. We will still do BMC MAC checks
+    /// regardless, so a switch can't be "discovered" twice, but this would
+    /// allow an encoded ID with an "NA" serial to be entered.
+    #[serde(default)]
+    pub strict_switch_serial_validation: bool,
+
+    /// When `true`, a power shelf whose chassis serial is the literal placeholder
+    /// `"NA"` is skipped for the current exploration cycle with an `ERROR` log,
+    /// rather than generating a `PowerShelfId` from a garbage fingerprint.
+    ///
+    /// When `false` (default), the raw value is accepted regardless but a `WARN`
+    /// is emitted when the placeholder is seen. We will still do BMC MAC checks
+    /// regardless, so a power shelf can't be "discovered" twice, but this would
+    /// allow an encoded ID with an "NA" serial to be entered.
+    #[serde(default)]
+    pub strict_power_shelf_serial_validation: bool,
+
     /// Controls which Redfish client implementation is used
     /// for hardware discovery (LibRedfish, NvRedfish, or
     /// CompareResult for side-by-side validation).
@@ -1792,6 +1815,8 @@ impl Default for SiteExplorerConfig {
             switches_created_per_run: Self::default_switches_created_per_run(),
             rotate_switch_nvos_credentials: Self::default_rotate_switch_nvos_credentials(),
             force_dpu_nic_mode: Arc::new(false.into()),
+            strict_switch_serial_validation: false,
+            strict_power_shelf_serial_validation: false,
             explore_mode: Self::default_explore_mode(),
         }
     }
@@ -3602,6 +3627,8 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 force_dpu_nic_mode: Arc::new(false.into()),
+                strict_switch_serial_validation: false,
+                strict_power_shelf_serial_validation: false,
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3775,6 +3802,8 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 force_dpu_nic_mode: Arc::new(false.into()),
+                strict_switch_serial_validation: false,
+                strict_power_shelf_serial_validation: false,
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -4084,6 +4113,8 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 force_dpu_nic_mode: Arc::new(false.into()),
+                strict_switch_serial_validation: false,
+                strict_power_shelf_serial_validation: false,
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );

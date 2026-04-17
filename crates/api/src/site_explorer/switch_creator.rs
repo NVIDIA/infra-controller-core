@@ -26,6 +26,11 @@ use crate::site_explorer::SiteExplorerConfig;
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 use crate::site_explorer::metrics::SiteExplorationMetrics;
 
+/// If a chassis serial number cant be populated, it returns NA.
+/// There's probably a better way to do this, but right now I'm
+/// fixing some bugs; I'm making it a constant, at least!
+const SWITCH_SERIAL_NA: &str = "NA";
+
 pub struct SwitchCreator {
     database_connection: PgPool,
     config: SiteExplorerConfig,
@@ -122,6 +127,33 @@ impl SwitchCreator {
                 .await?;
             }
         }
+
+        // If the switch chassis serial number was reported as "NA", check to
+        // see if we have strict serial number validation enabled, as in, we
+        // require a serial number to be baked into the SwitchId.
+        if let Some(chassis_serial) = explored_managed_switch
+            .report
+            .chassis
+            .iter()
+            .find(|c| c.id.to_string().to_lowercase() == "mgx_nvswitch_0")
+            .and_then(|c| c.serial_number.as_deref())
+            && chassis_serial == SWITCH_SERIAL_NA
+        {
+            if self.config.strict_switch_serial_validation {
+                tracing::error!(
+                    bmc_mac = %expected_switch.bmc_mac_address,
+                    chassis_serial = %chassis_serial,
+                    "switch chassis returned serial {SWITCH_SERIAL_NA:?}; refusing to generate a SwitchId. will retry on next exploration cycle. set site_explorer.strict_switch_serial_validation = false to allow",
+                );
+                return Ok(None);
+            }
+            tracing::warn!(
+                bmc_mac = %expected_switch.bmc_mac_address,
+                chassis_serial = %chassis_serial,
+                "switch chassis returned serial {SWITCH_SERIAL_NA:?}; proceeding because strict_switch_serial_validation is disabled",
+            );
+        }
+
         let switch_id = explored_managed_switch
             .clone()
             .report
@@ -129,6 +161,22 @@ impl SwitchCreator {
             .unwrap();
 
         tracing::info!(%switch_id, "switch ID generated");
+
+        // If there's already a switch with this BMC MAC address,
+        // don't discover a new one.
+        if let Some(existing) =
+            db::switch::find_by_bmc_mac_address(txn, expected_switch.bmc_mac_address).await?
+        {
+            if existing.id != switch_id {
+                tracing::warn!(
+                    existing_switch_id = %existing.id,
+                    new_switch_id = %switch_id,
+                    bmc_mac = %expected_switch.bmc_mac_address,
+                    "SwitchId drifted for known BMC MAC; keeping existing row to avoid duplicate",
+                );
+            }
+            return Ok(None);
+        }
 
         let existing_switch = db::switch::find_by_id(txn, &switch_id).await?;
 

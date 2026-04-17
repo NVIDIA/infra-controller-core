@@ -1677,6 +1677,8 @@ pub async fn create_test_env_with_overrides(
             switches_created_per_run: 1,
             rotate_switch_nvos_credentials: Arc::new(false.into()),
             force_dpu_nic_mode: Arc::new(false.into()),
+            strict_switch_serial_validation: false,
+            strict_power_shelf_serial_validation: false,
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },

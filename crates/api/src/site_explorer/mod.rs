@@ -58,6 +58,7 @@ use version_compare::Cmp;
 
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
 use crate::{CarbideError, CarbideResult};
+
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
 mod credentials;
@@ -85,6 +86,11 @@ pub use switch_creator::SwitchCreator;
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
+
+/// If a chassis serial number cant be populated, it returns NA.
+/// There's probably a better way to do this, but right now I'm
+/// fixing some bugs; I'm making it a constant, at least!
+const POWER_SHELF_SERIAL_NA: &str = "NA";
 
 /// Ensures a rack row exists for the given `rack_id`.
 ///
@@ -690,6 +696,24 @@ impl SiteExplorer {
             explored_endpoint.address
         );
 
+        // If there's already a power shelf with this BMC MAC address,
+        // don't discover a new one.
+        if let Some(existing) =
+            db_power_shelf::find_by_bmc_mac_address(&mut txn, expected_shelf.bmc_mac_address)
+                .await?
+        {
+            tracing::warn!(
+                bmc_mac = %expected_shelf.bmc_mac_address,
+                existing_power_shelf_id = %existing.id,
+                endpoint = %explored_endpoint.address,
+                "Power shelf already exists for this BMC MAC; skipping",
+            );
+            txn.rollback()
+                .await
+                .map_err(|e| DatabaseError::new("rollback create_power_shelf", e))?;
+            return Ok(false);
+        }
+
         // Check if a power shelf with the same name already exists
         if !expected_shelf.metadata.name.is_empty() {
             let existing_power_shelves = db_power_shelf::find_by(
@@ -719,6 +743,31 @@ impl SiteExplorer {
         // Extract power shelf metadata similar to how machine_id extracts hardware info
         //TODO fetch these from chassis
         let power_shelf_serial = expected_shelf.metadata.name.as_str();
+
+        // If the power shelf chassis serial number was reported as "NA",
+        // check to see if we have strict serial number validation enabled,
+        // as in, we require a serial number to be baked into the PowerShelfId.
+        if power_shelf_serial == POWER_SHELF_SERIAL_NA {
+            if self.config.strict_power_shelf_serial_validation {
+                tracing::error!(
+                    bmc_mac = %expected_shelf.bmc_mac_address,
+                    power_shelf_serial = %power_shelf_serial,
+                    endpoint = %explored_endpoint.address,
+                    "power shelf serial is {POWER_SHELF_SERIAL_NA:?}; refusing to generate a PowerShelfId from it. set site_explorer.strict_power_shelf_serial_validation = false to allow",
+                );
+                txn.rollback()
+                    .await
+                    .map_err(|e| DatabaseError::new("rollback create_power_shelf", e))?;
+                return Ok(false);
+            }
+            tracing::warn!(
+                bmc_mac = %expected_shelf.bmc_mac_address,
+                power_shelf_serial = %power_shelf_serial,
+                endpoint = %explored_endpoint.address,
+                "power shelf serial is {POWER_SHELF_SERIAL_NA:?}; proceeding because strict_power_shelf_serial_validation is disabled",
+            );
+        }
+
         let power_shelf_vendor = "NVIDIA"; // Default vendor for power shelves
         let power_shelf_model = "PowerShelf"; // Default model identifier
         let power_shelf_id = match model::power_shelf::power_shelf_id::from_hardware_info(
@@ -746,6 +795,7 @@ impl SiteExplorer {
         let new_power_shelf = NewPowerShelf {
             id: power_shelf_id,
             config,
+            bmc_mac_address: Some(expected_shelf.bmc_mac_address),
             metadata: Some(expected_shelf.metadata.clone()),
             rack_id: expected_shelf.rack_id.clone(),
         };
