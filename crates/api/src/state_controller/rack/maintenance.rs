@@ -481,16 +481,24 @@ fn select_primary_switch(
         ));
     }
 
-    placements.sort_by(|left, right| {
-        left.tray_index
-            .cmp(&right.tray_index)
-            .then_with(|| {
-                left.slot_number
-                    .unwrap_or(i32::MAX)
-                    .cmp(&right.slot_number.unwrap_or(i32::MAX))
-            })
-            .then_with(|| left.device.node_id.cmp(&right.device.node_id))
-    });
+    placements.sort_by_key(|placement| placement.tray_index);
+
+    if let Some(duplicate_tray_index) = placements.windows(2).find_map(|window| {
+        let left = &window[0];
+        let right = &window[1];
+        (left.tray_index == right.tray_index).then_some(left.tray_index)
+    }) {
+        let duplicate_switches = placements
+            .iter()
+            .filter(|placement| placement.tray_index == duplicate_tray_index)
+            .map(|placement| placement.device.node_id.as_str())
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "RMS returned duplicate tray_index {} for switches: {}",
+            duplicate_tray_index,
+            duplicate_switches.join(", ")
+        ));
+    }
 
     Ok(placements
         .into_iter()
@@ -1564,13 +1572,16 @@ pub async fn handle_maintenance(
                 return transition_to_rack_error(id, state, cause, ctx).await;
             }
 
+            let rack_profile_label = rack_profile_id
+                .map(|profile_id| profile_id.to_string())
+                .unwrap_or_else(|| "<none>".to_string());
             let Some(profile) = super::resolve_profile(id, rack_profile_id, ctx) else {
                 return transition_to_rack_error(
                     id,
                     state,
                     format!(
-                        "rack profile {:?} is missing or unknown; cannot resolve rack_hardware_topology",
-                        rack_profile_id.map(|profile_id| profile_id.as_str())
+                        "rack profile '{}' is missing or unknown; cannot resolve rack_hardware_topology",
+                        rack_profile_label
                     ),
                     ctx,
                 )
@@ -1581,8 +1592,8 @@ pub async fn handle_maintenance(
                     id,
                     state,
                     format!(
-                        "rack profile {:?} does not define rack_hardware_topology",
-                        rack_profile_id.map(|profile_id| profile_id.as_str())
+                        "rack profile '{}' does not define rack_hardware_topology",
+                        rack_profile_label
                     ),
                     ctx,
                 )
