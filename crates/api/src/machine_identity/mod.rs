@@ -34,7 +34,7 @@ pub(crate) use crypto::{
     token_delegation_credentials,
 };
 use jsonwebtoken::{EncodingKey, Header, encode};
-use model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG;
+use model::tenant::identity_config::TENANT_IDENTITY_SIGNING_JWT_ALG;
 use p256::PublicKey;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use p256::pkcs8::DecodePublicKey;

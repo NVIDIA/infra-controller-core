@@ -101,7 +101,7 @@ pub async fn set(
         .bind(&encrypted_key)
         .bind(&public_key)
         .bind(&key_id)
-        .bind(&config.algorithm)
+        .bind(config.algorithm)
         .bind(&config.encryption_key_id)
         .fetch_one(txn)
         .await
@@ -224,6 +224,7 @@ mod tests {
 
     use forge_secrets::key_encryption;
     use model::metadata::Metadata;
+    use model::tenant::identity_config::SigningAlgorithm;
     use model::tenant::{
         IdentityConfig, TokenDelegation, TokenDelegationAuthMethod, TokenDelegationAuthMethodConfig,
     };
@@ -270,7 +271,7 @@ mod tests {
             subject_prefix: "spiffe://issuer.example.com/org-x".to_string(),
             enabled: true,
             rotate_key: false,
-            algorithm: "ES256".to_string(),
+            algorithm: SigningAlgorithm::Es256,
             encryption_key_id: "test-master".to_string(),
         };
 
@@ -288,7 +289,7 @@ mod tests {
         assert_eq!(cfg.token_ttl_sec, 3600);
         assert_eq!(cfg.subject_prefix, "spiffe://issuer.example.com/org-x");
         assert!(cfg.enabled);
-        assert_eq!(cfg.algorithm, "ES256");
+        assert_eq!(cfg.algorithm, SigningAlgorithm::Es256);
         assert_eq!(cfg.encryption_key_id, "test-master");
         assert!(!cfg.key_id.is_empty());
 
@@ -324,7 +325,7 @@ mod tests {
             subject_prefix: "spiffe://issuer.example.com".to_string(),
             enabled: true,
             rotate_key: false,
-            algorithm: "ES256".to_string(),
+            algorithm: SigningAlgorithm::Es256,
             encryption_key_id: "test-master".to_string(),
         };
         let key_material = SigningKeyMaterial {

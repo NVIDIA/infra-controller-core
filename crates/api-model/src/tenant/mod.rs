@@ -35,6 +35,8 @@ use crate::metadata::Metadata;
 
 mod tenant_identity_policy;
 
+pub mod identity_config;
+
 pub use tenant_identity_policy::{
     validate_token_endpoint_domain_allowlist_patterns, validate_trust_domain_allowlist_patterns,
 };
@@ -479,7 +481,7 @@ pub struct TenantIdentityConfig {
     pub encrypted_signing_key: String,
     pub signing_key_public: String,
     pub key_id: String,
-    pub algorithm: String,
+    pub algorithm: identity_config::SigningAlgorithm,
     pub encryption_key_id: String,
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
@@ -522,7 +524,7 @@ pub struct IdentityConfig {
     pub subject_prefix: String,
     pub enabled: bool,
     pub rotate_key: bool,
-    pub algorithm: String,
+    pub algorithm: identity_config::SigningAlgorithm,
     pub encryption_key_id: String,
 }
 
@@ -531,33 +533,24 @@ pub struct IdentityConfig {
 pub struct IdentityConfigValidationBounds {
     pub token_ttl_min_sec: u32,
     pub token_ttl_max_sec: u32,
-    pub algorithm: String,
+    pub algorithm: identity_config::SigningAlgorithm,
     pub encryption_key_id: String,
     /// Site policy: JWT issuer trust domain must match at least one entry. Empty = no extra check.
     pub trust_domain_allowlist: Vec<String>,
 }
-
-/// JWT `alg` for per-tenant signing keys. Only ES256 (ECDSA P-256) is implemented end-to-end.
-pub const TENANT_IDENTITY_SIGNING_JWT_ALG: &str = "ES256";
 
 #[derive(thiserror::Error, Debug)]
 #[error("{0}")]
 pub struct IdentityConfigValidationError(pub String);
 
 impl IdentityConfig {
-    /// Validates gRPC `IdentityConfig` and converts to `IdentityConfig`, including SPIFFE
+    /// Validates gRPC `TenantIdentityConfig` and converts to `IdentityConfig`, including SPIFFE
     /// `subject_prefix` resolution against `issuer` (optional proto field defaults to
     /// `spiffe://<trust-domain-from-issuer>`).
     pub fn try_from_proto(
-        value: rpc_forge::IdentityConfig,
+        value: rpc_forge::TenantIdentityConfig,
         bounds: &IdentityConfigValidationBounds,
     ) -> Result<Self, IdentityConfigValidationError> {
-        if bounds.algorithm != TENANT_IDENTITY_SIGNING_JWT_ALG {
-            return Err(IdentityConfigValidationError(format!(
-                "machine_identity.algorithm must be {TENANT_IDENTITY_SIGNING_JWT_ALG} (got {:?})",
-                bounds.algorithm
-            )));
-        }
         if value.issuer.is_empty() {
             return Err(IdentityConfigValidationError(
                 "issuer is required".to_string(),
@@ -613,7 +606,7 @@ impl IdentityConfig {
             subject_prefix,
             enabled: value.enabled,
             rotate_key: value.rotate_key,
-            algorithm: bounds.algorithm.clone(),
+            algorithm: bounds.algorithm,
             encryption_key_id: bounds.encryption_key_id.clone(),
         })
     }
@@ -1032,7 +1025,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_success() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1044,7 +1037,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test-master".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1056,13 +1049,13 @@ mod tests {
         assert_eq!(config.subject_prefix, "spiffe://issuer.example.com");
         assert!(config.enabled);
         assert!(!config.rotate_key);
-        assert_eq!(config.algorithm, "ES256");
+        assert_eq!(config.algorithm, identity_config::SigningAlgorithm::Es256);
         assert_eq!(config.encryption_key_id, "test-master");
     }
 
     #[test]
     fn identity_config_try_from_proto_stores_normalized_issuer() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "HTTPS://Issuer.EXAMPLE.COM/wl".to_string(),
             default_audience: "api".to_string(),
@@ -1074,7 +1067,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test-master".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1084,31 +1077,23 @@ mod tests {
     }
 
     #[test]
-    fn identity_config_try_from_proto_rejects_unsupported_algorithm() {
-        let proto = rpc_forge::IdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec!["api".to_string()],
-            token_ttl_sec: 3600,
-            subject_prefix: None,
-            rotate_key: false,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: "RS256".to_string(),
-            encryption_key_id: "test".to_string(),
-            trust_domain_allowlist: vec![],
-        };
-        let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("machine_identity.algorithm"));
-        assert!(err.0.contains("RS256"));
+    fn tenant_identity_signing_algorithm_from_str_rejects_unknown() {
+        assert_eq!(
+            "ES256"
+                .parse::<identity_config::SigningAlgorithm>()
+                .unwrap(),
+            identity_config::SigningAlgorithm::Es256
+        );
+        assert!(
+            "RS256"
+                .parse::<identity_config::SigningAlgorithm>()
+                .is_err()
+        );
     }
 
     #[test]
     fn identity_config_try_from_proto_empty_issuer() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: String::new(),
             default_audience: "api".to_string(),
@@ -1120,7 +1105,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1130,7 +1115,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_empty_default_audience() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: String::new(),
@@ -1142,7 +1127,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1152,7 +1137,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_accepts_custom_subject_prefix_in_proto() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1164,7 +1149,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1177,7 +1162,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_empty_optional_subject_prefix_defaults() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1189,7 +1174,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1199,7 +1184,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_rejects_non_spiffe_subject_prefix() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1211,7 +1196,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1221,7 +1206,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_rejects_subject_prefix_trust_domain_mismatch() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1233,7 +1218,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1243,7 +1228,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_token_ttl_zero() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1255,7 +1240,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1265,7 +1250,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_token_ttl_below_min() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1277,7 +1262,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1287,7 +1272,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_token_ttl_above_max() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1299,7 +1284,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec![],
         };
@@ -1309,7 +1294,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_rejects_trust_domain_not_on_allowlist() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://evil.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1321,7 +1306,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec!["login.example.com".to_string()],
         };
@@ -1332,7 +1317,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_accepts_trust_domain_matching_allowlist() {
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://auth.login.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1344,7 +1329,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: vec!["**.login.example.com".to_string()],
         };
@@ -1363,7 +1348,7 @@ mod tests {
             validate_trust_domain_allowlist_patterns(&allowlist).is_ok(),
             "fixture patterns valid at startup"
         );
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://idp.other.example/oidc".to_string(),
             default_audience: "api".to_string(),
@@ -1375,7 +1360,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: allowlist,
         };
@@ -1390,7 +1375,7 @@ mod tests {
             "login.example.com".to_string(),
             "*.tenant.example.net".to_string(),
         ];
-        let proto = rpc_forge::IdentityConfig {
+        let proto = rpc_forge::TenantIdentityConfig {
             enabled: true,
             issuer: "https://idp.other.example/".to_string(),
             default_audience: "api".to_string(),
@@ -1402,7 +1387,7 @@ mod tests {
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
-            algorithm: "ES256".to_string(),
+            algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".to_string(),
             trust_domain_allowlist: allowlist,
         };

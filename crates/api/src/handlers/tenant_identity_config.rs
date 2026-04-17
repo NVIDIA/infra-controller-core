@@ -19,12 +19,14 @@
 //! Identity config: issuer, audiences, TTL, signing key (Get/Set/Delete).
 //! Token delegation: token exchange config for external IdP (Get/Set/Delete).
 //! JWKS and OpenID discovery RPCs live in [`machine_identity`](super::machine_identity).
+//! (Proto message `forge.TenantIdentityConfig` is aliased as `ProtoTenantIdentityConfig` to avoid
+//! clashing with the database row type [`TenantIdentityConfig`](TenantIdentityConfig).)
 
 use ::rpc::Timestamp;
 use ::rpc::forge::{
-    GetIdentityConfigRequest, GetTokenDelegationRequest, IdentityConfig as ProtoIdentityConfig,
-    IdentityConfigRequest, IdentityConfigResponse, TokenDelegationRequest, TokenDelegationResponse,
-    token_delegation,
+    GetTenantIdentityConfigRequest, GetTokenDelegationRequest, SetTenantIdentityConfigRequest,
+    TenantIdentityConfig as ProtoTenantIdentityConfig, TenantIdentityConfigResponse,
+    TokenDelegationRequest, TokenDelegationResponse, token_delegation,
 };
 use db::{WithTransaction, tenant, tenant_identity_config};
 use forge_secrets::credentials::CredentialReader;
@@ -92,13 +94,13 @@ fn format_token_delegation_request_redacted(req: &TokenDelegationRequest) -> Str
     )
 }
 
-// --- Identity configuration handlers ---
+// --- Tenant identity configuration handlers ---
 
-/// Handles GetIdentityConfiguration: fetches per-org identity config.
-pub(crate) async fn get_identity_configuration(
+/// `Forge::get_tenant_identity_configuration`: fetches per-org identity config.
+pub(crate) async fn get_configuration(
     api: &Api,
-    request: Request<GetIdentityConfigRequest>,
-) -> Result<Response<IdentityConfigResponse>, Status> {
+    request: Request<GetTenantIdentityConfigRequest>,
+) -> Result<Response<TenantIdentityConfigResponse>, Status> {
     log_request_data(&request);
 
     require_machine_identity_site_enabled(api)?;
@@ -131,9 +133,9 @@ pub(crate) async fn get_identity_configuration(
         }
     };
 
-    Ok(Response::new(IdentityConfigResponse {
+    Ok(Response::new(TenantIdentityConfigResponse {
         organization_id: org_id_str,
-        config: Some(ProtoIdentityConfig {
+        config: Some(ProtoTenantIdentityConfig {
             enabled: cfg.enabled,
             issuer: cfg.issuer.clone(),
             default_audience: cfg.default_audience.clone(),
@@ -148,10 +150,10 @@ pub(crate) async fn get_identity_configuration(
     }))
 }
 
-/// Handles DeleteIdentityConfiguration: removes per-org identity config.
-pub(crate) async fn delete_identity_configuration(
+/// `Forge::delete_tenant_identity_configuration`: removes per-org identity config.
+pub(crate) async fn delete_configuration(
     api: &Api,
-    request: Request<GetIdentityConfigRequest>,
+    request: Request<GetTenantIdentityConfigRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -193,12 +195,12 @@ pub(crate) async fn delete_identity_configuration(
     Ok(Response::new(()))
 }
 
-/// Handles SetIdentityConfiguration: upserts per-org identity config into tenant_identity_config.
+/// `Forge::set_tenant_identity_configuration`: upserts per-org identity config into tenant_identity_config.
 /// Requires auth. Tenant must exist. Key generation is placeholder until credential-backed key provisioning.
-pub(crate) async fn set_identity_configuration(
+pub(crate) async fn set_configuration(
     api: &Api,
-    request: Request<IdentityConfigRequest>,
-) -> Result<Response<IdentityConfigResponse>, Status> {
+    request: Request<SetTenantIdentityConfigRequest>,
+) -> Result<Response<TenantIdentityConfigResponse>, Status> {
     log_request_data(&request);
 
     if !api.runtime_config.machine_identity.enabled {
@@ -210,9 +212,9 @@ pub(crate) async fn set_identity_configuration(
     }
 
     let req = request.into_inner();
-    let proto = req
-        .config
-        .ok_or_else(|| CarbideError::InvalidArgument("IdentityConfig is required".to_string()))?;
+    let proto = req.config.ok_or_else(|| {
+        CarbideError::InvalidArgument("TenantIdentityConfig is required".to_string())
+    })?;
     let config = IdentityConfig::try_from_proto(
         proto,
         &model::tenant::IdentityConfigValidationBounds::from(
@@ -279,9 +281,9 @@ pub(crate) async fn set_identity_configuration(
         })
         .await??;
 
-    Ok(Response::new(IdentityConfigResponse {
+    Ok(Response::new(TenantIdentityConfigResponse {
         organization_id: org_id_str,
-        config: Some(ProtoIdentityConfig {
+        config: Some(ProtoTenantIdentityConfig {
             enabled: cfg.enabled,
             issuer: cfg.issuer.clone(),
             default_audience: cfg.default_audience.clone(),

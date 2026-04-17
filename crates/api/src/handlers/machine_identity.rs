@@ -28,9 +28,7 @@ use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use db::{WithTransaction, tenant_identity_config};
 use forge_secrets::key_encryption;
-use model::tenant::{
-    InvalidTenantOrg, TENANT_IDENTITY_SIGNING_JWT_ALG, TenantIdentityConfig, TenantOrganizationId,
-};
+use model::tenant::{InvalidTenantOrg, TenantIdentityConfig, TenantOrganizationId};
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
@@ -164,13 +162,6 @@ pub(crate) async fn sign_machine_identity(
         })
         .await??;
 
-    if identity_row.algorithm != TENANT_IDENTITY_SIGNING_JWT_ALG {
-        return Err(CarbideError::InvalidArgument(format!(
-            "tenant signing algorithm must be {TENANT_IDENTITY_SIGNING_JWT_ALG} (got {:?})",
-            identity_row.algorithm
-        ))
-        .into());
-    }
     if identity_row.encrypted_signing_key.is_empty() || identity_row.key_id.is_empty() {
         return Err(CarbideError::NotFoundError {
             kind: "tenant_identity_config",
@@ -345,7 +336,7 @@ pub(crate) async fn get_jwks(
     let jwk = crate::machine_identity::public_pem_to_jwk_value(
         &cfg.signing_key_public,
         &cfg.key_id,
-        &cfg.algorithm,
+        cfg.algorithm.as_jwt_alg_str(),
         jwk_key_use,
     )
     .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
