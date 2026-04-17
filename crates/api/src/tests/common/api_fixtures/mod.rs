@@ -368,6 +368,23 @@ impl TestEnv {
     /// Creates an instance of CommonStateHandlerServices that are suitable for this
     /// test environment
     pub fn state_handler_services(&self) -> CommonStateHandlerServices {
+        let switch_system_image_rms_client = self
+            .config
+            .rms
+            .api_url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .map(|url| {
+                let rms_client_config = librms::client_config::RmsClientConfig::new(
+                    self.config.rms.root_ca_path.clone(),
+                    self.config.rms.client_cert.clone(),
+                    self.config.rms.client_key.clone(),
+                    self.config.rms.enforce_tls,
+                );
+                let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+                Arc::new(librms::RackManagerApi::new(&rms_api_config))
+            });
+
         CommonStateHandlerServices {
             db_pool: self.pool.clone(),
             db_reader: self.pool.clone().into(),
@@ -378,6 +395,7 @@ impl TestEnv {
             site_config: self.config.clone(),
             dpa_info: None,
             rms_client: self.rms_sim.as_rms_client(),
+            switch_system_image_rms_client,
             credential_manager: self.test_credential_manager.clone(),
         }
     }
@@ -1092,7 +1110,7 @@ pub fn get_config() -> CarbideConfig {
         max_concurrent_machine_updates: None,
         machine_update_run_interval: Some(1),
         site_explorer: SiteExplorerConfig {
-            enabled: Arc::new(false.into()),
+            enabled: false,
             run_interval: std::time::Duration::from_secs(0),
             concurrent_explorations: 0,
             explorations_per_run: 0,
@@ -1214,7 +1232,7 @@ pub fn get_config() -> CarbideConfig {
             ),
             ..Default::default()
         },
-        rack_profiles: Default::default(),
+        rack_types: Default::default(),
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
@@ -1471,7 +1489,6 @@ pub async fn create_test_env_with_overrides(
                 .unwrap(),
             None,
         )),
-        site_explorer_enabled: config.site_explorer.enabled.clone(),
         create_machines: config.site_explorer.create_machines.clone(),
         bmc_proxy: config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: Arc::new(false.into()),
@@ -1562,6 +1579,22 @@ pub async fn create_test_env_with_overrides(
         ))),
     };
 
+    let switch_system_image_rms_client = config
+        .rms
+        .api_url
+        .as_deref()
+        .filter(|url| !url.is_empty())
+        .map(|url| {
+            let rms_client_config = librms::client_config::RmsClientConfig::new(
+                config.rms.root_ca_path.clone(),
+                config.rms.client_cert.clone(),
+                config.rms.client_key.clone(),
+                config.rms.enforce_tls,
+            );
+            let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+            Arc::new(librms::RackManagerApi::new(&rms_api_config))
+        });
+
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: db_pool.clone(),
         db_reader: db_pool.clone().into(),
@@ -1572,6 +1605,7 @@ pub async fn create_test_env_with_overrides(
         site_config: config.clone(),
         dpa_info: None,
         rms_client: rms_sim.as_rms_client(),
+        switch_system_image_rms_client,
         credential_manager: credential_manager.clone(),
     });
 
@@ -1664,7 +1698,7 @@ pub async fn create_test_env_with_overrides(
     let site_explorer = SiteExplorer::new(
         db_pool.clone(),
         SiteExplorerConfig {
-            enabled: Arc::new(true.into()),
+            enabled: true,
             // run_interval shouldn't matter, this should not be run(), we only trigger intervals manually.
             run_interval: Duration::seconds(0).to_std().unwrap(),
             concurrent_explorations: 100,

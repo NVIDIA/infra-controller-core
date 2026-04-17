@@ -30,7 +30,7 @@ use librms::protos::rack_manager as rms;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::FirmwareUpgradeDeviceInfo;
 use model::rack_firmware::RackFirmware;
-use model::rack_type::{RackHardwareClass, RackProfile};
+use model::rack_type::{RackCapabilitiesSet, RackHardwareClass};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -72,8 +72,8 @@ struct FirmwareLookupEntry {
     version: Option<String>,
 }
 
-pub fn firmware_type_for_profile(profile: &RackProfile) -> &'static str {
-    match profile.rack_hardware_class {
+pub fn firmware_type_for_capabilities(capabilities: &RackCapabilitiesSet) -> &'static str {
+    match capabilities.rack_hardware_class {
         Some(RackHardwareClass::Dev) => "dev",
         Some(RackHardwareClass::Prod) | None => "prod",
     }
@@ -351,7 +351,7 @@ fn build_firmware_targets(
         .collect())
 }
 
-fn build_new_node_info(
+pub(crate) fn build_new_node_info(
     rack_id: &RackId,
     device: &FirmwareUpgradeDeviceInfo,
     node_type: rms::NodeType,

@@ -827,6 +827,21 @@ pub async fn initialize_and_start_controllers(
         site_config: carbide_config.clone(),
         dpa_info,
         rms_client: rms_client.clone(),
+        switch_system_image_rms_client: carbide_config
+            .rms
+            .api_url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .map(|url| {
+                let rms_client_config = librms::client_config::RmsClientConfig::new(
+                    carbide_config.rms.root_ca_path.clone(),
+                    carbide_config.rms.client_cert.clone(),
+                    carbide_config.rms.client_key.clone(),
+                    carbide_config.rms.enforce_tls,
+                );
+                let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+                Arc::new(librms::RackManagerApi::new(&rms_api_config))
+            }),
         credential_manager: credential_manager.clone(),
     });
 

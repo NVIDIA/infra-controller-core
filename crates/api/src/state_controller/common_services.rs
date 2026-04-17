@@ -62,6 +62,10 @@ pub struct CommonStateHandlerServices {
     /// Rack Manager Service client
     pub rms_client: Option<Arc<dyn RmsApi>>,
 
+    /// Shared concrete RMS client for switch system image RPCs that are not yet exposed through
+    /// librms::RmsApi.
+    pub switch_system_image_rms_client: Option<Arc<librms::RackManagerApi>>,
+
     /// Credential manager (Vault) for fetching BMC credentials
     pub credential_manager: Arc<dyn CredentialManager>,
 }

@@ -20,14 +20,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_uuid::rack::{RackId, RackProfileId};
+use carbide_uuid::rack::RackId;
 use db::db_read::DbReader;
 use db::{self, ObjectColumnFilter, machine as db_machine, rack as db_rack};
 use model::expected_machine::ExpectedMachineData;
 use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{
-    FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState, RackValidationState,
+    FirmwareUpgradeState, NvosUpdateState, Rack, RackConfig, RackMaintenanceState, RackState,
+    RackValidationState, ResolvedNvosArtifact,
 };
 use rpc::forge::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
@@ -95,6 +96,18 @@ impl StateHandler for TestRackStateHandler {
             },
             RackState::Maintenance { maintenance_state } => match maintenance_state {
                 RackMaintenanceState::FirmwareUpgrade { .. } => RackState::Maintenance {
+                    maintenance_state: RackMaintenanceState::NVOSUpdate {
+                        nvos_update: NvosUpdateState::Start {
+                            artifact: ResolvedNvosArtifact {
+                                firmware_id: "test-firmware".to_string(),
+                                image_filename: "test-nvos.bin".to_string(),
+                                local_file_path: "/tmp/test-nvos.bin".to_string(),
+                                version: Some("test-version".to_string()),
+                            },
+                        },
+                    },
+                },
+                RackMaintenanceState::NVOSUpdate { .. } => RackState::Maintenance {
                     maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
                 },
                 RackMaintenanceState::ConfigureNmxCluster => RackState::Maintenance {
@@ -153,7 +166,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(handler::config_with_rack_profiles()),
+            config: Some(handler::config_with_rack_types()),
             ..Default::default()
         },
     )
@@ -167,7 +180,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
     let machine_id_2 = handler::new_machine_id(2);
     let mut txn = pool.acquire().await?;
     let rack_id = TestRackDbBuilder::new()
-        .with_rack_profile_id("Simple")
+        .with_rack_type("Simple")
         .persist(&mut txn)
         .await?;
 
@@ -249,15 +262,11 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
 
     // Iterations 3-5: FirmwareUpgrade -> Completed.
     //
-    // No default rack firmware is seeded for this test rack, so the new
-    // FirmwareUpgrade(Start) path skips flashing and advances directly into the
-    // remaining maintenance steps:
-    //   iter 3: FirmwareUpgrade(Start) -> ConfigureNmxCluster
-    //   iter 4: ConfigureNmxCluster -> PowerSequence(PoweringOn)
-    //   iter 5: PowerSequence(PoweringOn) -> Completed
-    controller.run_single_iteration().await; // FirmwareUpgrade(Start) -> ConfigureNmxCluster
-    controller.run_single_iteration().await; // ConfigureNmxCluster -> PowerSequence(PoweringOn)
-    controller.run_single_iteration().await; // PowerSequence(PoweringOn) -> Completed
+    // The test handler uses a simplified maintenance sequence:
+    // FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> Completed.
+    controller.run_single_iteration().await; // FirmwareUpgrade(Start) -> NVOSUpdate(Start)
+    controller.run_single_iteration().await; // NVOSUpdate(Start) -> ConfigureNmxCluster
+    controller.run_single_iteration().await; // ConfigureNmxCluster -> Completed
 
     let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
     assert!(
@@ -545,8 +554,10 @@ async fn test_rack_controller_state_version_increment(
     db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("Empty")),
-        &RackConfig::default(),
+        &RackConfig {
+            rack_type: Some("Empty".to_string()),
+            ..Default::default()
+        },
         None,
     )
     .await?;
