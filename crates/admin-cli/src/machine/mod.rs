@@ -34,7 +34,7 @@ mod tests;
 pub use auto_update::args::Args as MachineAutoupdate;
 use clap::Parser;
 pub use common::{MachineQuery, NetworkConfigQuery};
-pub use health_override::args::HealthOverrideTemplates;
+pub use health_override::args::HealthReportTemplates;
 pub use health_override::cmd::get_health_report;
 pub use show::args::Args as ShowMachine;
 pub use show::cmd::{get_next_free_machine, handle_show};

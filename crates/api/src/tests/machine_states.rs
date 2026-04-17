@@ -40,7 +40,7 @@ use model::machine::{
     MachineState, MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
 };
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
+use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
@@ -1443,7 +1443,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     env.api
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
-            r#override: Some(HealthReportOverride {
+            health_report_entry: Some(HealthReportEntry {
                 report: Some(
                     HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")).into(),
                 ),
@@ -1692,7 +1692,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_ready_transition(pool: sq
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(
-        !host.health_report_sources.merges.contains_key("scout"),
+        !host.health_reports.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to be cleared when leaving Ready"
     );
 }
@@ -1768,7 +1768,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transit
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(
-        !host.health_report_sources.merges.contains_key("scout"),
+        !host.health_reports.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to be cleared when leaving Ready via instance creation"
     );
 }
@@ -1830,7 +1830,7 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     assert!(
-        host.health_report_sources.merges.contains_key("scout"),
+        host.health_reports.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to remain when unhealthy allocation is blocked"
     );
 }

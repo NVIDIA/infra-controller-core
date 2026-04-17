@@ -38,7 +38,7 @@ pub struct Rack {
     pub controller_state: Versioned<RackState>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
     pub firmware_upgrade_job: Option<FirmwareUpgradeJob>,
-    pub health_report_sources: HealthReportSources,
+    pub health_reports: HealthReportSources,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
@@ -152,9 +152,9 @@ pub enum RackFirmwareUpgradeState {
 
 impl From<Rack> for rpc::forge::Rack {
     fn from(value: Rack) -> Self {
-        let health = derive_rack_aggregate_health(&value.health_report_sources);
+        let health = derive_rack_aggregate_health(&value.health_reports);
         let health_sources = value
-            .health_report_sources
+            .health_reports
             .clone()
             .into_iter()
             .map(|(hr, m)| rpc::forge::HealthSourceOrigin {
@@ -211,7 +211,7 @@ impl<'r> FromRow<'r, PgRow> for Rack {
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
         // DB column is still named "health_report_overrides" for backward compatibility.
-        let health_report_sources: HealthReportSources = row
+        let health_reports: HealthReportSources = row
             .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
             .map(|j| j.0)
             .unwrap_or_default();
@@ -236,7 +236,7 @@ impl<'r> FromRow<'r, PgRow> for Rack {
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
             firmware_upgrade_job,
-            health_report_sources,
+            health_reports,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,

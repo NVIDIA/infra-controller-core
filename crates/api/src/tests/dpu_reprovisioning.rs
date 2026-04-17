@@ -1890,7 +1890,7 @@ impl TestManagedHost {
             .insert_health_report_override(tonic::Request::new(
                 rpc::forge::InsertHealthReportOverrideRequest {
                     machine_id: self.id.into(),
-                    r#override: Some(rpc::forge::HealthReportOverride {
+                    health_report_entry: Some(rpc::forge::HealthReportEntry {
                         report: Some(
                             health_report::HealthReport {
                                 source: "host-update".to_string(),
@@ -1910,7 +1910,7 @@ impl TestManagedHost {
                             }
                             .into(),
                         ),
-                        mode: rpc::forge::OverrideMode::Merge.into(),
+                        mode: rpc::forge::HealthReportApplyMode::Merge.into(),
                     }),
                 },
             ))

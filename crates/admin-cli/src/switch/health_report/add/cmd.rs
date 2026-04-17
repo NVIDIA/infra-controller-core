@@ -33,12 +33,12 @@ pub async fn add(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
 
     let request = InsertSwitchHealthReportRequest {
         switch_id: Some(args.switch_id),
-        r#override: Some(rpc::HealthReportOverride {
+        health_report_entry: Some(rpc::HealthReportEntry {
             report: Some(report.into()),
             mode: if args.replace {
-                rpc::OverrideMode::Replace
+                rpc::HealthReportApplyMode::Replace
             } else {
-                rpc::OverrideMode::Merge
+                rpc::HealthReportApplyMode::Merge
             } as i32,
         }),
     };

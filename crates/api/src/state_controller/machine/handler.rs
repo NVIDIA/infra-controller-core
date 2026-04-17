@@ -34,7 +34,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialRea
 use futures::TryFutureExt;
 use futures_util::FutureExt;
 use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
 };
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::HostPrivilegeLevel;
@@ -518,9 +518,8 @@ impl MachineStateHandler {
             }
         }
 
-        ctx.metrics.num_merge_overrides = state.host_snapshot.health_report_sources.merges.len();
-        ctx.metrics.replace_override_enabled =
-            state.host_snapshot.health_report_sources.replace.is_some();
+        ctx.metrics.num_merge_overrides = state.host_snapshot.health_reports.merges.len();
+        ctx.metrics.replace_override_enabled = state.host_snapshot.health_reports.replace.is_some();
     }
 
     fn record_health_history(
@@ -542,7 +541,7 @@ impl MachineStateHandler {
         db::machine::remove_health_report_override(
             txn,
             &mh_snaphost.host_snapshot.id,
-            health_report::OverrideMode::Merge,
+            health_report::HealthReportApplyMode::Merge,
             model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
         )
         .await?;
@@ -561,7 +560,7 @@ impl MachineStateHandler {
         db::machine::remove_health_report_override(
             txn,
             host_machine_id,
-            health_report::OverrideMode::Merge,
+            health_report::HealthReportApplyMode::Merge,
             "scout",
         )
         .await?;
@@ -837,7 +836,7 @@ impl MachineStateHandler {
                                     db::machine::insert_health_report_override(
                                         txn,
                                         &host_machine_id,
-                                        health_report::OverrideMode::Merge,
+                                        health_report::HealthReportApplyMode::Merge,
                                         &health_report,
                                         false,
                                     )
@@ -902,7 +901,7 @@ impl MachineStateHandler {
                     db::machine::insert_health_report_override(
                         &mut txn,
                         host_machine_id,
-                        health_report::OverrideMode::Merge,
+                        health_report::HealthReportApplyMode::Merge,
                         &health_override,
                         false,
                     )
@@ -1548,7 +1547,7 @@ impl MachineStateHandler {
         let timeout_threshold = self.reachability_params.scout_reporting_timeout;
         let scout_timeout_alert_exists = mh_snapshot
             .host_snapshot
-            .health_report_sources
+            .health_reports
             .merges
             .contains_key("scout");
 
@@ -1571,7 +1570,7 @@ impl MachineStateHandler {
             db::machine::insert_health_report_override(
                 &mut txn,
                 host_machine_id,
-                OverrideMode::Merge,
+                HealthReportApplyMode::Merge,
                 &health_report,
                 false,
             )
@@ -5514,7 +5513,7 @@ impl StateHandler for InstanceStateHandler {
                             db::machine::insert_health_report_override(
                                 &mut txn,
                                 &machine_id,
-                                OverrideMode::Merge,
+                                HealthReportApplyMode::Merge,
                                 &health_override,
                                 false,
                             )
@@ -5528,7 +5527,7 @@ impl StateHandler for InstanceStateHandler {
                             db::machine::insert_health_report_override(
                                 &mut txn,
                                 &machine_id,
-                                OverrideMode::Merge,
+                                HealthReportApplyMode::Merge,
                                 &health_override,
                                 false,
                             )
@@ -5848,7 +5847,7 @@ impl StateHandler for InstanceStateHandler {
                             ctx.pending_db_writes.push(
                                 MachineWriteOp::InsertHealthReportOverride {
                                     machine_id: *host_machine_id,
-                                    mode: health_report::OverrideMode::Merge,
+                                    mode: health_report::HealthReportApplyMode::Merge,
                                     health_report,
                                 },
                             );

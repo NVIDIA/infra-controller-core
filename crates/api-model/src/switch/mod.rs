@@ -148,7 +148,7 @@ pub struct Switch {
     pub version: ConfigVersion,
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
-    pub health_report_sources: HealthReportSources,
+    pub health_reports: HealthReportSources,
 }
 
 impl<'r> FromRow<'r, PgRow> for Switch {
@@ -165,7 +165,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             row.try_get("firmware_upgrade_status").ok();
 
         // DB column is still named "health_report_overrides" for backward compatibility.
-        let health_report_sources: HealthReportSources = row
+        let health_reports: HealthReportSources = row
             .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
             .map(|j| j.0)
             .unwrap_or_default();
@@ -193,7 +193,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             rack_id: row.try_get("rack_id").ok().flatten(),
             slot_number: row.try_get("slot_number").ok().flatten(),
             tray_index: row.try_get("tray_index").ok().flatten(),
-            health_report_sources,
+            health_reports,
         })
     }
 }
@@ -266,9 +266,9 @@ impl TryFrom<Switch> for rpc::Switch {
             enable_nmxc: src.config.enable_nmxc,
         };
 
-        let health = derive_switch_aggregate_health(&src.health_report_sources);
+        let health = derive_switch_aggregate_health(&src.health_reports);
         let health_sources = src
-            .health_report_sources
+            .health_reports
             .clone()
             .into_iter()
             .map(|(hr, m)| rpc::HealthSourceOrigin {
@@ -464,7 +464,7 @@ mod tests {
             rack_id: None,
             slot_number: Some(1),
             tray_index: Some(2),
-            health_report_sources: Default::default(),
+            health_reports: Default::default(),
         };
 
         let rpc_switch: rpc::Switch = switch.try_into().unwrap();
@@ -505,7 +505,7 @@ mod tests {
             rack_id: None,
             slot_number: None,
             tray_index: None,
-            health_report_sources: Default::default(),
+            health_reports: Default::default(),
         };
 
         let rpc_switch: rpc::Switch = switch.try_into().unwrap();

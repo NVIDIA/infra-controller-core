@@ -327,10 +327,10 @@ impl ManagedHostStateSnapshot {
         let source = "aggregate-host-health".to_string();
         let observed_at = Some(chrono::Utc::now());
 
-        // If there is an [`OverrideMode::Replace`] health report override on
+        // If there is an [`HealthReportApplyMode::Replace`] health report override on
         // the host, then use that. A host-level Replace takes full precedence,
         // including over any rack-level overrides.
-        if let Some(mut over) = self.host_snapshot.health_report_sources.replace.clone() {
+        if let Some(mut over) = self.host_snapshot.health_reports.replace.clone() {
             over.source = source;
             over.observed_at = observed_at;
             self.aggregate_health = over;
@@ -400,7 +400,7 @@ impl ManagedHostStateSnapshot {
                 output.merge(report);
             }
 
-            for (source, over) in snapshot.health_report_sources.merges.iter_mut() {
+            for (source, over) in snapshot.health_reports.merges.iter_mut() {
                 let merged_hardware = Self::merge_override_report_with_hw_health(
                     &mut output,
                     source,
@@ -411,7 +411,7 @@ impl ManagedHostStateSnapshot {
             }
         }
 
-        for (source, over) in self.host_snapshot.health_report_sources.merges.iter_mut() {
+        for (source, over) in self.host_snapshot.health_reports.merges.iter_mut() {
             let merged_hardware = Self::merge_override_report_with_hw_health(
                 &mut output,
                 source,
@@ -753,7 +753,7 @@ pub struct Machine {
     pub site_explorer_health_report: Option<HealthReport>,
 
     /// All health report sources
-    pub health_report_sources: HealthReportSources,
+    pub health_reports: HealthReportSources,
 
     // Inventory related to a DPU machine as reported by the agent there.
     // Software and versions installed on the machine.
@@ -1107,10 +1107,10 @@ impl From<Machine> for rpc::forge::Machine {
                 if let Some(hr) = machine.site_explorer_health_report.as_ref() {
                     health.merge(hr);
                 }
-                match machine.health_report_sources.replace.as_ref() {
+                match machine.health_reports.replace.as_ref() {
                     Some(over) => over.clone(),
                     None => {
-                        for over in machine.health_report_sources.merges.values() {
+                        for over in machine.health_reports.merges.values() {
                             health.merge(over);
                         }
                         health
@@ -1122,7 +1122,7 @@ impl From<Machine> for rpc::forge::Machine {
 
         let (maintenance_reference, maintenance_start_time) = if !machine.is_dpu() {
             machine
-                .health_report_sources
+                .health_reports
                 .maintenance_override()
                 .map(|o| (Some(o.maintenance_reference), o.maintenance_start_time))
                 .unwrap_or_default()
@@ -1205,7 +1205,7 @@ impl From<Machine> for rpc::forge::Machine {
             health: Some(health.into()),
             firmware_autoupdate: machine.firmware_autoupdate,
             health_sources: machine
-                .health_report_sources
+                .health_reports
                 .into_iter()
                 .map(|(hr, m)| HealthSourceOrigin {
                     mode: m as i32,

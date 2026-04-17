@@ -257,7 +257,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.MachineInventorySoftwareComponent",
             "#[derive(serde::Serialize)]",
         )
-        .type_attribute("forge.HealthReportOverride", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.HealthReportEntry", "#[derive(serde::Serialize)]")
         .type_attribute("forge.HealthSourceOrigin", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
             "forge.ManagedHostNetworkConfig",

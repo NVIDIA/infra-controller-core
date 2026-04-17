@@ -43,7 +43,7 @@ use forge_secrets::credentials::{
 };
 use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use futures::FutureExt as _;
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use measured_boot::pcr::PcrRegisterValue;
@@ -69,7 +69,7 @@ use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportOverride, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
+    HealthReportEntry, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
     VpcVirtualizationType,
 };
 use rpc_instance::RpcInstance;
@@ -2257,14 +2257,14 @@ pub async fn simulate_hardware_health_report(
     health_report: health_report::HealthReport,
 ) {
     use rpc::forge::forge_server::Forge;
-    use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest};
+    use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest};
     use tonic::Request;
 
     let _ = env
         .api
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
             machine_id: Some(*host_machine_id),
-            r#override: Some(HealthReportOverride {
+            health_report_entry: Some(HealthReportEntry {
                 report: Some(health_report.into()),
                 ..Default::default()
             }),
@@ -2277,7 +2277,7 @@ pub async fn simulate_hardware_health_report(
 pub async fn send_health_report_override(
     env: &TestEnv,
     machine_id: &MachineId,
-    r#override: (HealthReport, OverrideMode),
+    r#override: (HealthReport, HealthReportApplyMode),
 ) {
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
@@ -2285,7 +2285,7 @@ pub async fn send_health_report_override(
         .api
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
             machine_id: Some(*machine_id),
-            r#override: Some(HealthReportOverride {
+            health_report_entry: Some(HealthReportEntry {
                 report: Some(r#override.0.into()),
                 mode: r#override.1 as i32,
             }),

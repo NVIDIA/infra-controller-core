@@ -18,6 +18,7 @@
 use carbide_uuid::power_shelf::PowerShelfId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
@@ -110,6 +111,7 @@ pub async fn create(
         metadata,
         version,
         rack_id: new_power_shelf.rack_id.clone(),
+        health_reports: Default::default(),
     })
 }
 
@@ -442,4 +444,30 @@ pub async fn find_rms_identities_by_macs(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("power_shelf::find_rms_identities_by_macs", err))
+}
+
+pub async fn insert_health_report(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+    mode: HealthReportApplyMode,
+    health_report: &HealthReport,
+) -> Result<(), DatabaseError> {
+    crate::health_report::insert_health_report(
+        txn,
+        "power_shelves",
+        power_shelf_id,
+        mode,
+        health_report,
+    )
+    .await
+}
+
+pub async fn remove_health_report(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+    mode: HealthReportApplyMode,
+    source: &str,
+) -> Result<(), DatabaseError> {
+    crate::health_report::remove_health_report(txn, "power_shelves", power_shelf_id, mode, source)
+        .await
 }

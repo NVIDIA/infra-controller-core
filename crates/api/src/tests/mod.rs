@@ -91,6 +91,7 @@ mod nvl_logical_partition;
 mod operating_system;
 mod power_shelf;
 mod power_shelf_find;
+mod power_shelf_health;
 mod power_shelf_metadata;
 mod power_shelf_state_controller;
 mod prevent_duplicate_mac_addresses;

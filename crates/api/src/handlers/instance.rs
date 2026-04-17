@@ -25,7 +25,7 @@ use db::{DatabaseError, WithTransaction, extension_service, network_security_gro
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
 use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
 };
 use itertools::Itertools as _;
 use model::ConfigValidationError;
@@ -333,7 +333,7 @@ async fn apply_health_override(
     db::machine::insert_health_report_override(
         txn,
         machine_id,
-        OverrideMode::Merge,
+        HealthReportApplyMode::Merge,
         override_report,
         false,
     )
@@ -363,17 +363,22 @@ async fn remove_health_override(
     source: &str,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::remove_health_report_override(txn, machine_id, OverrideMode::Merge, source)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                machine_id = %machine_id,
-                error = ?e,
-                operation = %operation_desc,
-                "Failed to remove health override"
-            );
-            CarbideError::from(e)
-        })?;
+    db::machine::remove_health_report_override(
+        txn,
+        machine_id,
+        HealthReportApplyMode::Merge,
+        source,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            machine_id = %machine_id,
+            error = ?e,
+            operation = %operation_desc,
+            "Failed to remove health override"
+        );
+        CarbideError::from(e)
+    })?;
 
     tracing::info!(
         machine_id = %machine_id,
@@ -411,10 +416,7 @@ async fn handle_instance_release_from_repair_tenant(
     machine: &model::machine::Machine,
     tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
-    let has_request_repair = machine
-        .health_report_sources
-        .merges
-        .contains_key("repair-request");
+    let has_request_repair = machine.health_reports.merges.contains_key("repair-request");
 
     if !has_request_repair {
         // No existing RequestRepair override

@@ -26,7 +26,7 @@ use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
@@ -955,7 +955,7 @@ pub async fn update_sku_validation_health_report(
 pub async fn insert_health_report_override(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     health_report: &HealthReport,
     no_overwrite: bool,
 ) -> Result<(), DatabaseError> {
@@ -966,8 +966,8 @@ pub async fn insert_health_report_override(
         // to support this still? Might be nice to explain it somewhere.
         let column_name = "health_report_overrides";
         let path = match mode {
-            OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-            OverrideMode::Replace => "replace".to_string(),
+            HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
+            HealthReportApplyMode::Replace => "replace".to_string(),
         };
 
         let query = format!(
@@ -998,7 +998,7 @@ pub async fn insert_health_report_override(
 pub async fn remove_health_report_override(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
     crate::health_report::remove_health_report(txn, "machines", machine_id, mode, source).await

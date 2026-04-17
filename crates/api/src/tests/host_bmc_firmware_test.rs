@@ -1292,9 +1292,9 @@ async fn test_instance_upgrading_actual_part_2(
     );
 
     assert!(host.host_reprovision_requested.is_some());
-    println!("{:?}", host.health_report_sources);
+    println!("{:?}", host.health_reports);
     assert!(
-        host.health_report_sources
+        host.health_reports
             .merges
             .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
     );
@@ -1748,7 +1748,7 @@ async fn test_instance_upgrading_actual_part_2(
     );
     assert!(
         !host
-            .health_report_sources
+            .health_reports
             .merges
             .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
     );

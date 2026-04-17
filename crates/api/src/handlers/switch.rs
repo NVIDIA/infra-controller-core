@@ -16,9 +16,9 @@
  */
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, HealthReportOverride};
+use ::rpc::forge::{self as rpc, HealthReportEntry};
 use db::{ObjectColumnFilter, switch as db_switch};
-use health_report::OverrideMode;
+use health_report::HealthReportApplyMode;
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
@@ -409,7 +409,7 @@ pub(crate) async fn update_switch_metadata(
 pub async fn list_switch_health_reports(
     api: &Api,
     request: Request<rpc::ListSwitchHealthReportsRequest>,
-) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -433,11 +433,11 @@ pub async fn list_switch_health_reports(
             id: switch_id.to_string(),
         })?;
 
-    Ok(Response::new(rpc::ListHealthReportOverrideResponse {
-        overrides: switch
-            .health_report_sources
+    Ok(Response::new(rpc::ListHealthReportResponse {
+        health_report_entries: switch
+            .health_reports
             .into_iter()
-            .map(|o| HealthReportOverride {
+            .map(|o| HealthReportEntry {
                 report: Some(o.0.into()),
                 mode: o.1 as i32,
             })
@@ -459,7 +459,7 @@ pub async fn insert_switch_health_report(
 
     let rpc::InsertSwitchHealthReportRequest {
         switch_id,
-        r#override: Some(rpc::HealthReportOverride { report, mode }),
+        health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
     else {
         return Err(CarbideError::MissingArgument("override").into());
@@ -469,10 +469,10 @@ pub async fn insert_switch_health_report(
     let Some(report) = report else {
         return Err(CarbideError::MissingArgument("report").into());
     };
-    let Ok(mode) = rpc::OverrideMode::try_from(mode) else {
+    let Ok(mode) = rpc::HealthReportApplyMode::try_from(mode) else {
         return Err(CarbideError::InvalidArgument("mode".to_string()).into());
     };
-    let mode: OverrideMode = mode.into();
+    let mode: HealthReportApplyMode = mode.into();
 
     let mut txn = api.txn_begin().await?;
 
@@ -534,16 +534,10 @@ async fn remove_switch_health_report_by_source(
     txn: &mut db::Transaction<'_>,
     source: String,
 ) -> Result<(), CarbideError> {
-    let mode = if switch
-        .health_report_sources
-        .replace
-        .as_ref()
-        .map(|o| &o.source)
-        == Some(&source)
-    {
-        OverrideMode::Replace
-    } else if switch.health_report_sources.merges.contains_key(&source) {
-        OverrideMode::Merge
+    let mode = if switch.health_reports.replace.as_ref().map(|o| &o.source) == Some(&source) {
+        HealthReportApplyMode::Replace
+    } else if switch.health_reports.merges.contains_key(&source) {
+        HealthReportApplyMode::Merge
     } else {
         return Err(CarbideError::NotFoundError {
             kind: "switch health report with source",

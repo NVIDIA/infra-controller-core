@@ -21,7 +21,7 @@ use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
@@ -116,7 +116,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         rack_id: new_switch.rack_id.clone(),
         slot_number: new_switch.slot_number,
         tray_index: new_switch.tray_index,
-        health_report_sources: Default::default(),
+        health_reports: Default::default(),
     })
 }
 
@@ -569,7 +569,7 @@ pub async fn find_rms_identities_by_macs(
 pub async fn insert_health_report(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
     crate::health_report::insert_health_report(txn, "switches", switch_id, mode, health_report)
@@ -579,7 +579,7 @@ pub async fn insert_health_report(
 pub async fn remove_health_report(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
     crate::health_report::remove_health_report(txn, "switches", switch_id, mode, source).await

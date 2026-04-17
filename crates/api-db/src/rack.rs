@@ -17,7 +17,7 @@
 
 use carbide_uuid::rack::{RackId, RackProfileId};
 use config_version::ConfigVersion;
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::{FirmwareUpgradeJob, Rack, RackConfig, RackState};
@@ -197,7 +197,7 @@ pub async fn final_delete(txn: &mut PgConnection, rack_id: &RackId) -> DatabaseR
 pub async fn insert_health_report_override(
     txn: &mut PgConnection,
     rack_id: &RackId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
     crate::health_report::insert_health_report(txn, "racks", rack_id, mode, health_report).await
@@ -206,7 +206,7 @@ pub async fn insert_health_report_override(
 pub async fn remove_health_report_override(
     txn: &mut PgConnection,
     rack_id: &RackId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
     crate::health_report::remove_health_report(txn, "racks", rack_id, mode, source).await

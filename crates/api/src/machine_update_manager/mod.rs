@@ -289,7 +289,7 @@ impl MachineUpdateManager {
         db::machine::remove_health_report_override(
             txn,
             &machine_update.host_machine_id,
-            health_report::OverrideMode::Merge,
+            health_report::HealthReportApplyMode::Merge,
             HOST_UPDATE_HEALTH_REPORT_SOURCE,
         )
         .await?;

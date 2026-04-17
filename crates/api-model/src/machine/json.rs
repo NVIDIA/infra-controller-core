@@ -196,7 +196,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             dpu_agent_health_report: value.dpu_agent_health_report,
             machine_validation_health_report: value.machine_validation_health_report,
             site_explorer_health_report: value.site_explorer_health_report,
-            health_report_sources: value.health_report_overrides.unwrap_or_default(),
+            health_reports: value.health_report_overrides.unwrap_or_default(),
             inventory: value.agent_reported_inventory,
             last_reboot_requested: value.last_reboot_requested,
             controller_state_outcome: value.controller_state_outcome,

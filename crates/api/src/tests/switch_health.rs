@@ -70,9 +70,9 @@ async fn test_insert_list_remove_switch_override(
     env.api
         .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
             switch_id: Some(switch_id),
-            r#override: Some(rpc_forge::HealthReportOverride {
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
                 report: Some(report.clone().into()),
-                mode: rpc_forge::OverrideMode::Merge as i32,
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
             }),
         }))
         .await?;
@@ -84,8 +84,8 @@ async fn test_insert_list_remove_switch_override(
         }))
         .await?
         .into_inner();
-    assert_eq!(list_resp.overrides.len(), 1);
-    let listed_report: HealthReport = list_resp.overrides[0]
+    assert_eq!(list_resp.health_report_entries.len(), 1);
+    let listed_report: HealthReport = list_resp.health_report_entries[0]
         .report
         .clone()
         .unwrap()
@@ -108,7 +108,7 @@ async fn test_insert_list_remove_switch_override(
         }))
         .await?
         .into_inner();
-    assert_eq!(list_resp.overrides.len(), 0);
+    assert_eq!(list_resp.health_report_entries.len(), 0);
 
     Ok(())
 }
@@ -127,9 +127,9 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         env.api
             .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
                 switch_id: Some(switch_id),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(report.clone().into()),
-                    mode: rpc_forge::OverrideMode::Merge as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                 }),
             }))
             .await?;
@@ -142,7 +142,7 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         }))
         .await?
         .into_inner();
-    assert_eq!(list_resp.overrides.len(), 1);
+    assert_eq!(list_resp.health_report_entries.len(), 1);
 
     Ok(())
 }
@@ -185,9 +185,9 @@ async fn test_missing_switch_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         .api
         .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
             switch_id: Some(nonexistent_switch_id),
-            r#override: Some(rpc_forge::HealthReportOverride {
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
                 report: Some(report.into()),
-                mode: rpc_forge::OverrideMode::Merge as i32,
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
             }),
         }))
         .await;
@@ -209,9 +209,9 @@ async fn test_replace_mode_override(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     env.api
         .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
             switch_id: Some(switch_id),
-            r#override: Some(rpc_forge::HealthReportOverride {
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
                 report: Some(replace_report.into()),
-                mode: rpc_forge::OverrideMode::Replace as i32,
+                mode: rpc_forge::HealthReportApplyMode::Replace as i32,
             }),
         }))
         .await?;
@@ -223,10 +223,10 @@ async fn test_replace_mode_override(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         }))
         .await?
         .into_inner();
-    assert_eq!(list_resp.overrides.len(), 1);
+    assert_eq!(list_resp.health_report_entries.len(), 1);
     assert_eq!(
-        list_resp.overrides[0].mode,
-        rpc_forge::OverrideMode::Replace as i32
+        list_resp.health_report_entries[0].mode,
+        rpc_forge::HealthReportApplyMode::Replace as i32
     );
 
     env.api
@@ -243,7 +243,7 @@ async fn test_replace_mode_override(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         }))
         .await?
         .into_inner();
-    assert_eq!(list_resp.overrides.len(), 0);
+    assert_eq!(list_resp.health_report_entries.len(), 0);
 
     Ok(())
 }
@@ -262,9 +262,9 @@ async fn test_switch_health_visible_in_find_switches(
     env.api
         .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
             switch_id: Some(switch_id),
-            r#override: Some(rpc_forge::HealthReportOverride {
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
                 report: Some(report.into()),
-                mode: rpc_forge::OverrideMode::Merge as i32,
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
             }),
         }))
         .await?;
@@ -292,7 +292,7 @@ async fn test_switch_health_visible_in_find_switches(
     assert_eq!(switch.health_sources[0].source, "external-monitor");
     assert_eq!(
         switch.health_sources[0].mode,
-        rpc_forge::OverrideMode::Merge as i32
+        rpc_forge::HealthReportApplyMode::Merge as i32
     );
 
     Ok(())

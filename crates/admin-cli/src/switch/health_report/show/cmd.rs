@@ -30,6 +30,6 @@ pub async fn show(
         .0
         .list_switch_health_reports(args.switch_id)
         .await?;
-    health_utils::display_overrides(response.overrides, format)?;
+    health_utils::display_overrides(response.health_report_entries, format)?;
     Ok(())
 }

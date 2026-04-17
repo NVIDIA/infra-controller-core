@@ -425,12 +425,12 @@ impl ApiClient {
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::InsertHealthReportOverrideRequest {
             machine_id: Some(id),
-            r#override: Some(rpc::HealthReportOverride {
+            health_report_entry: Some(rpc::HealthReportEntry {
                 report: Some(report),
                 mode: if replace {
-                    rpc::OverrideMode::Replace
+                    rpc::HealthReportApplyMode::Replace
                 } else {
-                    rpc::OverrideMode::Merge
+                    rpc::HealthReportApplyMode::Merge
                 } as i32,
             }),
         };

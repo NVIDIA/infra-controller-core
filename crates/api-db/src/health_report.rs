@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
@@ -31,7 +31,7 @@ pub async fn insert_health_report<Id>(
     txn: &mut PgConnection,
     table_name: &str,
     id: &Id,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError>
 where
@@ -39,8 +39,8 @@ where
 {
     let column_name = "health_report_overrides";
     let path = match mode {
-        OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-        OverrideMode::Replace => "replace".to_string(),
+        HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
+        HealthReportApplyMode::Replace => "replace".to_string(),
     };
 
     let query = format!(
@@ -70,7 +70,7 @@ pub async fn remove_health_report<Id>(
     txn: &mut PgConnection,
     table_name: &str,
     id: &Id,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError>
 where
@@ -78,8 +78,8 @@ where
 {
     let column_name = "health_report_overrides";
     let path = match mode {
-        OverrideMode::Merge => format!("merges,{source}"),
-        OverrideMode::Replace => "replace".to_string(),
+        HealthReportApplyMode::Merge => format!("merges,{source}"),
+        HealthReportApplyMode::Replace => "replace".to_string(),
     };
     let query = format!(
         "UPDATE {table_name} SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1

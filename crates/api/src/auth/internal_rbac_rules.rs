@@ -158,6 +158,9 @@ impl InternalRBACRules {
         x.perm("ListSwitchHealthReports", vec![ForgeAdminCLI, Health]);
         x.perm("InsertSwitchHealthReport", vec![ForgeAdminCLI, Health]);
         x.perm("RemoveSwitchHealthReport", vec![ForgeAdminCLI, Health]);
+        x.perm("ListPowerShelfHealthReports", vec![ForgeAdminCLI, Health]);
+        x.perm("InsertPowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
+        x.perm("RemovePowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
         x.perm("DpuAgentUpgradeCheck", vec![Scout]);
         x.perm("DpuAgentUpgradePolicyAction", vec![ForgeAdminCLI]);
         x.perm("LookupRecord", vec![Dns]);

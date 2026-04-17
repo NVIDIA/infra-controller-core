@@ -20,11 +20,11 @@ use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
 
 use crate::machine::health_override::cmd::get_empty_template;
-use crate::machine::{HealthOverrideTemplates, get_health_report};
+use crate::machine::{HealthReportTemplates, get_health_report};
 
 /// Display a list of health report overrides.
 pub fn display_overrides(
-    overrides: Vec<forgerpc::HealthReportOverride>,
+    overrides: Vec<forgerpc::HealthReportEntry>,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
     let mut rows = vec![];
@@ -32,11 +32,11 @@ pub fn display_overrides(
         let report = r#override.report.ok_or(CarbideCliError::GenericError(
             "missing response".to_string(),
         ))?;
-        let mode = match forgerpc::OverrideMode::try_from(r#override.mode)
+        let mode = match forgerpc::HealthReportApplyMode::try_from(r#override.mode)
             .map_err(|_| CarbideCliError::GenericError("invalide response".to_string()))?
         {
-            forgerpc::OverrideMode::Merge => "Merge",
-            forgerpc::OverrideMode::Replace => "Replace",
+            forgerpc::HealthReportApplyMode::Merge => "Merge",
+            forgerpc::HealthReportApplyMode::Replace => "Replace",
         };
         rows.push((report, mode));
     }
@@ -69,7 +69,7 @@ pub fn display_overrides(
 
 /// Resolve a health report from either a template or raw JSON.
 pub fn resolve_health_report(
-    template: Option<HealthOverrideTemplates>,
+    template: Option<HealthReportTemplates>,
     health_report_json: Option<String>,
     message: Option<String>,
 ) -> CarbideCliResult<health_report::HealthReport> {

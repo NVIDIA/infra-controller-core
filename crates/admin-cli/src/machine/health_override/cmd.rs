@@ -24,7 +24,7 @@ use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
 
-use super::args::{Args, HealthOverrideTemplates};
+use super::args::{Args, HealthReportTemplates};
 use crate::health_utils;
 use crate::rpc::ApiClient;
 
@@ -52,10 +52,7 @@ pub fn get_empty_template() -> HealthReport {
     }
 }
 
-pub fn get_health_report(
-    template: HealthOverrideTemplates,
-    message: Option<String>,
-) -> HealthReport {
+pub fn get_health_report(template: HealthReportTemplates, message: Option<String>) -> HealthReport {
     let mut report = HealthReport {
         source: "admin-cli".to_string(),
         triggered_by: None,
@@ -75,54 +72,54 @@ pub fn get_health_report(
     };
 
     match template {
-        HealthOverrideTemplates::HostUpdate => {
+        HealthReportTemplates::HostUpdate => {
             report.source = "host-update".to_string();
             report.alerts[0].id = HealthProbeId::from_str("HostUpdateInProgress").unwrap();
             report.alerts[0].target = Some("admin-cli".to_string());
         }
-        HealthOverrideTemplates::InternalMaintenance => {
+        HealthReportTemplates::InternalMaintenance => {
             report.source = "maintenance".to_string();
             report.alerts[0]
                 .classifications
                 .push(HealthAlertClassification::exclude_from_state_machine_sla());
         }
-        HealthOverrideTemplates::StopRebootForAutomaticRecoveryFromStateMachine => {
+        HealthReportTemplates::StopRebootForAutomaticRecoveryFromStateMachine => {
             report.source = "manual-maintenance".to_string();
             report.alerts[0].target = Some("admin-cli".to_string());
             report.alerts[0].classifications = vec![
                 HealthAlertClassification::stop_reboot_for_automatic_recovery_from_state_machine(),
             ];
         }
-        HealthOverrideTemplates::OutForRepair => {
+        HealthReportTemplates::OutForRepair => {
             report.source = "manual-maintenance".to_string();
             report.alerts[0].target = Some("OutForRepair".to_string());
             report.alerts[0]
                 .classifications
                 .push(HealthAlertClassification::exclude_from_state_machine_sla());
         }
-        HealthOverrideTemplates::Degraded => {
+        HealthReportTemplates::Degraded => {
             report.source = "manual-maintenance".to_string();
             report.alerts[0].target = Some("Degraded".to_string());
         }
-        HealthOverrideTemplates::Validation => {
+        HealthReportTemplates::Validation => {
             report.source = "manual-maintenance".to_string();
             report.alerts[0].target = Some("Validation".to_string());
             report.alerts[0].classifications =
                 vec![HealthAlertClassification::suppress_external_alerting()];
         }
-        HealthOverrideTemplates::SuppressExternalAlerting => {
+        HealthReportTemplates::SuppressExternalAlerting => {
             report.source = "suppress-paging".to_string();
             report.alerts[0].target = Some("SuppressExternalAlerting".to_string());
             report.alerts[0].classifications =
                 vec![HealthAlertClassification::suppress_external_alerting()];
         }
-        HealthOverrideTemplates::MarkHealthy => {
+        HealthReportTemplates::MarkHealthy => {
             report.source = "admin-cli".to_string();
             report.alerts.clear();
         }
         // Template to indicate that the instance is identified as unhealthy by the tenant and
         // should be fixed before returning to the tenant.
-        HealthOverrideTemplates::TenantReportedIssue => {
+        HealthReportTemplates::TenantReportedIssue => {
             report.source = "tenant-reported-issue".to_string();
             report.alerts[0].id = HealthProbeId::from_str("TenantReportedIssue")
                 .expect("TenantReportedIssue is a valid non-empty HealthProbeId");
@@ -134,7 +131,7 @@ pub fn get_health_report(
         }
         // Template to indicate that the instance is identified as unhealthy and
         // is ready to be picked by Repair System for diagnosis and fix.
-        HealthOverrideTemplates::RequestRepair => {
+        HealthReportTemplates::RequestRepair => {
             report.source = "repair-request".to_string();
             report.alerts[0].id = HealthProbeId::from_str("RequestRepair")
                 .expect("RequestRepair is a valid non-empty HealthProbeId");
@@ -160,7 +157,7 @@ pub async fn handle_override(
                 .0
                 .list_health_report_overrides(machine_id)
                 .await?;
-            health_utils::display_overrides(response.overrides, output_format)?;
+            health_utils::display_overrides(response.health_report_entries, output_format)?;
         }
         Args::Add(options) => {
             let report = health_utils::resolve_health_report(
@@ -213,7 +210,7 @@ mod tests {
     #[test]
     fn test_tenant_reported_issue_template() {
         let report = get_health_report(
-            HealthOverrideTemplates::TenantReportedIssue,
+            HealthReportTemplates::TenantReportedIssue,
             Some("Customer reported network connectivity issues".to_string()),
         );
 
@@ -249,7 +246,7 @@ mod tests {
     #[test]
     fn test_request_repair_template() {
         let report = get_health_report(
-            HealthOverrideTemplates::RequestRepair,
+            HealthReportTemplates::RequestRepair,
             Some("Hardware diagnostics indicate memory failure".to_string()),
         );
 
@@ -281,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_tenant_reported_issue_template_with_empty_message() {
-        let report = get_health_report(HealthOverrideTemplates::TenantReportedIssue, None);
+        let report = get_health_report(HealthReportTemplates::TenantReportedIssue, None);
 
         assert_eq!(report.source, "tenant-reported-issue");
         assert_eq!(report.alerts[0].message, "");
@@ -289,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_request_repair_template_with_empty_message() {
-        let report = get_health_report(HealthOverrideTemplates::RequestRepair, None);
+        let report = get_health_report(HealthReportTemplates::RequestRepair, None);
 
         assert_eq!(report.source, "repair-request");
         assert_eq!(report.alerts[0].message, "");
@@ -299,11 +296,11 @@ mod tests {
     fn test_new_templates_have_suppress_external_alerting() {
         // Verify both new templates include SuppressExternalAlerting classification
         let tenant_report = get_health_report(
-            HealthOverrideTemplates::TenantReportedIssue,
+            HealthReportTemplates::TenantReportedIssue,
             Some("test".to_string()),
         );
         let repair_report = get_health_report(
-            HealthOverrideTemplates::RequestRepair,
+            HealthReportTemplates::RequestRepair,
             Some("test".to_string()),
         );
 
@@ -322,7 +319,7 @@ mod tests {
 
     #[test]
     fn test_internal_maintenance_template_excludes_from_state_machine_sla() {
-        let report = get_health_report(HealthOverrideTemplates::InternalMaintenance, None);
+        let report = get_health_report(HealthReportTemplates::InternalMaintenance, None);
 
         assert_eq!(report.source, "maintenance");
         let alert = &report.alerts[0];
@@ -346,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_out_for_repair_template_excludes_from_state_machine_sla() {
-        let report = get_health_report(HealthOverrideTemplates::OutForRepair, None);
+        let report = get_health_report(HealthReportTemplates::OutForRepair, None);
 
         assert_eq!(report.source, "manual-maintenance");
         let alert = &report.alerts[0];
