@@ -418,6 +418,35 @@ pub async fn find_bmc_info_by_power_shelf_ids(
         .map_err(|err| DatabaseError::new("power_shelf::find_bmc_info_by_power_shelf_ids", err))
 }
 
+/// A power shelf resolved by its BMC MAC address, along with the rack it
+/// belongs to. Used by the Component Manager state controller wrapper to
+/// build a rack-level `MaintenanceScope` for the power shelves it's been
+/// asked to act on.
+#[derive(Debug, sqlx::FromRow)]
+pub struct PowerShelfIdByBmcMac {
+    pub bmc_mac_address: MacAddress,
+    pub id: PowerShelfId,
+    pub rack_id: Option<RackId>,
+}
+
+/// Resolve BMC MAC addresses to `PowerShelfId`s + `rack_id`s.
+pub async fn find_ids_by_bmc_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<PowerShelfIdByBmcMac>> {
+    let sql = r#"
+        SELECT ps.bmc_mac_address, ps.id, ps.rack_id
+        FROM power_shelves ps
+        WHERE ps.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_ids_by_bmc_macs", err))
+}
+
 /// RMS identity for a power shelf: the power shelf ID (used as the RMS
 /// node_id), the BMC MAC address, and the rack_id.
 #[derive(Debug, sqlx::FromRow)]

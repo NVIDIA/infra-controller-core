@@ -19,20 +19,20 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
 
-use crate::machine::health_override::cmd::get_empty_template;
+use crate::machine::health_report::cmd::get_empty_template;
 use crate::machine::{HealthReportTemplates, get_health_report};
 
-/// Display a list of health report overrides.
-pub fn display_overrides(
-    overrides: Vec<forgerpc::HealthReportEntry>,
+/// Display a list of health report entries.
+pub fn display_health_reports(
+    entries: Vec<forgerpc::HealthReportEntry>,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
     let mut rows = vec![];
-    for r#override in overrides {
-        let report = r#override.report.ok_or(CarbideCliError::GenericError(
+    for entry in entries {
+        let report = entry.report.ok_or(CarbideCliError::GenericError(
             "missing response".to_string(),
         ))?;
-        let mode = match forgerpc::HealthReportApplyMode::try_from(r#override.mode)
+        let mode = match forgerpc::HealthReportApplyMode::try_from(entry.mode)
             .map_err(|_| CarbideCliError::GenericError("invalide response".to_string()))?
         {
             forgerpc::HealthReportApplyMode::Merge => "Merge",
@@ -85,7 +85,7 @@ pub fn resolve_health_report(
     }
 }
 
-/// Print the empty health override template.
+/// Print the empty health report template.
 pub fn print_empty_template() {
     println!(
         "{}",

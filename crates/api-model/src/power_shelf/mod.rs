@@ -99,6 +99,7 @@ pub struct PowerShelf {
 
     /// The rack that this power shelf is associated with.
     pub rack_id: Option<RackId>,
+
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,

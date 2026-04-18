@@ -21,6 +21,9 @@ use std::sync::{Arc, Mutex};
 use librms::RmsApi;
 use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
+use model::component_manager::{
+    FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent,
+};
 use sqlx::PgPool;
 use tracing::instrument;
 
@@ -32,7 +35,6 @@ use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
     PowerShelfFirmwareVersions, PowerShelfManager,
 };
-use crate::types::{FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent};
 
 /// RMS identity for a device: the node_id and rack_id that RMS needs
 /// to address it. Used for both power shelves and switches.
@@ -689,18 +691,15 @@ impl NvSwitchManager for RmsBackend {
 #[cfg(test)]
 mod tests {
     use api_test_helper::mock_rms::MockRmsApi;
-    use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+    use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::rack::RackId;
-    use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
-    use model::expected_power_shelf::ExpectedPowerShelf;
-    use model::expected_switch::ExpectedSwitch;
-    use model::metadata::Metadata;
-    use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
-    use model::rack::RackConfig;
-    use model::switch::{NewSwitch, SwitchConfig};
+    use carbide_uuid::switch::SwitchId;
 
     use super::*;
     use crate::power_shelf_manager::PowerShelfVendor;
+    use crate::test_support::{
+        PS_MAC_1, PS_MAC_2, SW_MAC_1, SW_MAC_2, UNKNOWN_MAC, seed_test_data,
+    };
 
     // ---- Mapping unit tests ----
 
@@ -796,12 +795,6 @@ mod tests {
 
     // ---- Test helpers ----
 
-    const PS_MAC_1: &str = "AA:BB:CC:DD:EE:01";
-    const PS_MAC_2: &str = "AA:BB:CC:DD:EE:02";
-    const SW_MAC_1: &str = "AA:BB:CC:DD:FF:01";
-    const SW_MAC_2: &str = "AA:BB:CC:DD:FF:02";
-    const UNKNOWN_MAC: &str = "FF:FF:FF:FF:FF:FF";
-
     fn make_ps_endpoint(mac: &str) -> PowerShelfEndpoint {
         PowerShelfEndpoint {
             pmc_ip: "10.0.0.1".parse().unwrap(),
@@ -817,147 +810,6 @@ mod tests {
             nvos_ip: "10.0.0.2".parse().unwrap(),
             nvos_mac: "11:22:33:44:55:66".parse().unwrap(),
         }
-    }
-
-    fn test_power_shelf_id(label: &str) -> PowerShelfId {
-        let mut hash = [0u8; 32];
-        let bytes = label.as_bytes();
-        hash[..bytes.len().min(32)].copy_from_slice(&bytes[..bytes.len().min(32)]);
-        PowerShelfId::new(
-            PowerShelfIdSource::ProductBoardChassisSerial,
-            hash,
-            PowerShelfType::Rack,
-        )
-    }
-
-    fn test_switch_id(label: &str) -> SwitchId {
-        let mut hash = [0u8; 32];
-        let bytes = label.as_bytes();
-        hash[..bytes.len().min(32)].copy_from_slice(&bytes[..bytes.len().min(32)]);
-        SwitchId::new(SwitchIdSource::Tpm, hash, SwitchType::NvLink)
-    }
-
-    /// Seed a rack + two power shelves + two switches into the database.
-    async fn seed_test_data(
-        pool: &sqlx::PgPool,
-    ) -> (RackId, PowerShelfId, PowerShelfId, SwitchId, SwitchId) {
-        let mut txn = pool.begin().await.unwrap();
-
-        let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
-        db::rack::create(&mut txn, &rack_id, None, &RackConfig::default(), None)
-            .await
-            .expect("failed to create rack");
-
-        let ps1 = seed_power_shelf(&mut txn, PS_MAC_1, "PS-001", &rack_id).await;
-        let ps2 = seed_power_shelf(&mut txn, PS_MAC_2, "PS-002", &rack_id).await;
-        let sw1 = seed_switch(&mut txn, SW_MAC_1, "SW-001", &rack_id).await;
-        let sw2 = seed_switch(&mut txn, SW_MAC_2, "SW-002", &rack_id).await;
-
-        txn.commit().await.unwrap();
-        (rack_id, ps1, ps2, sw1, sw2)
-    }
-
-    async fn seed_power_shelf(
-        txn: &mut sqlx::PgConnection,
-        mac: &str,
-        label: &str,
-        rack_id: &RackId,
-    ) -> PowerShelfId {
-        let ps_id = test_power_shelf_id(label);
-        let mac: MacAddress = mac.parse().unwrap();
-
-        db::expected_power_shelf::create(
-            &mut *txn,
-            ExpectedPowerShelf {
-                expected_power_shelf_id: None,
-                bmc_mac_address: mac,
-                serial_number: label.to_owned(),
-                bmc_username: "admin".into(),
-                bmc_password: "pass".into(),
-                bmc_ip_address: None,
-                metadata: Metadata::default(),
-                rack_id: Some(rack_id.clone()),
-                bmc_retain_credentials: None,
-            },
-        )
-        .await
-        .expect("failed to create expected power shelf");
-
-        db::power_shelf::create(
-            &mut *txn,
-            &NewPowerShelf {
-                id: ps_id,
-                config: PowerShelfConfig {
-                    name: label.to_owned(),
-                    capacity: None,
-                    voltage: None,
-                },
-                metadata: Some(Metadata::default()),
-                rack_id: Some(rack_id.clone()),
-            },
-        )
-        .await
-        .expect("failed to create power shelf");
-
-        sqlx::query("UPDATE power_shelves SET bmc_mac_address = $1 WHERE id = $2")
-            .bind(mac)
-            .bind(ps_id)
-            .execute(&mut *txn)
-            .await
-            .expect("failed to set power shelf bmc_mac_address");
-
-        ps_id
-    }
-
-    async fn seed_switch(
-        txn: &mut sqlx::PgConnection,
-        mac: &str,
-        label: &str,
-        rack_id: &RackId,
-    ) -> SwitchId {
-        let sw_id = test_switch_id(label);
-        let mac: MacAddress = mac.parse().unwrap();
-
-        db::expected_switch::create(
-            &mut *txn,
-            ExpectedSwitch {
-                expected_switch_id: None,
-                serial_number: label.to_owned(),
-                bmc_mac_address: mac,
-                bmc_ip_address: None,
-                bmc_username: "admin".into(),
-                bmc_password: "pass".into(),
-                nvos_username: None,
-                nvos_password: None,
-                nvos_mac_addresses: vec![],
-                metadata: Metadata::default(),
-                rack_id: Some(rack_id.clone()),
-                bmc_retain_credentials: None,
-            },
-        )
-        .await
-        .expect("failed to create expected switch");
-
-        db::switch::create(
-            &mut *txn,
-            &NewSwitch {
-                id: sw_id,
-                config: SwitchConfig {
-                    name: label.to_owned(),
-                    enable_nmxc: false,
-                    fabric_manager_config: None,
-                },
-                bmc_mac_address: Some(mac),
-                metadata: Some(Metadata::default()),
-                rack_id: Some(rack_id.clone()),
-                slot_number: None,
-                tray_index: None,
-            },
-        )
-        .await
-        .expect("failed to create switch");
-
-        sw_id
     }
 
     /// Create a backend with a real DB pool seeded with test data.

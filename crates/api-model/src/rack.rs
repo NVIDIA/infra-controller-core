@@ -17,7 +17,10 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::{RackId, RackProfileId};
+use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use rpc::Timestamp;
@@ -26,6 +29,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::StateSla;
+use crate::component_manager::PowerAction;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
@@ -507,6 +511,79 @@ impl MachineRvLabels {
 // RACK CONFIG & HISTORY
 // ============================================================================
 
+/// Individual maintenance activities that can be performed during on-demand
+/// rack maintenance. When the activities list on `MaintenanceScope` is
+/// empty, all activities are performed.
+///
+/// Activity-specific configuration is carried inline on the variant
+/// (e.g. `FirmwareUpgrade` holds the optional target firmware version,
+/// `PowerControl` carries the desired power action).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MaintenanceActivity {
+    FirmwareUpgrade {
+        /// Target firmware version. `None` means RMS uses its default/latest.
+        #[serde(default)]
+        firmware_version: Option<String>,
+    },
+    ConfigureNmxCluster,
+    PowerSequence,
+    /// Per-device power control, dispatched by the rack state controller to
+    /// the listed devices on its next tick. Framed out here for the component
+    /// manager routing path; the rack state handler side is a follow-up.
+    PowerControl {
+        action: PowerAction,
+    },
+}
+
+impl MaintenanceActivity {
+    /// Returns `true` if two activities are the same kind, ignoring any
+    /// per-activity configuration (e.g. firmware version, power action).
+    pub fn same_kind(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl Display for MaintenanceActivity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MaintenanceActivity::FirmwareUpgrade { .. } => write!(f, "FirmwareUpgrade"),
+            MaintenanceActivity::ConfigureNmxCluster => write!(f, "ConfigureNmxCluster"),
+            MaintenanceActivity::PowerSequence => write!(f, "PowerSequence"),
+            MaintenanceActivity::PowerControl { .. } => write!(f, "PowerControl"),
+        }
+    }
+}
+
+/// Specifies which devices in the rack should be included in an on-demand
+/// maintenance cycle. When all three device-id lists are empty, the full rack
+/// is maintained.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MaintenanceScope {
+    #[serde(default)]
+    pub machine_ids: Vec<MachineId>,
+    #[serde(default)]
+    pub switch_ids: Vec<SwitchId>,
+    #[serde(default)]
+    pub power_shelf_ids: Vec<PowerShelfId>,
+    /// Which maintenance activities to perform. Empty means all activities.
+    #[serde(default)]
+    pub activities: Vec<MaintenanceActivity>,
+}
+
+impl MaintenanceScope {
+    /// Returns `true` when no specific devices were selected, meaning the
+    /// maintenance applies to every device in the rack.
+    pub fn is_full_rack(&self) -> bool {
+        self.machine_ids.is_empty() && self.switch_ids.is_empty() && self.power_shelf_ids.is_empty()
+    }
+
+    /// Returns `true` if the given activity should be performed. When the
+    /// activities list is empty, all activities are considered requested.
+    pub fn should_run(&self, activity: &MaintenanceActivity) -> bool {
+        self.activities.is_empty() || self.activities.iter().any(|a| a.same_kind(activity))
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RackConfig {
     /// When set, the Ready state handler will transition back to Maintenance
@@ -518,6 +595,60 @@ pub struct RackConfig {
     /// because a tray was replaced (rack topology change).
     #[serde(default)]
     pub topology_changed: bool,
+
+    /// On-demand maintenance request. When `Some`, the rack state handler
+    /// (in Ready or Error) transitions the rack to Maintenance. The scope
+    /// selects full-rack vs partial-rack and which activities to run.
+    #[serde(default)]
+    pub maintenance_requested: Option<MaintenanceScope>,
+}
+
+/// Reason a rack will not accept a new on-demand maintenance request.
+/// See `Rack::check_accepts_maintenance`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RackMaintenanceRejection {
+    /// The rack is not in `Ready` or `Error`. Carries the current state so
+    /// callers can report exactly what state they saw.
+    NotReadyOrError(RackState),
+    /// A maintenance request is already pending on this rack.
+    AlreadyPending,
+}
+
+impl Display for RackMaintenanceRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackMaintenanceRejection::NotReadyOrError(state) => write!(
+                f,
+                "rack is not in Ready or Error state (current: {state:?}); \
+                 maintenance can only be requested from those states",
+            ),
+            RackMaintenanceRejection::AlreadyPending => {
+                write!(f, "rack already has a pending maintenance request")
+            }
+        }
+    }
+}
+
+impl Rack {
+    /// Tells us if this rack will accept a new on-demand maintenance requests
+    /// right now. Used by every caller that writes to `RackConfig::maintenance_requested`
+    /// (e.g. the on-demand-maintenance gRPC handler + and the Component Manager
+    /// state controller wrappers). This gives us a way to gate maintenance requests
+    /// making their way into the backing `maintenance_requested` data in `RackConfig`.
+    pub fn check_accepts_maintenance(&self) -> Result<(), RackMaintenanceRejection> {
+        if !matches!(
+            *self.controller_state,
+            RackState::Ready | RackState::Error { .. }
+        ) {
+            return Err(RackMaintenanceRejection::NotReadyOrError(
+                self.controller_state.value.clone(),
+            ));
+        }
+        if self.config.maintenance_requested.is_some() {
+            return Err(RackMaintenanceRejection::AlreadyPending);
+        }
+        Ok(())
+    }
 }
 
 // ============================================================================

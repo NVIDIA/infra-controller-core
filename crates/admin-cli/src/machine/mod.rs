@@ -19,7 +19,7 @@ pub mod auto_update;
 pub mod common;
 pub mod force_delete;
 pub mod hardware_info;
-pub mod health_override;
+pub mod health_report;
 pub mod metadata;
 pub mod network;
 pub mod nvlink_info;
@@ -34,8 +34,8 @@ mod tests;
 pub use auto_update::args::Args as MachineAutoupdate;
 use clap::Parser;
 pub use common::{MachineQuery, NetworkConfigQuery};
-pub use health_override::args::HealthReportTemplates;
-pub use health_override::cmd::get_health_report;
+pub use health_report::args::HealthReportTemplates;
+pub use health_report::cmd::get_health_report;
 pub use show::args::Args as ShowMachine;
 pub use show::cmd::{get_next_free_machine, handle_show};
 
@@ -53,7 +53,7 @@ pub enum Cmd {
         visible_alias = "hr",
         alias = "health-override"
     )]
-    HealthReport(health_override::Args),
+    HealthReport(health_report::Args),
     #[clap(about = "Reboot a machine")]
     Reboot(reboot::Args),
     #[clap(about = "Force delete a machine")]

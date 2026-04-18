@@ -999,6 +999,7 @@ dependencies = [
  "arc-swap",
  "carbide-api",
  "carbide-ipmi",
+ "carbide-redfish",
  "carbide-secrets",
  "clap",
  "libredfish",
@@ -1363,6 +1364,7 @@ dependencies = [
  "carbide-measured-boot",
  "carbide-network",
  "carbide-prost-builder",
+ "carbide-redfish",
  "carbide-rpc",
  "carbide-secrets",
  "carbide-sqlx-testing",
@@ -2340,6 +2342,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-redfish"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-secrets",
+ "carbide-utils",
+ "chrono",
+ "http",
+ "libredfish",
+ "mac_address",
+ "nv-redfish",
+ "reqwest",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "carbide-rpc"
 version = "0.0.0"
 dependencies = [
@@ -2596,6 +2622,7 @@ dependencies = [
  "humantime",
  "ipnetwork",
  "itertools 0.14.0",
+ "opentelemetry",
  "prettytable-rs",
  "serde",
  "serde_json",
@@ -2983,6 +3010,7 @@ dependencies = [
  "carbide-macros",
  "carbide-sqlx-testing",
  "carbide-uuid",
+ "chrono",
  "librms",
  "mac_address",
  "prost 0.14.1",

@@ -30,6 +30,6 @@ pub async fn show(
         .0
         .list_power_shelf_health_reports(args.power_shelf_id)
         .await?;
-    health_utils::display_overrides(response.health_report_entries, format)?;
+    health_utils::display_health_reports(response.health_report_entries, format)?;
     Ok(())
 }

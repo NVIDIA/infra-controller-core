@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use model::component_manager::{FirmwareState, PowerAction, PowerShelfComponent};
 use tonic::transport::Channel;
 use tracing::instrument;
 
@@ -11,7 +12,7 @@ use crate::power_shelf_manager::{
     PowerShelfFirmwareVersions, PowerShelfManager, PowerShelfVendor,
 };
 use crate::proto::psm;
-use crate::types::{FirmwareState, PowerAction, PowerShelfComponent, parse_mac};
+use crate::types::parse_mac;
 
 #[derive(Debug)]
 pub struct PsmPowerShelfBackend {

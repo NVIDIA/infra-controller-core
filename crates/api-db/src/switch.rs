@@ -538,6 +538,34 @@ pub async fn find_bmc_info_by_switch_ids(
         .map_err(|err| DatabaseError::new("switch::find_bmc_info_by_switch_ids", err))
 }
 
+/// A switch resolved by its BMC MAC address, along with the rack it belongs
+/// to. Used by the Component Manager state controller wrapper to build a
+/// rack-level `MaintenanceScope` for the switches it's been asked to act on.
+#[derive(Debug, sqlx::FromRow)]
+pub struct SwitchIdByBmcMac {
+    pub bmc_mac_address: MacAddress,
+    pub id: SwitchId,
+    pub rack_id: Option<RackId>,
+}
+
+/// Resolve BMC MAC addresses to `SwitchId`s + `rack_id`s.
+pub async fn find_ids_by_bmc_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<SwitchIdByBmcMac>> {
+    let sql = r#"
+        SELECT s.bmc_mac_address, s.id, s.rack_id
+        FROM switches s
+        WHERE s.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("switch::find_ids_by_bmc_macs", err))
+}
+
 /// RMS identity for a switch: the switch ID (used as the RMS node_id),
 /// the BMC MAC address, and the rack_id.
 #[derive(Debug, sqlx::FromRow)]

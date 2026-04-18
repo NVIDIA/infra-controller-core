@@ -21,7 +21,7 @@ use clap::{ArgGroup, Parser};
 use crate::machine::HealthReportTemplates;
 
 #[derive(Parser, Debug)]
-#[clap(group(ArgGroup::new("override_health").required(true).args(&["health_report", "template"])))]
+#[clap(group(ArgGroup::new("health_report_source").required(true).args(&["health_report", "template"])))]
 pub struct Args {
     pub switch_id: SwitchId,
     #[clap(long, help = "New health report as json")]

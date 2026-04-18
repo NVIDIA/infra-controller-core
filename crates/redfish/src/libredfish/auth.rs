@@ -15,18 +15,21 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmd;
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use mac_address::MacAddress;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Args;
+pub enum RedfishAuth {
+    Anonymous,
+    Key(CredentialKey),
+    Direct(String, String), // username, password
+}
 
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
-
-impl Run for Args {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        cmd::handle_override(self, ctx.config.format, &ctx.api_client).await?;
-        Ok(())
+impl RedfishAuth {
+    pub fn for_bmc_mac(bmc_mac_address: MacAddress) -> Self {
+        RedfishAuth::Key(CredentialKey::BmcCredentials {
+            // TODO(ajf): Change this to Forge Admin user once site explorer
+            // ensures it exist, credentials are done by mac address
+            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+        })
     }
 }

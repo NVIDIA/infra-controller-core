@@ -25,10 +25,10 @@
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
 use clap::{CommandFactory, Parser};
-use health_override::args::{Args as OverrideCommand, HealthReportTemplates};
 use metadata::args::Args as MachineMetadataCommand;
 use network::args::Args as NetworkCommand;
 
+use self::health_report::args::{Args as HealthReportCommand, HealthReportTemplates};
 use super::*;
 
 // Define a basic/working MachineId for testing.
@@ -138,10 +138,10 @@ fn parse_health_override_show() {
         .expect("should parse health-override show");
 
     match cmd {
-        Cmd::HealthReport(OverrideCommand::Show { machine_id }) => {
+        Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
             assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
         }
-        _ => panic!("expected HealthOverride Show variant"),
+        _ => panic!("expected HealthReport Show variant"),
     }
 }
 
@@ -160,11 +160,26 @@ fn parse_health_override_add_with_template() {
     .expect("should parse health-override add with template");
 
     match cmd {
-        Cmd::HealthReport(OverrideCommand::Add(args)) => {
+        Cmd::HealthReport(HealthReportCommand::Add(args)) => {
             assert!(args.template.is_some());
             assert!(args.health_report.is_none());
         }
-        _ => panic!("expected HealthOverride Add variant"),
+        _ => panic!("expected HealthReport Add variant"),
+    }
+}
+
+// parse_health_report_show ensures health-report
+// show parses (new primary command name).
+#[test]
+fn parse_health_report_show() {
+    let cmd = Cmd::try_parse_from(["machine", "health-report", "show", TEST_MACHINE_ID])
+        .expect("should parse health-report show");
+
+    match cmd {
+        Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
+            assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
+        }
+        _ => panic!("expected HealthReport Show variant"),
     }
 }
 

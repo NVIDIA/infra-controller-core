@@ -146,7 +146,7 @@ pub fn get_health_report(template: HealthReportTemplates, message: Option<String
     report
 }
 
-pub async fn handle_override(
+pub async fn handle_health_report(
     command: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -157,7 +157,7 @@ pub async fn handle_override(
                 .0
                 .list_health_report_overrides(machine_id)
                 .await?;
-            health_utils::display_overrides(response.health_report_entries, output_format)?;
+            health_utils::display_health_reports(response.health_report_entries, output_format)?;
         }
         Args::Add(options) => {
             let report = health_utils::resolve_health_report(
