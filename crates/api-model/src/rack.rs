@@ -19,7 +19,7 @@ use std::fmt::Display;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::{RackId, RackProfileId};
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
