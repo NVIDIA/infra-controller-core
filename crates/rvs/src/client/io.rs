@@ -137,16 +137,10 @@ impl NiccClient {
         let mut trays = Vec::with_capacity(rack.compute_tray_ids.len());
 
         for chunk in rack.compute_tray_ids.chunks(50) {
-            let machine_ids = chunk
-                .iter()
-                .map(|id| id.parse())
-                .collect::<Result<_, _>>()
-                .map_err(RvsError::from)?;
-
             let response = self
                 .inner
                 .find_machines_by_ids(MachinesByIdsRequest {
-                    machine_ids,
+                    machine_ids: chunk.to_vec(),
                     include_history: false,
                 })
                 .await?;
