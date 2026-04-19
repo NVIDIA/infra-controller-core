@@ -1882,6 +1882,15 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     drop(txn);
 
     create_default_nvos_rack_firmware(&pool, "fw-nvos-default").await;
+    env.rms_sim
+        .queue_update_switch_system_image_response(
+            librms::protos::rack_manager::UpdateSwitchSystemImageResponse {
+                status: librms::protos::rack_manager::ReturnCode::Success as i32,
+                job_id: "nvos-job-1".to_string(),
+                ..Default::default()
+            },
+        )
+        .await;
 
     let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
 
@@ -1914,6 +1923,13 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     assert!(
         rack.nvos_update_job.is_some(),
         "NVOSUpdate(Start) should populate rack.nvos_update_job"
+    );
+    assert!(
+        !env.rms_sim
+            .submitted_switch_system_image_requests()
+            .await
+            .is_empty(),
+        "NVOSUpdate(Start) should submit a switch system image request to RMS"
     );
 
     match outcome {

@@ -39,6 +39,7 @@ use crate::rack::firmware_update::{
     firmware_type_for_profile,
     load_rack_firmware_inventory, submit_firmware_update_batches,
 };
+use crate::rack::rms_client::SwitchSystemImageRmsClient;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::validating::strip_rv_labels;
 use crate::state_controller::state_handler::{
@@ -605,14 +606,13 @@ async fn rms_get_firmware_upgrade_status(
 }
 
 async fn rms_start_nvos_update(
-    rms_client: &librms::RackManagerApi,
+    rms_client: &dyn SwitchSystemImageRmsClient,
     rack_id: &RackId,
     artifact: &ResolvedNvosArtifact,
     switches: Vec<FirmwareUpgradeDeviceInfo>,
 ) -> Result<NvosUpdateJob, StateHandlerError> {
     let started_at = chrono::Utc::now();
     let response = rms_client
-        .client
         .update_switch_system_image(rms::UpdateSwitchSystemImageRequest {
             nodes: Some(rms::NodeSet {
                 devices: switches
@@ -723,7 +723,7 @@ async fn rms_start_nvos_update(
 }
 
 async fn rms_get_nvos_update_status(
-    rms_client: &librms::RackManagerApi,
+    rms_client: &dyn SwitchSystemImageRmsClient,
     job: &NvosUpdateJob,
 ) -> Result<NvosUpdateJob, StateHandlerError> {
     let mut updated = job.clone();
@@ -743,7 +743,6 @@ async fn rms_get_nvos_update_status(
         };
 
         let response = rms_client
-            .client
             .get_switch_system_image_job_status(rms::GetSwitchSystemImageJobStatusRequest {
                 job_id: job_id.clone(),
                 ..Default::default()

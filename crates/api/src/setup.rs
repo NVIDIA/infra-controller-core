@@ -841,6 +841,7 @@ pub async fn initialize_and_start_controllers(
                 );
                 let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
                 Arc::new(librms::RackManagerApi::new(&rms_api_config))
+                    as Arc<dyn crate::rack::rms_client::SwitchSystemImageRmsClient>
             }),
         credential_manager: credential_manager.clone(),
     });
