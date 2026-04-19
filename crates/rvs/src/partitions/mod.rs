@@ -133,6 +133,7 @@ mod tests {
 
     use carbide_uuid::machine::{MachineIdSource, MachineType};
     use carbide_uuid::nvlink::NvLinkDomainId;
+    use carbide_uuid::rack::RackId;
 
     use super::*;
     use crate::client::{TrayData, TrayIbData, TrayNvlData};
@@ -180,7 +181,7 @@ mod tests {
 
     /// Test helper -- build a FetchedRack with a given state.
     fn rack(id: &str, state: &str, trays: Vec<TrayData>) -> Rack {
-        Rack::new(id.to_string(), state.to_string(), trays)
+        Rack::new(RackId::from(id), state.to_string(), trays)
     }
 
     #[test]
@@ -200,7 +201,7 @@ mod tests {
 
         assert_eq!(p.all.len(), 3);
         // All trays carry their rack provenance
-        assert!(p.all.values().all(|t| t.rack_id == "rack-1"));
+        assert!(p.all.values().all(|t| t.rack_id.as_str() == "rack-1"));
         assert!(
             p.all
                 .values()
@@ -236,8 +237,8 @@ mod tests {
         let p = Partitions::try_from(Racks { inner: fetched }).unwrap();
 
         assert_eq!(p.all.len(), 2);
-        assert_eq!(p.all[&m1].rack_id, "rack-1");
-        assert_eq!(p.all[&m2].rack_id, "rack-2");
+        assert_eq!(p.all[&m1].rack_id.as_str(), "rack-1");
+        assert_eq!(p.all[&m2].rack_id.as_str(), "rack-2");
         assert!(
             p.all
                 .values()

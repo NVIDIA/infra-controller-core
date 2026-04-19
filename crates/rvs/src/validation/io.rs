@@ -146,6 +146,7 @@ pub async fn submit_report(report: Report) -> Result<(), RvsError> {
 #[cfg(test)]
 mod tests {
     use carbide_uuid::machine::{MachineIdSource, MachineType};
+    use carbide_uuid::rack::RackId;
 
     use super::*;
     use crate::partitions::{IbNode, NvlNode};
@@ -156,7 +157,7 @@ mod tests {
 
     fn tray(rv_labels: &[(&str, &str)]) -> Tray {
         Tray::new(
-            "rack-1".to_string(),
+            RackId::from("rack-1"),
             "Validation(Pending)".to_string(),
             rv_labels
                 .iter()

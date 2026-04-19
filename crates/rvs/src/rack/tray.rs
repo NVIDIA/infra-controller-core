@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use carbide_uuid::rack::RackId;
+
 use crate::partitions::{IbNode, NvlNode};
 
 /// Resolved compute tray with partition-specific views and rack provenance.
@@ -10,7 +12,7 @@ pub struct Tray {
     /// Carried here so that partition-level operations (e.g. writing rv.*
     /// labels back to NICC) can identify which rack to target without needing
     /// a separate lookup.
-    pub rack_id: String,
+    pub rack_id: RackId,
     /// Raw rack lifecycle state string as returned by NICC.
     ///
     /// Intentionally uninterpreted here: processing modules decide what states
@@ -31,7 +33,7 @@ pub struct Tray {
 impl Tray {
     /// Construct from rack provenance, rack state, rv labels, and partition-specific views.
     pub fn new(
-        rack_id: String,
+        rack_id: RackId,
         rack_state: String,
         rv_labels: HashMap<String, String>,
         nvl: NvlNode,

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::NvLinkDomainId;
+use carbide_uuid::rack::RackId;
 pub use io::NiccClient;
 use rpc::forge::{Machine, Rack};
 
@@ -95,8 +96,8 @@ impl TryFrom<Machine> for TrayData {
 /// Intermediate representation of a gRPC Rack.
 #[derive(Debug)]
 pub struct RackData {
-    /// Rack ID as string.
-    pub id: String,
+    /// Rack ID.
+    pub id: RackId,
     /// Rack lifecycle state.
     pub state: String,
     /// Machine IDs of compute trays in this rack.
@@ -109,10 +110,7 @@ impl TryFrom<Rack> for RackData {
 
     fn try_from(value: Rack) -> Result<Self, Self::Error> {
         Ok(Self {
-            id: value
-                .id
-                .ok_or(RvsError::MissingField("Rack.id"))?
-                .to_string(),
+            id: value.id.ok_or(RvsError::MissingField("Rack.id"))?,
             state: value.rack_state,
             compute_tray_ids: value
                 .compute_trays
