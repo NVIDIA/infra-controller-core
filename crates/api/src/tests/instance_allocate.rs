@@ -904,3 +904,74 @@ async fn test_zero_dpu_host_verifies_boot_order_during_platform_configuration(
 
     Ok(())
 }
+
+/// a zero-DPU host has no DPU to handle overlay/tenant networking, so an
+/// instance allocation request that puts a non-DPU (zero-DPU) host NIC
+/// interface on a tenant (DPU-managed) segment must be rejected up front.
+#[crate::sqlx_test]
+async fn test_reject_zero_dpu_instance_with_tenant_network_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let config = ManagedHostConfig::with_dpus(vec![]);
+
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+
+    let tenant_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "TENANT").await?;
+
+    let result = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                network_security_group_id: None,
+                os: Some(forge::InstanceOperatingSystemConfig {
+                    phone_home_enabled: false,
+                    run_provisioning_instructions_on_every_boot: false,
+                    user_data: None,
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
+                        forge::InlineIpxe {
+                            ipxe_script: "exit".to_string(),
+                            user_data: None,
+                        },
+                    )),
+                }),
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![forge::InstanceInterfaceConfig {
+                        function_type: forge::InterfaceFunctionType::Physical as i32,
+                        network_segment_id: Some(tenant_segment.id),
+                        network_details: None,
+                        device: None,
+                        device_instance: 0u32,
+                        virtual_function_id: None,
+                        ip_address: None,
+                        ipv6_interface_config: None,
+                    }],
+                }),
+                infiniband: None,
+                dpu_extension_services: None,
+                nvlink: None,
+            }),
+            instance_id: None,
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }),
+    )
+    .await;
+
+    match result {
+        Err(e) if e.code() == tonic::Code::InvalidArgument => {}
+        _ => panic!(
+            "Expected zero-DPU host to reject tenant-segment instance allocation (no DPU to manage overlay networking), got: {result:?}"
+        ),
+    };
+
+    Ok(())
+}

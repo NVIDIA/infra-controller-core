@@ -44,6 +44,7 @@ use model::machine::{
     HostHealthConfig, LoadSnapshotOptions, Machine, ManagedHostStateSnapshot, NotAllocatableReason,
 };
 use model::metadata::Metadata;
+use model::network_segment::NetworkSegmentType;
 use model::os::OperatingSystemVariant;
 use model::tenant::TenantOrganizationId;
 use model::vpc_prefix::VpcPrefix;
@@ -840,6 +841,36 @@ pub async fn batch_allocate_instances(
                 .map(|vc| vc.allow_instance_vf)
                 .unwrap_or(true),
         )?;
+
+        // Reject instance configs whose network interfaces reference segments
+        // the host can't actually serve. For a zero-DPU host, this means
+        // anything beyond its HostInband segments; there's no DPU to handle
+        // overlay/tenant networking, so accepting the request would leave a
+        // zero-DPU instance stuck in Provisioning with no path to completion.
+        if mh_snapshot.is_zero_dpu() {
+            let allowed_segment_ids: HashSet<_> = mh_snapshot
+                .host_snapshot
+                .interfaces
+                .iter()
+                .filter(|iface| {
+                    matches!(
+                        iface.network_segment_type,
+                        Some(NetworkSegmentType::HostInband)
+                    )
+                })
+                .map(|iface| iface.segment_id)
+                .collect();
+            for iface in &request.config.network.interfaces {
+                if let Some(ns_id) = iface.network_segment_id
+                    && !allowed_segment_ids.contains(&ns_id)
+                {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "zero-DPU host {} cannot serve an instance interface on network segment {ns_id}. must be a HostInband segment only (allowed: {allowed_segment_ids:?}).",
+                        mh_snapshot.host_snapshot.id,
+                    )));
+                }
+            }
+        }
 
         processed_requests.push((request, mh_snapshot));
     }
