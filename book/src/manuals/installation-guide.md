@@ -156,16 +156,24 @@ Verify `carbide-rest-ca-issuer` shows `Ready=True` before proceeding.
 
 ### 4.3 Provision Temporal TLS Certificates
 
-Apply the Temporal namespace, database credentials, and mTLS certificate manifests.
-From the `ncx-infra-controller-rest` repository:
+Apply the Temporal namespace, database credentials, and mTLS server certificate
+manifests. From the `ncx-infra-controller-rest` repository:
 
 ```bash
-kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml
-kubectl apply -f deploy/kustomize/base/temporal-helm/db-creds.yaml
+kubectl apply -k deploy/kustomize/base/temporal-helm
+```
+
+This creates the `temporal` namespace, database credentials, and three server
+mTLS certificates (`server-interservice-cert`, `server-cloud-cert`,
+`server-site-cert`) issued by `carbide-rest-ca-issuer`.
+
+Then apply the common resources (Temporal client certs for the REST workers):
+
+```bash
 kubectl apply -k deploy/kustomize/base/common
 ```
 
-Verify the mTLS certificates are issued:
+Verify the server certificates are issued:
 
 ```bash
 kubectl wait --for=condition=Ready certificate/server-interservice-cert -n temporal --timeout=120s
@@ -227,7 +235,14 @@ helm upgrade --install carbide-rest helm/charts/carbide-rest \
 
 This deploys: `carbide-rest-api`, `carbide-rest-workflow` (cloud-worker and
 site-worker), `carbide-rest-site-manager`, `carbide-rest-db` (migration job),
-`carbide-rest-cert-manager` (credsmgr), and Keycloak (dev IdP).
+and `carbide-rest-cert-manager` (credsmgr).
+
+If you need a dev IdP, deploy Keycloak separately before the umbrella chart:
+
+```bash
+kubectl apply -k deploy/kustomize/base/keycloak -n carbide-rest
+kubectl rollout status deployment/keycloak -n carbide-rest --timeout=300s
+```
 
 Verify:
 
