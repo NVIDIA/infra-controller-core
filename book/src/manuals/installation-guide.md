@@ -55,7 +55,8 @@ TAG=<your-version-tag>
 make docker-build IMAGE_REGISTRY=$REGISTRY IMAGE_TAG=$TAG
 
 for image in carbide-rest-api carbide-rest-workflow carbide-rest-site-manager \
-             carbide-rest-site-agent carbide-rest-db carbide-rest-cert-manager; do
+             carbide-rest-site-agent carbide-rest-db carbide-rest-cert-manager \
+             carbide-rla carbide-psm carbide-nsm; do
     docker push "$REGISTRY/$image:$TAG"
 done
 ```

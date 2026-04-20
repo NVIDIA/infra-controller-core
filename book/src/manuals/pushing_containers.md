@@ -31,9 +31,22 @@ docker push $REGISTRY/machine-validation-config:$TAG
 
 ## Tag and Push REST Images
 
+REST images are built from the
+[ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest)
+repository. The `make docker-build` command tags images at build time when you pass
+`IMAGE_REGISTRY` and `IMAGE_TAG`:
+
+```sh
+cd /path/to/ncx-infra-controller-rest
+make docker-build IMAGE_REGISTRY=$REGISTRY IMAGE_TAG=$TAG
+```
+
+Then push all REST images:
+
 ```sh
 for image in carbide-rest-api carbide-rest-workflow carbide-rest-site-manager \
-             carbide-rest-site-agent carbide-rest-db carbide-rest-cert-manager; do
+             carbide-rest-site-agent carbide-rest-db carbide-rest-cert-manager \
+             carbide-rla carbide-psm carbide-nsm; do
     docker push "$REGISTRY/$image:$TAG"
 done
 ```
