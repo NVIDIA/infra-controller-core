@@ -833,6 +833,48 @@ pub fn build_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> 
             ]),
         },
         DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf8".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 8,
+            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf0vf8_if".into())]),
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf9".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 9,
+            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf0vf9_if".into())]),
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf10".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 10,
+            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf0vf10_if".into())]),
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf11".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 11,
+            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf0vf11_if".into())]),
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf12".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 12,
+            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf0vf12_if".into())]),
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf13".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 13,
+            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf0vf13_if".into())]),
+        },
+        DpuServiceInterfaceTemplateDefinition {
             name: "p1".into(),
             iface_type: DpuServiceInterfaceTemplateType::Physical,
             pf_id: 1,
@@ -846,64 +888,7 @@ pub fn build_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> 
             vf_id: 0,
             chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1hpf_if".into())]),
         },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1vf0".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Vf,
-            pf_id: 1,
-            vf_id: 0,
-            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1vf0_if".into())]),
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1vf1".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Vf,
-            pf_id: 1,
-            vf_id: 1,
-            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1vf1_if".into())]),
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1vf2".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Vf,
-            pf_id: 1,
-            vf_id: 2,
-            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1vf2_if".into())]),
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1vf3".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Vf,
-            pf_id: 1,
-            vf_id: 3,
-            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1vf3_if".into())]),
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1vf4".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Vf,
-            pf_id: 1,
-            vf_id: 4,
-            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1vf4_if".into())]),
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1vf5".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Vf,
-            pf_id: 1,
-            vf_id: 5,
-            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1vf5_if".into())]),
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1vf6".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Vf,
-            pf_id: 1,
-            vf_id: 6,
-            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1vf6_if".into())]),
-        },
-        DpuServiceInterfaceTemplateDefinition {
-            name: "pf1vf7".into(),
-            iface_type: DpuServiceInterfaceTemplateType::Vf,
-            pf_id: 1,
-            vf_id: 7,
-            chained_svc_if: Some(vec![(DOCA_HBN_SERVICE_NAME.into(), "pf1vf7_if".into())]),
-        },
     ];
-
     interfaces
 }
 

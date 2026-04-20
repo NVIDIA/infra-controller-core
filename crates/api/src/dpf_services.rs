@@ -143,6 +143,19 @@ pub fn doca_hbn_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition
                 "memory": "6Gi",
                 "nvidia.com/bf_sf": interfaces.len(),
             },
+            "configuration": {
+                "user": {
+                    "create": true,
+                    "username": {
+                        "secretName": "hbn-user-password",
+                        "secretKey": "username",
+                    },
+                    "password": {
+                        "secretName": "hbn-user-password",
+                        "secretKey": "password",
+                    },
+                },
+            },
         })),
 
         config_values: Some(serde_json::json!({
@@ -207,7 +220,13 @@ pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinitio
                 "repository": format!("{}/{}", reg.carbide_image_registry,
                     DPU_AGENT_SERVICE_IMAGE_NAME),
                 "tag": DPU_AGENT_SERVICE_IMAGE_TAG,
-            }
+            },
+            "hbn": {
+                "nvue_https_address": "nvue",
+                "nvue_credentials_secret_name": "hbn-user-password",
+                "nvue_username_key": "username",
+                "nvue_password_key": "password",
+            },
         })),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
@@ -278,76 +297,6 @@ mod tests {
     use super::*;
 
     const TEST_NS: &str = "dpf-operator-system";
-
-    /// Prints YAML for every DPUServiceTemplate, DPUServiceConfiguration, DPUServiceInterface,
-    /// DPUServiceNAD and DPUDeployment that would be created for the v2 Carbide services.
-    /// Run with: cargo test -p carbide-api test_print_v2_carbide_service_yamls -- --nocapture
-    #[test]
-    fn test_print_v2_carbide_service_yamls() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let services = vec![
-            carbide_dpf::services::dts_service(
-                &carbide_dpf::services::ServiceRegistryConfig::default(),
-            ),
-            dhcp_server_service(&reg),
-            doca_hbn_service(&reg),
-            dpu_agent_service(&reg),
-        ];
-        let interfaces = build_dpu_interfaces_vec();
-
-        println!("\n=== DPUServiceTemplates ===");
-        for svc in &services {
-            println!(
-                "---\n{}",
-                serde_yaml::to_string(&build_service_template(svc, TEST_NS)).unwrap()
-            );
-        }
-
-        println!("=== DPUServiceConfigurations ===");
-        for svc in &services {
-            println!(
-                "---\n{}",
-                serde_yaml::to_string(&build_service_configuration(svc, TEST_NS)).unwrap()
-            );
-        }
-
-        println!("=== DPUServiceNADs ===");
-        for svc in &services {
-            if let Some(nad) = build_service_nad(svc, TEST_NS) {
-                println!("---\n{}", serde_yaml::to_string(&nad).unwrap());
-            }
-        }
-
-        println!("=== DPUServiceInterfaces ===");
-        for iface in &interfaces {
-            println!(
-                "---\n{}",
-                serde_yaml::to_string(&build_service_interface(iface, TEST_NS)).unwrap()
-            );
-        }
-
-        println!("=== DPUFlavor ===");
-        println!(
-            "---\n{}",
-            serde_yaml::to_string(&carbide_dpf::flavor::default_flavor(
-                TEST_NS,
-                carbide_dpf::flavor::DEFAULT_FLAVOR_NAME
-            ))
-            .unwrap()
-        );
-
-        println!("=== DPUDeployment ===");
-        let deployment = build_deployment(
-            &services,
-            "carbide-deployment",
-            "test-bfb",
-            "dpu-flavor",
-            TEST_NS,
-            &NoLabels,
-            &interfaces,
-        );
-        println!("---\n{}", serde_yaml::to_string(&deployment).unwrap());
-    }
 
     // ---- dpu_service_interfaces ----
 
