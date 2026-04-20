@@ -38,7 +38,7 @@ pub enum BmsDsxExchangeError {
     #[error("failed to parse metadata: {0}")]
     InvalidMetadata(#[from] serde_json::Error),
 
-    #[error("metadata for point type `{point_type}` is missing `{field}`")]
+    #[error("metadata for point type `{point_type}` is missing `{field}` or empty")]
     MissingMetadataField {
         point_type: String,
         field: &'static str,
@@ -236,6 +236,8 @@ pub fn parse_supported_metadata_slice(
     input: &[u8],
 ) -> Result<Option<SupportedMetadata>, BmsDsxExchangeError> {
     let raw: RawMetadata = serde_json::from_slice(input)?;
+    required_field(&raw.point_type, "objectType", Some(raw.object_type.clone()))?;
+    required_field(&raw.point_type, "pointType", Some(raw.point_type.clone()))?;
     SupportedMetadata::from_raw(raw)
 }
 
@@ -280,10 +282,19 @@ fn required_field(
     field: &'static str,
     value: Option<String>,
 ) -> Result<String, BmsDsxExchangeError> {
-    value.ok_or_else(|| BmsDsxExchangeError::MissingMetadataField {
+    let value = value.ok_or_else(|| BmsDsxExchangeError::MissingMetadataField {
         point_type: point_type.to_string(),
         field,
-    })
+    })?;
+
+    if value.trim().is_empty() {
+        return Err(BmsDsxExchangeError::MissingMetadataField {
+            point_type: point_type.to_string(),
+            field,
+        });
+    }
+
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -350,5 +361,28 @@ mod tests {
             metadata.value_topic(),
             "BMS/v1/CM/Value/System/HearbeatTimestampIntegration/site"
         );
+    }
+
+    #[test]
+    fn rejects_supported_metadata_empty_required_field() {
+        let error = parse_supported_metadata(
+            r#"{
+                "pointType": "RackLiquidIsolationRequest",
+                "objectType": "Rack",
+                "rackName": "Rack-01",
+                "rackId": "rack-01",
+                "integration": "",
+                "valueTopic": "BMS/v1/CM/Value/Rack/RackLiquidIsolationRequest/site/rack-01"
+            }"#,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            BmsDsxExchangeError::MissingMetadataField {
+                field: "integration",
+                ..
+            }
+        ));
     }
 }

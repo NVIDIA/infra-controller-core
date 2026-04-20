@@ -16,6 +16,7 @@
  */
 
 use std::collections::HashMap;
+use std::collections::hash_map::{Entry, OccupiedEntry, VacantEntry};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -57,11 +58,35 @@ pub struct BmsDsxExchangePublisher {
 }
 
 #[derive(Debug)]
-struct EntryState {
+enum EntryState {
+    Unrouted { current_value: SourceValue },
+    Routed(RoutedEntryState),
+}
+
+#[derive(Debug)]
+struct RoutedEntryState {
     topic: String,
     current_value: Option<SourceValue>,
     last_published_at: Option<DateTime<Utc>>,
     heartbeat: bool,
+}
+
+impl RoutedEntryState {
+    fn publish(&mut self, value: SourceValue, now: DateTime<Utc>) -> Publication {
+        self.last_published_at = Some(now);
+
+        Publication {
+            topic: self.topic.clone(),
+            message: ValueMessage::new(value, now.timestamp_millis()),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum PublishDecision {
+    None,
+    Value(SourceValue),
+    Heartbeat,
 }
 
 impl BmsDsxExchangePublisher {
@@ -81,30 +106,9 @@ impl BmsDsxExchangePublisher {
         let topic = metadata.value_topic().to_string();
         let heartbeat = matches!(metadata, SupportedMetadata::Heartbeat(_));
 
-        let entry = self.entries.entry(source_id).or_insert_with(|| EntryState {
-            topic: topic.clone(),
-            current_value: None,
-            last_published_at: None,
-            heartbeat,
-        });
-
-        let topic_changed = entry.topic != topic;
-        entry.topic = topic;
-        entry.heartbeat = heartbeat;
-
-        if entry.heartbeat {
-            return vec![publish_entry(
-                entry,
-                SourceValue::HeartbeatTimestamp(now.timestamp_millis()),
-                now,
-            )];
-        }
-
-        match entry.current_value {
-            Some(value) if topic_changed || entry.last_published_at.is_none() => {
-                vec![publish_entry(entry, value, now)]
-            }
-            _ => Vec::new(),
+        match self.entries.entry(source_id) {
+            Entry::Vacant(entry) => upsert_vacant_metadata(entry, topic, heartbeat, now),
+            Entry::Occupied(entry) => upsert_existing_metadata(entry, topic, heartbeat, now),
         }
     }
 
@@ -112,26 +116,27 @@ impl BmsDsxExchangePublisher {
         let source_id = update.source_id();
         let next_value = update.value();
 
-        let Some(entry) = self.entries.get_mut(&source_id) else {
-            self.entries.insert(
-                source_id,
-                EntryState {
-                    topic: String::new(),
-                    current_value: Some(next_value),
-                    last_published_at: None,
-                    heartbeat: false,
-                },
-            );
-            return Vec::new();
-        };
-
-        let changed = entry.current_value != Some(next_value);
-        entry.current_value = Some(next_value);
-
-        if changed && !entry.topic.is_empty() {
-            vec![publish_entry(entry, next_value, now)]
-        } else {
-            Vec::new()
+        match self.entries.entry(source_id) {
+            Entry::Vacant(entry) => {
+                entry.insert(EntryState::Unrouted {
+                    current_value: next_value,
+                });
+                Vec::new()
+            }
+            Entry::Occupied(mut entry) => match entry.get_mut() {
+                EntryState::Unrouted { current_value } => {
+                    *current_value = next_value;
+                    Vec::new()
+                }
+                EntryState::Routed(routed) => {
+                    if routed.current_value == Some(next_value) {
+                        Vec::new()
+                    } else {
+                        routed.current_value = Some(next_value);
+                        publish_decision(routed, PublishDecision::Value(next_value), now)
+                    }
+                }
+            },
         }
     }
 
@@ -139,38 +144,111 @@ impl BmsDsxExchangePublisher {
         let mut publications = Vec::new();
 
         for entry in self.entries.values_mut() {
-            if entry.topic.is_empty() {
+            let EntryState::Routed(routed) = entry else {
+                continue;
+            };
+
+            let interval = if routed.heartbeat {
+                self.config.heartbeat_interval
+            } else {
+                self.config.republish_interval
+            };
+
+            if !is_due(routed.last_published_at, now, interval) {
                 continue;
             }
 
-            if entry.heartbeat {
-                if is_due(entry.last_published_at, now, self.config.heartbeat_interval) {
-                    publications.push(publish_entry(
-                        entry,
-                        SourceValue::HeartbeatTimestamp(now.timestamp_millis()),
-                        now,
-                    ));
-                }
-                continue;
-            }
+            let decision = if routed.heartbeat {
+                PublishDecision::Heartbeat
+            } else if let Some(value) = routed.current_value {
+                PublishDecision::Value(value)
+            } else {
+                PublishDecision::None
+            };
 
-            if let Some(value) = entry.current_value
-                && is_due(entry.last_published_at, now, self.config.republish_interval)
-            {
-                publications.push(publish_entry(entry, value, now));
-            }
+            publications.extend(publish_decision(routed, decision, now));
         }
 
         publications
     }
 }
 
-fn publish_entry(entry: &mut EntryState, value: SourceValue, now: DateTime<Utc>) -> Publication {
-    entry.last_published_at = Some(now);
+fn upsert_vacant_metadata(
+    entry: VacantEntry<'_, SourceId, EntryState>,
+    topic: String,
+    heartbeat: bool,
+    now: DateTime<Utc>,
+) -> Vec<Publication> {
+    let mut routed = RoutedEntryState {
+        topic,
+        current_value: None,
+        last_published_at: None,
+        heartbeat,
+    };
+    let decision = if heartbeat {
+        PublishDecision::Heartbeat
+    } else {
+        PublishDecision::None
+    };
+    let publications = publish_decision(&mut routed, decision, now);
+    entry.insert(EntryState::Routed(routed));
+    publications
+}
 
-    Publication {
-        topic: entry.topic.clone(),
-        message: ValueMessage::new(value, now.timestamp_millis()),
+fn upsert_existing_metadata(
+    mut entry: OccupiedEntry<'_, SourceId, EntryState>,
+    topic: String,
+    heartbeat: bool,
+    now: DateTime<Utc>,
+) -> Vec<Publication> {
+    match entry.get_mut() {
+        EntryState::Unrouted { current_value } => {
+            let current_value = *current_value;
+            let mut routed = RoutedEntryState {
+                topic,
+                current_value: Some(current_value),
+                last_published_at: None,
+                heartbeat,
+            };
+            let decision = if heartbeat {
+                PublishDecision::Heartbeat
+            } else {
+                PublishDecision::Value(current_value)
+            };
+            let publications = publish_decision(&mut routed, decision, now);
+            entry.insert(EntryState::Routed(routed));
+            publications
+        }
+        EntryState::Routed(routed) => {
+            let topic_changed = routed.topic != topic;
+            routed.topic = topic;
+            routed.heartbeat = heartbeat;
+
+            if heartbeat {
+                publish_decision(routed, PublishDecision::Heartbeat, now)
+            } else {
+                match routed.current_value {
+                    Some(value) if topic_changed || routed.last_published_at.is_none() => {
+                        publish_decision(routed, PublishDecision::Value(value), now)
+                    }
+                    _ => Vec::new(),
+                }
+            }
+        }
+    }
+}
+
+fn publish_decision(
+    routed: &mut RoutedEntryState,
+    decision: PublishDecision,
+    now: DateTime<Utc>,
+) -> Vec<Publication> {
+    match decision {
+        PublishDecision::None => Vec::new(),
+        PublishDecision::Value(value) => vec![routed.publish(value, now)],
+        PublishDecision::Heartbeat => {
+            vec![routed.publish(SourceValue::HeartbeatTimestamp(now.timestamp_millis()), now)]
+        }
     }
 }
 
