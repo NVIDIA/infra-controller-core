@@ -37,10 +37,14 @@ vault secrets tune -max-lease-ttl=87600h forgeca
 
 ```bash
 vault write forgeca/roles/forge-cluster \
-  allowed_domains="forge.local,svc.cluster.local" \
-  allow_subdomains=true \
-  allow_bare_domains=true \
-  max_ttl=8760h
+  allow_any_name=true \
+  allowed_uri_sans="spiffe://*" \
+  max_ttl=720h \
+  ttl=720h \
+  key_type=ec \
+  key_bits=256 \
+  require_cn=false \
+  use_csr_common_name=true
 ```
 
 - **Kubernetes auth** must be enabled with a role for the **cert-manager service account**, so the `vault-forge-issuer` ClusterIssuer (Section 5) can authenticate to Vault:

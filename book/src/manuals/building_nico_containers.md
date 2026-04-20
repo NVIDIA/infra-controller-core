@@ -160,6 +160,9 @@ make docker-build IMAGE_REGISTRY=<your-registry.example.com/carbide> IMAGE_TAG=<
 | `carbide-rest-site-agent` | On-site agent (elektra) |
 | `carbide-rest-db` | Database migration job (runs once per upgrade) |
 | `carbide-rest-cert-manager` | Native PKI certificate manager (credsmgr) |
+| `carbide-rla` | Rack Level Abstraction service |
+| `carbide-psm` | Power Shelf Manager service |
+| `carbide-nsm` | NVSwitch Manager service |
 
 ## Next Steps
 
