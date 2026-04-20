@@ -54,6 +54,7 @@ use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::nvlink::NmxmClientPool;
+use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::controller::Enqueuer;

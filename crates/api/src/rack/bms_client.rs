@@ -248,14 +248,10 @@ fn explicit_rack_leak_state(report: &HealthReport) -> Option<bool> {
 }
 
 fn rack_has_active_leak(rack: &Rack) -> Option<bool> {
-    rack.health_report_overrides
+    rack.health_reports
         .replace
         .iter()
-        .chain(
-            rack.health_report_overrides
-                .merges
-                .get(RACK_LEAK_OVERRIDE_SOURCE),
-        )
+        .chain(rack.health_reports.merges.get(RACK_LEAK_OVERRIDE_SOURCE))
         .find_map(explicit_rack_leak_state)
 }
 

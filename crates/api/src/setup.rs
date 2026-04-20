@@ -72,6 +72,7 @@ use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::preingestion_manager::PreingestionManager;
+use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
