@@ -315,3 +315,141 @@ pub(super) async fn persist_primary_switch(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn switch(node_id: &str) -> FirmwareUpgradeDeviceInfo {
+        FirmwareUpgradeDeviceInfo {
+            node_id: node_id.to_string(),
+            mac: "00:11:22:33:44:55".to_string(),
+            bmc_ip: "192.0.2.10".to_string(),
+            bmc_username: "admin".to_string(),
+            bmc_password: "password".to_string(),
+            os_mac: Some("aa:bb:cc:dd:ee:ff".to_string()),
+            os_ip: Some("198.51.100.10".to_string()),
+            os_username: Some("nvos".to_string()),
+            os_password: Some("password".to_string()),
+        }
+    }
+
+    fn node_device_info(
+        node_id: &str,
+        tray_index: i32,
+        slot_number: Option<i32>,
+    ) -> rms::NodeDeviceInfo {
+        rms::NodeDeviceInfo {
+            node_id: node_id.to_string(),
+            tray_index: Some(tray_index),
+            slot_number,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn select_primary_switch_picks_lowest_tray_index() {
+        let switches = vec![switch("sw-1"), switch("sw-2"), switch("sw-3")];
+        let response = rms::GetDeviceInfoByDeviceListResponse {
+            status: rms::ReturnCode::Success as i32,
+            node_device_info: vec![
+                node_device_info("sw-1", 3, Some(3)),
+                node_device_info("sw-2", 1, Some(1)),
+                node_device_info("sw-3", 2, Some(2)),
+            ],
+            ..Default::default()
+        };
+
+        let primary =
+            select_primary_switch(&switches, &response).expect("selection should succeed");
+
+        assert_eq!(primary.device.node_id, "sw-2");
+        assert_eq!(primary.tray_index, 1);
+        assert_eq!(primary.slot_number, Some(1));
+    }
+
+    #[test]
+    fn select_primary_switch_errors_on_duplicate_tray_index() {
+        let switches = vec![switch("sw-1"), switch("sw-2")];
+        let response = rms::GetDeviceInfoByDeviceListResponse {
+            status: rms::ReturnCode::Success as i32,
+            node_device_info: vec![
+                node_device_info("sw-1", 1, Some(1)),
+                node_device_info("sw-2", 1, Some(2)),
+            ],
+            ..Default::default()
+        };
+
+        let error = select_primary_switch(&switches, &response).expect_err("selection should fail");
+
+        assert!(error.contains("duplicate tray_index 1"));
+        assert!(error.contains("sw-1"));
+        assert!(error.contains("sw-2"));
+    }
+
+    #[test]
+    fn fabric_manager_status_from_entry_returns_running_when_configured() {
+        let entry = rms::ScaleUpFabricServiceStatusEntry {
+            status_json:
+                r#"{"addition-info":"CONTROL_PLANE_STATE_CONFIGURED","reason":"","status":"ok"}"#
+                    .to_string(),
+            error_message: String::new(),
+        };
+
+        assert_eq!(fabric_manager_status_from_entry("sw-1", &entry), "running");
+    }
+
+    #[test]
+    fn fabric_manager_status_from_entry_returns_not_running_for_not_ok() {
+        let entry = rms::ScaleUpFabricServiceStatusEntry {
+            status_json: r#"{"addition-info":"","reason":"stopped by user","status":"not ok"}"#
+                .to_string(),
+            error_message: String::new(),
+        };
+
+        assert_eq!(
+            fabric_manager_status_from_entry("sw-1", &entry),
+            "not_running"
+        );
+    }
+
+    #[test]
+    fn fabric_manager_status_from_entry_returns_not_running_for_empty_status_json() {
+        let entry = rms::ScaleUpFabricServiceStatusEntry {
+            status_json: String::new(),
+            error_message: String::new(),
+        };
+
+        assert_eq!(
+            fabric_manager_status_from_entry("sw-1", &entry),
+            "not_running"
+        );
+    }
+
+    #[test]
+    fn fabric_manager_status_from_entry_returns_not_running_for_error_message() {
+        let entry = rms::ScaleUpFabricServiceStatusEntry {
+            status_json: r#"{"addition-info":"CONTROL_PLANE_STATE_CONFIGURED","status":"ok"}"#
+                .to_string(),
+            error_message: "nmx-controller not started".to_string(),
+        };
+
+        assert_eq!(
+            fabric_manager_status_from_entry("sw-1", &entry),
+            "not_running"
+        );
+    }
+
+    #[test]
+    fn fabric_manager_status_from_entry_returns_not_running_for_malformed_json() {
+        let entry = rms::ScaleUpFabricServiceStatusEntry {
+            status_json: "{not-json".to_string(),
+            error_message: String::new(),
+        };
+
+        assert_eq!(
+            fabric_manager_status_from_entry("sw-1", &entry),
+            "not_running"
+        );
+    }
+}
