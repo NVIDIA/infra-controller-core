@@ -29,6 +29,7 @@ Before you begin, ensure you have the following prerequisites:
 
 * An Ubuntu 24.04 Host or VM with 150GB+ of disk space (MacOS is not supported)
 * For REST containers: Go 1.25.4 or later, Docker 20.10+ with BuildKit enabled
+* An [NVIDIA NGC](https://www.nvidia.com/en-us/gpu-cloud/) account (free). Required for pulling base images such as the DOCA HBN container used in the aarch64 / DPU BFB build. Sign up at [ngc.nvidia.com](https://ngc.nvidia.com) and generate an API key under **API Keys** > **Generate Personal Key**.
 
 Use the following steps to install the prerequisite software on the Ubuntu Host or VM. These instructions
 assume an `apt`-based distribution such as Ubuntu 24.04.
@@ -122,6 +123,13 @@ BUILD_CONTAINER_X86_URL="nico-buildcontainer-x86_64" cargo make build-cli
 ```
 
 ### Building the DPU BFB
+
+The BFB build automatically pulls the HBN container from `nvcr.io`. You must
+authenticate with NGC before building:
+
+```sh
+docker login nvcr.io -u '$oauthtoken' -p <NGC_API_KEY>
+```
 
 ```sh
 cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa
