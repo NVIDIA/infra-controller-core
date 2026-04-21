@@ -1,5 +1,4 @@
 # NCX Infra Controller
-
 NCX Infra Controller (NICo) delivers zero-touch lifecycle automation for bare-metal
 systems that secures datacenter infrastructure at its foundation.
 
