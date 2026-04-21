@@ -230,18 +230,18 @@ impl StreamMetrics {
     }
 }
 
-/// RAII guard: increments `active_sse_connections` on construction, decrements on drop.
+/// RAII guard: increments the passed IntGauge on construction, decrements on drop.
 /// Ensures every exit path from a connected stream (cancel, error, end, reconnect) dec's.
-struct SseConnectionGuard(IntGauge);
+pub(crate) struct StreamingConnectionGuard(IntGauge);
 
-impl SseConnectionGuard {
-    fn inc(gauge: IntGauge) -> Self {
+impl StreamingConnectionGuard {
+    pub(crate) fn inc(gauge: IntGauge) -> Self {
         gauge.inc();
         Self(gauge)
     }
 }
 
-impl Drop for SseConnectionGuard {
+impl Drop for StreamingConnectionGuard {
     fn drop(&mut self) {
         self.0.dec();
     }
@@ -512,7 +512,7 @@ impl Collector {
                     Ok(mut stream) => {
                         // the guard lives exactly as long as we hold an open stream; Drop
                         // handles dec for every exit path (shutdown, error, stream end).
-                        let _conn_guard = SseConnectionGuard::inc(metrics.connected.clone());
+                        let _conn_guard = StreamingConnectionGuard::inc(metrics.connected.clone());
                         backoff.reset();
                         tracing::info!(
                             collector_type,
