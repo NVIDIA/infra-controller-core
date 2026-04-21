@@ -1049,7 +1049,7 @@ pub async fn initialize_and_start_controllers(
 
     PreingestionManager::new(
         db_pool.clone(),
-        carbide_config.clone(),
+        carbide_config.preingestion_manager(),
         shared_redfish_pool.clone(),
         meter.clone(),
         Some(downloader.clone()),

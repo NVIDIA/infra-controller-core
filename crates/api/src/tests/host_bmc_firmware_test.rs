@@ -67,7 +67,7 @@ async fn test_preingestion_bmc_upgrade(
 
     let mgr = PreingestionManager::new(
         pool.clone(),
-        env.config.clone(),
+        env.config.preingestion_manager(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
         None,
@@ -258,7 +258,7 @@ async fn test_preingestion_upgrade_script(
 
     let mgr = PreingestionManager::new(
         pool.clone(),
-        env.config.clone(),
+        env.config.preingestion_manager(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
         None,
@@ -959,7 +959,7 @@ async fn test_preingestion_preupdate_powercycling(
 
     let mgr = PreingestionManager::new(
         pool.clone(),
-        env.config.clone(),
+        env.config.preingestion_manager(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
         None,
@@ -2168,7 +2168,7 @@ async fn test_preingestion_time_sync_ok(
 
     let mgr = PreingestionManager::new(
         pool.clone(),
-        env.config.clone(),
+        env.config.preingestion_manager(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
         None,
@@ -2220,7 +2220,7 @@ async fn test_preingestion_time_sync_reset_flow(
 
     let mgr = PreingestionManager::new(
         pool.clone(),
-        env.config.clone(),
+        env.config.preingestion_manager(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
         None,
@@ -2345,7 +2345,7 @@ async fn test_preingestion_time_sync_check_error_fails(
 
     let mgr = PreingestionManager::new(
         pool.clone(),
-        env.config.clone(),
+        env.config.preingestion_manager(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
         None,
@@ -2402,7 +2402,7 @@ async fn test_preingestion_time_sync_retry_logic(
 
     let mgr = PreingestionManager::new(
         pool.clone(),
-        env.config.clone(),
+        env.config.preingestion_manager(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
         None,

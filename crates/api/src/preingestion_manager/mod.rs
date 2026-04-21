@@ -15,16 +15,19 @@
  * limitations under the License.
  */
 
+mod config;
+mod metrics;
+
 use std::collections::HashMap;
 use std::default::Default;
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_firmware::FirmwareConfig;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
 use carbide_site_explorer::EndpointExplorer;
 use chrono::{DateTime, Utc};
+pub use config::PreingestionManagerConfig;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, WithTransaction};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
@@ -45,12 +48,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use utils::periodic_timer::PeriodicTimer;
 
-use crate::cfg::file::{CarbideConfig, FirmwareGlobal};
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::preingestion_manager::metrics::PreingestionMetrics;
 use crate::{CarbideError, CarbideResult};
-
-mod metrics;
 
 const NOT_FOUND: u16 = 404;
 
@@ -76,14 +76,10 @@ pub struct PreingestionManager {
 
 #[derive(Clone)]
 struct PreingestionManagerStatic {
-    run_interval: Duration,
-    firmware_global: FirmwareGlobal,
-    host_info: FirmwareConfig,
+    config: PreingestionManagerConfig,
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     downloader: FirmwareDownloader,
     upload_limiter: Arc<Semaphore>,
-    concurrency_limit: usize,
-    hgx_bmc_gpu_reboot_delay: Duration,
     upgrade_script_state: Arc<UpdateScriptManager>,
     credential_reader: Option<Arc<dyn CredentialReader>>,
     work_lock_manager_handle: WorkLockManagerHandle,
@@ -101,7 +97,7 @@ impl PreingestionManager {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         database_connection: sqlx::PgPool,
-        config: Arc<CarbideConfig>,
+        config: PreingestionManagerConfig,
         redfish_client_pool: Arc<dyn RedfishClientPool>,
         meter: Meter,
         downloader: Option<FirmwareDownloader>,
@@ -111,40 +107,23 @@ impl PreingestionManager {
         endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> PreingestionManager {
         let hold_period = config
-            .firmware_global
             .run_interval
-            .to_std()
-            .unwrap_or(std::time::Duration::from_secs(30))
             .saturating_add(std::time::Duration::from_secs(60));
 
         let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
 
         PreingestionManager {
             static_info: Arc::new(PreingestionManagerStatic {
-                run_interval: config
-                    .firmware_global
-                    .run_interval
-                    .to_std()
-                    .unwrap_or(Duration::from_secs(30)),
-                firmware_global: config.firmware_global.clone(),
-                host_info: config.get_firmware_config(),
                 redfish_client_pool,
                 downloader: downloader.unwrap_or_default(),
                 upload_limiter: upload_limiter.unwrap_or(Arc::new(Semaphore::new(5))),
-                concurrency_limit: config.firmware_global.concurrency_limit,
                 upgrade_script_state: Default::default(),
                 credential_reader,
-                hgx_bmc_gpu_reboot_delay: config
-                    .firmware_global
-                    .hgx_bmc_gpu_reboot_delay
-                    .to_std()
-                    .unwrap_or(Duration::from_secs(30)),
                 work_lock_manager_handle,
                 endpoint_explorer,
                 bfb_copy_state: Default::default(),
-                bfb_copy_limiter: Arc::new(Semaphore::new(
-                    config.firmware_global.max_concurrent_bfb_copies,
-                )),
+                bfb_copy_limiter: Arc::new(Semaphore::new(config.max_concurrent_bfb_copies)),
+                config,
             }),
             metric_holder,
             database_connection,
@@ -164,7 +143,7 @@ impl PreingestionManager {
     }
 
     async fn run(&self, cancel_token: CancellationToken) {
-        let timer = PeriodicTimer::new(self.static_info.run_interval);
+        let timer = PeriodicTimer::new(self.static_info.config.run_interval);
         loop {
             let tick = timer.tick();
             let res = self.run_single_iteration().await;
@@ -230,7 +209,7 @@ impl PreingestionManager {
         // Limit the number of concurrent preingestion tasks.
         // This does not affect how many endpoints are done in a single iteration, it just avoids opening
         // too many simultaneous postgres transactions, which can cause things to deadlock.
-        let limit_sem = Arc::new(Semaphore::new(self.static_info.concurrency_limit));
+        let limit_sem = Arc::new(Semaphore::new(self.static_info.config.concurrency_limit));
         let mut task_set = JoinSet::new();
 
         for endpoint in items.into_iter() {
@@ -477,7 +456,7 @@ impl PreingestionManagerStatic {
             }
         };
         let model = endpoint.report.model()?;
-        self.host_info.create_snapshot().find(vendor, &model)
+        self.config.firmware.create_snapshot().find(vendor, &model)
     }
 
     /// check_firmware_versions_below_preingestion will check if we actually need to do firmware upgrades before
@@ -567,7 +546,7 @@ impl PreingestionManagerStatic {
 
         // Determine if auto updates should be enabled.
         // We can't check machine IDs here as they may not be available yet, so use the global value only.
-        if !self.firmware_global.autoupdate {
+        if !self.config.autoupdate {
             tracing::debug!(
                 "start_firmware_uploads_or_continue {}: Auto updates disabled",
                 endpoint.address
@@ -1104,7 +1083,7 @@ impl PreingestionManagerStatic {
                 tracing::error!("Failed to power off {}: {e}", &endpoint.address);
                 return Ok(());
             }
-            tokio::time::sleep(self.hgx_bmc_gpu_reboot_delay).await;
+            tokio::time::sleep(self.config.hgx_bmc_gpu_reboot_delay).await;
             if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
                 tracing::error!("Failed to power on {}: {e}", &endpoint.address);
                 return Ok(());
@@ -1164,7 +1143,7 @@ impl PreingestionManagerStatic {
             if let Some(current_version) = endpoint.find_version(&fw_info, *upgrade_type) {
                 if current_version != final_version {
                     // Still not reporting the new version.
-                    if !self.firmware_global.no_reset_retries
+                    if !self.config.no_reset_retries
                         && let Some(previous_reset_time) = previous_reset_time
                         && previous_reset_time + 30 * 60 <= Utc::now().timestamp()
                     {

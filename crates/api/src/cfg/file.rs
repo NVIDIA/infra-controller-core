@@ -50,6 +50,7 @@ use utils::config::{
     as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
 };
 
+use crate::preingestion_manager::PreingestionManagerConfig;
 use crate::state_controller::config::IterationConfig;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
@@ -1083,6 +1084,27 @@ impl CarbideConfig {
             .as_ref()
             .filter(|conf| conf.enabled)
             .map(|conf| conf.mqtt_broker_port)
+    }
+
+    /// Returns preingestion manager config.
+    pub fn preingestion_manager(&self) -> PreingestionManagerConfig {
+        PreingestionManagerConfig {
+            run_interval: self
+                .firmware_global
+                .run_interval
+                .to_std()
+                .unwrap_or(std::time::Duration::from_secs(30)),
+            concurrency_limit: self.firmware_global.concurrency_limit,
+            hgx_bmc_gpu_reboot_delay: self
+                .firmware_global
+                .hgx_bmc_gpu_reboot_delay
+                .to_std()
+                .unwrap_or(std::time::Duration::from_secs(30)),
+            max_concurrent_bfb_copies: self.firmware_global.max_concurrent_bfb_copies,
+            autoupdate: self.firmware_global.autoupdate,
+            no_reset_retries: self.firmware_global.no_reset_retries,
+            firmware: self.get_firmware_config(),
+        }
     }
 }
 
