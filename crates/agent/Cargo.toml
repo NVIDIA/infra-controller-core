@@ -116,6 +116,7 @@ reqwest = { default-features = false, features = [
 tower = { workspace = true }
 tower-http = { features = ["trace"], workspace = true }
 tracing = { workspace = true }
+url = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 uzers = { workspace = true }
 version-compare = { workspace = true }

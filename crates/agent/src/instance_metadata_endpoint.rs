@@ -21,7 +21,9 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::header::{ACCEPT, HeaderMap, HeaderValue};
+use axum::http::{StatusCode, Uri};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
@@ -31,7 +33,7 @@ use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
 use mockall::automock;
 use nonzero_ext::nonzero;
-use rpc::forge::ManagedHostNetworkConfigResponse;
+use rpc::forge::{self, ManagedHostNetworkConfigResponse};
 
 use crate::periodic_config_fetcher::InstanceMetadata;
 use crate::util::phone_home;
@@ -62,6 +64,14 @@ pub trait InstanceMetadataRouterState: Sync + Send {
         Option<Arc<ManagedHostNetworkConfigResponse>>,
     );
     async fn phone_home(&self) -> Result<(), eyre::Error>;
+
+    /// Calls Carbide `SignMachineIdentity` gRPC using the agent's TLS client identity. The SPIFFE ID
+    /// in the client certificate must match the managed host machine row used by Carbide for
+    /// tenant identity config.
+    async fn sign_machine_identity(
+        &self,
+        audiences: Vec<String>,
+    ) -> Result<forge::MachineIdentityResponse, tonic::Status>;
 }
 
 pub struct InstanceMetadataRouterStateImpl {
@@ -109,6 +119,21 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
 
         Ok(())
     }
+
+    async fn sign_machine_identity(
+        &self,
+        audiences: Vec<String>,
+    ) -> Result<forge::MachineIdentityResponse, tonic::Status> {
+        let mut client = create_forge_client(&self.forge_api, &self.forge_client_config)
+            .await
+            .map_err(|e| tonic::Status::internal(e.to_string()))?;
+        let resp = client
+            .sign_machine_identity(forge::MachineIdentityRequest {
+                audience: audiences,
+            })
+            .await?;
+        Ok(resp.into_inner())
+    }
 }
 
 impl InstanceMetadataRouterStateImpl {
@@ -138,6 +163,20 @@ impl InstanceMetadataRouterStateImpl {
     ) {
         self.latest_network_config.store(network_config);
     }
+}
+
+/// SPIFFE machine-identity token over IMDS-style HTTP (SDD §3.5.1.1).
+///
+/// Serves `GET /meta-data/identity` (mount under `/v1` so the full path is `/v1/meta-data/identity`).
+pub fn get_v1_identity_router(
+    metadata_router_state: Arc<dyn InstanceMetadataRouterState>,
+) -> Router {
+    Router::new()
+        .nest(
+            &format!("/{META_DATA_CATEGORY}"),
+            Router::new().route("/identity", get(get_v1_identity)),
+        )
+        .with_state(metadata_router_state)
 }
 
 pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterState>) -> Router {
@@ -462,6 +501,119 @@ async fn post_phone_home(
     }
 }
 
+/// Parses repeated `aud` query parameters (URL-decoded).
+fn parse_identity_audiences(uri: &Uri) -> Vec<String> {
+    let Some(query) = uri.query() else {
+        return Vec::new();
+    };
+    url::form_urlencoded::parse(query.as_bytes())
+        .filter(|(k, _)| k == "aud")
+        .map(|(_, v)| v.into_owned())
+        .collect()
+}
+
+fn metadata_header_is_true(headers: &HeaderMap) -> bool {
+    headers
+        .get("metadata")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.eq_ignore_ascii_case("true"))
+}
+
+fn accept_text_plain(headers: &HeaderMap) -> bool {
+    headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|a| {
+            a.split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case("text/plain"))
+        })
+}
+
+fn map_grpc_status_to_http(status: &tonic::Status) -> StatusCode {
+    use tonic::Code;
+    match status.code() {
+        Code::Ok => StatusCode::OK,
+        Code::Cancelled => StatusCode::REQUEST_TIMEOUT,
+        Code::Unknown => StatusCode::BAD_GATEWAY,
+        Code::InvalidArgument => StatusCode::BAD_REQUEST,
+        Code::DeadlineExceeded => StatusCode::GATEWAY_TIMEOUT,
+        Code::NotFound => StatusCode::NOT_FOUND,
+        Code::AlreadyExists => StatusCode::CONFLICT,
+        Code::PermissionDenied => StatusCode::FORBIDDEN,
+        Code::ResourceExhausted => StatusCode::TOO_MANY_REQUESTS,
+        Code::FailedPrecondition => StatusCode::BAD_REQUEST,
+        Code::Aborted => StatusCode::CONFLICT,
+        Code::OutOfRange => StatusCode::BAD_REQUEST,
+        Code::Unimplemented => StatusCode::NOT_IMPLEMENTED,
+        Code::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        Code::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        Code::DataLoss => StatusCode::INTERNAL_SERVER_ERROR,
+        Code::Unauthenticated => StatusCode::UNAUTHORIZED,
+    }
+}
+
+#[derive(serde::Serialize)]
+struct IdentityTokenJsonBody {
+    access_token: String,
+    issued_token_type: String,
+    token_type: String,
+    expires_in: u32,
+}
+
+async fn get_v1_identity(
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !metadata_header_is_true(&headers) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Metadata: true header is required for /v1/meta-data/identity\n",
+        )
+            .into_response();
+    }
+
+    let audiences = parse_identity_audiences(&uri);
+    let resp = match state.sign_machine_identity(audiences).await {
+        Ok(r) => r,
+        Err(e) => {
+            let code = map_grpc_status_to_http(&e);
+            return (code, e.message().to_string()).into_response();
+        }
+    };
+
+    let body = IdentityTokenJsonBody {
+        access_token: resp.access_token,
+        issued_token_type: resp.issued_token_type,
+        token_type: resp.token_type,
+        expires_in: resp.expires_in_sec,
+    };
+    let json = match serde_json::to_string(&body) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to serialize identity response: {e}"),
+            )
+                .into_response();
+        }
+    };
+
+    // Same JSON document for both `Accept: application/json` and `Accept: text/plain` (cloud IMDS
+    // style: alternate content-type for the same payload shape).
+    let content_type = if accept_text_plain(&headers) {
+        "text/plain; charset=utf-8"
+    } else {
+        "application/json"
+    };
+    let mut res = (StatusCode::OK, json).into_response();
+    res.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static(content_type),
+    );
+    res
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http;
@@ -471,6 +623,40 @@ mod tests {
     use uuid::uuid;
 
     use super::*;
+
+    #[test]
+    fn parse_identity_audiences_repeated_and_decoded() {
+        let uri: Uri = "http://127.0.0.1/v1/meta-data/identity?aud=spiffe%3A%2F%2Fa&aud=b"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            parse_identity_audiences(&uri),
+            vec!["spiffe://a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn metadata_header_is_true_accepts_case_insensitive() {
+        let mut h = HeaderMap::new();
+        assert!(!metadata_header_is_true(&h));
+        h.insert("metadata", HeaderValue::from_static("true"));
+        assert!(metadata_header_is_true(&h));
+        let mut h2 = HeaderMap::new();
+        h2.insert("metadata", HeaderValue::from_static("TRUE"));
+        assert!(metadata_header_is_true(&h2));
+    }
+
+    #[test]
+    fn test_accept_text_plain() {
+        let mut h = HeaderMap::new();
+        assert!(!accept_text_plain(&h));
+        h.insert(ACCEPT, HeaderValue::from_static("application/json"));
+        assert!(!accept_text_plain(&h));
+        let mut h2 = HeaderMap::new();
+        h2.insert(ACCEPT, HeaderValue::from_static("text/plain"));
+        assert!(accept_text_plain(&h2));
+    }
+
     use crate::periodic_config_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
 
     async fn setup_server(
