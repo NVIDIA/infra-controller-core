@@ -25,7 +25,9 @@ use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
-use model::switch::{NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest};
+use model::switch::{
+    FabricManagerStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
+};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -319,11 +321,11 @@ pub async fn update_nvos_update_status(
 pub async fn update_fabric_manager_status(
     txn: &mut PgConnection,
     switch_id: SwitchId,
-    status: Option<&str>,
+    status: Option<&FabricManagerStatus>,
 ) -> DatabaseResult<()> {
     let query = "UPDATE switches SET fabric_manager_status = $1 WHERE id = $2 RETURNING id";
     sqlx::query_as::<_, SwitchId>(query)
-        .bind(status)
+        .bind(status.cloned().map(sqlx::types::Json))
         .bind(switch_id)
         .fetch_optional(txn)
         .await

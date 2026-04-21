@@ -120,6 +120,34 @@ pub use crate::rack::{
     SwitchNvosUpdateStatus,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FabricManagerState {
+    Ok,
+    NotOk,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricManagerStatus {
+    pub fabric_manager_state: FabricManagerState,
+    pub addition_info: Option<String>,
+    pub reason: Option<String>,
+    pub error_message: Option<String>,
+}
+
+impl FabricManagerStatus {
+    pub fn display_status(&self) -> &'static str {
+        if self.fabric_manager_state == FabricManagerState::Ok
+            && self.addition_info.as_deref() == Some("CONTROL_PLANE_STATE_CONFIGURED")
+        {
+            "running"
+        } else {
+            "not_running"
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Switch {
     pub id: SwitchId,
@@ -146,7 +174,7 @@ pub struct Switch {
     pub nvos_update_status: Option<SwitchNvosUpdateStatus>,
 
     /// FabricManager / NMX-C status set by the rack state machine.
-    pub fabric_manager_status: Option<String>,
+    pub fabric_manager_status: Option<FabricManagerStatus>,
 
     /// The rack that this switch is associated with.
     pub rack_id: Option<RackId>,
@@ -175,7 +203,8 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             row.try_get("firmware_upgrade_status").ok();
         let nvos_update_status: Option<sqlx::types::Json<SwitchNvosUpdateStatus>> =
             row.try_get("nvos_update_status").ok();
-        let fabric_manager_status: Option<String> = row.try_get("fabric_manager_status").ok();
+        let fabric_manager_status: Option<sqlx::types::Json<FabricManagerStatus>> =
+            row.try_get("fabric_manager_status").ok().flatten();
 
         // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
@@ -202,7 +231,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             switch_reprovisioning_requested: switch_reprovisioning_requested.map(|j| j.0),
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
             nvos_update_status: nvos_update_status.map(|j| j.0),
-            fabric_manager_status,
+            fabric_manager_status: fabric_manager_status.map(|j| j.0),
             metadata,
             version: row.try_get("version")?,
             is_primary: row.try_get("is_primary").unwrap_or(false),
@@ -322,7 +351,10 @@ impl TryFrom<Switch> for rpc::Switch {
             version: src.version.version_string(),
             rack_id: src.rack_id,
             placement_in_rack,
-            fabric_manager_status: src.fabric_manager_status,
+            fabric_manager_status: src
+                .fabric_manager_status
+                .as_ref()
+                .map(|status| status.display_status().to_string()),
             is_primary: src.is_primary,
         })
     }
@@ -488,7 +520,12 @@ mod tests {
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
             nvos_update_status: None,
-            fabric_manager_status: Some("running".to_string()),
+            fabric_manager_status: Some(FabricManagerStatus {
+                fabric_manager_state: FabricManagerState::Ok,
+                addition_info: Some("CONTROL_PLANE_STATE_CONFIGURED".to_string()),
+                reason: Some(String::new()),
+                error_message: None,
+            }),
             metadata: Metadata::default(),
             version: ConfigVersion::initial(),
             is_primary: true,

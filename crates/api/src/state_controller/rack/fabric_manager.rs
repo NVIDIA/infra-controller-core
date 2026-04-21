@@ -22,6 +22,8 @@ use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use librms::protos::rack_manager as rms;
 use model::rack::FirmwareUpgradeDeviceInfo;
+use model::switch::{FabricManagerState, FabricManagerStatus};
+use serde::Deserialize;
 use sqlx::PgConnection;
 
 use crate::rack::firmware_update::build_new_node_info;
@@ -94,44 +96,66 @@ pub(super) async fn get_scale_up_fabric_services_status(
         .map_err(|error| format!("RMS GetScaleUpFabricServicesStatus failed: {}", error))
 }
 
+#[derive(Debug, Deserialize)]
+struct RmsFabricManagerStatusPayload {
+    status: Option<String>,
+    #[serde(rename = "addition-info")]
+    addition_info: Option<String>,
+    reason: Option<String>,
+}
+
 fn fabric_manager_status_from_entry(
     node_id: &str,
     entry: &rms::ScaleUpFabricServiceStatusEntry,
-) -> &'static str {
+) -> FabricManagerStatus {
     if !entry.error_message.trim().is_empty() {
-        return "not_running";
+        return FabricManagerStatus {
+            fabric_manager_state: FabricManagerState::Unknown,
+            addition_info: None,
+            reason: None,
+            error_message: Some(entry.error_message.clone()),
+        };
     }
 
     if entry.status_json.trim().is_empty() {
-        return "not_running";
+        return FabricManagerStatus {
+            fabric_manager_state: FabricManagerState::Unknown,
+            addition_info: None,
+            reason: None,
+            error_message: None,
+        };
     }
 
-    let status_json = match serde_json::from_str::<serde_json::Value>(&entry.status_json) {
-        Ok(status_json) => status_json,
-        Err(error) => {
-            tracing::warn!(
-                switch_id = %node_id,
-                %error,
-                status_json = %entry.status_json,
-                "Failed to parse RMS fabric-manager status JSON"
-            );
-            return "not_running";
-        }
+    let status_json =
+        match serde_json::from_str::<RmsFabricManagerStatusPayload>(&entry.status_json) {
+            Ok(status_json) => status_json,
+            Err(error) => {
+                tracing::warn!(
+                    switch_id = %node_id,
+                    %error,
+                    status_json = %entry.status_json,
+                    "Failed to parse RMS fabric-manager status JSON"
+                );
+                return FabricManagerStatus {
+                    fabric_manager_state: FabricManagerState::Unknown,
+                    addition_info: None,
+                    reason: None,
+                    error_message: None,
+                };
+            }
+        };
+
+    let fabric_manager_state = match status_json.status.as_deref().unwrap_or_default() {
+        "ok" => FabricManagerState::Ok,
+        "not ok" => FabricManagerState::NotOk,
+        _ => FabricManagerState::Unknown,
     };
 
-    let status = status_json
-        .get("status")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    let addition_info = status_json
-        .get("addition-info")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-
-    if status == "ok" && addition_info == "CONTROL_PLANE_STATE_CONFIGURED" {
-        "running"
-    } else {
-        "not_running"
+    FabricManagerStatus {
+        fabric_manager_state,
+        addition_info: status_json.addition_info,
+        reason: status_json.reason,
+        error_message: None,
     }
 }
 
@@ -146,23 +170,6 @@ pub(super) async fn persist_fabric_manager_statuses(
             "RMS GetScaleUpFabricServicesStatus returned failure for ConfigureNmxCluster"
                 .to_string(),
         );
-    }
-
-    let expected_node_ids: HashSet<&str> = switches
-        .iter()
-        .map(|switch| switch.node_id.as_str())
-        .collect();
-    let unexpected_switches = response
-        .device_info_result
-        .keys()
-        .filter(|node_id| !expected_node_ids.contains(node_id.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    if !unexpected_switches.is_empty() {
-        return Err(format!(
-            "RMS returned fabric-manager status for unexpected switches: {}",
-            unexpected_switches.join(", ")
-        ));
     }
 
     for switch in switches {
@@ -180,7 +187,7 @@ pub(super) async fn persist_fabric_manager_statuses(
         })?;
         let fabric_manager_status = fabric_manager_status_from_entry(&switch.node_id, entry);
 
-        db_switch::update_fabric_manager_status(txn, switch_id, Some(fabric_manager_status))
+        db_switch::update_fabric_manager_status(txn, switch_id, Some(&fabric_manager_status))
             .await
             .map_err(|error| {
                 format!(
@@ -192,8 +199,9 @@ pub(super) async fn persist_fabric_manager_statuses(
         tracing::info!(
             rack_id = %rack_id,
             switch_id = %switch.node_id,
-            fabric_manager_status,
-            error_message = %entry.error_message,
+            fabric_manager_status = %fabric_manager_status.display_status(),
+            raw_fabric_manager_state = ?fabric_manager_status.fabric_manager_state,
+            error_message = %fabric_manager_status.error_message.as_deref().unwrap_or_default(),
             "Persisted FabricManager status for switch"
         );
     }
@@ -396,7 +404,15 @@ mod tests {
             error_message: String::new(),
         };
 
-        assert_eq!(fabric_manager_status_from_entry("sw-1", &entry), "running");
+        let status = fabric_manager_status_from_entry("sw-1", &entry);
+
+        assert_eq!(status.fabric_manager_state, FabricManagerState::Ok);
+        assert_eq!(
+            status.addition_info.as_deref(),
+            Some("CONTROL_PLANE_STATE_CONFIGURED")
+        );
+        assert_eq!(status.reason.as_deref(), Some(""));
+        assert_eq!(status.display_status(), "running");
     }
 
     #[test]
@@ -407,10 +423,12 @@ mod tests {
             error_message: String::new(),
         };
 
-        assert_eq!(
-            fabric_manager_status_from_entry("sw-1", &entry),
-            "not_running"
-        );
+        let status = fabric_manager_status_from_entry("sw-1", &entry);
+
+        assert_eq!(status.fabric_manager_state, FabricManagerState::NotOk);
+        assert_eq!(status.addition_info.as_deref(), Some(""));
+        assert_eq!(status.reason.as_deref(), Some("stopped by user"));
+        assert_eq!(status.display_status(), "not_running");
     }
 
     #[test]
@@ -420,10 +438,10 @@ mod tests {
             error_message: String::new(),
         };
 
-        assert_eq!(
-            fabric_manager_status_from_entry("sw-1", &entry),
-            "not_running"
-        );
+        let status = fabric_manager_status_from_entry("sw-1", &entry);
+
+        assert_eq!(status.fabric_manager_state, FabricManagerState::Unknown);
+        assert_eq!(status.display_status(), "not_running");
     }
 
     #[test]
@@ -434,10 +452,14 @@ mod tests {
             error_message: "nmx-controller not started".to_string(),
         };
 
+        let status = fabric_manager_status_from_entry("sw-1", &entry);
+
+        assert_eq!(status.fabric_manager_state, FabricManagerState::Unknown);
         assert_eq!(
-            fabric_manager_status_from_entry("sw-1", &entry),
-            "not_running"
+            status.error_message.as_deref(),
+            Some("nmx-controller not started")
         );
+        assert_eq!(status.display_status(), "not_running");
     }
 
     #[test]
@@ -447,9 +469,9 @@ mod tests {
             error_message: String::new(),
         };
 
-        assert_eq!(
-            fabric_manager_status_from_entry("sw-1", &entry),
-            "not_running"
-        );
+        let status = fabric_manager_status_from_entry("sw-1", &entry);
+
+        assert_eq!(status.fabric_manager_state, FabricManagerState::Unknown);
+        assert_eq!(status.display_status(), "not_running");
     }
 }
