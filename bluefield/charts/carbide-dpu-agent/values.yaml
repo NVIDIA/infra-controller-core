@@ -37,3 +37,8 @@ dhcp_server:
   # If interface_prepend is set to a non-empty string, it will
   # be turned into a --dhcp-server-interface-prepend argument.
   interface_prepend: ""
+  # Will be updated in dpf_services.rs
+  service_name: ""
+fmds:
+  # Will be updated in dpf_services.rs
+  service_name: ""

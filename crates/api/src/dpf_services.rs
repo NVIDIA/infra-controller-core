@@ -211,7 +211,6 @@ pub fn otelcol_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition 
     svc
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
 /// Forge DPU Agent service definition.
 pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
     ServiceDefinition {

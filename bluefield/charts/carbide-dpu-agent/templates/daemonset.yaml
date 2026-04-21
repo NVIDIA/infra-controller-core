@@ -54,6 +54,8 @@ spec:
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
             - "--discovery-info-file={{ .Values.discovery.hardware_file }}"
+            - "--dhcp-grpc-server={{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
+            - "--fmds-grpc-server={{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
             {{- if not (empty .Values.dhcp_server.interface_prepend) }}
             - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
             {{ end }}
