@@ -501,6 +501,27 @@ pub async fn host_power_control_with_location(
                     .map_err(CarbideError::RedfishError)?
             }
         }
+    } else if action == SystemPowerControl::ACPowercycle {
+        let power_state = redfish_client
+            .get_power_state()
+            .await
+            .map_err(CarbideError::RedfishError)?;
+        if power_state != PowerState::Off {
+            tracing::warn!(
+                machine_id = machine.id.to_string(),
+                %power_state,
+                "ACPowercycle requires chassis to be Off, forcing off first"
+            );
+            redfish_client
+                .power(SystemPowerControl::ForceOff)
+                .await
+                .map_err(CarbideError::RedfishError)?;
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        }
+        redfish_client
+            .power(action)
+            .await
+            .map_err(CarbideError::RedfishError)?
     } else {
         redfish_client
             .power(action)

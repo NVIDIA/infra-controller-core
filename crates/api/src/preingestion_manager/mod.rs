@@ -976,6 +976,51 @@ impl PreingestionManagerStatic {
                 Some(PowerDrainState::Off) => {
                     if endpoint.report.vendor.unwrap_or_default().is_lenovo() {
                         tracing::info!("Doing powercycle now for {}", &endpoint.address);
+                        match redfish_client.get_power_state().await {
+                            Ok(power_state) if power_state != PowerState::Off => {
+                                tracing::warn!(
+                                    address = %endpoint.address,
+                                    %power_state,
+                                    "ACPowercycle requires chassis to be Off, forcing off first"
+                                );
+                                if let Err(e) =
+                                    redfish_client.power(SystemPowerControl::ForceOff).await
+                                {
+                                    tracing::error!(
+                                        "Failed to force off {}: {e}",
+                                        &endpoint.address
+                                    );
+                                    return Ok(());
+                                }
+                                let delay = if *power_drains_needed < 1000 {
+                                    time::Duration::seconds(60)
+                                } else {
+                                    time::Duration::seconds(0)
+                                };
+                                db.with_txn(|txn| {
+                                    db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                                        endpoint.address,
+                                        final_version,
+                                        upgrade_type,
+                                        Some(*power_drains_needed),
+                                        Some(delay),
+                                        Some(PowerDrainState::Off),
+                                        txn,
+                                    )
+                                    .boxed()
+                                })
+                                .await??;
+                                return Ok(());
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to get power state for {}: {e}",
+                                    &endpoint.address
+                                );
+                                return Ok(());
+                            }
+                        }
                         if let Err(e) = redfish_client.power(SystemPowerControl::ACPowercycle).await
                         {
                             tracing::error!("Failed to power cycle {}: {e}", &endpoint.address);
