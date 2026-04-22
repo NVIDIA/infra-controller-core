@@ -21,8 +21,8 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportEntry};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
-use carbide_uuid::rack::{RackId, RackProfileId};
 use db::{
     ObjectColumnFilter, WithTransaction, expected_machine as db_expected_machine,
     expected_power_shelf as db_expected_power_shelf, expected_switch as db_expected_switch,

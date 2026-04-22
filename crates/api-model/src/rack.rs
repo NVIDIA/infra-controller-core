@@ -944,6 +944,7 @@ mod tests {
             controller_state: Versioned::new(state, ConfigVersion::initial()),
             controller_state_outcome: None,
             firmware_upgrade_job: None,
+            nvos_update_job: None,
             health_reports: Default::default(),
             created: Utc::now(),
             updated: Utc::now(),

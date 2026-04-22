@@ -25,19 +25,18 @@ use db::{
 };
 use librms::protos::rack_manager as rms;
 use model::rack::{
-    FirmwareUpgradeDeviceInfo, FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, NvosUpdateJob,
-    NvosUpdateState, NvosUpdateSwitchStatus, MaintenanceActivity, MaintenanceScope, Rack,
-    RackFirmwareUpgradeState,
-    RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState, RackState,
-    RackValidationState, ResolvedNvosArtifact, SwitchNvosUpdateState, SwitchNvosUpdateStatus,
+    FirmwareUpgradeDeviceInfo, FirmwareUpgradeDeviceStatus, FirmwareUpgradeState,
+    MaintenanceActivity, MaintenanceScope, NvosUpdateJob, NvosUpdateState, NvosUpdateSwitchStatus,
+    Rack, RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, RackMaintenanceState,
+    RackPowerState, RackState, RackValidationState, ResolvedNvosArtifact, SwitchNvosUpdateState,
+    SwitchNvosUpdateStatus,
 };
 use model::rack_firmware::{RackFirmware, RackFirmwareSearchFilter};
 use model::rack_type::RackHardwareType;
 
 use crate::rack::firmware_update::{
     RackFirmwareInventory, build_firmware_update_batches, build_new_node_info,
-    firmware_type_for_profile,
-    load_rack_firmware_inventory, submit_firmware_update_batches,
+    firmware_type_for_profile, load_rack_firmware_inventory, submit_firmware_update_batches,
 };
 use crate::rack::rms_client::SwitchSystemImageRmsClient;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
