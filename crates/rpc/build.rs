@@ -101,6 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FabricManagerConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.FabricManagerStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceIpv6Config", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceInterfaceIpv6Config", "#[derive(serde::Serialize, serde::Deserialize)]")

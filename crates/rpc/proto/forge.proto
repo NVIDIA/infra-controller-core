@@ -1978,6 +1978,20 @@ message FabricManagerConfig {
   map<string, string> config_map = 1;
 }
 
+enum FabricManagerState {
+  FABRIC_MANAGER_STATE_UNSPECIFIED = 0;
+  FABRIC_MANAGER_STATE_OK = 1;
+  FABRIC_MANAGER_STATE_NOT_OK = 2;
+  FABRIC_MANAGER_STATE_UNKNOWN = 3;
+}
+
+message FabricManagerStatus {
+  FabricManagerState fabric_manager_state = 1;
+  optional string addition_info = 2;
+  optional string reason = 3;
+  optional string error_message = 4;
+}
+
 // Describe the status and applied configuration of a Switch
 message SwitchStatus {
   // The result of last state controller run - its outcome and an optional reason for that outcome
@@ -2033,8 +2047,10 @@ message Switch {
   optional common.RackId rack_id = 10;
   optional PlacementInRack placement_in_rack = 11;
   reserved 12, 13;
+  // Deprecated: use fabric_manager_status_details instead.
   optional string fabric_manager_status = 14;
   bool is_primary = 15;
+  optional FabricManagerStatus fabric_manager_status_details = 16;
 }
 
 message SwitchList {

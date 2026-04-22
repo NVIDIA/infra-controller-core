@@ -148,6 +148,14 @@ impl FabricManagerStatus {
     }
 }
 
+fn to_rpc_fabric_manager_state(state: FabricManagerState) -> i32 {
+    match state {
+        FabricManagerState::Ok => rpc::FabricManagerState::Ok as i32,
+        FabricManagerState::NotOk => rpc::FabricManagerState::NotOk as i32,
+        FabricManagerState::Unknown => rpc::FabricManagerState::Unknown as i32,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Switch {
     pub id: SwitchId,
@@ -339,6 +347,18 @@ impl TryFrom<Switch> for rpc::Switch {
             None
         };
         let state_version = src.controller_state.version.to_string();
+        let fabric_manager_status = src
+            .fabric_manager_status
+            .as_ref()
+            .map(|status| status.display_status().to_string());
+        let fabric_manager_status_details =
+            src.fabric_manager_status
+                .map(|status| rpc::FabricManagerStatus {
+                    fabric_manager_state: to_rpc_fabric_manager_state(status.fabric_manager_state),
+                    addition_info: status.addition_info,
+                    reason: status.reason,
+                    error_message: status.error_message,
+                });
         Ok(rpc::Switch {
             id: Some(src.id),
             config: Some(config),
@@ -351,11 +371,9 @@ impl TryFrom<Switch> for rpc::Switch {
             version: src.version.version_string(),
             rack_id: src.rack_id,
             placement_in_rack,
-            fabric_manager_status: src
-                .fabric_manager_status
-                .as_ref()
-                .map(|status| status.display_status().to_string()),
+            fabric_manager_status,
             is_primary: src.is_primary,
+            fabric_manager_status_details,
         })
     }
 }
@@ -548,6 +566,17 @@ mod tests {
             rpc_switch.fabric_manager_status,
             Some("running".to_string())
         );
+        let details = rpc_switch
+            .fabric_manager_status_details
+            .expect("fabric_manager_status_details should be populated");
+        assert_eq!(
+            details.fabric_manager_state,
+            rpc::FabricManagerState::Ok as i32
+        );
+        assert_eq!(
+            details.addition_info,
+            Some("CONTROL_PLANE_STATE_CONFIGURED".to_string())
+        );
         assert!(rpc_switch.is_primary);
     }
 
@@ -595,6 +624,7 @@ mod tests {
         assert_eq!(status.power_state, None);
         assert_eq!(status.health_status, None);
         assert_eq!(rpc_switch.fabric_manager_status, None);
+        assert_eq!(rpc_switch.fabric_manager_status_details, None);
         assert!(!rpc_switch.is_primary);
     }
 
