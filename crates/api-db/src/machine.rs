@@ -264,10 +264,6 @@ pub async fn find(
         builder.push(" AND m.network_config->>'quarantine_state' IS NOT NULL ");
     }
 
-    if search_config.for_update {
-        builder.push(" FOR UPDATE OF machines");
-    };
-
     if let Some(id) = search_config.instance_type_id {
         builder.push(" AND m.instance_type_id = ");
         builder.push_bind(id);
@@ -277,6 +273,11 @@ pub async fn find(
         builder.push(" AND m.rack_id = ");
         builder.push_bind(rack_id);
     }
+
+    if search_config.for_update {
+        builder.push(" ORDER BY m.id ");
+        builder.push(" FOR UPDATE OF machines ");
+    };
 
     let all_machines: Vec<Machine> = builder
         .build_query_as()
@@ -332,6 +333,7 @@ pub async fn find_ids_by_instance_type_id(
     builder.push_bind(instance_type_id);
 
     if for_update {
+        builder.push(" ORDER BY id ");
         builder.push(" FOR UPDATE ");
     }
 
@@ -1742,6 +1744,7 @@ pub async fn find_machine_ids(
     }
 
     if search_config.for_update {
+        qb.push(" ORDER BY id ");
         qb.push(" FOR UPDATE");
     }
 
