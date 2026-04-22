@@ -1538,6 +1538,7 @@ pub async fn handle_maintenance(
                 if let Err(cause) =
                     persist_primary_switch(txn.as_mut(), id, &primary_switch.device.node_id).await
                 {
+                    drop(txn);
                     return transition_to_rack_error(id, state, cause, ctx).await;
                 }
                 txn.commit().await?;
@@ -1618,6 +1619,7 @@ pub async fn handle_maintenance(
             )
             .await
             {
+                drop(txn);
                 return transition_to_rack_error(id, state, cause, ctx).await;
             }
             let next = next_state_after_configure(scope);
