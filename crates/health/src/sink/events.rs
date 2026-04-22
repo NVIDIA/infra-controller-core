@@ -59,12 +59,10 @@ impl EventContext {
         }
     }
 
-    pub fn serial_number(&self) -> Option<&String> {
-        match &self.metadata {
-            Some(EndpointMetadata::Machine(machine)) => machine.machine_serial.as_ref(),
-            Some(EndpointMetadata::Switch(switch)) => Some(&switch.serial),
-            _ => None,
-        }
+    pub fn serial_number(&self) -> Option<&str> {
+        self.metadata
+            .as_ref()
+            .and_then(EndpointMetadata::serial_number)
     }
 
     pub fn rack_id(&self) -> Option<&RackId> {
