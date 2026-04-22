@@ -16,10 +16,10 @@
  */
 
 use std::fmt;
+use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
-use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, reload};
 
 use crate::logging::setup::dep_log_filter;
