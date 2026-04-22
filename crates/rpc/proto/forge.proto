@@ -2014,6 +2014,8 @@ message SwitchStatus {
   repeated HealthSourceOrigin health_sources = 8;
   // Lifecycle related status
   LifecycleStatus lifecycle = 9;
+  optional string fabric_manager_status = 10;
+  optional FabricManagerStatus fabric_manager_status_details = 11;
 }
 
 message PlacementInRack {
@@ -2046,11 +2048,8 @@ message Switch {
   // The rack that this switch is associated with
   optional common.RackId rack_id = 10;
   optional PlacementInRack placement_in_rack = 11;
-  reserved 12, 13;
-  // Deprecated: use fabric_manager_status_details instead.
-  optional string fabric_manager_status = 14;
+  reserved 12, 13, 14, 16;
   bool is_primary = 15;
-  optional FabricManagerStatus fabric_manager_status_details = 16;
 }
 
 message SwitchList {

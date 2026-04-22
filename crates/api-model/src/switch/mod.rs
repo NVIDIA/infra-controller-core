@@ -282,6 +282,21 @@ impl TryFrom<Switch> for rpc::Switch {
 
     fn try_from(src: Switch) -> Result<Self, Self::Error> {
         let health = derive_switch_aggregate_health(&src.health_reports);
+        let fabric_manager_status = src
+            .fabric_manager_status
+            .as_ref()
+            .map(|status| status.display_status().to_string());
+        let fabric_manager_status_details =
+            src.fabric_manager_status
+                .as_ref()
+                .map(|status| rpc::FabricManagerStatus {
+                    fabric_manager_state: to_rpc_fabric_manager_state(
+                        status.fabric_manager_state.clone(),
+                    ),
+                    addition_info: status.addition_info.clone(),
+                    reason: status.reason.clone(),
+                    error_message: status.error_message.clone(),
+                });
         let health_sources = src
             .health_reports
             .iter()
@@ -299,31 +314,42 @@ impl TryFrom<Switch> for rpc::Switch {
             sla: Some(sla.clone().into()),
         };
         let controller_state = lifecycle.state.clone();
-
-        let status = Some(match src.status {
-            Some(s) => rpc::SwitchStatus {
-                state_reason: lifecycle.state_reason.clone(),
-                state_sla: Some(sla.into()),
-                switch_name: Some(s.switch_name),
-                power_state: Some(s.power_state),
-                health_status: Some(s.health_status),
-                controller_state: Some(lifecycle.state.clone()),
-                health: Some(health.into()),
-                health_sources,
-                lifecycle: Some(lifecycle),
+        let status = Some(
+            match (
+                src.status,
+                fabric_manager_status,
+                fabric_manager_status_details,
+            ) {
+                (Some(s), fabric_manager_status, fabric_manager_status_details) => {
+                    rpc::SwitchStatus {
+                        state_reason: lifecycle.state_reason.clone(),
+                        state_sla: Some(sla.into()),
+                        switch_name: Some(s.switch_name),
+                        power_state: Some(s.power_state),
+                        health_status: Some(s.health_status),
+                        controller_state: Some(lifecycle.state.clone()),
+                        health: Some(health.into()),
+                        health_sources,
+                        lifecycle: Some(lifecycle),
+                        fabric_manager_status,
+                        fabric_manager_status_details,
+                    }
+                }
+                (None, fabric_manager_status, fabric_manager_status_details) => rpc::SwitchStatus {
+                    state_reason: lifecycle.state_reason.clone(),
+                    state_sla: Some(sla.into()),
+                    switch_name: None,
+                    power_state: None,
+                    health_status: None,
+                    controller_state: Some(lifecycle.state.clone()),
+                    health: Some(health.into()),
+                    health_sources,
+                    lifecycle: Some(lifecycle),
+                    fabric_manager_status,
+                    fabric_manager_status_details,
+                },
             },
-            None => rpc::SwitchStatus {
-                state_reason: lifecycle.state_reason.clone(),
-                state_sla: Some(sla.into()),
-                switch_name: None,
-                power_state: None,
-                health_status: None,
-                controller_state: Some(lifecycle.state.clone()),
-                health: Some(health.into()),
-                health_sources,
-                lifecycle: Some(lifecycle),
-            },
-        });
+        );
 
         let placement_in_rack = Some(rpc::PlacementInRack {
             slot_number: src.slot_number,
@@ -347,18 +373,6 @@ impl TryFrom<Switch> for rpc::Switch {
             None
         };
         let state_version = src.controller_state.version.to_string();
-        let fabric_manager_status = src
-            .fabric_manager_status
-            .as_ref()
-            .map(|status| status.display_status().to_string());
-        let fabric_manager_status_details =
-            src.fabric_manager_status
-                .map(|status| rpc::FabricManagerStatus {
-                    fabric_manager_state: to_rpc_fabric_manager_state(status.fabric_manager_state),
-                    addition_info: status.addition_info,
-                    reason: status.reason,
-                    error_message: status.error_message,
-                });
         Ok(rpc::Switch {
             id: Some(src.id),
             config: Some(config),
@@ -371,9 +385,7 @@ impl TryFrom<Switch> for rpc::Switch {
             version: src.version.version_string(),
             rack_id: src.rack_id,
             placement_in_rack,
-            fabric_manager_status,
             is_primary: src.is_primary,
-            fabric_manager_status_details,
         })
     }
 }
@@ -562,11 +574,8 @@ mod tests {
         assert!(status.state_sla.is_some(), "state_sla should be populated");
         assert_eq!(status.power_state, Some("on".to_string()));
         assert_eq!(status.health_status, Some("ok".to_string()));
-        assert_eq!(
-            rpc_switch.fabric_manager_status,
-            Some("running".to_string())
-        );
-        let details = rpc_switch
+        assert_eq!(status.fabric_manager_status, Some("running".to_string()));
+        let details = status
             .fabric_manager_status_details
             .expect("fabric_manager_status_details should be populated");
         assert_eq!(
@@ -623,8 +632,8 @@ mod tests {
         );
         assert_eq!(status.power_state, None);
         assert_eq!(status.health_status, None);
-        assert_eq!(rpc_switch.fabric_manager_status, None);
-        assert_eq!(rpc_switch.fabric_manager_status_details, None);
+        assert_eq!(status.fabric_manager_status, None);
+        assert_eq!(status.fabric_manager_status_details, None);
         assert!(!rpc_switch.is_primary);
     }
 

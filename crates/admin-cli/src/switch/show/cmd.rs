@@ -89,8 +89,11 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     .and_then(|status| status.health_status.as_deref())
                     .unwrap_or("N/A");
                 let is_primary = if switch.is_primary { "Yes" } else { "No" };
-                let fabric_manager_status =
-                    switch.fabric_manager_status.as_deref().unwrap_or("N/A");
+                let fabric_manager_status = switch
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.fabric_manager_status.as_deref())
+                    .unwrap_or("N/A");
 
                 table.add_row(row![
                     id,
@@ -176,8 +179,11 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     .and_then(|status| status.health_status.as_deref())
                     .unwrap_or("N/A");
                 let is_primary = if switch.is_primary { "Yes" } else { "No" };
-                let fabric_manager_status =
-                    switch.fabric_manager_status.as_deref().unwrap_or("N/A");
+                let fabric_manager_status = switch
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.fabric_manager_status.as_deref())
+                    .unwrap_or("N/A");
 
                 table.add_row(row![
                     id,
