@@ -22,9 +22,10 @@ pub mod nmxc_model {
     include!(concat!(env!("OUT_DIR"), "/nmx_c.rs"));
 }
 
+use std::path::PathBuf;
 use std::time::Duration;
 
-use tonic::transport::Channel;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::debug;
 
 use crate::nmxc_api::NmxcApi;
@@ -69,29 +70,65 @@ impl Endpoint {
     }
 }
 
+/// Optional TLS paths for HTTPS connections to NMX-C.
+///
+/// When both `client_cert_path` and `client_key_path` are set, the client presents a certificate
+/// for mutual TLS. `ca_cert_path` adds an extra CA bundle for verifying the server (system roots
+/// are still used unless configured otherwise by tonic).
+///
+/// `authority` sets the TLS server name (SNI / certificate verification hostname). If unset, the
+/// host portion of the gRPC endpoint URL is used.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NmxcTlsConfig {
+    pub ca_cert_path: Option<PathBuf>,
+    pub client_cert_path: Option<PathBuf>,
+    pub client_key_path: Option<PathBuf>,
+    pub authority: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct NmxcClientPoolBuilder {
     pub timeout: Duration,
+    pub tls: Option<NmxcTlsConfig>,
+}
+
+impl Default for NmxcClientPoolBuilder {
+    fn default() -> Self {
+        Self {
+            timeout: DEFAULT_TIMEOUT,
+            tls: None,
+        }
+    }
 }
 
 impl NmxcClientPoolBuilder {
-    pub fn build(&self) -> Result<NmxcClientPool, NmxcError> {
+    pub fn build(self) -> Result<NmxcClientPool, NmxcError> {
         Ok(NmxcClientPool {
             timeout: self.timeout,
+            tls: self.tls,
         })
+    }
+
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn tls(mut self, tls: NmxcTlsConfig) -> Self {
+        self.tls = Some(tls);
+        self
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct NmxcClientPool {
     timeout: Duration,
+    tls: Option<NmxcTlsConfig>,
 }
 
 impl NmxcClientPool {
     pub fn builder() -> NmxcClientPoolBuilder {
-        NmxcClientPoolBuilder {
-            timeout: DEFAULT_TIMEOUT,
-        }
+        NmxcClientPoolBuilder::default()
     }
 
     pub async fn create_client(&self, endpoint: Endpoint) -> Result<Box<dyn Nmxc>, NmxcError> {
@@ -99,6 +136,57 @@ impl NmxcClientPool {
         let client = NmxControllerClient::new(channel).max_decoding_message_size(usize::MAX);
         let nmxc = NmxcApi::new(client);
         Ok(Box::new(nmxc))
+    }
+
+    async fn build_https_tls_config(
+        &self,
+        uri: &tonic::transport::Uri,
+        t: &NmxcTlsConfig,
+    ) -> Result<ClientTlsConfig, NmxcError> {
+        let mut config = ClientTlsConfig::new();
+
+        if let Some(ref path) = t.ca_cert_path {
+            let pem = tokio::fs::read(path).await.map_err(|e| {
+                NmxcError::InvalidEndpoint(format!("read NMX-C TLS CA cert {}: {e}", path.display()))
+            })?;
+            config = config.ca_certificate(Certificate::from_pem(pem));
+        }
+
+        match (&t.client_cert_path, &t.client_key_path) {
+            (Some(cert_path), Some(key_path)) => {
+                let cert = tokio::fs::read(cert_path).await.map_err(|e| {
+                    NmxcError::InvalidEndpoint(format!(
+                        "read NMX-C TLS client cert {}: {e}",
+                        cert_path.display()
+                    ))
+                })?;
+                let key = tokio::fs::read(key_path).await.map_err(|e| {
+                    NmxcError::InvalidEndpoint(format!(
+                        "read NMX-C TLS client key {}: {e}",
+                        key_path.display()
+                    ))
+                })?;
+                config = config.identity(Identity::from_pem(cert, key));
+            }
+            (None, None) => {}
+            _ => {
+                return Err(NmxcError::InvalidEndpoint(
+                    "NMX-C TLS client cert path and key path must both be set for mTLS"
+                        .to_string(),
+                ));
+            }
+        }
+
+        let domain = t
+            .authority
+            .clone()
+            .or_else(|| uri.host().map(|h| h.to_string()))
+            .filter(|s| !s.is_empty());
+        if let Some(d) = domain {
+            config = config.domain_name(d);
+        }
+
+        Ok(config)
     }
 
     async fn connect(&self, endpoint: &Endpoint) -> Result<Channel, NmxcError> {
@@ -109,15 +197,16 @@ impl NmxcClientPool {
 
         let scheme = uri.scheme_str().unwrap_or("http");
         let channel = if scheme.eq_ignore_ascii_case("https") {
-            // Note: tonic's ClientTlsConfig does not support accepting invalid certs.
-            // For self-signed or invalid certs, use http:// (plain) or ensure the server
-            // presents a cert trusted by the system.
             let endpoint_builder = tonic::transport::Endpoint::from_shared(endpoint.url.clone())
                 .map_err(|e| NmxcError::InvalidEndpoint(e.to_string()))?
                 .connect_timeout(self.timeout);
 
+            let tls_config = match &self.tls {
+                Some(t) => self.build_https_tls_config(&uri, t).await?,
+                None => ClientTlsConfig::new(),
+            };
             endpoint_builder
-                .tls_config(tonic::transport::ClientTlsConfig::new())
+                .tls_config(tls_config)
                 .map_err(|e| NmxcError::InvalidEndpoint(e.to_string()))?
                 .connect()
                 .await?
@@ -130,7 +219,6 @@ impl NmxcClientPool {
         };
 
         debug!("Connected to NMX-C at {}", endpoint.url);
-        println!("Connected to NMX-C at {}", endpoint.url);
         Ok(channel)
     }
 }

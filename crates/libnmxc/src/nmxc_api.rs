@@ -45,7 +45,6 @@ impl Nmxc for NmxcApi {
             minor_version: nmxc_model::ProtoMsgMinorVersion::ProtoMsgMinorVersion as i32,
         };
         let res = self.client.clone().hello(tonic::Request::new(req)).await?;
-        println!("isued hello");
         Ok(res.into_inner())
     }
 

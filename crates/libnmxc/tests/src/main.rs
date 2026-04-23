@@ -6,11 +6,12 @@
 //
 
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
 #[allow(unused_imports)]
-use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcClientPool, NmxcError};
+use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcClientPool, NmxcError, NmxcTlsConfig};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing_subscriber::EnvFilter;
 
@@ -25,6 +26,22 @@ struct Cli {
     /// Gateway ID sent on Hello and on all other RPCs (same as `hello` default)
     #[arg(long, env = "NMXC_GATEWAY_ID", default_value = NMX_C_GATEWAY_ID)]
     gateway_id: String,
+
+    /// PEM file: extra CA bundle for verifying the NMX-C server (HTTPS; optional)
+    #[arg(long, env = "NMXC_TLS_CA_CERT")]
+    ca_cert: Option<PathBuf>,
+
+    /// PEM file: client certificate for mTLS (optional; requires `--client-key`)
+    #[arg(long, env = "NMXC_TLS_CLIENT_CERT")]
+    client_cert: Option<PathBuf>,
+
+    /// PEM file: client private key for mTLS (optional; requires `--client-cert`)
+    #[arg(long, env = "NMXC_TLS_CLIENT_KEY")]
+    client_key: Option<PathBuf>,
+
+    /// TLS server name for SNI and verifying the server certificate (optional; defaults to the host in `--endpoint`)
+    #[arg(long, env = "NMXC_TLS_AUTHORITY")]
+    authority: Option<String>,
 }
 
 #[tokio::main]
@@ -37,6 +54,14 @@ async fn main() -> ExitCode {
 
     let cli = Cli::parse();
 
+    match (&cli.client_cert, &cli.client_key) {
+        (Some(_), Some(_)) | (None, None) => {}
+        _ => {
+            eprintln!("Error: --client-cert and --client-key must be given together for mTLS.");
+            return ExitCode::FAILURE;
+        }
+    }
+
     if let Err(e) = run(cli).await {
         eprintln!("Error: {e}");
         return ExitCode::FAILURE;
@@ -45,6 +70,10 @@ async fn main() -> ExitCode {
 }
 
 fn print_help() {
+    println!(
+        "TLS: use --ca-cert, --authority (optional; defaults to endpoint host), and/or --client-cert + --client-key (mTLS) with https://."
+    );
+    println!();
     println!("Commands:");
     println!(
         "  hello [gateway_id]     — Hello handshake; optional id updates the shell gateway for later commands"
@@ -64,16 +93,38 @@ fn print_help() {
 }
 
 async fn run(cli: Cli) -> Result<(), NmxcError> {
-    let pool = NmxcClientPool::builder().build()?;
+    let mut builder = NmxcClientPool::builder();
+    if cli.ca_cert.is_some()
+        || cli.client_cert.is_some()
+        || cli.client_key.is_some()
+        || cli.authority.is_some()
+    {
+        builder = builder.tls(NmxcTlsConfig {
+            ca_cert_path: cli.ca_cert.clone(),
+            client_cert_path: cli.client_cert.clone(),
+            client_key_path: cli.client_key.clone(),
+            authority: cli.authority.clone(),
+        });
+    }
+    let pool = builder.build()?;
     let mut endpoint_url = cli.endpoint;
     let mut client: Option<Box<dyn Nmxc>> =
         Some(pool.create_client(Endpoint::new(&endpoint_url)).await?);
 
     let mut gateway_id = cli.gateway_id;
 
+    let tls_note = if cli.client_cert.is_some() {
+        " (mTLS)"
+    } else if cli.ca_cert.is_some() {
+        " (custom CA)"
+    } else if cli.authority.is_some() {
+        " (TLS authority)"
+    } else {
+        ""
+    };
     println!(
-        "NMX-C client shell. Connected endpoint: {} (gateway_id: {})",
-        endpoint_url, gateway_id
+        "NMX-C client shell. Connected endpoint: {} (gateway_id: {}){}",
+        endpoint_url, gateway_id, tls_note
     );
     print_help();
     println!();

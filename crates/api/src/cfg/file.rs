@@ -1230,6 +1230,18 @@ pub struct NvLinkConfig {
     /// NMX-C gRPC endpoint URL used to create client connections, e.g. http://127.0.0.1:9601
     #[serde(default = "default_nmx_c_endpoint")]
     pub nmx_c_endpoint: String,
+    /// PEM file path: extra CA bundle for verifying the NMX-C server over HTTPS (optional).
+    #[serde(default)]
+    pub nmx_c_tls_ca_cert_path: Option<String>,
+    /// PEM file path: client certificate for mTLS to NMX-C (optional; pair with `nmx_c_tls_client_key_path`).
+    #[serde(default)]
+    pub nmx_c_tls_client_cert_path: Option<String>,
+    /// PEM file path: client private key for mTLS to NMX-C (optional; pair with `nmx_c_tls_client_cert_path`).
+    #[serde(default)]
+    pub nmx_c_tls_client_key_path: Option<String>,
+    /// TLS server name (SNI / cert verification hostname) for NMX-C HTTPS. Defaults to the endpoint URL host if unset.
+    #[serde(default)]
+    pub nmx_c_tls_authority: Option<String>,
     /// Set to true if NMX-M doesn't adhere to security requirements. Defaults to false
     pub allow_insecure: bool,
 }
@@ -1250,6 +1262,10 @@ impl Default for NvLinkConfig {
             nmx_m_operation_timeout: Self::default_nmx_m_operation_timeout(),
             nmx_m_endpoint: "localhost".to_string(),
             nmx_c_endpoint: default_nmx_c_endpoint(),
+            nmx_c_tls_ca_cert_path: None,
+            nmx_c_tls_client_cert_path: None,
+            nmx_c_tls_client_key_path: None,
+            nmx_c_tls_authority: None,
             allow_insecure: false,
         }
     }
@@ -3963,6 +3979,10 @@ mqtt_endpoint = "mqtt.forge"
                 nmx_m_operation_timeout: std::time::Duration::from_secs(21),
                 nmx_m_endpoint: "localhost".to_string(),
                 nmx_c_endpoint: default_nmx_c_endpoint(),
+                nmx_c_tls_ca_cert_path: None,
+                nmx_c_tls_client_cert_path: None,
+                nmx_c_tls_client_key_path: None,
+                nmx_c_tls_authority: None,
                 allow_insecure: true,
             }
         );

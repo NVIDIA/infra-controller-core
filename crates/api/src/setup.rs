@@ -17,6 +17,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -887,7 +888,12 @@ pub async fn initialize_and_start_controllers(
     )
     .start(join_set, cancel_token.clone())?;
 
-    let nmxc_client_pool = libnmxc::NmxcClientPool::builder()
+    let nvlink_for_nmxc = carbide_config.nvlink_config.clone().unwrap_or_default();
+    let mut nmxc_builder = libnmxc::NmxcClientPool::builder();
+    if let Some(tls) = nmxc_tls_config_from_nvlink(&nvlink_for_nmxc) {
+        nmxc_builder = nmxc_builder.tls(tls);
+    }
+    let nmxc_client_pool = nmxc_builder
         .build()
         .map_err(|e| eyre::eyre!("Failed to build NMX-C client pool: {e}"))?;
     let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
@@ -1042,4 +1048,32 @@ fn bfcfg_context(config: &CarbideConfig) -> HashMap<String, String> {
     }
 
     context
+}
+
+fn nmxc_tls_config_from_nvlink(cfg: &crate::cfg::file::NvLinkConfig) -> Option<libnmxc::NmxcTlsConfig> {
+    let ca = cfg
+        .nmx_c_tls_ca_cert_path
+        .as_ref()
+        .map(PathBuf::from);
+    let client_cert = cfg
+        .nmx_c_tls_client_cert_path
+        .as_ref()
+        .map(PathBuf::from);
+    let client_key = cfg
+        .nmx_c_tls_client_key_path
+        .as_ref()
+        .map(PathBuf::from);
+    if ca.is_none()
+        && client_cert.is_none()
+        && client_key.is_none()
+        && cfg.nmx_c_tls_authority.is_none()
+    {
+        return None;
+    }
+    Some(libnmxc::NmxcTlsConfig {
+        ca_cert_path: ca,
+        client_cert_path: client_cert,
+        client_key_path: client_key,
+        authority: cfg.nmx_c_tls_authority.clone(),
+    })
 }

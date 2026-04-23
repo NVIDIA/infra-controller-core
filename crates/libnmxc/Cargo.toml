@@ -28,7 +28,7 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = { workspace = true }
-tokio = { workspace = true, features = ["net", "time", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["fs", "net", "time", "rt-multi-thread"] }
 tonic = { workspace = true }
 prost = { workspace = true }
 tracing = { workspace = true }
