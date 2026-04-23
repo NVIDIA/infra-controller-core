@@ -316,6 +316,8 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
 
     let mut data = vec![
         ("  ID", m.machine_id),
+        ("  Slot Number", m.slot_number.map(|n| n.to_string())),
+        ("  Tray Index", m.tray_index.map(|n| n.to_string())),
         ("  Last reboot completed", m.host_last_reboot_time),
         (
             "  Last reboot requested",
