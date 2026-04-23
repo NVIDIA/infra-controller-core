@@ -1219,6 +1219,15 @@ impl EndpointExplorationError {
             || matches!(self, EndpointExplorationError::AvoidLockout)
     }
 
+    pub fn is_unreachable(&self) -> bool {
+        matches!(
+            self,
+            EndpointExplorationError::ConnectionTimeout { .. }
+                | EndpointExplorationError::ConnectionRefused { .. }
+                | EndpointExplorationError::Unreachable { .. }
+        )
+    }
+
     pub fn is_redfish(&self) -> bool {
         matches!(self, EndpointExplorationError::RedfishError { .. })
             || matches!(

@@ -896,6 +896,30 @@ impl EndpointExplorer for BmcEndpointExplorer {
             })
     }
 
+    async fn redfish_get_power_state(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<libredfish::PowerState, EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => {
+                self.redfish_client
+                    .get_power_state(bmc_ip_address, credentials)
+                    .await
+            }
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "Site explorer cannot fetch live power state for an endpoint without credentials: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
     async fn redfish_power_control(
         &self,
         bmc_ip_address: SocketAddr,
