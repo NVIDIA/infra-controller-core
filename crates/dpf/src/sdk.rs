@@ -27,7 +27,8 @@ use sha2::{Digest, Sha256};
 
 use crate::crds::bfbs_generated::{BFB, BfbSpec};
 use crate::crds::dpudeployments_generated::{
-    DPUDeployment, DpuDeploymentDpus, DpuDeploymentDpusDpuSets,
+    DPUDeployment, DpuDeploymentDpus, DpuDeploymentDpusDpuSetStrategy,
+    DpuDeploymentDpusDpuSetStrategyType, DpuDeploymentDpusDpuSets,
     DpuDeploymentDpusDpuSetsNodeSelector, DpuDeploymentDpusNodeEffect, DpuDeploymentServiceChains,
     DpuDeploymentServiceChainsSwitches, DpuDeploymentServiceChainsSwitchesPorts,
     DpuDeploymentServiceChainsSwitchesPortsService,
@@ -738,6 +739,10 @@ pub fn build_deployment<L: ResourceLabeler>(
                     hold: Some(true),
                     no_effect: None,
                     taint: None,
+                }),
+                dpu_set_strategy: Some(DpuDeploymentDpusDpuSetStrategy {
+                    rolling_update: None,
+                    r#type: Some(DpuDeploymentDpusDpuSetStrategyType::OnDelete),
                 }),
             },
             revision_history_limit: None,
