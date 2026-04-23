@@ -10,7 +10,7 @@ Each host managed by NICo must have a SKU associated with it before it can be ma
 <!-- TODO: did we actually implement this? -->
 
 Hardware configurations or SKUs are generated from existing machines by an admin and uploaded to forge via the CLI.
-SKU's can be downloaded for modification or use with other sites.
+SKUs can be downloaded for modification or use with other sites.
 
 Machines that are assigned a SKU are automatically validated during ingestion based on their discovery information.
 Hardware validation occurs during initial ingestion and after an instance is released and new discovery information is received.
@@ -35,7 +35,7 @@ bring-up process. However, for now, SKUs are only manually added to sites. It is
 the SKU assignments for individual machines are added automatically by NICo as those machines are reconfigured.
 
 ### BOM Validation States
-Verifying a SKU against a machine goes through several steps to aquire updated machine inventory and perform the validation.  Depending on the inventory of the machine and the SKU configuration, the state machine needs to handle several situations.  The bom validation process is broken down into the following sub-states:
+Verifying a SKU against a machine goes through several steps to acquire updated machine inventory and perform the validation.  Depending on the inventory of the machine and the SKU configuration, the state machine needs to handle several situations.  The bom validation process is broken down into the following sub-states:
 - `MatchingSku` - The state machine will attempt to find an existing SKU that matches the machine inventory.
 - `UpdatingInventory` - NICo is requesting that scout re-inventory the machine.  This ensures that other operations are using a recent version of the machine inventory
 - `VerifyingSku` - NICo is comparing the machine inventory against the SKU
@@ -121,7 +121,7 @@ Some example SKU names:
 ### Browse SKUs, their configuration, and assigned machines
 
 You can view all the SKUs for a site, and click into their specific configurations and list assigned machines
-by visting the admin page for a site and clicking "SKUs" from the left-side navigation bar.
+by visiting the admin page for a site and clicking "SKUs" from the left-side navigation bar.
 
 ### Viewing SKU information
 
@@ -273,7 +273,7 @@ carbide-admin-cli sku unassign <machineid>
 If a SKU has a set of components that do not work for a set of machines (either due to bugs, or Carbide software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when no instance is allocated to the machine (all machines are verified when an instance is released).
 
 ```sh
-forge-acmin-cli sku replace <filename> [--id <sku_name>]
+carbide-admin-cli sku replace <filename> [--id <sku_name>]
 ```
 
 ### Remove a SKU from a site
@@ -288,7 +288,7 @@ carbide-admin-cli sku delete <sku_name>
 ```
 
 #### Upgrading a SKU to the current version example
-When a new version of NICo is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the the `sku replace` command.
+When a new version of NICo is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the `sku replace` command.
 
 The existing SKU is below.  Note that the "Storage Devices" section includes a device with a model of "NO_MODEL" and there is no TPM.  The extra storage device is created by the raid card and may not always exist and should not have been included in the SKU.
 
@@ -389,7 +389,7 @@ carbide-admin-cli -f json -o /tmp/xe9680.json sku g fm100hti7olik00gefc9qlma831n
 
 Then replace the old SKU
 ```sh
-carbide-admin-clisku replace /tmp/xe9680.json
+carbide-admin-cli sku replace /tmp/xe9680.json
 +--------+---------------------------------------+------------------+-----------------------------+
 | ID     | Description                           | Model            | Created                     |
 +========+=======================================+==================+=============================+

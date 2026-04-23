@@ -268,7 +268,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_hosts_health_status_count")
-                .with_description("The total number of Managed Hosts in the system that have reported any a healthy nor not healthy status - based on the presence of health probe alerts")
+                .with_description("The total number of Managed Hosts in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for healthy in [true, false] {

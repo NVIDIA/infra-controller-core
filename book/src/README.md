@@ -65,7 +65,7 @@ The NICo deployment includes a number of core services:
   - `carbide-dns`: Handles DNS queries from the site controller and managed nodes.
   - `unbound`: Provides recursive DNS services to managed machines and instances.
 
-These set of services are also referred to as the **Site Controller**
+This set of services is also referred to as the **Site Controller**
 
 ### Component and Service Dependencies
 

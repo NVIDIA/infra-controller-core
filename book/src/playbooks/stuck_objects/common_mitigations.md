@@ -26,7 +26,7 @@ The following issues might prevent this call from happening:
 - The machine reboots, but can either not obtain an IP address via DHCP or
   can not PXE boot. The serial console that is accessible via the BMC of a machine
   or via `forge-ssh-console` can be used to determine whether the Machine booted
-  successfully, or whether it bootloops and not obtain an IP or load an image.
+  successfully, or whether it bootloops and cannot obtain an IP or load an image.
   If the boot process does not succeed, check carbide-dhcp and carbide-pxe for
   further logs.
   <!-- TODO: Better runbooks for DHCP failures -->
@@ -68,5 +68,5 @@ skipping states.
 
 **Due to this reason, it is usually not helpful to initiate deletion of
 objects stuck in Provisioning. Instead of this, the reason for an object
-stuck in provisioning should be inspected and the underlying issue being
+stuck in provisioning should be inspected and the underlying issue should be
 resolved.**

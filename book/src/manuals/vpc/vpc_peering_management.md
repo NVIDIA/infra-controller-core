@@ -32,7 +32,7 @@ carbide-admin-cli vpc-peering create e65a9d69-39d2-4872-a53e-e5cb87c84e75 366de8
 - The operator should confirm with both VPC owners (VPC tenant org) that they approve the peering before creating the connection
 - The VPC IDs can be provided in any order
 - The system will automatically enforce canonical ordering (smaller ID becomes `vpc1_id`)
-- If a peering connection already exists between the two VPCs, the command will return error indicating a peering connection already exists
+- If a peering connection already exists between the two VPCs, the command will return an error indicating a peering connection already exists
 - Both VPCs must exist before creating the peering connection
 
 ### Listing VPC Peering Connections

@@ -39,7 +39,7 @@ Start `VS Code` using the `code` command in the same shell after running `nvinit
 
 Click the remote button on the lower left of the IDE window:
 ![](../static/remote_button.png).
-Select "Connect to Host", choose the remote hostname define in [Prerequisites](#Prerequisites), and connect. A new Visual Studio Code window should open, which is now on that host.
+Select "Connect to Host", choose the remote hostname defined in [Prerequisites](#Prerequisites), and connect. A new Visual Studio Code window should open, which is now on that host.
 Inside that window, open the folder which contains the NICo project.
 
 Assuming that remote machine already has all dev tools installed, and you want to
@@ -114,8 +114,8 @@ To work inside the remote container, the following steps are performed:
 
 ### Enabling postgres inside the dev container
 
-While the last step will you allow to build the project and run some unit-tests,
-all unit-tests which require a database will. To fix this, start the postgres
+While the last step will allow you to build the project and run some unit tests,
+all unit tests which require a database will fail. To fix this, start the postgres
 server inside the development container:
 
 1. Open another internal terminal tab
@@ -158,13 +158,13 @@ json config file:
   owned by `root`, which can prevent working on them from your regular desktop.
   You might need to reset ownership when going back to your regular environment:
   ```
-  sudio chown -R yourAlias carbide/*
+  sudo chown -R yourAlias carbide/*
   ```
 - The same applies for using git inside the container as root. It will make
   files in `.git` be owned by `root`
 
 Those problems might be avoidable by being able to set `remoteUser` in `devcontainer.json`
-to ones alias. However when doing that I wasn't able to build the devcontainer image
+to one's alias. However when doing that I wasn't able to build the devcontainer image
 anymore, since it is missing my user alias in `/etc/passwd`.
 
 

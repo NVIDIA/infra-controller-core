@@ -10,7 +10,7 @@ makes them available for selection by a tenant during instance creation.
 ## Requirements
 
 1. Hosts with the identical hardware configuration should be reported by NICo as having the exact same machine capabilities. E.g. a Machine having 2 Infiniband NICs that each have 2 ports that are connected to different Infiniband fabrics (4 fabrics in total), should be exactly reported as such.
-2. If NICo tenants configure multiple hosts of the same instance type with the same infiniband configuration and run the same operating system, they should find exactly the exact same device names on the host. This allows them to e.g. statically use certain Infiniband devices in applications and containers without a need for complex run-time enumeration on the tenant side. E.g. a tenant should be able to rely on the devices `ibp202s0f0` and `ibp202s0f1` always being available and connected their desired configuration.
+2. If NICo tenants configure multiple hosts of the same instance type with the same infiniband configuration and run the same operating system, they should find exactly the exact same device names on the host. This allows them to e.g. statically use certain Infiniband devices in applications and containers without a need for complex run-time enumeration on the tenant side. E.g. a tenant should be able to rely on the devices `ibp202s0f0` and `ibp202s0f1` always being available and connected to their desired configuration.
 
 ## Recommendation
 
@@ -53,7 +53,7 @@ While the devices for the 2 ports seem mostly independent, there are still a few
                                        domain:bus:dev.fn=0000:ca:00.0 addr.reg=88 data.reg=92 cr_bar.gw_offset=-1
                                        Chip revision is: 00
     ```
-    This breaks the illusion of 2 independent devices. Since the tenant can install and use those tools without the availability of a NIC firmware lockdown, they are be able to inspect these properties. There however doesn't seem to be an obvious problem with it.
+    This breaks the illusion of 2 independent devices. Since the tenant can install and use those tools without the availability of a NIC firmware lockdown, they are able to inspect these properties. There however doesn't seem to be an obvious problem with it.
 3. Due to 2), the port configurations for both ports are performed by manipulating a single device object in the Mellanox Firmware tools. E.g. both of the following commands
     ```
     mlxconfig -d /dev/mst/mt4123_pciconf0 set LINK_TYPE_P1=2 LINK_TYPE_P2=2
@@ -187,7 +187,7 @@ model reduces the amount of data that needs to be transferred between the Rest A
 backend and NICo users since it doesn't need to explain every individual component
 in detail. It also has the advantage that "machine capabilities" can describe
 groups of similar machines ("instance types") instead of just a single machine.
-Each machine the that adheres to an instance type shares the same capabilities.
+Each machine that adheres to an instance type shares the same capabilities.
 
 To support Infiniband, we can extend the existing capabilities model of the
 NICo REST API backend to cover infiniband:
@@ -207,7 +207,7 @@ NICo REST API backend to cover infiniband:
   since their existence can be controlled by configuring the associated
   Physical Function (PF).
 - Hardware details like PCI slots and hardware GUIDs are not shown in this
-  model. Since they could be different from Machine to Machine, they they can not
+  model. Since they could be different from Machine to Machine, they cannot
   be used in the data model that is shared across a range of Machines.
 
 ```json
@@ -404,7 +404,7 @@ needs to map to the following hardware interface information:
 The `fabric` is directly copied, and the `model` fields map
 to the `device` fields. The `vendor` field can be resolved by looking for any
 `device` with the specified device name.
-Thereby the only challenge is how to map `instance` in an non ambiguous fashion.
+Thereby the only challenge is how to map `instance` in a non-ambiguous fashion.
 We can achieve this by sorting the interfaces based on the PCI `slot`,
 and pick the N-th slot that satisfies the criteria.
 
@@ -477,7 +477,7 @@ Tenant desired for this instance. This script needs to configure all network int
 on the host. This includes
 - setting the correct number of VFs per physical device
 - writing GUIDs that NICo allocated for VF interfaces to the locations the OS
-  expects them it
+  expects them
 
 Applying these settings configure the interfaces in software in a way that
 allows them to send their traffic successfully to the connected Infiniband switches.
@@ -522,7 +522,7 @@ FMDS, in a format that is still TBD:
 
 The FMDS client needs to perform the mapping from configuration
 parameters to the actual Linux devicename (in `/sys/class/infiniband`) to apply
-the necessary configuration. This requires the same knowledege about
+the necessary configuration. This requires the same knowledge about
 the unique mapping of the configuration to the actual hardware that is residing
 in NICo. A challenge here is however that the client running
 on a tenants host is not able to resolve the fabric per interface. Since
@@ -556,8 +556,8 @@ guid of the associated physical function in every interface. Along:
 
 ### Interface configuration via unique PCI address (`device_slot`)
 
-The APIs described above make it slightly ambigiuos which `device` (in terms of
-PCI slot) a tenant would use for an interface. They tenant specifies the following
+The APIs described above make it slightly ambiguous which `device` (in terms of
+PCI slot) a tenant would use for an interface. The tenant specifies the following
 in an instance creation request
 ```json
 {

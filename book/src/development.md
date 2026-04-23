@@ -65,7 +65,7 @@ environment.
 
    Fedora - `sudo dnf install -y postgresql`
 
-7. Install qemu and ovmf firmware for starting VM's to simulate PXE clients
+7. Install qemu and ovmf firmware for starting VMs to simulate PXE clients
 
    Arch - `sudo pacman -S qemu edk2-omvf`
 
@@ -81,7 +81,7 @@ environment.
 
    There are preset environment variables that are used throughout the repo. `${REPO_ROOT}` represents the top of the forge repo tree.
 
-   For a list environment variables, we predefined look in:
+   For a list of preset environment variables, look in:
    `${REPO_ROOT}/.envrc`
 
    Arch - `sudo pacman -S direnv`
@@ -216,7 +216,7 @@ Remember to `strip` before you scp so that scp goes faster. scp to DPU example (
 
 ## Next steps
 
-Setup a QEMU host for your docker-compose services to manager:
+Set up a QEMU host for your docker-compose services to manage:
 
 1. [Build iPXE and bootable artifacts image](bootable_artifacts.md)
 1. [Start QEMU server](vm_pxe_client.md)

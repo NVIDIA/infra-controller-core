@@ -9,7 +9,7 @@ This release of Bare Metal Manager is open-source software (OSS).
 ### Improvements
 
 - The REST API now supports external identity providers (IdPs) for JWT authentication.
-- The new `/carbide/instance/batch` REST API endpoint allows for batch instances creation.
+- The new `/carbide/instance/batch` REST API endpoint allows for batch instance creation.
 - Instances can now be rebooted by passing an `instance_id` argument, in addition to the existing `machine_id` argument.
 - The State Controller is now split into two independent components: The `PeriodicEnqueuer`, which periodically enqueues state handling tasks using the `Enqueuer::enqueue_object` API for each resource/object managed by NICo, and the `StateProcessor`, which continuously de-queues the state handling tasks for each object type and executes the state handler on them.
 - The state handler for objects is now scheduled again whenever the outcome of the state handler is `Transition`. This reduces the wait time for many state transitions by up to 30 seconds.
@@ -59,7 +59,7 @@ The following key functionalities should be available for testing via the Admin 
 | Software | Vault, postgres, k8s cluster, Certificate Management, Temporal | Partners are required to bring in NICo dependencies |
 | Hardware | Supported server and switch functionality(e.g. x86 nodes, specific NIC firmware, compatible BMCs, Switches that support BGP, EVPN, and RFC 5549 (unnumbered IPs)) | The code assumes predictable hardware attributes; unsupported SKUs may require custom configuration. |
 | Network Topology | L2/L3 connectivity, DHCP/PXE servers, out-of-band management networks, specific switch side port configurations | All modules (e.g. discovery, provisioning) require pre-configured subnets and routing policies, as well as delegation of IP prefixes, ASN numbers, and EVPN VNI numbers. |
-| External Systems | DNS resolvers/recursers, NTP, Authentication (Azure OIDC, Keycloak), Observability Stack | NICo provides clients with DNS resolver and NTP server information in the DHCP response. External authentication source that supports OIDC. NICo sends open-telemetry metrics and logs into an existing visualization/storage system |
+| External Systems | DNS resolvers/recursors, NTP, Authentication (Azure OIDC, Keycloak), Observability Stack | NICo provides clients with DNS resolver and NTP server information in the DHCP response. External authentication source that supports OIDC. NICo sends open-telemetry metrics and logs into an existing visualization/storage system |
 
 **Supported Switches**:
 

@@ -5,7 +5,7 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <table>
 <tr><td>Name</td><td>Type</td><td>Description</td></tr>
 <tr><td>carbide_active_host_firmware_update_count</td><td>gauge</td><td>The number of host machines in the system currently working on updating their firmware.</td></tr>
-<tr><td>carbide_api_db_queries_total</td><td>counter</td><td>The amount of database queries that occured inside a span</td></tr>
+<tr><td>carbide_api_db_queries_total</td><td>counter</td><td>The amount of database queries that occurred inside a span</td></tr>
 <tr><td>carbide_api_db_span_query_time_milliseconds</td><td>histogram</td><td>Total time the request spent inside a span on database transactions</td></tr>
 <tr><td>carbide_api_grpc_server_duration_milliseconds</td><td>histogram</td><td>Processing time for a request on the carbide API server</td></tr>
 <tr><td>carbide_api_ready</td><td>gauge</td><td>Whether the Forge Site Controller API is running</td></tr>
@@ -38,7 +38,7 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_gpus_usable_count</td><td>gauge</td><td>The remaining number of GPUs in the Forge site which are available for immediate instance creation</td></tr>
 <tr><td>carbide_hosts_by_sku_count</td><td>gauge</td><td>The amount of hosts by SKU and device type (&#x27;unknown&#x27; for hosts without SKU)</td></tr>
 <tr><td>carbide_hosts_health_overrides_count</td><td>gauge</td><td>The amount of health overrides that are configured in the site</td></tr>
-<tr><td>carbide_hosts_health_status_count</td><td>gauge</td><td>The total number of Managed Hosts in the system that have reported any a healthy nor not healthy status - based on the presence of health probe alerts</td></tr>
+<tr><td>carbide_hosts_health_status_count</td><td>gauge</td><td>The total number of Managed Hosts in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts</td></tr>
 <tr><td>carbide_hosts_in_use_count</td><td>gauge</td><td>The total number of hosts that are actively used by tenants as instances in the Forge site</td></tr>
 <tr><td>carbide_hosts_usable_count</td><td>gauge</td><td>The remaining number of hosts in the Forge site which are available for immediate instance creation</td></tr>
 <tr><td>carbide_hosts_with_bios_password_set</td><td>gauge</td><td>The total number of Hosts in the system that have their BIOS password set.</td></tr>
@@ -47,7 +47,7 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_ib_partitions_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_ib_partitions</td></tr>
 <tr><td>carbide_ib_partitions_total</td><td>gauge</td><td>The total number of carbide_ib_partitions in the system</td></tr>
 <tr><td>carbide_machine_reboot_duration_seconds</td><td>histogram</td><td>Time taken for machine/host to reboot in seconds</td></tr>
-<tr><td>carbide_machine_updates_started_count</td><td>gauge</td><td>The number of machines in the system that in the process of updating.</td></tr>
+<tr><td>carbide_machine_updates_started_count</td><td>gauge</td><td>The number of machines in the system that are in the process of updating.</td></tr>
 <tr><td>carbide_machine_validation_completed</td><td>gauge</td><td>Count of machine validation that have completed successfully</td></tr>
 <tr><td>carbide_machine_validation_failed</td><td>gauge</td><td>Count of machine validation that have failed</td></tr>
 <tr><td>carbide_machine_validation_in_progress</td><td>gauge</td><td>Count of machine validation that are in progress</td></tr>
@@ -94,7 +94,7 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_power_shelves_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_power_shelves</td></tr>
 <tr><td>carbide_power_shelves_total</td><td>gauge</td><td>The total number of carbide_power_shelves in the system</td></tr>
 <tr><td>carbide_preingestion_total</td><td>gauge</td><td>The amount of known machines currently being evaluated prior to ingestion</td></tr>
-<tr><td>carbide_preingestion_waiting_download</td><td>gauge</td><td>The amount of machines that are waiting for firmware downloads on other machines to complete before doing thier own</td></tr>
+<tr><td>carbide_preingestion_waiting_download</td><td>gauge</td><td>The amount of machines that are waiting for firmware downloads on other machines to complete before doing their own</td></tr>
 <tr><td>carbide_preingestion_waiting_installation</td><td>gauge</td><td>The amount of machines which have had firmware uploaded to them and are currently in the process of installing that firmware</td></tr>
 <tr><td>carbide_racks_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_racks in the system</td></tr>
 <tr><td>carbide_racks_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_racks</td></tr>
@@ -104,12 +104,12 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_reserved_ips_count</td><td>gauge</td><td>The total number of reserved ips in the site</td></tr>
 <tr><td>carbide_resourcepool_free_count</td><td>gauge</td><td>Count of values in the pool currently available for allocation</td></tr>
 <tr><td>carbide_resourcepool_used_count</td><td>gauge</td><td>Count of values in the pool currently allocated</td></tr>
-<tr><td>carbide_running_dpu_updates_count</td><td>gauge</td><td>The number of machines in the system that running a firmware update.</td></tr>
+<tr><td>carbide_running_dpu_updates_count</td><td>gauge</td><td>The number of machines in the system that are running a firmware update.</td></tr>
 <tr><td>carbide_site_exploration_expected_machines_sku_count</td><td>gauge</td><td>The total count of expected machines by SKU ID and device type</td></tr>
 <tr><td>carbide_site_exploration_identified_managed_hosts_count</td><td>gauge</td><td>The amount of Host+DPU pairs that has been identified in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_bmc_reset_count</td><td>gauge</td><td>The amount of BMC resets initiated in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_create_machines</td><td>gauge</td><td>Whether site-explorer machine creation is enabled (1) or disabled (0)</td></tr>
-<tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it to perform create_machines inside site-explorer</td></tr>
+<tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it took to perform create_machines inside site-explorer</td></tr>
 <tr><td>carbide_site_explorer_created_machines_count</td><td>gauge</td><td>The amount of Machine pairs that had been created by Site Explorer after being identified</td></tr>
 <tr><td>carbide_site_explorer_created_power_shelves_count</td><td>gauge</td><td>The amount of Power Shelves that had been created by Site Explorer after being identified</td></tr>
 <tr><td>carbide_site_explorer_enabled</td><td>gauge</td><td>Whether site-explorer is enabled (1) or paused (0)</td></tr>
@@ -119,5 +119,5 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_switches_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_switches</td></tr>
 <tr><td>carbide_switches_total</td><td>gauge</td><td>The total number of carbide_switches in the system</td></tr>
 <tr><td>carbide_total_ips_count</td><td>gauge</td><td>The total number of ips in the site</td></tr>
-<tr><td>carbide_unavailable_dpu_nic_firmware_update_count</td><td>gauge</td><td>The number of machines in the system that need a firmware update but are unavailble for update.</td></tr>
+<tr><td>carbide_unavailable_dpu_nic_firmware_update_count</td><td>gauge</td><td>The number of machines in the system that need a firmware update but are unavailable for update.</td></tr>
 <table>

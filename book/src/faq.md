@@ -41,7 +41,7 @@ Yes, NICo supports NVLink partitioning.
 * **Ethernet**: VXLAN with EVPN for VPC creation on DPU
 * **E/W Ethernet (Spectrum-X)**: CX-based FW called DPA to do VXLan on CX (as part of future release)
 * **Infiniband**: UFM-based partition key (P_Key) assignment
-* **NVLInk**: NMX-M based partition management
+* **NVLink**: NMX-M based partition management
 
 DPUs enforce Ethernet isolation in hardware, UFM enforces IB isolation, and NMX-M enforces NVLink isolation--all coordinated by NICo.
 
@@ -80,7 +80,7 @@ NICo is more than an OS installation tool. It certainly helps with OS provisioni
 
 **Do I need to change the OOB management TOR to configure a separate VLN for the NICo managed hosts and DPU (DPU OOB, Host OOB), with DHCP relay point to NICo DHCP?**
 
-Yes, that's usually how it's done.  Each VLAN (sometimes the whole switch is a VLAN) - or SVI port - needs to have it's DHCP relay for the machines and DPUs you wish to manage with NICo pointing to NICo's DHCP server address you setup.
+Yes, that's usually how it's done.  Each VLAN (sometimes the whole switch is a VLAN) - or SVI port - needs to have its DHCP relay for the machines and DPUs you wish to manage with NICo pointing to NICo's DHCP server address you setup.
 
 **Do I need to change existing infrastructure if separate VLANs are used?**
 
@@ -92,11 +92,11 @@ The IP addresses issued to the DPU RJ45 port are from the "network segments" (wh
 
 **The host overlay interfaces addresses on top of vxlan and DPU is allocated via NICo through the control NIC on NICo, through overlay networking. So I assume no DHCP relay configuration needed on any switches. While is this overlay need to be manually configured on NICo control hosts' NIC?**
 
-The DHCP relay is required only on the switches connected to the DPU OOBs/BMCs and Host BMCs.  The in-band ToRs just need to be configured for bgp unnumbered as "routed port".  The "overlay" networks that NICo will assign IPs from to the host are defined as "network segements" with the "overlay" type, then the overlay network is referenced when creating an instance.
+The DHCP relay is required only on the switches connected to the DPU OOBs/BMCs and Host BMCs.  The in-band ToRs just need to be configured for bgp unnumbered as "routed port".  The "overlay" networks that NICo will assign IPs from to the host are defined as "network segments" with the "overlay" type, then the overlay network is referenced when creating an instance.
 
-**Do I need to seperate the PXE of NICo like this as well to isolate the PXE installation process from site PXE server?**
+**Do I need to separate the PXE of NICo like this as well to isolate the PXE installation process from site PXE server?**
 
-There is a separate PXE server that NICo needs to serve it's own images we ship as part of the software (i.e. DPU software, iPXE, etc). But if the DHCP is configured correctly and there's connectivity from the Host to the NICo PXE service, then it will be fine to live side-by-side.
+There is a separate PXE server that NICo needs to serve its own images we ship as part of the software (i.e. DPU software, iPXE, etc). But if the DHCP is configured correctly and there's connectivity from the Host to the NICo PXE service, then it will be fine to live side-by-side.
 
 **How does NICo select which bare metal to pick to satisfy the request for an instance? What selection criteria is supported?**
 

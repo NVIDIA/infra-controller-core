@@ -6,7 +6,7 @@ Here is an overview of the requirements, which will be detailed in the following
 
 * **VNIs**: Datacenter-unique VNIs allocated based on the expected number of VPCs.
 * **ASNs**: Globally-unique 32-bit ASNs allocated based on the expected number of DPUs.
-* **IPv4 prefixes**: A single, globally-unique IPv4 prefix with a total number of IP allocation based on the following formula: `(expected number of servers + the expected number of DPUs) * 2 + 2`
+* **IPv4 prefixes**: A single, globally-unique IPv4 prefix with a total IP allocation size based on the following formula: `(expected number of servers + the expected number of DPUs) * 2 + 2`
   * One or more additional, globally-unique IPv4 prefixes with a total IP allocation amount based on the following formula: `expected number of DPUs * 2`.  Minimum individual prefix size is /31.
 * **Routing**: A mechanism for route-propagation and a default route for the tenant EVPN overlay network. Options for providing this include the following:
   * Allowing additional L2VPN-EVPN sessions with LEAF TORs and configuring the same sessions at each tier of the network (refer to simplified diagram below for reference).
@@ -30,7 +30,7 @@ Here is an overview of the requirements, which will be detailed in the following
 
 ### Overlay Options
 
-* **Option 1 - Dual-stacked Ipv4/EVPN sessions with TOR**
+* **Option 1 - Dual-stacked IPv4/EVPN sessions with TOR**
   * Configure peering as follows:
     * TORs should be configured to accept EVPN sessions with the DPUs in addition to the existing IPv4 sessions.
     * At a minimum, spines should be configured for EVPN sessions with the TORs. Ideally, all tiers of the network should be configured with EVPN sessions.

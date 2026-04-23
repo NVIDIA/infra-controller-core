@@ -2,7 +2,7 @@
 
 ## Motivation
 
-[Infiniband](https://en.wikipedia.org/wiki/InfiniBand) This runbook describes the steps on infrastructure setup and configuration of enable Infiniband.
+[Infiniband](https://en.wikipedia.org/wiki/InfiniBand) This runbook describes the steps on infrastructure setup and configuration of enabling Infiniband.
 
 ## Unified Fabric Manager (UFM)
 
@@ -127,7 +127,7 @@ curl -k -u admin:123456 -X GET https://<ufm host name>/ufmRest/jobs/1 | jq
     "SiteName": null
 }
 ```
-Once Job will be completed, path on UFM server to generated topoconfig file will be part of job completion message (Summary). Default generated topoconfig file location location: `/tmp/ibdiagnet_out/generated_topoconfig.conf`
+Once Job will be completed, path on UFM server to generated topoconfig file will be part of job completion message (Summary). Default generated topoconfig file location: `/tmp/ibdiagnet_out/generated_topoconfig.conf`
 
 #### Configurations per UFM
 
@@ -218,7 +218,7 @@ No additional steps are required to enable Infiniband in NCX Infra Controller (N
 
 #### UFM Credential
 
-One of two options can be selected to UFM Authentication mechanism such as `token authentication` or `client authentication`.
+One of two options can be selected for UFM authentication: `token authentication` or `client authentication`.
 Follow the instructions in the section that applies to the selected option.
 
 ##### Token Authentication
@@ -464,10 +464,10 @@ endpoints = ["https://10.217.161.194:443/"]
 pkeys = [{ start = "256", end = "2303" }]
 ```
 
-Note that currently NICo only supports only a single IB fabric. Therefore only
+Note that currently NICo supports only a single IB fabric. Therefore only
 the fabric ID `default` will be accepted here.
 
-**NOTE**: A pkey will be generated for all partitions that are managed by NICo; ensure sure the range does not conflict with the existing pkey in UFM (if any).
+**NOTE**: A pkey will be generated for all partitions that are managed by NICo; ensure the range does not conflict with the existing pkey in UFM (if any).
 
 Update the configmap `carbide-api-site-config-files` to enable Infiniband features as follows:
 
@@ -476,7 +476,7 @@ Update the configmap `carbide-api-site-config-files` to enable Infiniband featur
 enabled = true
 ```
 
-To enable the monitor of IB, update the the configmap `carbide-api-site-config-files`  as follows:
+To enable the monitor of IB, update the configmap `carbide-api-site-config-files`  as follows:
 
 ```toml
 [ib_fabric_monitor]
@@ -575,7 +575,7 @@ The `username` here encodes the UFM address, while the `password` identifies the
 
 SRE can also check the InfiniBand fabric monitor metrics emitted by NICo to determine whether it can reach UFM. E.g. the following graph shows a scenario where
 
-* First NICo could not connect to UFM to invalid credentials
+* First NICo could not connect to UFM due to invalid credentials
 * Fixing the credentials provided access and lead UFM metrics (version number) to be emitted
 
 ![alt text](../static/playbooks/ib_ufm_ver.png)

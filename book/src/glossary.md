@@ -23,7 +23,7 @@ Cloud-init is the industry standard multi-distribution method for cross-platform
 Cloud-init is used by Carbide to install components that are required on top of the base OS image:
 - DPUs use a Carbide provided cloud-init file to install Carbide related components
   on top of the base DPU image that is provided by the NVIDIA networking group.
-- Customers/tenants can provide a custom cloud-init will do the work of automating installation for customer OS's
+- Customers/tenants can provide a custom cloud-init automates installation for customer OSes
 
 ### DHCP (Dynamic Host Configuration Protocol)
 
@@ -31,7 +31,7 @@ https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol
 
 The Dynamic Host Configuration Protocol (DHCP) is a network management protocol used on Internet Protocol (IP) networks for automatically assigning IP addresses and other communication parameters to devices connected to the network using a client–server architecture.
 
-Within Carbide, both DPUs and Hosts are using DHCP request to resolve their IP. The Carbide infrastructure responds to those DHCP requests, an provides a response based on known information about the host.
+Within Carbide, both DPUs and Hosts are using DHCP request to resolve their IP. The Carbide infrastructure responds to those DHCP requests, and provides a response based on known information about the host.
 
 ### DNS (Domain Name System)
 
@@ -72,7 +72,7 @@ iPXE is an open-source implementation of the [Preboot eXecution Environment (PXE
 
 ### Leaf
 
-In the Carbide project, we call "Leaf" the device that the host (which we to make available for tenants) plugs into.
+In the Carbide project, we call "Leaf" the device that the host (which we want to make available for tenants) plugs into.
 This is typically a DPU that will make the overlay network available
 to the tenant. In future iterations of the Carbide project, the Leaf might be a specialized switch instead of a DPU.
 
@@ -82,7 +82,7 @@ Generic term for either a **DPU** or a **Host**. Compare with **ManagedHost**.
 
 ### ManagedHost
 
-A **ManagedHost** is a box in a data center. It contains two **Machine**: one **DPU** and one **Host**.
+A **ManagedHost** is a box in a data center. It contains two **Machines**: one **DPU** and one **Host**.
 
 ### POD
 
