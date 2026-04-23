@@ -1,11 +1,11 @@
 # Rebooting a machine
 
-This page describes how to reboot a machine managed by NCX Infra Controller (NICo) (i.e. amanaged host or DPU)
+This page describes how to reboot a machine managed by NCX Infra Controller (NICo) (i.e. a managed host or DPU)
 in any potential state of its lifecycle.
 
 ## Important note
 
-*This this is not a facing site-provider or tenant facing workflow.
+*This is not a site-provider or tenant facing workflow.
 Rebooting a machine while it is in-use for a tenant can have unexpected
 side effects. If a tenant requires a reboot, they should use the
 `InvokeInstancePower` request - which is properly integrated into the
@@ -24,7 +24,7 @@ See [carbide-admin-cli access on a Forge cluster](forge_admin_cli.md).
 `carbide-admin-cli machine reboot` can be used to restart a machine.
 It always will require the machine's BMC IP and port to be specified.
 
-BMC credentials can either be explicitely passed, or the `--machine-id` parameter
+BMC credentials can either be explicitly passed, or the `--machine-id` parameter
 can be used to let the forge site-controller read the last known credentials
 for the machine.
 

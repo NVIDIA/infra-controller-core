@@ -40,7 +40,7 @@ swtpm_setup --tpmstate /tmp/emulated_tpm --tpm2 --create-ek-cert --create-platfo
 
 If you get an error in this step, try the following steps:
 - Run `/usr/share/swtpm/swtpm-create-user-config-files`. Potentially with `--overwrite`.
-  This writes the file files:
+  This writes the following files:
   - `~/.config/swtpm_setup.conf`
   - `~/.config/swtpm-localca.conf`
   - `~/.config/swtpm-localca.options`
@@ -86,7 +86,7 @@ You can also use graphical interface `virt-manager`.
 
 The virtual machine should fail to PXE boot from IPv4 (but gets an IP address) and IPv6, and then succeed from "HTTP boot IPv4", getting both an IP address and a boot image.
 
-This should boot you into the prexec image. The user is `root` and password
+This should boot you into the pre-exec image. The user is `root` and password
 is specified in the [mkosi.default](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/pxe) file.
 
 In order to exit out of console use `ctrl-a x`

@@ -7,7 +7,7 @@
 | Version | Date | Modified By | Description |
 | :---: | :---: | :---- | :---- |
 | 0.1 | 02/24/2026 | Binu Ramakrishnan | Initial version |
-| 0.2 | 03/11/2026 | Binu Ramakrishnan | gRPC/API updates and incorporated reivew feedback |
+| 0.2 | 03/11/2026 | Binu Ramakrishnan | gRPC/API updates and incorporated review feedback |
 |  |  |  |  |
 
 # **1\. Introduction**
@@ -41,7 +41,7 @@ The purpose of this document is to articulate the design of the software system,
 | JWKS | A JSON Web Key ([JWK](https://datatracker.ietf.org/doc/html/rfc7517)) is a JavaScript Object Notation (JSON) data structure that represents a cryptographic key.  JSON Web Key Set (JWKS) defines a JSON data structure that represents a set of JWKs. |
 | IMDS | Instance Meta-data Service |
 | BM | A bare metal machine \- often referred as a machine or node in this document.  |
-| Token Exchange Server | A service capable of validating security tokens provided to it and issuing new security tokens in response, which enables clients to obtain appropriate access credentials for resources in heterogeneous environments or across security domains. Defined in [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693). This document also refer this as 'token endpoints' and 'token delegation server'  |
+| Token Exchange Server | A service capable of validating security tokens provided to it and issuing new security tokens in response, which enables clients to obtain appropriate access credentials for resources in heterogeneous environments or across security domains. Defined in [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693). This document also refers to this as 'token endpoints' and 'token delegation server'  |
 
 ## **1.3 Scope**
 
@@ -95,7 +95,7 @@ The system is composed of the following major components:
 There are three different flows associated with implementing this feature:
 
 1. *Per-tenant signing key provisioning*: Describes how a new signing key associated with a tenant is provisioned, and optionally the token delegation/exchange flows.  
-2. *SPIFFE key bundle discovery*: Discuss about how the signing public keys are distributed to interested parties (verifiers)  
+2. *SPIFFE key bundle discovery*: Discusses how the signing public keys are distributed to interested parties (verifiers)  
 3. *JWT-SVID node identity request flow*: The run time flow used by tenant applications to fetch JWT-SVIDs from Carbide.
 
 Each of these flows are discussed below.

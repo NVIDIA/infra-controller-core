@@ -2,15 +2,15 @@
 
 This page discusses the high level architecture of a site running NCX Infra Controller (NICo).
 
-NICo orchestrates the lifecycle of ["Managed Hosts"](#managed-hosts) and other resources via set of cooperating control plane services.
+NICo orchestrates the lifecycle of ["Managed Hosts"](#managed-hosts) and other resources via a set of cooperating control plane services.
 These control plane services have to be deployed to a Kubernetes cluster with a size of at least 3 nodes (for high availability).
 
 ![NICo Architecture Diagram](../static/nico_arch_diagram.png)
 
-The Kubernetes cluster needs to have variety of services deployed:
-1. [The Carbide control plane services](#carbide-control-plane-services). These services are specific to Carbide, and must be deployed together in order to allow Carbide to manage the lifecyle of hosts.
-2. [Dependency services](#dependency-servies). Carbide requires "off-the-shelf" dependencies like Postgres, Vault and telemetry services deployed and accessible.
-3. [Optional services](#optional-services). A variety of services in tools within the deployment that interfact with the Carbide deployment, but are not required continuously for the control plane to operate.
+The Kubernetes cluster needs to have a variety of services deployed:
+1. [The Carbide control plane services](#carbide-control-plane-services). These services are specific to Carbide, and must be deployed together in order to allow Carbide to manage the lifecycle of hosts.
+2. [Dependency services](#dependency-services). Carbide requires "off-the-shelf" dependencies like Postgres, Vault and telemetry services deployed and accessible.
+3. [Optional services](#optional-services). A variety of services and tools within the deployment that interact with the Carbide deployment, but are not required continuously for the control plane to operate.
 
 The following chapters look at each of these in more detail.
 
@@ -60,12 +60,12 @@ The carbide control plane consists of a number of services which work together t
 
 - [carbide-core](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/api): The Carbide core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all Carbide managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances). The [Carbide Core](#carbide_core_architecture) section describes it further in detail.
 - [carbide-dhcp (DHCP)](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/dhcp): The DHCP server responds to DHCP requests for all
-  devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. carbide-dhcp can be thought of as a stateless proxy: It does not acutally perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC based DHCP requests to carbide core.
+  devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. carbide-dhcp can be thought of as a stateless proxy: It does not actually perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC based DHCP requests to carbide core.
 - [carbide-pxe (iPXE)](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from carbide core - therefore the PXE server is also stateless.
   Currently, managed hosts are configured to always boot from PXE. If a local
   bootable device is found, the host will boot it. Hosts can also be configured to always boot from a
   particular image for stateless configurations.
-- [carbide-hw-health (Hardware health)](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/health): This service scrapes all host and DPU BMCs known by Carbide for system health information. It extracts measurements like fan speeds, temperaturs and leak indicators. These measurements are emitted as prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the carbide-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within carbide-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare metal instances for tenants.
+- [carbide-hw-health (Hardware health)](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/health): This service scrapes all host and DPU BMCs known by Carbide for system health information. It extracts measurements like fan speeds, temperatures and leak indicators. These measurements are emitted as prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the carbide-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within carbide-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare metal instances for tenants.
 - [ssh-console](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/ssh-console): The SSH console provides bare metal-tenants and site-administrators virtual serial console access to hosts managed by Carbide. The ssh-console service also sends the output of each hosts serial console to
   the logging system (Loki), from where it can be queried using Grafana and logcli. In order to provide this functionality, the ssh-console service *continuously* connects to all host BMCs. The ssh-console service only forwards logs to users ("bare metal tenants") if they connect to the service and get authenticated.
 - [carbide-dns (DNS)](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/dns): Domain name service (DNS) functionality
@@ -88,7 +88,7 @@ Carbide core is the only component within carbide which interacts with the postg
 ### [gRPC](https://grpc.io) API handlers
 
 The API handlers accept gRPC requests from Carbide users and internal system components. They provide users the ability to inspect the current state of the system, and modify the desired state of various components (e.g. create or reconfigure bare metal instances).
-  API handlers are all implemented within the trait/interface `rpc::forge::forge_server::Forge`. Various implementations delegate to the `handlers` subdirectory. For resources managed by Carbide, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead of it, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The carbide-core gRPC API supports
+  API handlers are all implemented within the trait/interface `rpc::forge::forge_server::Forge`. Various implementations delegate to the `handlers` subdirectory. For resources managed by Carbide, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The carbide-core gRPC API supports
 [gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine readable API
 description so clients can auto-generate code and RPC functions in the client.
 
@@ -105,7 +105,7 @@ The Debug UI also provides access to various admin level tools. E.g. it
 ### State Machines
 
 Carbide implements State Machines for all resources managed by Carbide. The state machines are implemented as idempotent state handling functions calls, which are scheduled by the system.
-State handling for various resource types is implemented indepently, e.g. the lifecycle of hosts is managed by different tasks and different code than the lifecycle of InfiniBand partitions.
+State handling for various resource types is implemented independently, e.g. the lifecycle of hosts is managed by different tasks and different code than the lifecycle of InfiniBand partitions.
 
 Carbide implements state machines for
 - Managed Hosts (Hosts + DPUs)
@@ -129,14 +129,14 @@ Carbide users can inspect the data that site explorer discovers using the `FindE
 Site Explorer requires an "Expected Machines" manifest to be deployed. Expected Machines describes the set of Machines that is expected to be managed by the Carbide instance - it encodes BMC MAC addresses, hardware default passwords and other details of these Machines. The manifest can be updated using a set of APIs, e.g. `ReplaceAllExpectedMachines`.
 
 Beyond the basic BMC data collection, Carbide also performs the following tasks:
-1. It matches hosts with associated DPUs based on the redfish reports of both components - e.g. both the host an DPU need to reference the same DPU serial number.
+1. It matches hosts with associated DPUs based on the redfish reports of both components - e.g. both the host and DPU need to reference the same DPU serial number.
 2. It kickstarts the ingestion process of the host once the host is in an "ingestable" state (all components are found and have up to date firmware versions).
 
-Site Explorer emits metris with the prefix `forge_endpoint_ ` and `forge_site_explorer_`.
+Site Explorer emits metrics with the prefix `forge_endpoint_` and `forge_site_explorer_`.
 
 ### Preingestion Manager
 
-Preingestion Manager is a component which updates the firmware of hosts that are below the minimum required firmware version that is required to be ingestable. Usually firmware updates to hosts are deplyoed within the main machine lifecycle, as managed by the ManagedHost state machine.
+Preingestion Manager is a component which updates the firmware of hosts that are below the minimum required firmware version that is required to be ingestable. Usually firmware updates to hosts are deployed within the main machine lifecycle, as managed by the ManagedHost state machine.
 
 In some rare cases - e.g. with very old host or DPU BMCs - the host ingestion process can't be started yet - e.g. because the BMC does not provide the necessary information to map the host to DPUs. In this case the firmware needs to be updated before ingestion, and preingestion manager performs this task.
 
@@ -164,7 +164,7 @@ In each run, IBFabricMonitor performs the following task:
 - It checks the health of the fabric manager (UFM) by performing API calls
 - It checks whether all security configurations for multitenancy are applied on UFM and emits alerts in case of inappropriate settings
 - It fetches the actually applied InfiniBand partitioning information for each InfiniBand port on each host managed by Carbide and stores it in Carbide. The data can be inspected in the `Machine::ib_status` field in the gRPC API.
-- If calls UFM APIs to bind ports (guids) to partitions (pkeys) according to the configuration of each host. This happens continuosly based on comparing the expected InfiniBand configuration of a host (whether it is used by a tenant or not, and how the tenant configured the InfiniBand interfaces) with the actually applied configuration (determined in the last step).
+- If calls UFM APIs to bind ports (guids) to partitions (pkeys) according to the configuration of each host. This happens continuously based on comparing the expected InfiniBand configuration of a host (whether it is used by a tenant or not, and how the tenant configured the InfiniBand interfaces) with the actually applied configuration (determined in the last step).
 
 InfiniBand Fabric Monitor is an optional component. It only needs to be enabled in the case Carbide managed InfiniBand is required.
 
@@ -184,7 +184,7 @@ controller nodes.
 Some site controller node services require persistent, durable storage to maintain state for their attendant
 pods. There are three different K8s statefulsets that run on the controller nodes:
 
-- [Loki](https://grafana.com/oss/loki/) - The loki/loki-0 pod instatites a single 50GB persistent volume and is used to
+- [Loki](https://grafana.com/oss/loki/) - The loki/loki-0 pod instantiates a single 50GB persistent volume and is used to
   store logs for the site controller components.
 - [Hashicorp Vault](https://www.vaultproject.io/) - Used by Kubernetes for certificate signing requests (CSRs). Vault
   uses three each (one per K8s control node) of the `data-vault` and `audit-vault` 10GB PVs to protect and distribute

@@ -8,7 +8,7 @@ Networking integrations in NICo achieve this through the following patterns:
 
 ### Tenant partition management
 
-1. Tenants have APIs for mananging a set of network partitions for their instances. Examples of these partitions are
+1. Tenants have APIs for managing a set of network partitions for their instances. Examples of these partitions are
    - VPCs (for ethernet)
    - InfiniBand partitions
    - NVLink logical partitions
@@ -30,10 +30,10 @@ Networking integrations in NICo achieve this through the following patterns:
 
 - Tenants need to know how they can actually configure their instances. Valid configurations depend on the hardware. E.g. in an instance with 4 connected InfiniBand ports, tenants can associate each of these ports with a separate partition. However tenants are not able to configure instances without InfiniBand ports for IB.
 - Tenants learn about the support configurations via "Instance Types", which hold a list of capabilities. Each type of networking capability informs a tenant on how the respective interface can be configured. This means for each configurable interface, the instance type should list a respective capability.
-- The set of capabilies encoded in instance types must match or be a subset of the capabilities associated with a `Machine`. Machine capabilities are detected during the hardware discovery and ingestion phases. They are viewable by site administrators via debug tools.
+- The set of capabilities encoded in instance types must match or be a subset of the capabilities associated with a `Machine`. Machine capabilities are detected during the hardware discovery and ingestion phases. They are viewable by site administrators via debug tools.
     - During Machine ingestion, data about all network interfaces is collected both in-band (using scout) and out-of-band (using site-explorer). The data is stored within `machine` and `machine_topologies` tables
-    - Based on the raw discovery data, "machine capabilities" (type `MachineCapabilitiesSet`) are computed by the core service and presented to site administrators. These capabilities inform users about the amount of interfaces which are configurable. For each network integration, a new type of machine capability is required. E.g. InfiniBand uses the `MachineCapabilityAttributesInfiniband` capabiltiy, while nvlink uses the `MachineCapabilityAttributesGpu` capability.
-- The SKU validation feature can can include checks whether any newly ingested host includes the expected amount of network interfaces - where each network interface is typcially described as a machine capability.
+    - Based on the raw discovery data, "machine capabilities" (type `MachineCapabilitiesSet`) are computed by the core service and presented to site administrators. These capabilities inform users about the amount of interfaces which are configurable. For each network integration, a new type of machine capability is required. E.g. InfiniBand uses the `MachineCapabilityAttributesInfiniband` capability, while nvlink uses the `MachineCapabilityAttributesGpu` capability.
+- The SKU validation feature can include checks whether any newly ingested host includes the expected amount of network interfaces - where each network interface is typically described as a machine capability.
 
 ## Implementation requirements and considerations
 
@@ -41,7 +41,7 @@ To implement these workflows, the following patterns had been developed and prov
 
 ### Desired state vs actual state of network interfaces
 
-- For each network interface on each machine, NICo tracks both the the desired state (target network partition and other configs) as well as the actual state.
+- For each network interface on each machine, NICo tracks both the desired state (target network partition and other configs) as well as the actual state.
 - The desired state is a combination of the "tenant requested state" as well as a set of configurations internally managed by NICo.
   - The tenant requested state is stored fully in the `InstanceConfig` object
   - The internal requested state is stored in the `ManagedHostNetworkConfig` that is part of the `machine` table in the database. The most important field here is the `use_admin_network` field which controls whether tenant configurations are overridden and that the machine should indeed be placed onto an isolated/admin network.
@@ -54,7 +54,7 @@ To implement these workflows, the following patterns had been developed and prov
 
 ### State reconciliation
 
-There needs to be a mechanism that periodically compares the expected networking configuration with the desired netowrking configuration. If they are not in-sync, the respective components needs to take all the required actions to bring the configurations in sync.
+There needs to be a mechanism that periodically compares the expected networking configuration with the desired networking configuration. If they are not in-sync, the respective components needs to take all the required actions to bring the configurations in sync.
 
 1. For networking technologies where an external service is used to control partitioning (NVLink, InfiniBand), the `Monitor` background tasks are used to achieve this goal. If they detect a configuration mismatch, they perform API calls to the external networking service to resolve the problem.
 2. For other integrations, an external agent can pull the desired configuration for any host, perform (potentially local) configuration changes, before reporting the new state back to Carbide. This approach is taken for DPUs.
@@ -65,7 +65,7 @@ There needs to be a mechanism that periodically compares the expected networking
     - The value of the per-technology `configs_synced` fields should be derived by comparing the desired network configurations to the actual configuration as stored in the `Machine` object. This is implemented within `InstanceStatus::from_config_and_observation`.
     - The value of the aggregate `configs_synced` field is the logical **and** of all individual `configs_synced` fields in the `InstanceStatus` message.
 2. The instances tenant status (as communicated via `Instance::status::tenant::state`) should take into account whether the desired configuration is applied:
-    - If an instance is still in one of the provisionig states (anything before `Ready`), it will show a tenant status of `Provisioning`.
+    - If an instance is still in one of the provisioning states (anything before `Ready`), it will show a tenant status of `Provisioning`.
     - If the instance ever had been `Ready`, and the actual network configuration deviates from the intended configuration, the status should show `Configuring`.
     - If instance termination has been requested, the instances status should show `Terminating` independent of network configurations.
 3. The instance state machine should have guards in certain states that wait until the desired network configurations are applied:

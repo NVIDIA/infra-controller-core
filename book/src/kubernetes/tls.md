@@ -41,7 +41,7 @@ With SPIFFE formatted `Certificates`, the only field populated is the SAN (Subje
 
 **NOTE**
 > The TLS key generated in every pod never leaves the host which
-> it was generated on. If a migration even occurs, the CSR/key are
+> it was generated on. If a migration event occurs, the CSR/key are
 > regenerated, submitted to CertManager, and then signed again.
 
 ### How to obtain a SPIFFE formatted cert

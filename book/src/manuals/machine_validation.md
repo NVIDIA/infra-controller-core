@@ -58,7 +58,7 @@ This page provides a workflow for machine validation in NCX Infra Controller (NI
 
 Machine validation is a process of testing and verifying the hardware components and peripherals of a machine before handing it over to a tenant. The purpose of machine validation is to avoid disruption of tenant usage and ensure that the machine meets the expected benchmarks and performance. Machine validation involves running a series of regression tests and burn-in tests to stress the machine to its maximum capability and identify any potential issues or failures. Machine validation provides several benefits for the tenant. By performing machine validation, NICo ensures that machine is in optimal condition and ready for tenant usage. Machine validation helps to detect and resolve any hardware issues or failures before they affect the tenant's workloads
 
-Machine validation is performed using a different tool, these are available in the discovery image. Most of these tools require root privileges and are non-interactive. The tool(s) runs tests and sends result to Site controller
+Machine validation is performed using various tools that are available in the discovery image. Most of these tools require root privileges and are non-interactive. The tool(s) runs tests and sends results to the Site controller
 
 **Purpose**
 
@@ -80,11 +80,11 @@ SRE, Provider admin, Developer
 
 #### Feature gate {#feature-gate}
 
-The NICo site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature controlled using these settings.  The feature gate enables or disables machine validation features at deploy time.
+The NICo site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature is controlled using these settings.  The feature gate enables or disables machine validation features at deploy time.
 
 #### Test case management {#test-case-management}
 
-Test Case Management is the process of  adding, updating test cases. There are two types of test cases
+Test Case Management is the process of adding and updating test cases. There are two types of test cases
 
 1) Test cases added during deploy- These are common across all the sites and these are read-only test cases. Test cases are added through NICo DB migration.
 2) Site specific test case - Added by site admin
@@ -207,7 +207,7 @@ To enable add below section in api site config toml [forged/](https://gitlab-mas
 [machine_validation_config]
 enabled = true
 
-Machine Validation allows site operators to configure the NGC container registry.  This allows machine validation to use private container in
+Machine Validation allows site operators to configure the NGC container registry.  This allows machine validation to use private containers in
 
 Finally add the config to site
 
@@ -557,7 +557,7 @@ Options:
 
       --version <VERSION>
 
-          Version to be verify
+          Version to be verified
 
       --contexts <CONTEXTS>
 
@@ -631,7 +631,7 @@ Options:
 
           Print help
 
-We can selectively update fields of test cases. Once the test case is updated the verify flag is set to false. Site admin hs to explicitly set the flag as verified.
+We can selectively update fields of test cases. Once the test case is updated the verify flag is set to false. Site admin has to explicitly set the flag as verified.
 
         user@host:admin$ carbide-admin-cli machine-validation tests update  --test-id forge_NewTest --version V1-T1736492939564126 --args updatenewtest
 
@@ -669,9 +669,9 @@ We can selectively update fields of test cases. Once the test case is updated th
 
 Machine validation has 3 Contexts
 
-1) Discovery - Tests cases with this context will be executed during node ingestion time.
-2) Cleanup - Tests cases with context will be executed during node cleanup(between tenants).
-3) On-Demand - Tests cases with context will be executed when on demand machine validation is triggered.
+1) Discovery - Test cases with this context will be executed during node ingestion time.
+2) Cleanup - Test cases with this context will be executed during node cleanup(between tenants).
+3) On-Demand - Test cases with this context will be executed when on demand machine validation is triggered.
 
         user@host:admin$ carbide-admin-cli machine-validation on-demand start  --help
 

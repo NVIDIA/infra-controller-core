@@ -6,7 +6,7 @@ This one interface has two different MAC addresses. So, while the physical
 connection is shared the OOB and BMC have unique IP addresses.
 
 The BMC OS is a basic `busybox` shell,  so the available commands are limited.
-To connect the BMC, ssh to the IP address listed under `DPU BMC IP` address
+To connect to the BMC, ssh to the IP address listed under `DPU BMC IP` address
 using credentials in the `DPU BMC Credentials` table above.
 
 To then connect to the 'console' of the DPU you use `microcom` on the
@@ -52,7 +52,7 @@ From the ArmOS BMC you can instruct the DPU to restart using
 
 `echo "SW_RESET 1" > /dev/rshim0/misc`
 
-The DPU Might require the following udev rules to enable auto-negotiation.  You can look if that is already enable
+The DPU might require the following udev rules to enable auto-negotiation. You can check if that is already enabled
 
 ```
 echo 'SUBSYSTEM=="net", ACTION=="add", NAME=="p0", RUN+="/sbin/ethtool -s p0 autoneg on"' >> /etc/udev/rules.d/83-net-speed.rules

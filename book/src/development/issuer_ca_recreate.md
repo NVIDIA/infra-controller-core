@@ -33,7 +33,7 @@ Now, the engine responsible for generating client certificates has type pki. You
     447e5fb7-65d8-3829-d1b4-416a3d795ede
     ```
 6. Have a look at the issuer itself: `vault read -tls-skip-verify forgeca/issuer/447e5fb7-65d8-3829-d1b4-416a3d795ed` (one can add -format json for a JSON output). Parse the cert displayed with `openssl x509 -in mycert.pem -text` to double check it's the actual culprit by looking at the `NotAfter` field.
-7. Check the role (the name of the role forge-cluster is the value of VAULT_PKI_ROLE_NAME env var in carbine-api deployment/pod)
+7. Check the role (the name of the role forge-cluster is the value of VAULT_PKI_ROLE_NAME env var in carbide-api deployment/pod)
     <details>
     <summary>Get Issuer Role</summary>
 

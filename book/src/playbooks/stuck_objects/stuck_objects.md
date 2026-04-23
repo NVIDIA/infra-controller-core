@@ -45,7 +45,7 @@ Another initial check on whether the problem is a Forge Cloud or Site problem
 is to check whether the Cloud backend could actually send the state change
 request (e.g. instance release request) to the Site.
 
-The `statusHistory` field on the Forge Cloud API can be belpful for this assessment. E.g. the history for the following Subnet indicates that
+The `statusHistory` field on the Forge Cloud API can be helpful for this assessment. E.g. the history for the following Subnet indicates that
 the deletion request was sent to the site, but deletion might be stuck there:
 
 ```json
@@ -210,7 +210,7 @@ The graph might look like:
 In this diagram we can observe ManagedHosts in various transient states
 (like `assigned bootingwithdiscoverimage` or `dpunotready waitingfornetworkconfig`)
 for multiple hours. Thereby we can assume those objects are stuck in this
-state, and that operator invention is required to make them advance state.
+state, and that operator intervention is required to make them advance state.
 
 The dashboard will not tell us which ManagedHost is exactly stuck. But if only one
 ManagedHost is in a stuck state, we can deduct that this might be the ManagedHost a
@@ -249,7 +249,7 @@ Forge:
 - [Infiniband Partition State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/ib_partition/handler.rs)
 
 When looking at these files, consider that the software version deployed
-on the Forge site you are investiating might not match the latest `trunk`
+on the Forge site you are investigating might not match the latest `trunk`
 version of those state machines. You might then want to look at the version
 of the file which matches the version (git commit hash) of the actual site.
 
@@ -295,13 +295,13 @@ Inspecting the [`rebooted`](https://gitlab-master.nvidia.com/nvmetal/carbide/-/b
 function further will tell us that checks that the `last_reboot_time` timestamp
 is more recent than the time when we entered the state. And checking even
 further for where the `last_reboot_time` is updated, [we would learn that
-it happens when `forge-scout` is started and asks the the `carbide-api` server
+it happens when `forge-scout` is started and asks the `carbide-api` server
 via the `ForgeAgentControl` API call for instructions](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/38849aed602a2ab6e19a5315b342db3d4535b143/api/src/api.rs#L2771-2772.)
 
-Therefore we can determine that possibles sources of the ManagedHost being stuck are:
+Therefore we can determine that possible sources of the ManagedHost being stuck are:
 - The Host is never rebooted
 - The Host is rebooted, but does not boot into the discovery image
-- The Host is rebooted and boots into the dsicovery image, but `forge-scout` is
+- The Host is rebooted and boots into the discovery image, but `forge-scout` is
   not running or might not be able to reach the API server.
 
 We can now continue troubleshooting by inspecting which of these steps might have

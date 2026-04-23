@@ -57,7 +57,7 @@ The following versions indicate the tested baseline for the NICo site controller
 * **CNI**: Calico backend or equivalent (VXLAN or BGP; choose per network policy/MTU needs)
 * **Control-plane footprint**: 3-node minimum for HA; 5-node control plane recommended for large GB200-class sites (e.g. YTL deployment)
 * **Time sync**: chrony or equivalent, synced to enterprise NTP
-* **Logging/metrics**: Ship system and pod logs off‑host (e.g. to your centralized stack). All logs are collected and shipped using `otel-collector-contrib `(Both Site controller and DPU). All Metrics are scraped and shipped using Prometheus (Both Site controller and DPU).
+* **Logging/metrics**: Ship system and pod logs off‑host (e.g. to your centralized stack). All logs are collected and shipped using `otel-collector-contrib` (both site controller and DPU). All metrics are scraped and shipped using Prometheus (both site controller and DPU).
 
 ## Networking Best Practices
 
@@ -125,7 +125,7 @@ This pool is required for the services running on the control plane cluster.
 
 * The IP allocation in this network is managed by NICo. 
 * The allocation can be split into multiple pools. 
-* These subnets must be configured on the out-of-band connected switches, with a DHCP relay configuration pointing to the NICo DHCP service NICo must be informed about them.
+* These subnets must be configured on the out-of-band connected switches, with a DHCP relay configuration pointing to the NICo DHCP service. NICo must be informed about them.
 
 ### DPU Loopback Pool
 

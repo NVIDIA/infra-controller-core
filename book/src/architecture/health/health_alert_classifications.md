@@ -9,7 +9,7 @@ An instance creation request using the hosts Machine ID will fail, unless the ta
 
 ### `PreventHostStateChanges`
 
-Hosts with this classification won't move between certain states during the hosts lifecycle.
+Hosts with this classification won't move between certain states during the host's lifecycle.
 The classification is mostly used to prevent a host from moving between states while it is uncertain whether all necessary configurations have been applied.
 
 ### `SuppressExternalAlerting`
@@ -20,7 +20,7 @@ site-wide fleet-health. This is achieved by metrics/alerting queries ignoring th
 ### `ExcludeFromStateMachineSla`
 
 Hosts with this classification will not be counted towards state machine transition time SLA.
-This classification is mostly used to prevent state machine keep alerting when some manual operations are being performed on the machine.
+This classification is mostly used to prevent the state machine from continuously alerting when some manual operations are being performed on the machine.
 
 ### `StopRebootForAutomaticRecoveryFromStateMachine`
 

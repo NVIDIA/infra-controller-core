@@ -27,9 +27,9 @@ In general, the steps are:
 
 > **Note**: To ensure that machines in the same Rack are assigned to the same NVLink Partition, an Instance Type can be created for the Rack and all Machines in the Rack assigned to the same Instance Type. Alternatively users can use the [Batch Instance creation REST API endpoint](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Instance/operation/batch-create-instances) and set `topologyOptimized` to `true`.
 
-3. If the users does not want to specify NVLink Interfaces for each GPU when creating an Instance, they can:
+3. If the user does not want to specify NVLink Interfaces for each GPU when creating an Instance, they can:
 
-   a. Create a new VPC with specifying a value for `nvLinkLogicalPartitionId` or update an existing VPC with no Instances to set the `nvLinkLogicalPartitionId` attribute. We will refer to this as the *default NVLink Logical Partition* for the VPC.
+   a. Create a new VPC by specifying a value for `nvLinkLogicalPartitionId` or update an existing VPC with no Instances to set the `nvLinkLogicalPartitionId` attribute. We will refer to this as the *default NVLink Logical Partition* for the VPC.
 
    b. When creating an Instance in this VPC, user does not need to specify NVLink Interfaces, NICo will automatically generate NVLink Interfaces for the Instance and assign them to the VPC's NVLink Logical Partition.
 
