@@ -21,6 +21,7 @@ use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::forge::DpuMode;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
@@ -122,6 +123,21 @@ pub struct Args {
         help = "Static BMC IP (pre-allocates machine_interface for site explorer, same as expected switches)"
     )]
     pub bmc_ip_address: Option<IpAddr>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
+
+    #[clap(
+        long = "dpu-mode",
+        value_name = "DPU_MODE",
+        value_enum,
+        help = "Per-host DPU operating mode. `dpu-mode` (default): DPUs are managed by NICo; `nic-mode`: DPU hardware present but treated as a plain NIC; `no-dpu`: no DPU hardware at all. Unset keeps the site default (site-wide `force_dpu_nic_mode` flag still applies when no per-host value is set)."
+    )]
+    pub dpu_mode: Option<DpuMode>,
 }
 
 impl Args {
@@ -141,6 +157,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             description: value.meta_description.unwrap_or_default(),
             labels,
         };
+
         let host_nics = value
             .host_nics
             .map(|s| serde_json::from_str::<Vec<MacAddress>>(&s))
@@ -153,6 +170,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
                 fixed_ip: None,
                 fixed_mask: None,
                 fixed_gateway: None,
+                primary: None,
             })
             .collect();
 
@@ -172,6 +190,8 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             dpf_enabled: value.dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: value.dpf_enabled,
             bmc_ip_address: value.bmc_ip_address.map(|ip| ip.to_string()),
+            bmc_retain_credentials: value.bmc_retain_credentials,
+            dpu_mode: value.dpu_mode.map(|m| m as i32),
         })
     }
 }

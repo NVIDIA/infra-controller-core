@@ -143,6 +143,8 @@ pub struct ManagedHostOutput {
     pub failure_details: Option<String>,
     pub quarantine_state: Option<ManagedHostQuarantineState>,
     pub instance_type_id: Option<String>,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
 }
 
 impl From<Machine> for ManagedHostOutput {
@@ -186,7 +188,7 @@ impl From<Machine> for ManagedHostOutput {
             })
             .unwrap_or_else(health_report::HealthReport::missing_report);
         let health_overrides = machine
-            .health_overrides
+            .health_sources
             .into_iter()
             .map(|o| o.source)
             .collect();
@@ -246,6 +248,8 @@ impl From<Machine> for ManagedHostOutput {
             }),
             quarantine_state: machine.quarantine_state.clone(),
             instance_type_id: machine.instance_type_id.clone(),
+            slot_number: machine.placement_in_rack.and_then(|p| p.slot_number),
+            tray_index: machine.placement_in_rack.and_then(|p| p.tray_index),
             health,
             health_overrides,
             ..Default::default()

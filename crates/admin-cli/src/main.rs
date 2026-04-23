@@ -40,6 +40,7 @@ mod async_write;
 mod bmc_machine;
 mod boot_override;
 mod cfg;
+mod component_manager;
 mod compute_allocation;
 mod credential;
 mod debug_bundle;
@@ -56,6 +57,7 @@ mod expected_switch;
 mod extension_service;
 mod firmware;
 mod generate_shell_complete;
+mod health_utils;
 mod host;
 mod ib_partition;
 mod instance;
@@ -205,6 +207,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::BmcMachine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::BootOverride(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Credential(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ComponentManager(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ComputeAllocation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::DevEnv(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Domain(cmd) => cmd.dispatch(ctx).await?,

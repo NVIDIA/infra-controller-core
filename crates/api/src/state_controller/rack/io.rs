@@ -53,7 +53,7 @@ impl StateControllerIO for RackStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_rack::find_ids(txn, RackSearchFilter::default()).await
+        db_rack::find_ids(txn, RackSearchFilter {}).await
     }
 
     /// Loads a state snapshot from the database
@@ -133,6 +133,7 @@ impl StateControllerIO for RackStateControllerIO {
             RackState::Ready => ("ready", ""),
             RackState::Maintenance { maintenance_state } => match maintenance_state {
                 RackMaintenanceState::FirmwareUpgrade { .. } => ("maintenance", "firmware_upgrade"),
+                RackMaintenanceState::NVOSUpdate { .. } => ("maintenance", "nvos_update"),
                 RackMaintenanceState::ConfigureNmxCluster => {
                     ("maintenance", "configure_nmx_cluster")
                 }
@@ -145,6 +146,7 @@ impl StateControllerIO for RackStateControllerIO {
     }
 
     fn state_sla(
+        &self,
         state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {

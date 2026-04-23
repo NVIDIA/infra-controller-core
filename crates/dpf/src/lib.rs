@@ -72,8 +72,10 @@ mod test;
 pub use error::DpfError;
 pub use repository::{DpfRepository, KubeRepository};
 pub use sdk::{
-    DpfSdk, DpfSdkBuilder, NoLabels, ResourceLabeler, dpu_cr_name, dpu_device_cr_name,
-    dpu_node_cr_name, node_id_from_dpu_node_cr_name,
+    DpfSdk, DpfSdkBuilder, NoLabels, ResourceLabeler, build_deployment,
+    build_service_configuration, build_service_interface, build_service_nad,
+    build_service_template, dpu_cr_name, dpu_device_cr_name, dpu_node_cr_name,
+    node_id_from_dpu_node_cr_name,
 };
 pub use services::{DEFAULT_DOCA_HELM_REGISTRY, ServiceRegistryConfig};
 pub use types::{

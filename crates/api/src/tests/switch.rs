@@ -16,7 +16,9 @@
  */
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
-use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
+use model::switch::{
+    NewSwitch, SwitchConfig, SwitchControllerState, SwitchSearchFilter, SwitchStatus,
+};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{AdminForceDeleteSwitchRequest, SwitchDeletionRequest, SwitchQuery};
 use tonic::Code;
@@ -467,7 +469,7 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     }
 
     // Test listing all switch IDs
-    let listed_ids = db_switch::find_all(&mut txn).await?;
+    let listed_ids = db_switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
 
     // Verify all created IDs are in the list
     for created_id in &created_ids {
@@ -566,9 +568,35 @@ async fn test_find_switch_bmc_info_no_matching_data(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let switch_id = new_switch(&env, Some("Switch3".to_string()), None).await?;
 
-    // bmc_info should be None when no expected_switch or machine_interface data exists
+    // Create a switch without the corresponding expected switch data
+    let switch_id = model::switch::switch_id::from_hardware_info(
+        "NO-BMC-SERIAL",
+        "NVIDIA",
+        "Switch",
+        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        carbide_uuid::switch::SwitchType::NvLink,
+    )
+    .unwrap();
+
+    let new_switch_record = NewSwitch {
+        id: switch_id,
+        config: SwitchConfig {
+            name: "SwitchNoBmc".to_string(),
+            enable_nmxc: false,
+            fabric_manager_config: None,
+        },
+        bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
+        slot_number: Some(0),
+        tray_index: Some(0),
+    };
+
+    let mut txn = env.pool.begin().await.unwrap();
+    db_switch::create(&mut txn, &new_switch_record).await?;
+    txn.commit().await.unwrap();
+
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),

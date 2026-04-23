@@ -26,7 +26,7 @@ authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.43.9" }
+libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.43.11" }
 librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.0.9.beta-rc2" }
 ansi-to-html = "0.2.2"
 
@@ -59,12 +59,7 @@ tracing-appender = "0.2.4"
 tracing-opentelemetry = "0.29.0"
 
 # NV-Redfish
-nv-redfish = { version = "0.5.0", features = [
-  "bmc-http",
-  "std-redfish",
-  "update-service",
-  "resource-status",
-] }
+nv-redfish = { version = "0.7.0" }
 
 ########
 # MARK: - Pinned packages that we can't upgrade due to conflicts or just bugs
@@ -204,7 +199,7 @@ rumqttc = "0.24"
 russh = "0.54.6"
 rustc-hash = "2.1.1"
 rustls-pemfile = "2.2.0"
-serde = "1"
+serde = "1.0.228"
 serde_json = "1.0"
 serde_regex = "1.1.0"
 serde_with = "3.12.0"
@@ -256,6 +251,7 @@ wait-timeout = "0.2.1"
 walkdir = "2.5.0"
 x509-parser = "0.17.0"
 urlencoding = "2.1"
+zeroize = { version = "1", features = ["derive"] }
 zip = "0.6"
 serde_derive = "1"
 fmt = "0.1.0"

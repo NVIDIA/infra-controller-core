@@ -29,6 +29,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
 use axum_extra::extract::Host;
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
+use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, Request, StatusCode, Uri};
 use itertools::Itertools;
@@ -47,7 +48,7 @@ use tower_http::normalize_path::NormalizePath;
 
 use crate::CarbideError;
 use crate::api::Api;
-use crate::auth::{AuthContext, Principal};
+use crate::auth::AuthContext;
 use crate::cfg::file::CarbideConfig;
 
 /// Reusable template for rendering metadata (name, description, labels, version)
@@ -57,6 +58,26 @@ use crate::cfg::file::CarbideConfig;
 pub(crate) struct MetadataDetail {
     pub metadata: rpc::forge::Metadata,
     pub metadata_version: String,
+}
+
+/// Reusable template for rendering a color-coded state bubble.
+/// Render with `{{ state_display|safe }}`.
+#[derive(Template)]
+#[template(path = "state_display.html")]
+pub(crate) struct StateDisplay {
+    pub state: String,
+    pub time_in_state_above_sla: bool,
+}
+
+/// Reusable template for rendering State SLA, time-in-state-above-SLA, and
+/// state handler outcome rows inside a `<table>`.
+/// Render with `{{ state_sla_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "state_sla_details.html")]
+pub(crate) struct StateSlaDetail {
+    pub state_sla: String,
+    pub time_in_state_above_sla: bool,
+    pub state_reason: Option<rpc::forge::ControllerStateReason>,
 }
 
 mod action_status;
@@ -126,6 +147,7 @@ const ALLOWED_ACCESS_GROUPS_ID_LIST_ENV: &str = "CARBIDE_WEB_ALLOWED_ACCESS_GROU
 const SORTABLE_JS: &str = include_str!("../../templates/static/sortable.min.js");
 const SORTABLE_CSS: &str = include_str!("../../templates/static/sortable.min.css");
 const CARBIDE_CSS: &str = include_str!("../../templates/static/carbide.css");
+const TABS_JS: &str = include_str!("../../templates/static/tabs.js");
 
 // It would appear the oauth2 author read about the typestate pattern and decided making
 // everyone declare 10 type parameters when storing a Client sounds like a great idea.
@@ -718,6 +740,7 @@ struct Index {
     version: &'static str,
     agent_upgrade_policy: &'static str,
     log_filter: String,
+    site_explorer_enabled: String,
     create_machines: String,
     carbide_config: CarbideConfig,
     bmc_proxy: String,
@@ -742,6 +765,11 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         }
     };
 
+    let site_explorer_enabled = state
+        .dynamic_settings
+        .site_explorer_enabled
+        .load(Ordering::Relaxed)
+        .to_string();
     let create_machines = state
         .dynamic_settings
         .create_machines
@@ -760,6 +788,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         version: carbide_version::v!(build_version),
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
+        site_explorer_enabled,
         create_machines,
         carbide_config: state.runtime_config.redacted(),
         bmc_proxy,
@@ -785,6 +814,7 @@ pub async fn static_data(
         "carbide.css" => {
             (StatusCode::OK, [(CONTENT_TYPE, "text/css")], CARBIDE_CSS).into_response()
         }
+        "tabs.js" => (StatusCode::OK, [(CONTENT_TYPE, "text/javascript")], TABS_JS).into_response(),
         _ => (StatusCode::NOT_FOUND, "No such file").into_response(),
     }
 }

@@ -439,8 +439,8 @@ async fn handle_action(
 // from carbide-api via ForgeAgentControl. The task data is a JSON-serialized
 // FirmwareUpgradeTask in the "firmware_upgrade_task" key-value pair.
 async fn handle_firmware_upgrade_action(
-    _config: &Options,
-    _machine_id: &MachineId,
+    config: &Options,
+    machine_id: &MachineId,
     data: Option<ForgeAgentControlExtraInfo>,
 ) -> Result<(), CarbideClientError> {
     let extra = data.ok_or_else(|| {
@@ -475,21 +475,41 @@ async fn handle_firmware_upgrade_action(
 
     let result = firmware_upgrade::handle_firmware_upgrade(&http_client, &task).await;
 
-    // TODO: Report upgrade status back to carbide-api via ReportScoutFirmwareUpgradeStatus RPC when it is ready.
+    tracing::info!(
+        "[firmware_upgrade] upgrade finished: success={} component={} version={} exit_code={}",
+        result.success,
+        task.component_type,
+        task.target_version,
+        result.exit_code,
+    );
 
-    if result.success {
-        tracing::info!(
-            "[firmware_upgrade] completed successfully for component={} version={}",
-            task.component_type,
-            task.target_version,
-        );
-        Ok(())
-    } else {
-        Err(CarbideClientError::GenericError(format!(
-            "[firmware_upgrade] failed for component={} version={}: {}",
-            task.component_type, task.target_version, result.error,
-        )))
+    report_firmware_upgrade_status(config, machine_id, &result).await?;
+
+    if !result.success {
+        return Err(CarbideClientError::GenericError(format!(
+            "firmware upgrade failed for component={} version={}: exit_code={} error={}",
+            task.component_type, task.target_version, result.exit_code, result.error,
+        )));
     }
+    Ok(())
+}
+
+async fn report_firmware_upgrade_status(
+    config: &Options,
+    machine_id: &MachineId,
+    result: &firmware_upgrade::FirmwareUpgradeResult,
+) -> Result<(), CarbideClientError> {
+    let mut client = client::create_forge_client(config).await?;
+    let request = tonic::Request::new(rpc_forge::ScoutFirmwareUpgradeStatusRequest {
+        machine_id: Some(*machine_id),
+        success: result.success,
+        exit_code: result.exit_code,
+        stdout: result.stdout.clone(),
+        stderr: result.stderr.clone(),
+        error: result.error.clone(),
+    });
+    client.report_scout_firmware_upgrade_status(request).await?;
+    Ok(())
 }
 
 // carbide sent us an Action::MlxReport command in response to our

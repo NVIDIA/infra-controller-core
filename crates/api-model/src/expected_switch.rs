@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::metadata::{Metadata, default_metadata_for_deserializer};
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Clone, Deserialize)] // Do not add debug here, it contains passwords.
 #[serde(default)]
 pub struct ExpectedSwitch {
     #[serde(default)]
@@ -47,6 +47,10 @@ pub struct ExpectedSwitch {
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
     pub rack_id: Option<RackId>,
+    /// When true, site-explorer skips BMC password rotation and stores the
+    /// factory-default credentials in Vault as-is.
+    #[serde(default)]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl<'r> FromRow<'r, PgRow> for ExpectedSwitch {
@@ -73,6 +77,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedSwitch {
             bmc_ip_address: row.try_get("bmc_ip_address").ok(),
             metadata,
             rack_id: row.try_get("rack_id")?,
+            bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
         })
     }
 }
@@ -102,6 +107,7 @@ impl From<ExpectedSwitch> for rpc::forge::ExpectedSwitch {
                 .unwrap_or_default(),
             metadata: Some(expected_switch.metadata.into()),
             rack_id: expected_switch.rack_id,
+            bmc_retain_credentials: expected_switch.bmc_retain_credentials.filter(|&v| v),
         }
     }
 }
@@ -146,6 +152,7 @@ impl TryFrom<rpc::forge::ExpectedSwitch> for ExpectedSwitch {
             metadata,
             rack_id: rpc.rack_id,
             nvos_mac_addresses,
+            bmc_retain_credentials: rpc.bmc_retain_credentials,
         })
     }
 }

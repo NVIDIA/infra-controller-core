@@ -274,13 +274,13 @@ impl ApiClient {
         Ok(racks)
     }
 
-    pub async fn get_rack_capabilities(
+    pub async fn get_rack_profile(
         &self,
         rack_id: RackId,
-    ) -> CarbideCliResult<rpc::GetRackCapabilitiesResponse> {
+    ) -> CarbideCliResult<rpc::GetRackProfileResponse> {
         Ok(self
             .0
-            .get_rack_capabilities(rpc::GetRackCapabilitiesRequest {
+            .get_rack_profile(rpc::GetRackProfileRequest {
                 rack_id: Some(rack_id),
             })
             .await?)
@@ -425,12 +425,12 @@ impl ApiClient {
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::InsertHealthReportOverrideRequest {
             machine_id: Some(id),
-            r#override: Some(rpc::HealthReportOverride {
+            health_report_entry: Some(rpc::HealthReportEntry {
                 report: Some(report),
                 mode: if replace {
-                    rpc::OverrideMode::Replace
+                    rpc::HealthReportApplyMode::Replace
                 } else {
-                    rpc::OverrideMode::Merge
+                    rpc::HealthReportApplyMode::Merge
                 } as i32,
             }),
         };
@@ -568,6 +568,7 @@ impl ApiClient {
         default_pause_ingestion_and_poweron: Option<bool>,
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
+        bmc_retain_credentials: Option<bool>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -647,6 +648,11 @@ impl ApiClient {
             dpf_enabled: dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: dpf_enabled,
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
+            bmc_retain_credentials: bmc_retain_credentials
+                .or(expected_machine.bmc_retain_credentials),
+            // Patch doesn't expose `--dpu-mode` yet; preserve the existing
+            // server-side value.
+            dpu_mode: expected_machine.dpu_mode,
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -680,6 +686,8 @@ impl ApiClient {
                     dpf_enabled: machine.dpf_enabled.unwrap_or_default(),
                     is_dpf_enabled: machine.dpf_enabled,
                     bmc_ip_address: machine.bmc_ip_address,
+                    bmc_retain_credentials: machine.bmc_retain_credentials,
+                    dpu_mode: machine.dpu_mode.map(|m| m as i32),
                 })
                 .collect(),
         };
@@ -706,6 +714,7 @@ impl ApiClient {
                         .unwrap_or_default(),
                     metadata: power_shelf.metadata,
                     rack_id: power_shelf.rack_id,
+                    bmc_retain_credentials: power_shelf.bmc_retain_credentials,
                 })
                 .collect(),
         };
@@ -741,6 +750,7 @@ impl ApiClient {
                         .unwrap_or_default(),
                     metadata: switch.metadata,
                     rack_id: switch.rack_id,
+                    bmc_retain_credentials: switch.bmc_retain_credentials,
                 })
                 .collect(),
         };
@@ -1156,6 +1166,7 @@ impl ApiClient {
                     device_instance,
                     virtual_function_id: None,
                     ip_address: None,
+                    ipv6_interface_config: None,
                 });
 
                 if let Some(vf_network_segment_chunks) = vf_chunk_iter.next() {
@@ -1170,6 +1181,7 @@ impl ApiClient {
                             device_instance,
                             virtual_function_id: Some(vf_function_id),
                             ip_address: None,
+                            ipv6_interface_config: None,
                         });
                         vf_function_id += 1;
                     }
@@ -1203,6 +1215,7 @@ impl ApiClient {
             };
             tracing::debug!("VFs per PF: {vfs_per_pf}");
             let mut vf_chunk_iter = vf_vpc_prefix_ids.chunks(vfs_per_pf);
+            let mut ipv6_vf_chunk_iter = allocate_instance.ipv6_vf_prefix_id.chunks(vfs_per_pf);
             for (map_index, i) in discovery_info
                 .network_interfaces
                 .iter()
@@ -1231,14 +1244,26 @@ impl ApiClient {
                         device: Some(pci_properties.device.clone()),
                         device_instance,
                         virtual_function_id: None,
-                        ip_address: None,
+                        ip_address: allocate_instance.ip_address.get(map_index).cloned(),
+                        ipv6_interface_config: allocate_instance
+                            .ipv6_vpc_prefix_id
+                            .get(map_index)
+                            .copied()
+                            .map(|vpc_prefix_id| rpc::InstanceInterfaceIpv6Config {
+                                vpc_prefix_id: Some(vpc_prefix_id),
+                                ip_address: allocate_instance
+                                    .ipv6_ip_address
+                                    .get(map_index)
+                                    .cloned(),
+                            }),
                     };
                     tracing::debug!("Adding interface: {:?}", new_interface);
 
                     interface_configs.push(new_interface);
 
                     if let Some(vf_prefix_chunks) = vf_chunk_iter.next() {
-                        for vf_vpc_prefix_id in vf_prefix_chunks {
+                        let ipv6_vf_chunk = ipv6_vf_chunk_iter.next();
+                        for (vf_idx, vf_vpc_prefix_id) in vf_prefix_chunks.iter().enumerate() {
                             let new_interface = rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                                 network_segment_id: None,
@@ -1248,7 +1273,19 @@ impl ApiClient {
                                 device: Some(pci_properties.device.clone()),
                                 device_instance,
                                 virtual_function_id: Some(vf_function_id),
-                                ip_address: None,
+                                ip_address: allocate_instance.vf_ip_address.get(vf_idx).cloned(),
+                                ipv6_interface_config: ipv6_vf_chunk
+                                    .and_then(|c| c.get(vf_idx))
+                                    .copied()
+                                    .map(|vpc_prefix_id| rpc::InstanceInterfaceIpv6Config {
+                                        vpc_prefix_id: Some(vpc_prefix_id),
+                                        ip_address: ipv6_vf_chunk.and_then(|_| {
+                                            allocate_instance
+                                                .ipv6_vf_ip_address
+                                                .get(vf_idx)
+                                                .cloned()
+                                        }),
+                                    }),
                             };
                             vf_function_id += 1;
                             tracing::debug!("Adding interface: {:?}", new_interface);
@@ -1499,6 +1536,26 @@ impl ApiClient {
             contexts: contexts.unwrap_or_default(),
         };
         Ok(self.0.on_demand_machine_validation(request).await?)
+    }
+
+    pub async fn on_demand_rack_maintenance(
+        &self,
+        rack_id: RackId,
+        machine_ids: Vec<String>,
+        switch_ids: Vec<String>,
+        power_shelf_ids: Vec<String>,
+        activities: Vec<rpc::MaintenanceActivityConfig>,
+    ) -> CarbideCliResult<rpc::RackMaintenanceOnDemandResponse> {
+        let request = rpc::RackMaintenanceOnDemandRequest {
+            rack_id: Some(rack_id),
+            scope: Some(rpc::RackMaintenanceScope {
+                machine_ids,
+                switch_ids,
+                power_shelf_ids,
+                activities,
+            }),
+        };
+        Ok(self.0.on_demand_rack_maintenance(request).await?)
     }
 
     pub async fn list_os_image(

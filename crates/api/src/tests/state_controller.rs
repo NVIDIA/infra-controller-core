@@ -30,6 +30,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use utils::test_support::test_meter::TestMeter;
 
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{self, Enqueuer, QueuedObject, StateController};
@@ -42,7 +43,6 @@ use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerContextObjects, StateHandlerError,
     StateHandlerOutcome,
 };
-use crate::tests::common::test_meter::TestMeter;
 
 #[crate::sqlx_test]
 async fn test_start_iteration(pool: sqlx::PgPool) -> eyre::Result<()> {
@@ -616,6 +616,7 @@ impl StateControllerIO for TestStateControllerIO {
     }
 
     fn state_sla(
+        &self,
         _state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {
@@ -697,8 +698,15 @@ impl StateControllerIO for PanicInListObjectsStateControllerIO {
         TestStateControllerIO::metric_state_names(state)
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>, object_state: &Self::State) -> StateSla {
-        TestStateControllerIO::state_sla(state, object_state)
+    fn state_sla(
+        &self,
+        _state: &Versioned<Self::ControllerState>,
+        _object_state: &Self::State,
+    ) -> StateSla {
+        StateSla {
+            sla: None,
+            time_in_state_above_sla: false,
+        }
     }
 }
 

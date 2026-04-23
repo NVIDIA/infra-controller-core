@@ -17,7 +17,9 @@
 use ::rpc::forge as rpc;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest};
+use model::expected_machine::{
+    ExpectedHostNic, ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest,
+};
 use regex::Regex;
 use uuid::Uuid;
 
@@ -108,6 +110,8 @@ pub(crate) async fn add(
         data: db_data,
     };
 
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+
     let mut txn = api.txn_begin().await?;
 
     // Pre-allocate BMC interface if bmc_ip_address is set.
@@ -192,6 +196,8 @@ pub(crate) async fn update(
         data,
     };
 
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+
     let mut txn = api.txn_begin().await?;
 
     // Update BMC interface if bmc_ip_address is set.
@@ -268,6 +274,26 @@ pub(crate) async fn get_linked(
     Ok(tonic::Response::new(list))
 }
 
+/// Lists host BMC endpoints that Site Explorer has explored but whose MAC is
+/// not listed in any of `expected_machines`, `expected_power_shelf`, or
+/// `expected_switch`. DPUs, power shelves, and switches are filtered out so the
+/// response only contains actual host BMCs.
+///
+/// An entry with a non-null `machine_id` is an orphan: the host was ingested
+/// before its `expected_machines` row was removed.
+pub(crate) async fn get_all_unexpected_machines(
+    api: &Api,
+    request: tonic::Request<()>,
+) -> Result<tonic::Response<rpc::UnexpectedMachineList>, tonic::Status> {
+    log_request_data(&request);
+
+    let out = db::expected_machine::find_all_unexpected(&api.database_connection).await?;
+    let list = rpc::UnexpectedMachineList {
+        unexpected_machines: out.into_iter().map(Into::into).collect(),
+    };
+    Ok(tonic::Response::new(list))
+}
+
 /// Deletes every expected machine row.
 pub(crate) async fn delete_all(
     api: &Api,
@@ -282,6 +308,26 @@ pub(crate) async fn delete_all(
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+/// Rejects an ExpectedMachine payload that declares more than one host NIC
+/// with `primary: true`, returning an InvalidArgument if found.
+fn validate_at_most_one_primary_host_nic(
+    host_nics: &[ExpectedHostNic],
+) -> Result<(), CarbideError> {
+    let primaries: Vec<_> = host_nics
+        .iter()
+        .filter(|n| n.primary == Some(true))
+        .map(|n| n.mac_address.to_string())
+        .collect();
+    if primaries.len() > 1 {
+        return Err(CarbideError::InvalidArgument(format!(
+            "at most one host_nic may be flagged primary=true, got {}: {}",
+            primaries.len(),
+            primaries.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 /// Helper function to sanitize expected machine and return parsed IDs (ID+MAC)

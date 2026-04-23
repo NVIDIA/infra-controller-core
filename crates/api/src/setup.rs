@@ -21,6 +21,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use carbide_firmware::FirmwareDownloader;
+use carbide_ipmi::IPMITool;
+use carbide_preingestion_manager::PreingestionManager;
+use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
@@ -53,11 +59,9 @@ use crate::cfg::file::{CarbideConfig, ListenMode};
 use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
-use crate::firmware_downloader::FirmwareDownloader;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::ib::{self, IBFabricManager};
 use crate::ib_fabric_monitor::IbFabricMonitor;
-use crate::ipmitool::{IPMITool, IPMIToolHttpImpl, IPMIToolImpl, IPMIToolTestImpl};
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
@@ -67,13 +71,10 @@ use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
-use crate::nv_redfish::NvRedfishClientPool;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
-use crate::preingestion_manager::PreingestionManager;
-use crate::redfish::RedfishClientPool;
+use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
-use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
@@ -164,21 +165,13 @@ pub fn parse_carbide_config(
     )
     .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
 
-    if config.machine_identity.enabled {
-        if config.machine_identity.current_encryption_key_id.is_none() {
-            return Err(eyre::eyre!(
-                "current_encryption_key_id must be set in [machine_identity] when machine identity is enabled"
-            )
-            .wrap_err("Invalid configuration"));
-        }
-        if config.machine_identity.algorithm != model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG {
-            return Err(eyre::eyre!(
-                "machine_identity.algorithm must be {} (only ES256 signing is implemented); got {:?}",
-                model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG,
-                config.machine_identity.algorithm
-            )
-            .wrap_err("Invalid configuration"));
-        }
+    if config.machine_identity.enabled
+        && config.machine_identity.current_encryption_key_id.is_none()
+    {
+        return Err(eyre::eyre!(
+            "current_encryption_key_id must be set in [machine_identity] when machine identity is enabled"
+        )
+        .wrap_err("Invalid configuration"));
     }
 
     tracing::trace!("Carbide config: {:#?}", config.redacted());
@@ -193,18 +186,15 @@ pub fn create_ipmi_tool(
     match carbide_config.dpu_ipmi_tool_impl.as_deref() {
         Some("test") => {
             tracing::info!("Disabling ipmitool");
-            Arc::new(IPMIToolTestImpl {})
+            carbide_ipmi::test_support()
         }
         Some("bmc-mock") => {
             tracing::info!("Using HTTP IPMI transport via bmc_proxy");
-            Arc::new(IPMIToolHttpImpl::new(bmc_proxy))
+            carbide_ipmi::bmc_mock(bmc_proxy)
         }
         _ => {
             tracing::info!("Using lanplus IPMI transport (/usr/bin/ipmitool)");
-            Arc::new(IPMIToolImpl::new(
-                credential_reader,
-                &carbide_config.dpu_ipmi_reboot_attempts,
-            ))
+            carbide_ipmi::tool(credential_reader, carbide_config.dpu_ipmi_reboot_attempts)
         }
     }
 }
@@ -428,6 +418,7 @@ pub async fn start_api(
             crate::dpf_services::dhcp_server_service(&reg),
             crate::dpf_services::doca_hbn_service(&reg),
             crate::dpf_services::dpu_agent_service(&reg),
+            crate::dpf_services::fmds_service(&reg),
         ];
 
         let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
@@ -494,7 +485,13 @@ pub async fn start_api(
     };
 
     let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
-        match component_manager::component_manager::build_component_manager(cd_config).await {
+        match component_manager::component_manager::build_component_manager(
+            cd_config,
+            rms_client.clone(),
+            Some(db_pool.clone()),
+        )
+        .await
+        {
             Ok(cm) => {
                 tracing::info!(
                     "Component manager configured (nv_switch={}, power_shelf={})",
@@ -537,6 +534,7 @@ pub async fn start_api(
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
         component_manager,
+        bms_client: std::sync::OnceLock::new(),
     });
 
     if carbide_config.listen_only {
@@ -789,6 +787,23 @@ pub async fn initialize_and_start_controllers(
                 config.mqtt_endpoint,
                 config.mqtt_broker_port
             );
+
+            let bms_client = BmsDsxExchangeHandle::new(
+                client.clone(),
+                db_pool,
+                join_set,
+                config.publish_timeout,
+                config.queue_capacity,
+                &meter,
+                cancel_token.clone(),
+            )
+            .await?;
+
+            api_service
+                .bms_client
+                .set(bms_client)
+                .map_err(|_| eyre::eyre!("BMS DSX Exchange handle already initialized"))?;
+
             emitter_builder = emitter_builder.hook(Box::new(MqttStateChangeHook::new(
                 client,
                 join_set,
@@ -812,6 +827,22 @@ pub async fn initialize_and_start_controllers(
         site_config: carbide_config.clone(),
         dpa_info,
         rms_client: rms_client.clone(),
+        switch_system_image_rms_client: carbide_config
+            .rms
+            .api_url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .map(|url| {
+                let rms_client_config = librms::client_config::RmsClientConfig::new(
+                    carbide_config.rms.root_ca_path.clone(),
+                    carbide_config.rms.client_cert.clone(),
+                    carbide_config.rms.client_key.clone(),
+                    carbide_config.rms.enforce_tls,
+                );
+                let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+                Arc::new(librms::RackManagerApi::new(&rms_api_config))
+                    as Arc<dyn crate::rack::rms_client::SwitchSystemImageRmsClient>
+            }),
         credential_manager: credential_manager.clone(),
     });
 
@@ -885,6 +916,9 @@ pub async fn initialize_and_start_controllers(
                     .host_health
                     .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
+            sla_config: model::machine::slas::MachineSlaConfig::new(
+                carbide_config.machine_state_controller.failure_retry_time,
+            ),
         }))
         .state_change_emitter(state_change_emitter)
         .build_and_spawn(join_set, cancel_token.clone())
@@ -1032,7 +1066,7 @@ pub async fn initialize_and_start_controllers(
 
     PreingestionManager::new(
         db_pool.clone(),
-        carbide_config.clone(),
+        carbide_config.preingestion_manager(),
         shared_redfish_pool.clone(),
         meter.clone(),
         Some(downloader.clone()),

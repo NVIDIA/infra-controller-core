@@ -1,7 +1,6 @@
 # Adding New Machines to an Existing Site
 
-This guide is intended to cover some of the basic things you should check to get a machine into a
-a basic state where it can be discovered by Forge auto-ingestion.
+This guide is intended to cover some of the basic things you should check to get a machine into a basic state where it can be discovered by Forge auto-ingestion.
 
 Some of the configuration items that should be considered which could potentially cause issues:
 
@@ -13,7 +12,7 @@ Some of the configuration items that should be considered which could potentiall
 
 ## Host BMC Password Requirements
 
-***Note:*** New servers should be using the default username for the server type e.g. USERID for Lenovo, admin for NVIDIA/Vikings, root for Dell
+> **Note**: New servers should be using the default username for the server type e.g. USERID for Lenovo, admin for NVIDIA/Vikings, root for Dell
 
 You should check both the expected machines DB and the site vault pod data store for any existing data. If entries exist in both expected machines and vault, you should consider the password stored in vault as the password that should be used.
 
@@ -40,7 +39,7 @@ in expected machines or change the password on the Host BMC to match.
     carbide-admin-cli expected-machine add --bmc-mac-address <BMC MAC Address> --bmc-username <BMC Username> --bmc-password <BMC Password --chassis-serial-number <Chassis Serial Number>
     ```
 
-    ***Note:*** If you only need to update the BMC password, you just need to supply the BMC MAC Address and BMC Password
+    > **Note**: If you only need to update the BMC password, you just need to supply the BMC MAC Address and BMC Password
 
 4. To add a new machine to the expected machines DB:
 
@@ -50,7 +49,7 @@ in expected machines or change the password on the Host BMC to match.
 
 ### Checking site vault data
 
-To check of the Host BMC has currently any passwords in vault on a site:
+To check if the Host BMC has currently any passwords in vault on a site:
 
 1. Connect to the Kubernetes environment for the site you are working on
 2. Retrieve the decoded vault secret for the site:
@@ -91,7 +90,7 @@ To check of the Host BMC has currently any passwords in vault on a site:
 
 For a new/undiscovered DPU BMC, ensure that it is set to the default BMC username/password
 
-### Resting DPU BMC password to default - From DPU BMC
+### Resetting DPU BMC password to default - From DPU BMC
 
 To reset to factory defaults from the DPU BMC:
 
@@ -376,7 +375,7 @@ To successfully boot from the Forge BFB image, the DPU ARM OS needs to have Secu
 
 ### Disable Secure Boot
 
-To disable if Secure Boot if it is enabled:
+To disable Secure Boot if it is enabled:
 
 1. Run the command to disable Secure Boot:
 
@@ -423,7 +422,7 @@ If the "SecureBootCurrentBoot" setting is not shown, attempt to install DOCA 2.5
     ```
 
 4. After the DPU ARM OS boots, log into the DPU ARM OS using the default password
-5. Switch to root and set the default username passwod back to the default
+5. Switch to root and set the default username password back to the default
 6. Ensure that the DOCA firmware is up to date:
 
     ```bash
@@ -466,7 +465,7 @@ If the "SecureBootCurrentBoot" setting is not shown, attempt to install DOCA 2.5
     bfcfg
     ```
 
-12. Verify that the boot order is no set to NET-OOB-IPV4-HTTP as default:
+12. Verify that the boot order is now set to NET-OOB-IPV4-HTTP as default:
 
     ```bash
     efibootmgr

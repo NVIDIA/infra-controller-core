@@ -215,6 +215,23 @@ pub struct FirmwareEntry {
     pub pre_update_resets: bool,
     #[serde(default)]
     pub script: Option<PathBuf>,
+    #[serde(default)]
+    pub files: Vec<FirmwareFileArtifact>,
+    #[serde(default)]
+    pub scout: Option<ScoutConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct FirmwareFileArtifact {
+    pub filename: String,
+    pub sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ScoutConfig {
+    pub script: FirmwareFileArtifact,
+    pub execution_timeout_seconds: u32,
+    pub artifact_download_timeout_seconds: u32,
 }
 
 impl FirmwareEntry {
@@ -233,6 +250,8 @@ impl FirmwareEntry {
             preingestion_exclusive_config: false,
             pre_update_resets: false,
             script: None,
+            files: vec![],
+            scout: None,
         }
     }
     pub fn standard_multiple_filenames(version: &str) -> Self {

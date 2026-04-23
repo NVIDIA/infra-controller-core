@@ -58,7 +58,7 @@ This section lists all software dependencies, including the versions validated f
 
 ### Monitoring and Telemetry (OPTIONAL)
 
-These components are not required for NICo setup, but are recommended site metrics.
+These components are not required for NICo setup, but are recommended for site metrics.
 
 - **Monitoring System**:  Prometheus Operator v0.68.0; Prometheus v2.47.0; Alertmanager v0.26.0
 

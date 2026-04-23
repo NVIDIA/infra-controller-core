@@ -17,27 +17,34 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::{RackId, RackProfileId};
+use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use rpc::Timestamp;
+use rpc::forge::LifecycleStatus;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::StateSla;
+use crate::component_manager::PowerAction;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
-use crate::machine::health_override::HealthReportOverrides;
+use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
 
 #[derive(Debug, Clone)]
 pub struct Rack {
     pub id: RackId,
+    pub rack_profile_id: Option<RackProfileId>,
     pub config: RackConfig,
     pub controller_state: Versioned<RackState>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
     pub firmware_upgrade_job: Option<FirmwareUpgradeJob>,
-    pub health_report_overrides: HealthReportOverrides,
+    pub nvos_update_job: Option<NvosUpdateJob>,
+    pub health_reports: HealthReportSources,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
@@ -51,6 +58,8 @@ pub struct FirmwareUpgradeJob {
     pub status: Option<String>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub batch_job_ids: Vec<String>,
     #[serde(default)]
     pub machines: Vec<FirmwareUpgradeDeviceStatus>,
     #[serde(default)]
@@ -75,14 +84,62 @@ impl FirmwareUpgradeJob {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NvosUpdateJob {
+    pub job_id: Option<String>,
+    pub firmware_id: String,
+    pub image_filename: String,
+    pub local_file_path: String,
+    pub version: Option<String>,
+    pub status: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub switches: Vec<NvosUpdateSwitchStatus>,
+}
+
+impl NvosUpdateJob {
+    pub fn all_switches(&self) -> impl Iterator<Item = &NvosUpdateSwitchStatus> {
+        self.switches.iter()
+    }
+
+    pub fn all_switches_mut(&mut self) -> impl Iterator<Item = &mut NvosUpdateSwitchStatus> {
+        self.switches.iter_mut()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedNvosArtifact {
+    pub firmware_id: String,
+    pub image_filename: String,
+    pub local_file_path: String,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NvosUpdateSwitchStatus {
+    #[serde(default)]
+    pub node_id: String,
+    pub mac: String,
+    pub bmc_ip: String,
+    pub nvos_ip: String,
+    pub status: String,
+    #[serde(default)]
+    pub job_id: Option<String>,
+    #[serde(default)]
+    pub error_message: Option<String>,
+}
+
 /// Per-device input passed to RMS when starting a firmware upgrade.
 /// TODO to be replaced with RMS protobuf message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirmwareUpgradeDeviceInfo {
+    pub node_id: String,
     pub mac: String,
     pub bmc_ip: String,
     pub bmc_username: String,
     pub bmc_password: String,
+    pub os_mac: Option<String>,
     pub os_ip: Option<String>,
     pub os_username: Option<String>,
     pub os_password: Option<String>,
@@ -91,9 +148,17 @@ pub struct FirmwareUpgradeDeviceInfo {
 /// Per-device status tracked inside `FirmwareUpgradeJob`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirmwareUpgradeDeviceStatus {
+    #[serde(default)]
+    pub node_id: String,
     pub mac: String,
     pub bmc_ip: String,
     pub status: String,
+    #[serde(default)]
+    pub job_id: Option<String>,
+    #[serde(default)]
+    pub parent_job_id: Option<String>,
+    #[serde(default)]
+    pub error_message: Option<String>,
 }
 
 /// Per-device firmware upgrade status set by the rack state machine during a
@@ -112,6 +177,20 @@ impl RackFirmwareUpgradeStatus {
     pub fn is_in_progress(&self) -> bool {
         self.ended_at.is_none()
     }
+
+    /// Returns true if the firmware upgrade finished successfully or failed.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self.status,
+            RackFirmwareUpgradeState::Completed | RackFirmwareUpgradeState::Failed { .. }
+        )
+    }
+
+    /// Returns true when this status belongs to the active rack-upgrade cycle.
+    pub fn is_current_for(&self, requested_at: DateTime<Utc>) -> bool {
+        self.ended_at.is_some_and(|ts| ts >= requested_at)
+            || self.started_at.is_some_and(|ts| ts >= requested_at)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,18 +202,52 @@ pub enum RackFirmwareUpgradeState {
     Failed { cause: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwitchNvosUpdateStatus {
+    pub task_id: String,
+    pub firmware_id: String,
+    pub image_filename: String,
+    pub status: SwitchNvosUpdateState,
+    pub started_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<DateTime<Utc>>,
+}
+
+impl SwitchNvosUpdateStatus {
+    pub fn is_in_progress(&self) -> bool {
+        self.ended_at.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SwitchNvosUpdateState {
+    Started,
+    InProgress,
+    Completed,
+    Failed { cause: String },
+}
+
 impl From<Rack> for rpc::forge::Rack {
     fn from(value: Rack) -> Self {
-        let health = derive_rack_aggregate_health(&value.health_report_overrides);
-        let health_overrides = value
-            .health_report_overrides
-            .clone()
-            .into_iter()
-            .map(|(hr, m)| rpc::forge::HealthOverrideOrigin {
+        let health = derive_rack_aggregate_health(&value.health_reports);
+        let health_sources = value
+            .health_reports
+            .iter()
+            .map(|(hr, m)| rpc::forge::HealthSourceOrigin {
                 mode: m as i32,
-                source: hr.source,
+                source: hr.source.clone(),
             })
             .collect();
+
+        let lifecycle = LifecycleStatus {
+            state: serde_json::to_string(&value.controller_state.value).unwrap_or_default(),
+            version: value.controller_state.version.version_string(),
+            state_reason: value.controller_state_outcome.map(Into::into),
+            sla: Some(rpc::forge::StateSla {
+                sla: None, // TODO: Calculate SLA properly
+                time_in_state_above_sla: false,
+            }),
+        };
 
         rpc::forge::Rack {
             id: Some(value.id),
@@ -148,10 +261,14 @@ impl From<Rack> for rpc::forge::Rack {
             created: Some(Timestamp::from(value.created)),
             updated: Some(Timestamp::from(value.updated)),
             deleted: value.deleted.map(Timestamp::from),
-            health: Some(health.into()),
-            health_overrides,
             metadata: Some(value.metadata.into()),
             version: value.version.version_string(),
+            config: Some(rpc::forge::RackConfig {}),
+            status: Some(rpc::forge::RackStatus {
+                health: Some(health.into()),
+                health_sources,
+                lifecycle: Some(lifecycle),
+            }),
         }
     }
 }
@@ -165,12 +282,12 @@ impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
     }
 }
 
-fn derive_rack_aggregate_health(overrides: &HealthReportOverrides) -> health_report::HealthReport {
-    if let Some(replace) = &overrides.replace {
+fn derive_rack_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
+    if let Some(replace) = &sources.replace {
         return replace.clone();
     }
     let mut output = health_report::HealthReport::empty("rack-aggregate-health".to_string());
-    for report in overrides.merges.values() {
+    for report in sources.merges.values() {
         output.merge(report);
     }
     output.observed_at = Some(chrono::Utc::now());
@@ -183,8 +300,9 @@ impl<'r> FromRow<'r, PgRow> for Rack {
         let controller_state: sqlx::types::Json<RackState> = row.try_get("controller_state")?;
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
-        let health_report_overrides: HealthReportOverrides = row
-            .try_get::<sqlx::types::Json<HealthReportOverrides>, _>("health_report_overrides")
+        // DB column is still named "health_report_overrides" for backward compatibility.
+        let health_reports: HealthReportSources = row
+            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
             .map(|j| j.0)
             .unwrap_or_default();
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
@@ -198,8 +316,14 @@ impl<'r> FromRow<'r, PgRow> for Rack {
             .ok()
             .flatten()
             .map(|j| j.0);
+        let nvos_update_job: Option<NvosUpdateJob> = row
+            .try_get::<Option<sqlx::types::Json<NvosUpdateJob>>, _>("nvos_update_job")
+            .ok()
+            .flatten()
+            .map(|j| j.0);
         Ok(Rack {
             id: row.try_get("id")?,
+            rack_profile_id: row.try_get("rack_profile_id")?,
             config: config.0,
             controller_state: Versioned {
                 value: controller_state.0,
@@ -207,7 +331,8 @@ impl<'r> FromRow<'r, PgRow> for Rack {
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
             firmware_upgrade_job,
-            health_report_overrides,
+            nvos_update_job,
+            health_reports,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
@@ -243,7 +368,7 @@ impl<'r> FromRow<'r, PgRow> for Rack {
 /// ### Maintenance Sub-states
 ///
 /// ```text
-/// FirmwareUpgrade -> ConfigureNmxCluster -> Completed -> Validating(Pending)
+/// FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> Completed -> Validating(Pending)
 /// ```
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -296,12 +421,15 @@ pub enum RackState {
 /// ## Sub-state Flow
 ///
 /// ```text
-/// FirmwareUpgrade -> ConfigureNmxCluster -> Completed -> Validation(Pending)
+/// FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> Completed -> Validation(Pending)
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RackMaintenanceState {
     FirmwareUpgrade {
         rack_firmware_upgrade: FirmwareUpgradeState,
+    },
+    NVOSUpdate {
+        nvos_update: NvosUpdateState,
     },
     ConfigureNmxCluster,
     PowerSequence {
@@ -317,6 +445,9 @@ impl Display for RackMaintenanceState {
                 rack_firmware_upgrade,
             } => {
                 write!(f, "FirmwareUpgrade({})", rack_firmware_upgrade)
+            }
+            RackMaintenanceState::NVOSUpdate { nvos_update } => {
+                write!(f, "NVOSUpdate({})", nvos_update)
             }
             RackMaintenanceState::ConfigureNmxCluster => write!(f, "ConfigureNmxCluster"),
             RackMaintenanceState::PowerSequence { rack_power } => {
@@ -338,6 +469,21 @@ impl Display for FirmwareUpgradeState {
         match self {
             FirmwareUpgradeState::Start => write!(f, "Start"),
             FirmwareUpgradeState::WaitForComplete => write!(f, "WaitForComplete"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NvosUpdateState {
+    Start { artifact: ResolvedNvosArtifact },
+    WaitForComplete,
+}
+
+impl Display for NvosUpdateState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NvosUpdateState::Start { .. } => write!(f, "Start"),
+            NvosUpdateState::WaitForComplete => write!(f, "WaitForComplete"),
         }
     }
 }
@@ -474,18 +620,82 @@ impl MachineRvLabels {
     }
 }
 
-// ============================================================================
-// RACK CONFIG & HISTORY
-// ============================================================================
+/// Individual maintenance activities that can be performed during on-demand
+/// rack maintenance. When the activities list on [`MaintenanceScope`] is
+/// empty, all activities are performed.
+///
+/// Activity-specific configuration is carried inline on the variant
+/// (e.g. `FirmwareUpgrade` holds the optional target firmware version).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MaintenanceActivity {
+    FirmwareUpgrade {
+        /// Target firmware version. `None` means RMS uses its default/latest.
+        #[serde(default)]
+        firmware_version: Option<String>,
+        /// Firmware components to update (e.g. "BMC", "CPLD", "BIOS").
+        /// Empty means all components.
+        #[serde(default)]
+        components: Vec<String>,
+    },
+    ConfigureNmxCluster,
+    PowerSequence,
+    /// Per-device power control, dispatched by the rack state controller to
+    /// the listed devices on its next tick. Framed out here for the component
+    /// manager routing path; the rack state handler side is a follow-up.
+    PowerControl {
+        action: PowerAction,
+    },
+}
+
+impl MaintenanceActivity {
+    /// Returns `true` if two activities are the same kind, ignoring
+    /// any per-activity configuration (e.g. firmware version).
+    pub fn same_kind(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl std::fmt::Display for MaintenanceActivity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MaintenanceActivity::FirmwareUpgrade { .. } => write!(f, "FirmwareUpgrade"),
+            MaintenanceActivity::ConfigureNmxCluster => write!(f, "ConfigureNmxCluster"),
+            MaintenanceActivity::PowerSequence => write!(f, "PowerSequence"),
+            MaintenanceActivity::PowerControl { .. } => write!(f, "PowerControl"),
+        }
+    }
+}
+
+/// Specifies which devices in the rack should be included in an on-demand
+/// maintenance cycle. When all three device-id lists are empty, the full rack
+/// is maintained.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MaintenanceScope {
+    #[serde(default)]
+    pub machine_ids: Vec<MachineId>,
+    #[serde(default)]
+    pub switch_ids: Vec<SwitchId>,
+    #[serde(default)]
+    pub power_shelf_ids: Vec<PowerShelfId>,
+    /// Which maintenance activities to perform. Empty means all activities.
+    #[serde(default)]
+    pub activities: Vec<MaintenanceActivity>,
+}
+
+impl MaintenanceScope {
+    /// Returns `true` when no specific devices were selected, meaning the
+    /// maintenance applies to every device in the rack.
+    pub fn is_full_rack(&self) -> bool {
+        self.machine_ids.is_empty() && self.switch_ids.is_empty() && self.power_shelf_ids.is_empty()
+    }
+
+    pub fn should_run(&self, activity: &MaintenanceActivity) -> bool {
+        self.activities.is_empty() || self.activities.iter().any(|a| a.same_kind(activity))
+    }
+}
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RackConfig {
-    /// rack_type is the name of the rack type (e.g. "NVL72") that maps to
-    /// a RackCapabilitiesSet in the config file. The capabilities are looked
-    /// up at runtime so config changes apply retroactively to all racks.
-    #[serde(default)]
-    pub rack_type: Option<String>,
-
     /// When set, the Ready state handler will transition back to Maintenance
     /// to re-provision the rack to a new version.
     #[serde(default)]
@@ -495,6 +705,60 @@ pub struct RackConfig {
     /// because a tray was replaced (rack topology change).
     #[serde(default)]
     pub topology_changed: bool,
+
+    /// On-demand maintenance request. When `Some`, the rack state handler
+    /// (in Ready or Error) transitions the rack to Maintenance. The scope
+    /// selects full-rack vs partial-rack and which activities to run.
+    #[serde(default)]
+    pub maintenance_requested: Option<MaintenanceScope>,
+}
+
+/// Reason a rack will not accept a new on-demand maintenance request.
+/// See `Rack::check_accepts_maintenance`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RackMaintenanceRejection {
+    /// The rack is not in `Ready` or `Error`. Carries the current state so
+    /// callers can report exactly what state they saw.
+    NotReadyOrError(RackState),
+    /// A maintenance request is already pending on this rack.
+    AlreadyPending,
+}
+
+impl Display for RackMaintenanceRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackMaintenanceRejection::NotReadyOrError(state) => write!(
+                f,
+                "rack is not in Ready or Error state (current: {state:?}); \
+                 maintenance can only be requested from those states",
+            ),
+            RackMaintenanceRejection::AlreadyPending => {
+                write!(f, "rack already has a pending maintenance request")
+            }
+        }
+    }
+}
+
+impl Rack {
+    /// Tells us if this rack will accept a new on-demand maintenance requests
+    /// right now. Used by every caller that writes to `RackConfig::maintenance_requested`
+    /// (e.g. the on-demand-maintenance gRPC handler + and the Component Manager
+    /// state controller wrappers). This gives us a way to gate maintenance requests
+    /// making their way into the backing `maintenance_requested` data in `RackConfig`.
+    pub fn check_accepts_maintenance(&self) -> Result<(), RackMaintenanceRejection> {
+        if !matches!(
+            *self.controller_state,
+            RackState::Ready | RackState::Error { .. }
+        ) {
+            return Err(RackMaintenanceRejection::NotReadyOrError(
+                self.controller_state.value.clone(),
+            ));
+        }
+        if self.config.maintenance_requested.is_some() {
+            return Err(RackMaintenanceRejection::AlreadyPending);
+        }
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -516,5 +780,243 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
         RackState::Maintenance { .. } => StateSla::no_sla(),
         RackState::Error { .. } => StateSla::no_sla(),
         RackState::Deleting => StateSla::no_sla(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::machine::{MachineIdSource, MachineType};
+    use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
+    use carbide_uuid::switch::{SwitchIdSource, SwitchType};
+
+    use super::*;
+
+    // ── MaintenanceScope ────────────────────────────────────────────────
+
+    #[test]
+    fn is_full_rack_when_all_lists_empty() {
+        let scope = MaintenanceScope::default();
+        assert!(scope.is_full_rack());
+    }
+
+    #[test]
+    fn is_not_full_rack_with_machines() {
+        let scope = MaintenanceScope {
+            machine_ids: vec![MachineId::new(
+                MachineIdSource::Tpm,
+                [0; 32],
+                MachineType::Host,
+            )],
+            ..Default::default()
+        };
+        assert!(!scope.is_full_rack());
+    }
+
+    #[test]
+    fn is_not_full_rack_with_switches() {
+        let scope = MaintenanceScope {
+            switch_ids: vec![SwitchId::new(
+                SwitchIdSource::Tpm,
+                [0; 32],
+                SwitchType::NvLink,
+            )],
+            ..Default::default()
+        };
+        assert!(!scope.is_full_rack());
+    }
+
+    #[test]
+    fn is_not_full_rack_with_power_shelves() {
+        let scope = MaintenanceScope {
+            power_shelf_ids: vec![PowerShelfId::new(
+                PowerShelfIdSource::Tpm,
+                [0; 32],
+                PowerShelfType::Rack,
+            )],
+            ..Default::default()
+        };
+        assert!(!scope.is_full_rack());
+    }
+
+    #[test]
+    fn should_run_all_when_activities_empty() {
+        let scope = MaintenanceScope::default();
+        assert!(scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: None,
+            components: vec![],
+        }));
+        assert!(scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
+        assert!(scope.should_run(&MaintenanceActivity::PowerSequence));
+    }
+
+    #[test]
+    fn should_run_only_selected_activity() {
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: Some("v2.0".into()),
+                components: vec![],
+            }],
+            ..Default::default()
+        };
+        assert!(scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: None,
+            components: vec![],
+        }));
+        assert!(!scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
+        assert!(!scope.should_run(&MaintenanceActivity::PowerSequence));
+    }
+
+    #[test]
+    fn should_run_multiple_selected_activities() {
+        let scope = MaintenanceScope {
+            activities: vec![
+                MaintenanceActivity::FirmwareUpgrade {
+                    firmware_version: None,
+                    components: vec![],
+                },
+                MaintenanceActivity::PowerSequence,
+            ],
+            ..Default::default()
+        };
+        assert!(scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: Some("v1.0".into()),
+            components: vec![],
+        }));
+        assert!(!scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
+        assert!(scope.should_run(&MaintenanceActivity::PowerSequence));
+    }
+
+    // ── MaintenanceActivity ─────────────────────────────────────────────
+
+    #[test]
+    fn same_kind_matches_regardless_of_config() {
+        let a = MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: Some("v1".into()),
+            components: vec!["BMC".into()],
+        };
+        let b = MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: None,
+            components: vec![],
+        };
+        assert!(a.same_kind(&b));
+    }
+
+    #[test]
+    fn same_kind_does_not_match_different_variants() {
+        let a = MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: None,
+            components: vec![],
+        };
+        let b = MaintenanceActivity::ConfigureNmxCluster;
+        assert!(!a.same_kind(&b));
+    }
+
+    #[test]
+    fn maintenance_activity_display() {
+        assert_eq!(
+            MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            }
+            .to_string(),
+            "FirmwareUpgrade"
+        );
+        assert_eq!(
+            MaintenanceActivity::ConfigureNmxCluster.to_string(),
+            "ConfigureNmxCluster"
+        );
+        assert_eq!(
+            MaintenanceActivity::PowerSequence.to_string(),
+            "PowerSequence"
+        );
+    }
+
+    // ── Rack::check_accepts_maintenance ─────────────────────────────────
+
+    fn test_rack(state: RackState, maintenance_requested: Option<MaintenanceScope>) -> Rack {
+        Rack {
+            id: RackId::default(),
+            rack_profile_id: None,
+            config: RackConfig {
+                maintenance_requested,
+                ..Default::default()
+            },
+            controller_state: Versioned::new(state, ConfigVersion::initial()),
+            controller_state_outcome: None,
+            firmware_upgrade_job: None,
+            nvos_update_job: None,
+            health_reports: Default::default(),
+            created: Utc::now(),
+            updated: Utc::now(),
+            deleted: None,
+            metadata: Metadata::default(),
+            version: ConfigVersion::initial(),
+        }
+    }
+
+    #[test]
+    fn accepts_maintenance_in_ready_state() {
+        let rack = test_rack(RackState::Ready, None);
+        assert!(rack.check_accepts_maintenance().is_ok());
+    }
+
+    #[test]
+    fn accepts_maintenance_in_error_state() {
+        let rack = test_rack(
+            RackState::Error {
+                cause: "something broke".into(),
+            },
+            None,
+        );
+        assert!(rack.check_accepts_maintenance().is_ok());
+    }
+
+    #[test]
+    fn rejects_maintenance_in_created_state() {
+        let rack = test_rack(RackState::Created, None);
+        let err = rack.check_accepts_maintenance().unwrap_err();
+        assert!(matches!(err, RackMaintenanceRejection::NotReadyOrError(_)));
+    }
+
+    #[test]
+    fn rejects_maintenance_in_discovering_state() {
+        let rack = test_rack(RackState::Discovering, None);
+        let err = rack.check_accepts_maintenance().unwrap_err();
+        assert!(matches!(err, RackMaintenanceRejection::NotReadyOrError(_)));
+    }
+
+    #[test]
+    fn rejects_maintenance_in_maintenance_state() {
+        let rack = test_rack(
+            RackState::Maintenance {
+                maintenance_state: RackMaintenanceState::Completed,
+            },
+            None,
+        );
+        let err = rack.check_accepts_maintenance().unwrap_err();
+        assert!(matches!(err, RackMaintenanceRejection::NotReadyOrError(_)));
+    }
+
+    #[test]
+    fn rejects_maintenance_when_already_pending() {
+        let rack = test_rack(RackState::Ready, Some(MaintenanceScope::default()));
+        let err = rack.check_accepts_maintenance().unwrap_err();
+        assert!(matches!(err, RackMaintenanceRejection::AlreadyPending));
+    }
+
+    // ── RackMaintenanceRejection display ────────────────────────────────
+
+    #[test]
+    fn rejection_not_ready_or_error_display() {
+        let rejection = RackMaintenanceRejection::NotReadyOrError(RackState::Discovering);
+        let msg = rejection.to_string();
+        assert!(msg.contains("not in Ready or Error state"));
+    }
+
+    #[test]
+    fn rejection_already_pending_display() {
+        let rejection = RackMaintenanceRejection::AlreadyPending;
+        let msg = rejection.to_string();
+        assert!(msg.contains("already has a pending maintenance request"));
     }
 }

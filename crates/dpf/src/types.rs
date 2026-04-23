@@ -34,6 +34,11 @@ impl BmcPasswordProvider for String {
     }
 }
 
+/// Service name constants for use across crates
+pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
+pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
+pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
+
 /// Configuration for creating DPF operator resources (BFB, DPUFlavor,
 /// DPUDeployment, service templates, etc.) during initialization.
 #[derive(Debug, Clone)]
@@ -156,6 +161,8 @@ pub struct DpuServiceInterfaceTemplateDefinition {
     pub pf_id: i64,
     /// VF Interface ID
     pub vf_id: i64,
+    /// Chained service interfaces vector
+    pub chained_svc_if: Option<Vec<(String, String)>>,
 }
 
 /// Network interface for a DPU service.

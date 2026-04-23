@@ -39,6 +39,11 @@ struct ManagedHostOutputWrapper {
     managed_host_output: utils::ManagedHostOutput,
 }
 
+#[derive(Serialize)]
+struct ManagedHostList<'a> {
+    managed_hosts: &'a [utils::ManagedHostOutput],
+}
+
 #[derive(Default, Clone, Copy, Serialize)]
 struct ManagedHostOutputOptions {
     show_ips: bool,
@@ -221,7 +226,10 @@ async fn show_managed_hosts(
                     )?
                 )
             } else {
-                println!("{}", serde_json::to_string_pretty(&managed_hosts)?)
+                let wrapped = ManagedHostList {
+                    managed_hosts: &managed_hosts,
+                };
+                println!("{}", serde_json::to_string_pretty(&wrapped)?)
             }
         }
         OutputFormat::Yaml => {
@@ -232,7 +240,10 @@ async fn show_managed_hosts(
                     serde_yaml::to_string(managed_hosts.first().ok_or(CarbideCliError::Empty)?)?
                 )
             } else {
-                println!("{}", serde_yaml::to_string(&managed_hosts)?)
+                let wrapped = ManagedHostList {
+                    managed_hosts: &managed_hosts,
+                };
+                println!("{}", serde_yaml::to_string(&wrapped)?)
             }
         }
         OutputFormat::Csv => {
@@ -305,6 +316,8 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
 
     let mut data = vec![
         ("  ID", m.machine_id),
+        ("  Slot Number", m.slot_number.map(|n| n.to_string())),
+        ("  Tray Index", m.tray_index.map(|n| n.to_string())),
         ("  Last reboot completed", m.host_last_reboot_time),
         (
             "  Last reboot requested",

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
-use db::{DatabaseError, rack as db_rack};
+use carbide_uuid::rack::{RackId, RackProfileId};
+use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::metadata::Metadata;
 use model::rack::RackConfig;
 
@@ -28,10 +28,8 @@ async fn test_rack_metadata_defaults(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("NVL72".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -64,10 +62,8 @@ async fn test_rack_metadata_from_expected(
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("NVL72".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         Some(&expected_metadata),
     )
     .await?;
@@ -91,10 +87,8 @@ async fn test_rack_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("NVL72".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -110,7 +104,14 @@ async fn test_rack_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     db_rack::update_metadata(&mut txn, &rack_id, version1, new_metadata.clone()).await?;
 
-    let updated_rack = db_rack::get(&mut *txn, &rack_id).await?;
+    let updated_rack = db_rack::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .unwrap()
+    .pop()
+    .unwrap();
     assert_eq!(updated_rack.metadata.name, "Updated Rack");
     assert_eq!(updated_rack.metadata.description, "Updated description");
     assert_eq!(
@@ -133,10 +134,8 @@ async fn test_rack_metadata_version_conflict(
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("NVL72".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         None,
     )
     .await?;

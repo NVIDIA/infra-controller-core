@@ -13,7 +13,7 @@ The aggregated host health information is used for multiple purposes:
 ## Health check types
 
 Health checks roughly fall into 3 categories:
-1. Out of band health checks: These continuous health checks are able to continuously assess the health of a host - independent of whether there the host is used as a bare metal instance or not. Within this category, NICo provides the following types of health checks
+1. Out of band health checks: These continuous health checks are able to continuously assess the health of a host - independent of whether the host is used as a bare metal instance or not. Within this category, NICo provides the following types of health checks
     1. [BMC health metric based health monitoring](#bmc-health-monitoring)
     2. [BMC inventory based health monitoring](#bmc-inventory-monitoring)
     3. [dpu-agent based health monitoring](#dpu-agent-based-health-monitoring)
@@ -214,7 +214,7 @@ The set of classifications that are currently interpreted by NICo is described i
 
 ### Host validation tests
 
-NICo will schedule the execution of validation tests at via the `scout` tool on the actual host host at various points
+NICo will schedule the execution of validation tests via the `scout` tool on the actual host at various points
 in the lifecycle of a managed host:
 1. When the host is ingested into NICo
 2. After an instance is released by tenant and got cleaned up
@@ -233,7 +233,7 @@ Details can be found in the [Machine validation manual](../manuals/machine_valid
 ### SKU validation tests
 
 SKU validation is a feature in NICo which validates that a host contains all the hardware it is expected to contain by validating it to "conform to a certain SKU".
-The SKU is the definition of hardware components within the host. And the SKU validation workflow compares it the the set of hardware components that have been detected via NICo hardware discovery workflows - which utilize inband data as well as out of band data.
+The SKU is the definition of hardware components within the host. And the SKU validation workflow compares it to the set of hardware components that have been detected via NICo hardware discovery workflows - which utilize inband data as well as out of band data.
 
 SKU validation can thereby e.g. detect
 - whether a host has the right type of CPU installed
@@ -279,7 +279,7 @@ In certain conditions the scraping process will place a health alert on the host
 - whether BGP sessions are established to peers according to the current configuration of the DPU
 - whether all required services on the DPU are running
 - whether the DPU is configured in restricted mode
-- whether the disk utilization ib below a threshold
+- whether the disk utilization is below a threshold
 
 ## Health report overrides
 
@@ -292,13 +292,13 @@ The override API offers 2 different modes of operation:
   to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
 1. `replace` - In this mode, the health probe alerts reported by builtin NICo
   monitoring tools will be ignored. Only alerts that are passed as part of the
-  override will be taking into account. If the override list is empty, the system
+  override will be taken into account. If the override list is empty, the system
   will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
 
 The API allows to apply multiple `merge` overrides to a hosts health at the same time by using a different `HealthReport::source` identifier.
 This allows to integrate health information from multiple external systems and users which are not at risk of overriding each others data. E.g. health information from an external fleet health monitoring system and from SREs can be stored independently.
 
-If a ManagedHosts health is overriden, the remaining behavior is exactly the same
+If a ManagedHost's health is overridden, the remaining behavior is exactly the same
 as if the overridden Health report would have been directly derived from monitoring
 hardware health:
 - The host will be allocatable depending on whether any `PreventAllocations` classification is present in the aggregate host health
@@ -307,7 +307,7 @@ hardware health:
   - A ManagedHost whose health status is overridden from healthy to not-healthy
     will stop performing certain state transitions that require the host to be healthy.
   - A ManagedHost whose health status is overridden from not-healthy to healthy
-    will perform state transitions that it would eitherwise not have performed.
+    will perform state transitions that it would otherwise not have performed.
     This is useful for unblocking hosts in certain operational scenarios - e.g.
     where the integrated health monitoring system reported a host as non-healthy
     for an invalid reason.

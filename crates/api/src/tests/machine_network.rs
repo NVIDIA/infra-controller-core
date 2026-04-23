@@ -109,6 +109,7 @@ async fn test_managed_host_network_config_errors_when_sitewide_bgp_password_miss
     // Create a DPU without advancing to the point where the fixture fetches network config.
     // We'll fetch config next to validate the failure case.
     let host_config = env.managed_host_config();
+    api_fixtures::site_explorer::register_expected_machine(&env, &host_config, None).await;
 
     let mock_explored_host = MockExploredHost::new(&env, host_config)
         .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))
@@ -197,6 +198,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -296,6 +298,7 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
