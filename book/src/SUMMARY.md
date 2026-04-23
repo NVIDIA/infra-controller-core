@@ -41,6 +41,16 @@
   - [VPC Peering](manuals/vpc/vpc_peering_management.md)
 - [Metrics]()
     - [Core metrics](manuals/metrics/core_metrics.md)
+- [Example REST API Workflows](manuals/rest_api_workflows/overview.md)
+    - [Viewing Site Inventory](manuals/rest_api_workflows/viewing_site_inventory.md)
+    - [Managing Virtual Private Clouds](manuals/rest_api_workflows/managing_vpc.md)
+    - [Allocating Machines](manuals/rest_api_workflows/allocating_machines.md)
+    - [Assigning Instance Types to Machines](manuals/rest_api_workflows/assigning_instance_types.md)
+    - [Managing Operating Systems](manuals/rest_api_workflows/managing_os.md)
+    - [Managing Subnets and VPC Prefixes](manuals/rest_api_workflows/managing_subnets.md)
+    - [Managing IP Blocks](manuals/rest_api_workflows/managing_ip_blocks.md)
+    - [Managing Network Security Groups](manuals/rest_api_workflows/managing_nsg.md)
+    - [Accessing the Serial Console](manuals/rest_api_workflows/access_serial_console.md)
 
 <!-- TODO: Add "Updating Hosts" and "Removing Hosts" pages. -->
 
