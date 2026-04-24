@@ -6782,12 +6782,13 @@ message Rack {
   common.RackId id = 1;
   // deprecated: Use status.lifecycle field
   string rack_state = 2;
-  repeated string expected_compute_trays = 3;
-  repeated string expected_power_shelves = 4;
-  repeated string expected_nvlink_switches = 5;
-  repeated common.MachineId compute_trays = 6;
-  repeated common.PowerShelfId power_shelves = 7;
-  repeated common.SwitchId switches = 8;
+
+  // Removed fields that can be derived from other API calls.
+  reserved 3, 4, 5, 6, 7, 8;
+  reserved "expected_compute_trays", "expected_power_shelves",
+    "expected_nvlink_switches", "compute_trays",
+    "power_shelves", "switches";
+
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
