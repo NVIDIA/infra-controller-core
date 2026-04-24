@@ -25,9 +25,8 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
-use model;
-use model::machine;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use model::{self, machine};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use utils::managed_host_display::get_memory_details;
@@ -108,7 +107,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
         } = item;
 
         let (maintenance_reference, maintenance_start_time) = host_snapshot
-            .health_report_overrides
+            .health_reports
             .maintenance_override()
             .map(|o| {
                 (
@@ -172,8 +171,11 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
             state: host_snapshot.state.value.to_string(),
             time_in_state: host_snapshot.state.version.since_state_change_humanized(),
             time_in_state_above_sla: machine::state_sla(
+                &host_snapshot.id,
                 &host_snapshot.state.value,
                 &host_snapshot.state.version,
+                &aggregate_health,
+                &machine::slas::MachineSlaConfig::default(),
             )
             .time_in_state_above_sla,
             state_reason: host_snapshot
@@ -182,7 +184,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
                 .unwrap_or_default(),
             health_probe_alerts: aggregate_health.alerts,
             health_overrides: host_snapshot
-                .health_report_overrides
+                .health_reports
                 .into_iter()
                 .map(|(r, _)| r.source)
                 .collect(),
@@ -651,13 +653,8 @@ async fn fetch_managed_hosts_with_metadata(
     let machine_ids = api
         .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
             include_dpus: true,
-            include_history: false,
             include_predicted_host: true,
-            only_maintenance: false,
-            exclude_hosts: false,
-            only_quarantine: false,
-            instance_type_id: None,
-            mnnvl_only: false,
+            ..Default::default()
         }))
         .await?
         .into_inner()

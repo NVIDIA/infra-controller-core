@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 use std::backtrace::{Backtrace, BacktraceStatus};
-use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
 use db::ip_allocator::DhcpError;
@@ -28,12 +28,9 @@ use mac_address::MacAddress;
 use model::errors::ModelError;
 use model::hardware_info::HardwareInfoError;
 use model::network_devices::LldpError;
-use model::site_explorer::EndpointExplorationError;
 use model::tenant::TenantError;
 use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
-
-use crate::redfish::RedfishClientCreationError;
 
 /// Represents various Errors that can occur throughout the system.
 ///
@@ -202,9 +199,6 @@ pub enum CarbideError {
     #[error("Attest Bind Key Error: {0}")]
     AttestBindKeyError(String),
 
-    #[error("Explored machine at {0} has no DPUs")]
-    NoDpusInMachine(IpAddr),
-
     #[error("{requested_ip} resolves to {found_mac} not {requested_mac}")]
     BmcMacIpMismatch {
         /// The BMC endpoint IP requested by the caller
@@ -217,13 +211,6 @@ pub enum CarbideError {
 
     #[error("{0}")]
     FailedPrecondition(String),
-
-    #[error("EndpointExplorationError for {action}: {err}")]
-    EndpointExplorationError {
-        action: &'static str,
-        /// The actual BMC MAC address found associated with the endpoint IP
-        err: EndpointExplorationError,
-    },
 
     #[error("Failed to map device to dpu: {0}")]
     DpuMappingError(String),
@@ -239,6 +226,12 @@ pub enum CarbideError {
 
     #[error("DPF error: {0}")]
     DpfError(#[from] carbide_dpf::DpfError),
+
+    #[error("Service unavailable: {0}")]
+    UnavailableError(String),
+
+    #[error("Permission denied: {0}")]
+    PermissionDeniedError(String),
 }
 
 impl From<ModelError> for CarbideError {
@@ -286,7 +279,6 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::OnePrimaryInterface => OnePrimaryInterface,
             DatabaseError::ResourceExhausted(e) => ResourceExhausted(e),
             DatabaseError::ResourcePoolError(e) => ResourcePoolError(e),
-            DatabaseError::RpcDataConversionError(e) => RpcDataConversionError(e),
             DatabaseError::RpcUuidConversionError(e) => RpcUuidConversionError(e),
             DatabaseError::Sqlx(e) => DBError(e),
             DatabaseError::TenantError(e) => TenantError(e),
@@ -362,6 +354,9 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::NotFoundError { kind, id } => {
                 Status::not_found(format!("{kind} not found: {id}"))
             }
+            CarbideError::AlreadyFoundError { kind, id } => {
+                Status::already_exists(format!("{kind} already exists: {id}"))
+            }
             CarbideError::MaintenanceMode => {
                 Status::failed_precondition("MaintenanceMode".to_string())
             }
@@ -377,6 +372,8 @@ impl From<CarbideError> for tonic::Status {
             error @ CarbideError::ClientCertificateMissingInformation(_) => {
                 Status::unauthenticated(error.to_string())
             }
+            CarbideError::UnavailableError(msg) => Status::unavailable(msg),
+            CarbideError::PermissionDeniedError(msg) => Status::permission_denied(msg),
             other => Status::internal(other.to_string()),
         }
     }
@@ -404,4 +401,18 @@ fn test_dhcp_error_maps_to_resource_exhausted_status() {
     ));
     let status: tonic::Status = err.into();
     assert_eq!(status.code(), tonic::Code::ResourceExhausted);
+}
+
+#[test]
+fn test_unavailable_error_maps_to_unavailable_status() {
+    let err = CarbideError::UnavailableError("service down".into());
+    let status: tonic::Status = err.into();
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+}
+
+#[test]
+fn test_permission_denied_error_maps_to_permission_denied_status() {
+    let err = CarbideError::PermissionDeniedError("not allowed".into());
+    let status: tonic::Status = err.into();
+    assert_eq!(status.code(), tonic::Code::PermissionDenied);
 }

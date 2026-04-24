@@ -23,6 +23,7 @@ use db::{self, DatabaseError};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::slas::MachineSlaConfig;
 use model::machine::{
     self, DpuDiscoveringState, DpuInitState, HostHealthConfig, MachineValidatingState,
     ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
@@ -33,13 +34,11 @@ use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::metrics::MachineMetricsEmitter;
 
-// This should be updated on each new model introdunction
-pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
-
 /// State Controller IO implementation for Machines
 #[derive(Default, Debug)]
 pub struct MachineStateControllerIO {
     pub host_health: HostHealthConfig,
+    pub sla_config: MachineSlaConfig,
 }
 
 #[async_trait::async_trait]
@@ -123,9 +122,25 @@ impl StateControllerIO for MachineStateControllerIO {
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         _old_version: ConfigVersion,
+        _new_version: ConfigVersion,
         new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db::machine::update_state(txn, object_id, new_state).await?;
+        Ok(true)
+    }
+
+    /// State history for machines (including DPUs) is persisted internally by
+    /// `db::machine::advance()` inside `update_state`, so this is actually a
+    /// no-op for now.
+    // TODO(chet): Pull this in as well.
+    async fn persist_state_history(
+        &self,
+        _txn: &mut PgConnection,
+        _object_id: &Self::ObjectId,
+        _new_version: ConfigVersion,
+        _new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::machine::update_state(txn, object_id, new_state).await
+        Ok(())
     }
 
     async fn persist_outcome(
@@ -233,8 +248,6 @@ impl StateControllerIO for MachineStateControllerIO {
             }
         }
         match state {
-            ManagedHostState::RegisterRmsMembership => ("registerrmsmembership", ""),
-            ManagedHostState::VerifyRmsMembership => ("verifyrmsmembership", ""),
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.
@@ -300,7 +313,17 @@ impl StateControllerIO for MachineStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
-        machine::state_sla(&state.value, &state.version)
+    fn state_sla(
+        &self,
+        state: &Versioned<Self::ControllerState>,
+        object_state: &Self::State,
+    ) -> StateSla {
+        machine::state_sla(
+            &object_state.host_snapshot.id,
+            &state.value,
+            &state.version,
+            &object_state.aggregate_health,
+            &self.sla_config,
+        )
     }
 }

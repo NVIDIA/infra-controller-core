@@ -25,7 +25,7 @@ use crate::HealthError;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricsManager};
 
 pub struct PrometheusSink {
-    collector_registry: Arc<CollectorRegistry>, // Hold onto the registry to ensure it lives as long as the sink
+    collector_registry: Arc<CollectorRegistry>,
     stream_metrics: DashMap<String, DashMap<&'static str, Arc<GaugeMetrics>>>,
 }
 
@@ -97,8 +97,8 @@ impl PrometheusSink {
         if let Some(machine_id) = context.machine_id() {
             labels.push((Cow::Borrowed("machine_id"), machine_id.to_string()));
         }
-        if let Some(serial) = context.switch_serial() {
-            labels.push((Cow::Borrowed("switch_serial"), serial.to_string()));
+        if let Some(serial) = context.serial_number() {
+            labels.push((Cow::Borrowed("serial_number"), serial.to_string()));
         }
 
         labels
@@ -136,6 +136,10 @@ impl PrometheusSink {
 }
 
 impl DataSink for PrometheusSink {
+    fn sink_type(&self) -> &'static str {
+        "prometheus_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         match event {
             CollectorEvent::MetricCollectionStart => {

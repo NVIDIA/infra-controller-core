@@ -31,6 +31,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".google.protobuf.Timestamp",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
+        .type_attribute(
+            ".forge.DeletedFilter",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.DpuMode",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.DpuMode",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .extern_path(".common.DomainId", "::carbide_uuid::domain::DomainId")
@@ -43,6 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.NetworkSegmentId", "::carbide_uuid::network::NetworkSegmentId")
         .extern_path(".common.PowerShelfId", "::carbide_uuid::power_shelf::PowerShelfId")
         .extern_path(".common.RackId", "::carbide_uuid::rack::RackId")
+        .extern_path(".common.RackProfileId", "::carbide_uuid::rack::RackProfileId")
         .extern_path(".common.NVLinkPartitionId", "::carbide_uuid::nvlink::NvLinkPartitionId")
         .extern_path(".common.NVLinkLogicalPartitionId", "::carbide_uuid::nvlink::NvLinkLogicalPartitionId")
         .extern_path(".common.NVLinkDomainId", "::carbide_uuid::nvlink::NvLinkDomainId")
@@ -52,6 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.VpcPeeringId", "::carbide_uuid::vpc_peering::VpcPeeringId")
         .extern_path(".common.VpcPrefixId", "::carbide_uuid::vpc::VpcPrefixId")
         .extern_path(".common.ComputeAllocationId", "::carbide_uuid::compute_allocation::ComputeAllocationId")
+        .extern_path(".common.OperatingSystemId", "::carbide_uuid::operating_system::OperatingSystemId")
+        .extern_path(".common.IpxeTemplateId", "::carbide_uuid::ipxe_template::IpxeTemplateId")
         .extern_path(".measured_boot.MeasurementSystemProfileId", "::carbide_uuid::measured_boot::MeasurementSystemProfileId")
         .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::carbide_uuid::measured_boot::MeasurementSystemProfileAttrId")
         .extern_path(".measured_boot.MeasurementBundleId", "::carbide_uuid::measured_boot::MeasurementBundleId")
@@ -83,9 +98,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.AdminForceDeleteMachineResponse",
             "#[derive(serde::Serialize)]",
         )
-        .type_attribute("forge.CredentialResponse", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.FabricManagerConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.FlatInterfaceIpv6Config", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceInterfaceIpv6Config", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(
             "forge.InstanceInterfaceConfig",
             "#[derive(serde::Serialize)]",
@@ -105,6 +123,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute("forge.InstanceStorageConfig", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.IpxeTemplateParameter",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.IpxeTemplateArtifact",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.IpxeTemplate",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.IpxeTemplateArtifactCacheStrategy",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .type_attribute("forge.TenantConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceDpuExtensionServicesConfig", "#[derive(serde::Serialize)]")
@@ -181,6 +215,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
+            "forge.LifecycleStatus",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.InstancePhoneHomeLastContactRequest",
             "#[derive(serde::Serialize)]",
         )
@@ -237,8 +275,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.MachineInventorySoftwareComponent",
             "#[derive(serde::Serialize)]",
         )
-        .type_attribute("forge.HealthReportOverride", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.HealthOverrideOrigin", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.HealthReportEntry", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.HealthSourceOrigin", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
             "forge.ManagedHostNetworkConfig",
             "#[derive(serde::Serialize)]",
@@ -271,12 +309,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
         .type_attribute(
-            "forge.OperatingSystem",
+            "forge.InstanceOperatingSystemConfig",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(
-            "forge.OperatingSystem.variant",
+            "forge.InstanceOperatingSystemConfig.variant",
             "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.OperatingSystem",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.OperatingSystemList",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.OperatingSystemType",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute("forge.InterfaceList", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -315,10 +365,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.ResourcePool", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DpaInterface", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DpaInterfaceList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.DpaInterfaceStateHistoryRecord",
-            "#[derive(serde::Serialize)]",
-        )
         .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcList", "#[derive(serde::Serialize)]")
@@ -337,6 +383,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.VpcPeering", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcPeeringList", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.StateHistoryRecord",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.StorageCluster", "#[derive(serde::Serialize)]")
         .type_attribute("forge.StoragePoolAttributes", "#[derive(serde::Serialize)]")
         .type_attribute("forge.StoragePool", "#[derive(serde::Serialize)]")
@@ -346,6 +396,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.StorageVolume", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.Switch", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SwitchConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SwitchList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SwitchStatus", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.DeleteStoragePoolRequest",
             "#[derive(serde::Serialize)]",
@@ -442,9 +496,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedSwitch", "#[derive(serde::Serialize)]")
+        .type_attribute("ExpectedRack", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedMachineList", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelfList", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedSwitchList", "#[derive(serde::Serialize)]")
+        .type_attribute("ExpectedRackList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "TpmCaCertDetail",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -638,6 +694,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.RackFirmwareHistoryRecord", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackFirmwareHistoryRecords", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackFirmwareHistoryResponse", "#[derive(serde::Serialize)]")
+        .type_attribute("common.RackHardwareType", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackCapabilitiesSet", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackCapabilityCompute", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackCapabilitySwitch", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackCapabilityPowerShelf", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackProfile", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.GetRackProfileResponse", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineHardwareInfoGpu",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -683,21 +746,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
-            "forge.GetRackRequest",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.GetRackResponse",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.DeleteRackRequest",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
             "forge.Rack",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RackConfig",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.RackList",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RackStatus",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.PowerShelf", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.PowerShelfConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.PowerShelfList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.PowerShelfStatus", "#[derive(serde::Serialize)]")
         .type_attribute(
             "common.Uint32List",
             "#[derive(serde::Deserialize,serde::Serialize)]",
@@ -764,6 +831,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.ComputeAllocationAttributes",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.GetBmcCredentialsRequest",
+            "#[derive(serde::Serialize)]",
+        ).type_attribute(
+            "forge.PlacementInRack",
+            "#[derive(serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")
@@ -778,6 +852,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/nmx_c.proto",
                 "proto/site_explorer.proto",
                 "proto/dns.proto",
+                "proto/fmds.proto",
             ],
             &["proto"],
         )
@@ -832,7 +907,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ".common.ComputeAllocationId",
                 "::carbide_uuid::compute_allocation::ComputeAllocationId",
             ),
+            (
+                ".common.OperatingSystemId",
+                "::carbide_uuid::operating_system::OperatingSystemId",
+            ),
+            (
+                ".common.IpxeTemplateId",
+                "::carbide_uuid::ipxe_template::IpxeTemplateId",
+            ),
             (".common.RackId", "::carbide_uuid::rack::RackId"),
+            (
+                ".common.RackProfileId",
+                "::carbide_uuid::rack::RackProfileId",
+            ),
             (
                 ".common.NVLinkPartitionId",
                 "::carbide_uuid::nvlink::NvLinkPartitionId",

@@ -32,7 +32,7 @@ use libredfish::RedfishError;
 pub use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use utils::models::arch::CpuArchitecture;
 
 use super::DpuModel;
@@ -44,6 +44,24 @@ use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
+
+#[derive(Clone, Debug, Default)]
+pub struct ExploredEndpointSearchFilter {}
+
+impl From<rpc::site_explorer::ExploredEndpointSearchFilter> for ExploredEndpointSearchFilter {
+    fn from(_filter: rpc::site_explorer::ExploredEndpointSearchFilter) -> Self {
+        ExploredEndpointSearchFilter {}
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ExploredManagedHostSearchFilter {}
+
+impl From<rpc::site_explorer::ExploredManagedHostSearchFilter> for ExploredManagedHostSearchFilter {
+    fn from(_filter: rpc::site_explorer::ExploredManagedHostSearchFilter) -> Self {
+        ExploredManagedHostSearchFilter {}
+    }
+}
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -175,6 +193,9 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             machine_setup_status: report.machine_setup_status.map(Into::into),
             secure_boot_status: report.secure_boot_status.map(Into::into),
             lockdown_status: report.lockdown_status.map(Into::into),
+            firmware_versions: serde_json::to_value(&report.versions)
+                .and_then(serde_json::from_value)
+                .unwrap_or_default(),
         }
     }
 }
@@ -354,6 +375,26 @@ pub enum PreingestionState {
     Initial,
     RecheckVersions,
     ScriptRunning,
+    BfbRecoveryNeeded {
+        reason: String,
+        host_bmc_ip: IpAddr,
+        #[serde(default)]
+        pre_copy_powercycle: bool,
+    },
+    BfbPlatformPowercycle {
+        host_bmc_ip: IpAddr,
+        phase: BfbPlatformPowercyclePhase,
+        #[serde(default)]
+        post_install: bool,
+    },
+    BfbCopyInProgress {
+        started_at: DateTime<Utc>,
+        host_bmc_ip: IpAddr,
+    },
+    BfbInstallationWait {
+        started_at: DateTime<Utc>,
+        host_bmc_ip: IpAddr,
+    },
     InitialReset {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
@@ -388,6 +429,14 @@ pub enum PreingestionState {
         reason: String,
     },
     Complete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BfbPlatformPowercyclePhase {
+    PowerOff,
+    PowerOn,
+    WaitingForDpuBmc,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -649,6 +698,26 @@ impl ExploredManagedHost {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ExploredManagedSwitch {
+    /// The Switch's BMC IP
+    pub bmc_ip: IpAddr,
+    // Host mac address
+    pub nv_os_mac_addresses: Vec<MacAddress>,
+    /// Exploration report for this switch endpoint
+    pub report: EndpointExplorationReport,
+}
+
+impl ExploredManagedSwitch {
+    pub fn bmc_info(&self) -> BmcInfo {
+        BmcInfo {
+            ip: Some(self.bmc_ip.to_string()),
+            ..Default::default()
+        }
+    }
+}
+
 /// Serialization methods for types which support FromStr/Display
 mod serialize_option_display {
     use std::fmt::Display;
@@ -753,11 +822,21 @@ impl EndpointExplorationReport {
         self.identify_dpu().is_some()
     }
 
-    /// Return `true` if the explored endpoint is a PowerShelf
+    /// Return `true` if the explored endpoint is a PowerShelf.
+    /// This checks if the chassis ID is /Chassis/powershelf, or,
+    /// if that fails, checks to see if /Chassis/chassis has
+    /// a manufacturer containing "lite-on".
+    ///
+    /// TODO(chet): These are obviously workarounds for now while
+    /// we work with vendors to update their BMC firmware.
     pub fn is_power_shelf(&self) -> bool {
-        self.chassis
-            .iter()
-            .any(|c| c.id.to_lowercase().contains("powershelf"))
+        self.chassis.iter().any(|c| {
+            c.id.to_lowercase().contains("powershelf")
+                || (c.id == "chassis"
+                    && c.manufacturer
+                        .as_ref()
+                        .is_some_and(|m| m.to_lowercase().contains("lite-on")))
+        })
     }
 
     /// Return `true` if the explored endpoint is a Switch
@@ -909,39 +988,24 @@ impl EndpointExplorationReport {
     //TODO: refactor for common code with generate_power_shelf_id
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
-    pub fn generate_switch_id(&mut self) -> ModelResult<Option<&SwitchId>> {
-        if let Some(serial_number) = self
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_ref())
-        {
-            let vendor = self
-                .systems
-                .first()
-                .and_then(|system| system.manufacturer.as_ref());
-            let model = self
-                .systems
-                .first()
-                .and_then(|system| system.model.as_ref());
+    pub fn generate_switch_id(&mut self) -> ModelResult<Option<SwitchId>> {
+        let chassis = self
+            .chassis
+            .iter()
+            .find(|c| c.id.to_string().to_lowercase() == "mgx_nvswitch_0")
+            .unwrap();
+        let serial_number = chassis.serial_number.clone();
+        let manufacturer = chassis.manufacturer.clone().unwrap_or("NVIDIA".to_string());
+        let model = "Switch".to_string();
 
-            let dmi_data = self.create_temporary_dmi_data(serial_number, vendor, model);
-
-            // Construct a HardwareInfo object specifically so that we can mint a MachineId.
-            let _hardware_info = HardwareInfo {
-                dmi_data: Some(dmi_data),
-                // This field should not be read, machine_id::from_hardware_info_with_type should not
-                // need this, only the dmi_data.
-                machine_type: CpuArchitecture::Unknown,
-                ..Default::default()
-            };
-
+        if let Some(serial_number) = serial_number.as_ref() {
             let switch_type = SwitchType::NvLink;
             let switch_source = SwitchIdSource::ProductBoardChassisSerial;
 
             let switch_id = switch_id::from_hardware_info_with_type(
-                serial_number,
-                vendor.unwrap(),
-                model.unwrap(),
+                serial_number.as_str(),
+                manufacturer.as_str(),
+                model.as_str(),
                 switch_source,
                 switch_type,
             )
@@ -950,8 +1014,8 @@ impl EndpointExplorationReport {
                     MissingHardwareInfo::Serial,
                 ))
             })?;
-
-            Ok(Some(self.switch_id.insert(switch_id)))
+            self.switch_id = Some(switch_id);
+            Ok(self.switch_id)
         } else {
             Err(ModelError::HardwareInfo(
                 HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
@@ -1222,12 +1286,21 @@ pub struct ComputerSystem {
     pub attributes: ComputerSystemAttributes,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pcie_devices: Vec<PCIeDevice>,
+    #[serde(default, deserialize_with = "base_mac_deserialize")]
     pub base_mac: Option<BaseMac>,
     #[serde(default)]
     pub power_state: PowerState,
     pub sku: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot_order: Option<BootOrder>,
+}
+
+pub fn base_mac_deserialize<'a, D>(deserializer: D) -> Result<Option<BaseMac>, D::Error>
+where
+    D: Deserializer<'a>,
+{
+    let optional_value: Option<String> = Option::deserialize(deserializer)?;
+    Ok(optional_value.and_then(|v| v.parse().ok()))
 }
 
 impl ComputerSystem {
@@ -1276,6 +1349,7 @@ impl From<PowerState> for rpc::site_explorer::PowerState {
             PowerState::PoweringOff => rpc::site_explorer::PowerState::PoweringOff,
             PowerState::PoweringOn => rpc::site_explorer::PowerState::PoweringOn,
             PowerState::Paused => rpc::site_explorer::PowerState::Paused,
+            PowerState::Unknown => rpc::site_explorer::PowerState::Unknown,
         }
     }
 }
@@ -1288,6 +1362,7 @@ pub enum PowerState {
     PoweringOff,
     PoweringOn,
     Paused,
+    Unknown,
 }
 
 /// `Manager` definition. Matches redfish definition
@@ -1329,6 +1404,10 @@ pub struct EthernetInterface {
         deserialize_with = "carbide_network::deserialize_optional_mlx_mac"
     )]
     pub mac_address: Option<MacAddress>,
+
+    /// Redfish `LinkStatus` as reported by the BMC (e.g. LinkUp, LinkDown, NoLink).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_status: Option<String>,
 
     pub uefi_device_path: Option<UefiDevicePath>,
 }
@@ -1390,6 +1469,7 @@ impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
             description: interface.description,
             interface_enabled: interface.interface_enabled,
             mac_address: interface.mac_address.map(|mac| mac.to_string()),
+            link_status: interface.link_status,
         }
     }
 }
@@ -1672,6 +1752,7 @@ impl From<libredfish::PowerState> for PowerState {
             libredfish::PowerState::PoweringOn => PowerState::PoweringOn,
             libredfish::PowerState::Paused => PowerState::Paused,
             libredfish::PowerState::Reset => PowerState::PoweringOn,
+            libredfish::PowerState::Unknown => PowerState::Unknown,
         }
     }
 }
@@ -2277,5 +2358,132 @@ mod tests {
         assert_eq!(report.compute_tray_index, None);
         assert_eq!(report.topology_id, None);
         assert_eq!(report.revision_id, None);
+    }
+
+    #[test]
+    fn is_power_shelf_with_powershelf_chassis_id() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "powershelf".to_string(),
+                manufacturer: Some("doesnt-matter-in-this-case".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_chassis_id_and_liteon_manufacturer() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: Some("LITE-ON TECHNOLOGY CORP.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_generic_chassis_id_not_liteon() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: Some("Dell Inc.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_no_manufacturer() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: None,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!report.is_power_shelf());
+    }
+
+    #[test]
+    fn test_computer_system_with_invalid_base_mac_deserializes_as_none() {
+        let json = serde_json::json!({
+            "EthernetInterfaces": [],
+            "Id": "Bluefield",
+            "Manufacturer": "Nvidia",
+            "Model": "Bluefield-3 DPU",
+            "SerialNumber": "ABC1234",
+            "Attributes": {},
+            "PcieDevices": [],
+            "BaseMac": "pe:",
+            "PowerState": "On"
+        });
+
+        let system: ComputerSystem =
+            serde_json::from_value(json).expect("should deserialize despite invalid BaseMac");
+        assert_eq!(system.base_mac, None);
+    }
+
+    #[test]
+    fn test_computer_system_with_valid_base_mac_deserializes_correctly() {
+        let json = serde_json::json!({
+            "EthernetInterfaces": [],
+            "Id": "Bluefield",
+            "Manufacturer": "Nvidia",
+            "Model": "Bluefield-3 DPU",
+            "SerialNumber": "ABC1234",
+            "Attributes": {},
+            "PcieDevices": [],
+            "BaseMac": "A088C208804C",
+            "PowerState": "On"
+        });
+
+        let system: ComputerSystem =
+            serde_json::from_value(json).expect("should deserialize valid BaseMac");
+        assert_eq!(system.base_mac, Some("A088C208804C".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_computer_system_with_null_base_mac_deserializes_as_none() {
+        let json = serde_json::json!({
+            "EthernetInterfaces": [],
+            "Id": "Bluefield",
+            "Manufacturer": "Nvidia",
+            "Model": "Bluefield-3 DPU",
+            "SerialNumber": "ABC1234",
+            "Attributes": {},
+            "PcieDevices": [],
+            "BaseMac": null,
+            "PowerState": "On"
+        });
+
+        let system: ComputerSystem =
+            serde_json::from_value(json).expect("should deserialize null BaseMac");
+        assert_eq!(system.base_mac, None);
+    }
+
+    #[test]
+    fn test_computer_system_with_missing_base_mac_deserializes_as_none() {
+        let json = serde_json::json!({
+            "EthernetInterfaces": [],
+            "Id": "Bluefield",
+            "Manufacturer": "Nvidia",
+            "Model": "Bluefield-3 DPU",
+            "SerialNumber": "ABC1234",
+            "Attributes": {},
+            "PcieDevices": [],
+            "PowerState": "On"
+        });
+
+        let system: ComputerSystem =
+            serde_json::from_value(json).expect("should deserialize missing BaseMac");
+        assert_eq!(system.base_mac, None);
     }
 }

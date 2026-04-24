@@ -35,6 +35,8 @@ pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
 /// Generates a formatted link for Machine IDs to a predefined path
 fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
     let id = id.to_string();
+    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+
     let short_id = if MachineId::from_str(&id).is_err() {
         // Not a Machine ID. Escape HTML to make it safe for post processing with safe filter
         let mut output = String::new();
@@ -47,7 +49,7 @@ fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String
 
     let formatted = format!(
         r#"
-    <a href="/admin/{path}/{id}">
+    <a href="/admin/{path}/{link_path}">
         <div class="machine_id">
             <div>{id}</div><div>{short_id}</div>
         </div>
@@ -55,6 +57,42 @@ fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String
     );
 
     Ok(formatted)
+}
+
+fn escaped_shortened_id_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
+    // Sanitize ID for HTML content and links (it can contain arbitrary content)
+    let id = id.to_string();
+    if id == "Unlinked" || id.is_empty() {
+        return Ok("Unlinked".to_string());
+    }
+    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+
+    let mut escaped_id = String::new();
+    askama_escape::Html.write_escaped(&mut escaped_id, &id)?;
+
+    let short_id = &escaped_id[escaped_id.len().saturating_sub(6)..];
+    let formatted = format!(
+        r#"
+    <a href="/admin/{path}/{link_path}">
+        <div class="machine_id">
+            <div>{escaped_id}</div><div>{short_id}</div>
+        </div>
+    </a>"#
+    );
+
+    Ok(formatted)
+}
+
+pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "rack")
+}
+
+pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "power-shelf")
+}
+
+pub fn switch_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "switch")
 }
 
 /// Formats labels into HTML
@@ -233,7 +271,7 @@ pub fn controller_state_reason_fmt(
     }
 
     if let Some(source_ref) = reason.source_ref.as_ref() {
-        const GITLAB_REPO: &str = "https://gitlab-master.nvidia.com/nvmetal/carbide";
+        const GITHUB_REPO: &str = "https://github.com/NVIDIA/ncx-infra-controller-core";
 
         // TODO: carbide_version::v!(git_sha) should work here - however it returns an
         // outdated commit ID.
@@ -245,8 +283,8 @@ pub fn controller_state_reason_fmt(
 
         write!(
             &mut result,
-            "<br><b>Source:</b> <a href=\"{}/-/blob/{}/{}#L{}\">{}:{}</a>",
-            GITLAB_REPO,
+            "<br><b>Source:</b> <a href=\"{}/blob/{}/{}#L{}\">{}:{}</a>",
+            GITHUB_REPO,
             commit_hash,
             source_ref.file,
             source_ref.line,

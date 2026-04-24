@@ -24,12 +24,12 @@ use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, Memor
 use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 
-use crate::{PowerControl, hw, redfish};
+use crate::{BootOptionKind, Callbacks, hw, redfish};
 
 pub struct DellPowerEdgeR750<'a> {
     pub bmc_mac_address: MacAddress,
     pub product_serial_number: Cow<'a, str>,
-    pub nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic)>,
+    pub nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic<'a>)>,
     pub embedded_nic: EmbeddedNic,
 }
 
@@ -53,22 +53,30 @@ impl DellPowerEdgeR750<'_> {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "iDRAC.Embedded.1",
-                eth_interfaces: vec![
+                eth_interfaces: Some(vec![
                     redfish::ethernet_interface::builder(
                         &redfish::ethernet_interface::manager_resource("iDRAC.Embedded.1", "NIC.1"),
                     )
                     .mac_address(self.bmc_mac_address)
                     .interface_enabled(true)
                     .build(),
-                ],
-                firmware_version: "6.00.30.00",
+                ]),
+                host_interfaces: Some(vec![
+                    redfish::host_interface::builder(&redfish::host_interface::manager_resource(
+                        "iDRAC.Embedded.1",
+                        "Host.1",
+                    ))
+                    .interface_enabled(false)
+                    .build(),
+                ]),
+                firmware_version: Some("6.00.30.00"),
                 oem: Some(redfish::manager::Oem::Dell),
             }],
         }
     }
 
-    pub fn system_config(&self, pc: Arc<dyn PowerControl>) -> redfish::computer_system::Config {
-        let power_control = Some(pc);
+    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+        let callbacks = Some(callbacks);
         let serial_number = Some(self.product_serial_number.to_string().into());
         let system_id = "System.Embedded.1";
 
@@ -97,20 +105,26 @@ impl DellPowerEdgeR750<'_> {
         }))
         .collect();
 
-        let boot_opt_builder = |id: &str| {
-            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
+        let boot_opt_builder = |id: &str, kind| {
+            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id), kind)
                 .boot_option_reference(id)
         };
         let boot_options = self
             .nics
             .iter()
-            .map(|(slot_number, _)| format!("HTTP Device 1: NIC in Slot {slot_number} Port 1"))
-            .chain(std::iter::once(
+            .map(|(slot_number, _)| {
+                (
+                    format!("HTTP Device 1: NIC in Slot {slot_number} Port 1"),
+                    BootOptionKind::Network,
+                )
+            })
+            .chain(std::iter::once((
                 "PCIe SSD in Slot 2 in Bay 1: EFI Fixed Disk Boot Device 1".to_string(),
-            ))
+                BootOptionKind::Disk,
+            )))
             .enumerate()
-            .map(|(index, display_name)| {
-                boot_opt_builder(&format!("Boot{index:04X}"))
+            .map(|(index, (display_name, kind))| {
+                boot_opt_builder(&format!("Boot{index:04X}"), kind)
                     .display_name(&display_name)
                     .build()
             })
@@ -124,7 +138,7 @@ impl DellPowerEdgeR750<'_> {
                 eth_interfaces: Some(eth_interfaces),
                 serial_number,
                 boot_order_mode: redfish::computer_system::BootOrderMode::DellOem,
-                power_control,
+                callbacks,
                 chassis: vec!["System.Embedded.1".into()],
                 boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::DellOem,
@@ -184,7 +198,9 @@ impl DellPowerEdgeR750<'_> {
                 .oem(redfish::oem::dell::network_device_function::dell_nic_info(
                     &function_id,
                     *slot,
-                    &nic.serial_number,
+                    nic.serial_number
+                        .as_ref()
+                        .unwrap_or(&Cow::Borrowed("unknown")),
                 ))
                 .build();
             redfish::network_adapter::builder_from_nic(
@@ -231,8 +247,7 @@ impl DellPowerEdgeR750<'_> {
                     chassis_id,
                     Self::sensor_layout(),
                 )),
-                assembly: None,
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }],
         }
     }

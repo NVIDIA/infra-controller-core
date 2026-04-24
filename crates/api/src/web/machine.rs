@@ -27,14 +27,14 @@ use hyper::http::StatusCode;
 use itertools::Itertools;
 use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
+use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
 use utils::managed_host_display::to_time;
 
 use super::filters;
-use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
+use super::state_history::StateHistoryTable;
 use crate::api::Api;
-use crate::web::explored_endpoint::ActionStatus;
+use crate::web::action_status::{self, ActionStatus};
 
 #[derive(Template)]
 #[template(path = "machine_show.html")]
@@ -111,14 +111,14 @@ impl MachineRowDisplay {
             num_nvlink_gpus = nvlink_info.gpus.len();
         }
         let replace_count = m
-            .health_overrides
+            .health_sources
             .iter()
-            .filter(|o| o.mode() == OverrideMode::Replace)
+            .filter(|o| o.mode() == HealthReportApplyMode::Replace)
             .count();
         let merge_count = m
-            .health_overrides
+            .health_sources
             .iter()
-            .filter(|o| o.mode() == OverrideMode::Merge)
+            .filter(|o| o.mode() == HealthReportApplyMode::Merge)
             .count();
 
         let health = m
@@ -394,13 +394,8 @@ pub async fn fetch_machines(
 ) -> Result<forgerpc::MachineList, tonic::Status> {
     let request = tonic::Request::new(forgerpc::MachineSearchConfig {
         include_dpus,
-        include_history: false,
         include_predicted_host: true,
-        only_maintenance: false,
-        exclude_hosts: false,
-        only_quarantine: false,
-        instance_type_id: None,
-        mnnvl_only: false,
+        ..Default::default()
     });
 
     let machine_ids = api
@@ -415,7 +410,7 @@ pub async fn fetch_machines(
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
         let next_ids = &machine_ids[offset..offset + page_size];
-        let next_vpcs = api
+        let next_machines = api
             .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
                 machine_ids: next_ids.to_vec(),
                 include_history,
@@ -423,7 +418,7 @@ pub async fn fetch_machines(
             .await?
             .into_inner();
 
-        machines.extend(next_vpcs.machines.into_iter());
+        machines.extend(next_machines.machines.into_iter());
         offset += page_size;
     }
 
@@ -435,17 +430,16 @@ pub async fn fetch_machines(
 struct MachineDetail<'a> {
     id: String,
     host_id: String,
-    state: String,
+    rack_id: String,
     state_version: String,
     time_in_state: String,
-    state_sla: String,
-    time_in_state_above_sla: bool,
+    state_display: super::StateDisplay,
+    state_sla_detail: super::StateSlaDetail,
     last_reboot: String,
-    state_reason: Option<::rpc::forge::ControllerStateReason>,
     machine_type: String,
     is_host: bool,
     network_config: String,
-    history: MachineStateHistoryTable,
+    history: StateHistoryTable,
     bios_version: String,
     board_version: String,
     product_name: String,
@@ -463,8 +457,7 @@ struct MachineDetail<'a> {
     health_overrides: Vec<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
     discovery_info_json: String,
-    metadata: rpc::forge::Metadata,
-    version: String,
+    metadata_detail: super::MetadataDetail,
     capabilities: Vec<MachineCapability>,
     capabilities_json: String,
     validation_runs: Vec<ValidationRun>,
@@ -512,7 +505,6 @@ struct MachineIbInterfaceDisplay {
 #[derive(Debug, Default)]
 struct MachineNvLinkGpuDisplay {
     domain_uuid: String,
-    nmx_m_id: String,
     tray_index: i32,
     slot_id: i32,
     device_instance: i32,
@@ -532,16 +524,8 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
     fn from(m: forgerpc::Machine) -> Self {
         let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
-        let history = MachineStateHistoryTable {
-            records: m
-                .events
-                .into_iter()
-                .rev()
-                .map(|e| MachineStateHistoryRecord {
-                    state: e.event,
-                    version: e.version,
-                })
-                .collect(),
+        let history = StateHistoryTable {
+            records: m.events.into_iter().rev().map(Into::into).collect(),
         };
 
         let interfaces: Vec<_> = m
@@ -643,7 +627,6 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                 .into_iter()
                 .map(|gpu| MachineNvLinkGpuDisplay {
                     domain_uuid: nvlink_info.domain_uuid.unwrap_or_default().to_string(),
-                    nmx_m_id: gpu.nmx_m_id,
                     tray_index: gpu.tray_index,
                     slot_id: gpu.slot_id,
                     guid: gpu.guid,
@@ -658,29 +641,41 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
 
         MachineDetail {
             id: machine_id.clone(),
+            rack_id: m.rack_id.map(|id| id.to_string()).unwrap_or_default(),
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
-            state: m.state,
             state_version: m.state_version,
-            state_sla: m
-                .state_sla
-                .as_ref()
-                .and_then(|sla| sla.sla)
-                .map(|sla| {
-                    config_version::format_duration(
-                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
-                    )
-                })
-                .unwrap_or_default(),
-            time_in_state_above_sla: m
-                .state_sla
-                .as_ref()
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
+            state_display: super::StateDisplay {
+                state: m.state,
+                time_in_state_above_sla: m
+                    .state_sla
+                    .as_ref()
+                    .map(|sla| sla.time_in_state_above_sla)
+                    .unwrap_or_default(),
+            },
+            state_sla_detail: super::StateSlaDetail {
+                state_sla: m
+                    .state_sla
+                    .as_ref()
+                    .and_then(|sla| sla.sla)
+                    .map(|sla| {
+                        config_version::format_duration(
+                            chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
+                        )
+                    })
+                    .unwrap_or_default(),
+                time_in_state_above_sla: m
+                    .state_sla
+                    .as_ref()
+                    .map(|sla| sla.time_in_state_above_sla)
+                    .unwrap_or_default(),
+                state_reason: m.state_reason,
+            },
             last_reboot: to_time(m.last_reboot_time, Some(&machine_id))
                 .unwrap_or("N/A".to_string()),
-            state_reason: m.state_reason,
-            version: m.version,
-            metadata: m.metadata.unwrap_or_default(),
+            metadata_detail: super::MetadataDetail {
+                metadata: m.metadata.unwrap_or_default(),
+                metadata_version: m.version,
+            },
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
             network_config: String::new(), // filled in later
@@ -714,11 +709,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                         .unwrap_or_else(health_report::HealthReport::malformed_report)
                 })
                 .unwrap_or_else(health_report::HealthReport::missing_report),
-            health_overrides: m
-                .health_overrides
-                .iter()
-                .map(|o| o.source.clone())
-                .collect(),
+            health_overrides: m.health_sources.iter().map(|o| o.source.clone()).collect(),
             discovery_info_json,
             capabilities_json: m
                 .capabilities
@@ -1013,9 +1004,9 @@ pub async fn set_dpu_first_boot_order(
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<SetDpuFirstBootOrderAction>,
 ) -> Response {
-    let view_url = format!("/admin/machine/{machine_id}");
+    let view_url = format!("/admin/machine/{machine_id}#bmc_info_view");
 
-    if let Err(err) = state
+    let redirect_url = match state
         .set_dpu_first_boot_order(tonic::Request::new(
             rpc::forge::SetDpuFirstBootOrderRequest {
                 machine_id: None,
@@ -1028,9 +1019,22 @@ pub async fn set_dpu_first_boot_order(
         ))
         .await
     {
-        tracing::error!(%err, "set_dpu_first_boot_order failed");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
-    }
+        Ok(_) => ActionStatus {
+            action: action_status::Type::SetDpuFirstBootOrder,
+            class: action_status::Class::Success,
+            message: "Boot order set successfully".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, "set_dpu_first_boot_order failed");
+            ActionStatus {
+                action: action_status::Type::SetDpuFirstBootOrder,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
 
-    Redirect::to(&view_url).into_response()
+    Redirect::to(&redirect_url).into_response()
 }

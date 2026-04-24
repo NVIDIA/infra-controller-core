@@ -18,8 +18,8 @@
 use std::borrow::Cow;
 
 use crate::json::{JsonExt, JsonPatch};
-use crate::redfish;
 use crate::redfish::Builder;
+use crate::{BootOptionKind, redfish};
 
 pub fn collection(system_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!(
@@ -43,19 +43,26 @@ pub fn resource<'a>(system_id: &str, boot_option_id: &'a str) -> redfish::Resour
     }
 }
 
-pub fn builder(resource: &redfish::Resource) -> BootOptionBuilder {
+pub fn builder(resource: &redfish::Resource, kind: BootOptionKind) -> BootOptionBuilder {
     BootOptionBuilder {
         id: Cow::Owned(resource.id.to_string()),
         value: resource.json_patch(),
+        reference: None,
+        kind,
     }
 }
 
 pub struct BootOption {
     pub id: Cow<'static, str>,
+    pub reference: Option<String>,
+    pub kind: BootOptionKind,
     value: serde_json::Value,
 }
 
 impl BootOption {
+    pub fn boot_reference(&self) -> &str {
+        self.reference.as_deref().unwrap_or(&self.id)
+    }
     pub fn to_json(&self) -> serde_json::Value {
         self.value.clone()
     }
@@ -63,7 +70,9 @@ impl BootOption {
 
 pub struct BootOptionBuilder {
     id: Cow<'static, str>,
+    reference: Option<String>,
     value: serde_json::Value,
+    kind: BootOptionKind,
 }
 
 impl Builder for BootOptionBuilder {
@@ -71,6 +80,8 @@ impl Builder for BootOptionBuilder {
         Self {
             value: self.value.patch(patch),
             id: self.id,
+            reference: self.reference,
+            kind: self.kind,
         }
     }
 }
@@ -81,17 +92,29 @@ impl BootOptionBuilder {
     }
 
     pub fn boot_option_reference(self, value: &str) -> Self {
-        self.add_str_field("BootOptionReference", value)
+        let mut result = self.add_str_field("BootOptionReference", value);
+        result.reference = Some(value.to_string());
+        result
     }
 
     pub fn uefi_device_path(self, value: &str) -> Self {
         self.add_str_field("UefiDevicePath", value)
     }
 
+    pub fn alias(self, value: &str) -> Self {
+        self.add_str_field("Alias", value)
+    }
+
+    pub fn odata_etag(self, value: &str) -> Self {
+        self.add_str_field("@odata.etag", value)
+    }
+
     pub fn build(self) -> BootOption {
         BootOption {
             id: self.id,
+            reference: self.reference,
             value: self.value,
+            kind: self.kind,
         }
     }
 }

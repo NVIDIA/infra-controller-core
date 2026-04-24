@@ -71,11 +71,6 @@ spec:
                 configMapKeyRef:
                   name: vault-cluster-info
                   key: VAULT_SERVICE
-            - name: VAULT_MOUNT_LOCATION
-              valueFrom:
-                configMapKeyRef:
-                  name: vault-cluster-info
-                  key: FORGE_VAULT_MOUNT
             - name: VAULT_KV_MOUNT_LOCATION
               valueFrom:
                 configMapKeyRef:
@@ -127,6 +122,8 @@ spec:
             #     configMapKeyRef:
             #       name: carbide-web-api-hostname
             #       key: hostname
+            # Admin UI: omit or CARBIDE_WEB_AUTH_TYPE=none (no in-process auth; use network/proxy).
+            # For Entra SSO: CARBIDE_WEB_AUTH_TYPE=oauth2 plus OAuth env vars below.
             # - name: CARBIDE_WEB_AUTH_TYPE
             #   value: oauth2
             - name: BITNAMI_DEBUG

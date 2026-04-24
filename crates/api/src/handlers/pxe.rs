@@ -34,13 +34,44 @@ pub(crate) async fn get_pxe_instructions(
 
     let mut txn = api.txn_begin().await?;
 
-    let request = request.into_inner().try_into()?;
+    let target: model::pxe::PxeInstructionRequest = request.into_inner().try_into()?;
+    let interface_id = target.interface_id;
+    let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, target).await?;
 
-    let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, request).await?;
+    // For interfaces on the static-assignments segment, include
+    // URL overrides so external hosts can reach services via an
+    // alternate hostname or IP they can resolve and/or connect
+    // to for carbide-pxe and carbide-api.
+    let (api_url_override, pxe_url_override, static_pxe_url_override) = {
+        let iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
+        let is_external = iface.segment_id
+            == db::network_segment::static_assignments(txn.as_pgconn())
+                .await
+                .map(|s| s.id)
+                .unwrap_or_default();
+
+        if is_external {
+            (
+                api.runtime_config.external_api_url.clone(),
+                api.runtime_config.external_pxe_url.clone(),
+                api.runtime_config
+                    .external_static_pxe_url
+                    .clone()
+                    .or_else(|| api.runtime_config.external_pxe_url.clone()),
+            )
+        } else {
+            (None, None, None)
+        }
+    };
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::PxeInstructions { pxe_script }))
+    Ok(Response::new(rpc::PxeInstructions {
+        pxe_script,
+        api_url_override,
+        pxe_url_override,
+        static_pxe_url_override,
+    }))
 }
 
 pub(crate) async fn get_cloud_init_instructions(
@@ -51,12 +82,12 @@ pub(crate) async fn get_cloud_init_instructions(
     let cloud_name = "nvidia".to_string();
     let platform = "forge".to_string();
 
-    let mut txn = api.txn_begin().await?;
+    let db = &api.database_connection;
 
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str
         .parse()
-        .map_err(|e| Status::invalid_argument(format!("Failed parsing IP '{ip_str}': {e}")))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("Failed parsing IP '{ip_str}': {e}")))?;
 
     // Note that this code path supports IPv6 at the *API layer*, but won't be
     // able to be exercised until DHCPv6 is working, which is a whole other thing
@@ -65,10 +96,10 @@ pub(crate) async fn get_cloud_init_instructions(
     // prefix, network segment, and IP allocators behind the scenes for supporting
     // dual stacking interfaces, none of that means much until DHCPv6 is working
     // to actually hand those addresses out.
-    let instructions = match db::instance_address::find_by_address(&mut txn, ip).await? {
+    let instructions = match db::instance_address::find_by_address(db, ip).await? {
         None => {
             // assume there is no instance associated with this IP and check if there is an interface associated with it
-            let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip)
+            let machine_interface = db::machine_interface::find_by_ip(db, ip)
                 .await?
                 .ok_or_else(|| {
                     CarbideError::internal(format!("No machine interface with IP {ip} was found"))
@@ -81,7 +112,7 @@ pub(crate) async fn get_cloud_init_instructions(
                 ))
             })?;
 
-            let domain = db::dns::domain::find_by_uuid(&mut txn, domain_id)
+            let domain = db::dns::domain::find_by_uuid(db, domain_id)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| {
@@ -94,9 +125,7 @@ pub(crate) async fn get_cloud_init_instructions(
             // It is possible for the user data to be null if we are only trying to test the pxe, and this will
             // follow the same code path and retrieve the non custom user data
             let custom_cloud_init =
-                match db::machine_boot_override::find_optional(&mut txn, machine_interface.id)
-                    .await?
-                {
+                match db::machine_boot_override::find_optional(db, machine_interface.id).await? {
                     Some(machine_boot_override) => machine_boot_override.custom_user_data,
                     None => None,
                 };
@@ -109,6 +138,31 @@ pub(crate) async fn get_cloud_init_instructions(
                     cloud_name,
                     platform,
                 });
+
+            // For interfaces on the static-assignments segment, include
+            // hostname or IP-based URL overrides so external hosts can
+            // reach carbide-api and carbide-pxe services. Just to reiterate,
+            // these can be either routable IPs, or externally resolvable
+            // hostnames to routable IPs.
+            let is_external = {
+                let mut conn = db.acquire().await.map_err(|e| {
+                    CarbideError::internal(format!("Failed to acquire database connection: {e}"))
+                })?;
+                machine_interface.segment_id
+                    == db::network_segment::static_assignments(&mut conn)
+                        .await
+                        .map(|s| s.id)
+                        .unwrap_or_default()
+            };
+
+            let (api_url_override, pxe_url_override) = if is_external {
+                (
+                    api.runtime_config.external_api_url.clone(),
+                    api.runtime_config.external_pxe_url.clone(),
+                )
+            } else {
+                (None, None)
+            };
 
             rpc::CloudInitInstructions {
                 custom_cloud_init,
@@ -164,11 +218,13 @@ pub(crate) async fn get_cloud_init_instructions(
                     ),
                 }),
                 metadata,
+                api_url_override,
+                pxe_url_override,
             }
         }
 
         Some(instance_address) => {
-            let instance = db::instance::find_by_id(&mut txn, instance_address.instance_id)
+            let instance = db::instance::find_by_id(db, instance_address.instance_id)
                 .await?
                 .ok_or_else(|| {
                     // Note that this isn't a NotFound error since it indicates an
@@ -187,11 +243,11 @@ pub(crate) async fn get_cloud_init_instructions(
                     cloud_name,
                     platform,
                 }),
+                api_url_override: None,
+                pxe_url_override: None,
             }
         }
     };
-
-    txn.commit().await?;
 
     Ok(Response::new(instructions))
 }

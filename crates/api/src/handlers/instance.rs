@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
+use carbide_redfish::libredfish::RedfishAuth;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
@@ -25,7 +26,7 @@ use db::{DatabaseError, WithTransaction, extension_service, network_security_gro
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
 use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
 };
 use itertools::Itertools as _;
 use model::ConfigValidationError;
@@ -50,9 +51,8 @@ use crate::api::{Api, log_machine_id, log_request_data, log_tenant_organization_
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
-    validate_ib_partition_ownership,
+    validate_ib_partition_ownership, validate_os_definition_usable,
 };
-use crate::redfish::RedfishAuth;
 use crate::{CarbideError, CarbideResult};
 
 /// Represents the repair status label value set by RepairSystem
@@ -124,9 +124,10 @@ pub(crate) async fn batch_allocate(
     let batch_request = request.into_inner();
 
     if batch_request.instance_requests.is_empty() {
-        return Err(Status::invalid_argument(
-            "Batch request must contain at least one instance",
-        ));
+        return Err(CarbideError::InvalidArgument(
+            "Batch request must contain at least one instance".to_string(),
+        )
+        .into());
     }
 
     tracing::info!(
@@ -183,7 +184,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::InstanceIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::InstanceSearchFilter = request.into_inner();
+    let filter: model::instance::InstanceSearchFilter = request.into_inner().into();
 
     let instance_ids = db::instance::find_ids(&api.database_connection, filter).await?;
 
@@ -266,7 +267,10 @@ pub(crate) async fn find_by_machine_id(
 }
 
 /// Creates a TenantReportedIssue health override template with issue details
-fn create_tenant_reported_issue_override(issue: &rpc::Issue) -> HealthReport {
+fn create_tenant_reported_issue_override(
+    issue: &rpc::Issue,
+    tenant_organization_id: &str,
+) -> HealthReport {
     HealthReport {
         source: "tenant-reported-issue".to_string(),
         observed_at: Some(chrono::Utc::now()),
@@ -277,7 +281,8 @@ fn create_tenant_reported_issue_override(issue: &rpc::Issue) -> HealthReport {
             message: json!({
                 "issue_category": format!("{:?}", rpc::IssueCategory::try_from(issue.category).unwrap_or(rpc::IssueCategory::Unspecified)),
                 "summary": issue.summary,
-                "details": issue.details
+                "details": issue.details,
+                "tenant_organization_id": tenant_organization_id
             }).to_string(),
             tenant_message: Some(format!("TenantReportedIssue: {}", issue.summary)),
             classifications: vec![
@@ -328,7 +333,7 @@ async fn apply_health_override(
     db::machine::insert_health_report_override(
         txn,
         machine_id,
-        OverrideMode::Merge,
+        HealthReportApplyMode::Merge,
         override_report,
         false,
     )
@@ -358,17 +363,22 @@ async fn remove_health_override(
     source: &str,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::remove_health_report_override(txn, machine_id, OverrideMode::Merge, source)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                machine_id = %machine_id,
-                error = ?e,
-                operation = %operation_desc,
-                "Failed to remove health override"
-            );
-            CarbideError::from(e)
-        })?;
+    db::machine::remove_health_report_override(
+        txn,
+        machine_id,
+        HealthReportApplyMode::Merge,
+        source,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            machine_id = %machine_id,
+            error = ?e,
+            operation = %operation_desc,
+            "Failed to remove health override"
+        );
+        CarbideError::from(e)
+    })?;
 
     tracing::info!(
         machine_id = %machine_id,
@@ -404,11 +414,9 @@ async fn handle_instance_release_from_repair_tenant(
     machine_id: &MachineId,
     issue: Option<&rpc::Issue>,
     machine: &model::machine::Machine,
+    tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
-    let has_request_repair = machine
-        .health_report_overrides
-        .merges
-        .contains_key("repair-request");
+    let has_request_repair = machine.health_reports.merges.contains_key("repair-request");
 
     if !has_request_repair {
         // No existing RequestRepair override
@@ -420,7 +428,8 @@ async fn handle_instance_release_from_repair_tenant(
                 "Repair tenant reports issues on machine without RequestRepair override"
             );
 
-            let override_report = create_tenant_reported_issue_override(issue);
+            let override_report =
+                create_tenant_reported_issue_override(issue, tenant_organization_id);
             apply_health_override(
                 txn,
                 machine_id,
@@ -469,7 +478,8 @@ async fn handle_instance_release_from_repair_tenant(
                 "Repair tenant reports new issues after repair completion"
             );
 
-            let override_report = create_tenant_reported_issue_override(issue);
+            let override_report =
+                create_tenant_reported_issue_override(issue, tenant_organization_id);
             apply_health_override(
                 txn,
                 machine_id,
@@ -523,7 +533,8 @@ async fn handle_instance_release_from_repair_tenant(
             }
         };
 
-        let override_report = create_tenant_reported_issue_override(&issue_to_apply);
+        let override_report =
+            create_tenant_reported_issue_override(&issue_to_apply, tenant_organization_id);
         apply_health_override(
             txn,
             machine_id,
@@ -557,6 +568,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
     machine_id: &MachineId,
     issue: &rpc::Issue,
     auto_repair_enabled: bool,
+    tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
     tracing::info!(
         machine_id = %machine_id,
@@ -566,7 +578,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
     );
 
     // Apply TenantReportedIssue health override
-    let tenant_override = create_tenant_reported_issue_override(issue);
+    let tenant_override = create_tenant_reported_issue_override(issue, tenant_organization_id);
     apply_health_override(
         txn,
         machine_id,
@@ -666,9 +678,12 @@ pub(crate) async fn release(
             &instance.machine_id,
             delete_instance.issue.as_ref(),
             &machine,
+            instance.config.tenant.tenant_organization_id.as_str(),
         )
         .await
-        .map_err(|e| Status::internal(e.to_string()))?;
+        .map_err(|e| CarbideError::Internal {
+            message: e.to_string(),
+        })?;
     } else if let Some(issue) = &delete_instance.issue {
         // Instance Release called from the regular tenant (not the Repair tenant) and has an issue to report.
         let auto_repair_enabled = api.runtime_config.auto_machine_repair_plugin.enabled;
@@ -678,9 +693,12 @@ pub(crate) async fn release(
             &instance.machine_id,
             issue,
             auto_repair_enabled,
+            instance.config.tenant.tenant_organization_id.as_str(),
         )
         .await
-        .map_err(|e| Status::internal(e.to_string()))?;
+        .map_err(|e| CarbideError::Internal {
+            message: e.to_string(),
+        })?;
     }
 
     if instance.deleted.is_some() {
@@ -759,10 +777,11 @@ pub(crate) async fn invoke_power(
         if let Some(machine_id) = &request.machine_id
             && *machine_id != snapshot.host_snapshot.id
         {
-            return Err(Status::invalid_argument(format!(
+            return Err(CarbideError::InvalidArgument(format!(
                 "Instance {} is not hosted on machine {}",
                 instance_id, machine_id
-            )));
+            ))
+            .into());
         }
 
         snapshot
@@ -780,9 +799,10 @@ pub(crate) async fn invoke_power(
             id: machine_id.to_string(),
         })?;
         if snapshot.instance.is_none() {
-            return Err(Status::invalid_argument(format!(
+            return Err(CarbideError::InvalidArgument(format!(
                 "Supplied machine ID does not match an instance: {machine_id}"
-            )));
+            ))
+            .into());
         }
 
         snapshot
@@ -847,7 +867,8 @@ pub(crate) async fn invoke_power(
 
     // For non-always-PXE instances, set use_custom_pxe_on_boot based on the request.
     // This tells the iPXE handler whether to serve the custom script or return "exit".
-    if !run_provisioning_instructions_on_every_boot {
+    // If we are using the state machine for a custom pxe reboot, let the state machine set the use_custom_ipxe_on_next_boot flag.
+    if !use_state_machine_for_reboot && !run_provisioning_instructions_on_every_boot {
         db::instance::use_custom_ipxe_on_next_boot(
             &machine_id,
             request.boot_with_custom_ipxe,
@@ -943,30 +964,11 @@ pub(crate) async fn invoke_power(
             RedfishAuth::Key(CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             }),
-            true,
+            None,
         )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    // Lenovo does not yet provide a BMC lockdown so a user could
-    // change the boot order which we set in `libredfish::machine_setup`.
-    // We also can't call `boot_first` for other vendors because lockdown
-    // prevents it.
-    // We use `boot_first` instead of `boot_once` for two reasons:
-    // 1. Reset PXE as first boot option on every Carbide-initiated reboot,
-    //    overriding any user modifications since the last reboot.
-    // 2. Avoid Lenovo's PCIe power reset issue: when `boot_once(Pxe)` is used
-    //    on Assigned/Ready machines, PXE boot will fail (Carbide iPXE returns exit),
-    //    causing Lenovo to reset PCIe power which restarts the DPU.
-    //    With `boot_first`, it falls through to installed OS after all PXE boot
-    //    options are failed.
-    // Note: since no lockdown it can still be modified later by user.
-    if snapshot.host_snapshot.bmc_vendor().is_lenovo() {
-        client
-            .boot_first(libredfish::Boot::Pxe)
-            .await
-            .map_err(CarbideError::from)?;
-    }
     client
         .power(libredfish::SystemPowerControl::ForceRestart)
         .await
@@ -993,6 +995,8 @@ pub(crate) async fn update_operating_system(
     os.validate().map_err(CarbideError::from)?;
 
     let mut txn = api.txn_begin().await?;
+
+    validate_os_definition_usable(&mut txn, &os).await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
@@ -1116,6 +1120,8 @@ pub(crate) async fn update_instance_config(
         .config
         .verify_update_allowed_to(&config)
         .map_err(CarbideError::from)?;
+
+    validate_os_definition_usable(&mut txn, &config.os).await?;
 
     let expected_version = match request.if_version_match {
         Some(version) => version.parse().map_err(CarbideError::from)?,
@@ -1499,7 +1505,7 @@ pub async fn force_delete_instance(
             .new_config
             .interfaces
             .iter()
-            .filter_map(|x| match x.network_details {
+            .filter_map(|x| match &x.network_details {
                 Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
                 _ => None,
             })
@@ -1509,7 +1515,7 @@ pub async fn force_delete_instance(
                 .old_config
                 .interfaces
                 .iter()
-                .filter_map(|x| match x.network_details {
+                .filter_map(|x| match &x.network_details {
                     Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
                     _ => None,
                 }),
@@ -1517,7 +1523,7 @@ pub async fn force_delete_instance(
     }
 
     network_segment_ids_with_vpc.extend(instance.config.network.interfaces.iter().filter_map(
-        |x| match x.network_details {
+        |x| match &x.network_details {
             Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
             _ => None,
         },

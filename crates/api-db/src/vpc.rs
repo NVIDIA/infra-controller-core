@@ -16,7 +16,6 @@
  */
 use std::ops::DerefMut;
 
-use ::rpc::forge as rpc;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
@@ -78,7 +77,7 @@ pub async fn persist(
         .bind(value.network_virtualization_type)
         .bind(&value.metadata.description)
         .bind(sqlx::types::Json(&value.metadata.labels))
-        .bind(value.routing_profile_type.map(|p| p.to_string()))
+        .bind(value.routing_profile_type)
         .bind(value.vni)
         .bind(sqlx::types::Json(&status))
         .fetch_one(txn)
@@ -88,7 +87,7 @@ pub async fn persist(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::VpcSearchFilter,
+    filter: model::vpc::VpcSearchFilter,
 ) -> Result<Vec<VpcId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpcs WHERE ");

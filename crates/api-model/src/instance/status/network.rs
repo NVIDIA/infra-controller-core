@@ -746,6 +746,8 @@ mod tests {
                     function_id: InterfaceFunctionId::Physical {},
                     network_segment_id: Some(base_uuid),
                     ip_addrs: HashMap::from([(prefix_uuid, "127.0.0.1".parse().unwrap())]),
+                    requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid,
                         "127.0.0.1/32".parse().unwrap(),
@@ -766,6 +768,8 @@ mod tests {
                         prefix_uuid.offset(1),
                         "127.0.0.2".parse().unwrap(),
                     )]),
+                    requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid.offset(1),
                         "127.0.0.2/32".parse().unwrap(),
@@ -786,6 +790,8 @@ mod tests {
                         prefix_uuid.offset(2),
                         "127.0.0.3".parse().unwrap(),
                     )]),
+                    requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid.offset(2),
                         "127.0.0.3/32".parse().unwrap(),
@@ -818,6 +824,8 @@ mod tests {
                     function_id: InterfaceFunctionId::Physical {},
                     network_segment_id: Some(base_uuid),
                     ip_addrs: HashMap::from([(prefix_uuid, "127.0.1.2".parse().unwrap())]),
+                    requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid,
                         "127.0.1.0/24".parse().unwrap(),
@@ -838,6 +846,8 @@ mod tests {
                         prefix_uuid.offset(1),
                         "127.0.2.2".parse().unwrap(),
                     )]),
+                    requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid.offset(1),
                         "127.0.2.0/24".parse().unwrap(),
@@ -858,6 +868,8 @@ mod tests {
                         prefix_uuid.offset(2),
                         "127.0.3.2".parse().unwrap(),
                     )]),
+                    requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid.offset(2),
                         "127.0.3.0/24".parse().unwrap(),

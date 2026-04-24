@@ -15,76 +15,58 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
-use carbide_uuid::rack::RackId;
-use db::rack as db_rack;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::expected_machine::{
+    ExpectedHostNic, ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest,
+};
 use regex::Regex;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::handlers::machine_interface_address::{
+    preallocate_machine_interface, update_preallocated_machine_interface,
+};
 
 lazy_static! {
     // Verify what serial is alphanumeric string with, allows dashes '-' and underscores '_'
     static ref CHASSIS_SERIAL_REGEX: Regex = Regex::new(r"^[A-Za-z0-9_-]{4,64}$").unwrap();
 }
 
+/// Returns one expected machine by database id or BMC MAC (from `ExpectedMachineRequest`).
 pub(crate) async fn get(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachineRequest>,
 ) -> Result<tonic::Response<rpc::ExpectedMachine>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
+    let req: ExpectedMachineRequest = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| CarbideError::InvalidArgument(format!("{}", e)))?;
 
-    let request = request.into_inner();
+    let target_id = req
+        .id
+        .map(|u| u.to_string())
+        .or(req.bmc_mac_address.map(|m| m.to_string()))
+        .unwrap_or_default();
 
-    // If id was provided, fetch by id; else fetch by MAC
-    if let Some(uuid_val) = request.id.clone() {
-        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
-            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
-        })?;
-        let maybe: Option<ExpectedMachine> = db::expected_machine::find_by_id(&mut txn, id).await?;
-        return match maybe {
-            Some(expected_machine) => Ok(tonic::Response::new(expected_machine.into())),
-            None => Err(CarbideError::NotFoundError {
-                kind: "expected_machine",
-                id: uuid_val.value,
-            }
-            .into()),
-        };
-    }
-
-    let parsed_mac: MacAddress = request
-        .bmc_mac_address
-        .parse::<MacAddress>()
-        .map_err(CarbideError::from)?;
-
-    let result = match db::expected_machine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
-        Some(expected_machine) => {
-            if expected_machine.bmc_mac_address != parsed_mac {
-                return Err(Status::invalid_argument(format!(
-                    "find_by_bmc_mac_address returned {expected_machine:#?} which differs from the queried mac address {parsed_mac}"
-                )));
-            }
-
-            Ok(tonic::Response::new(expected_machine.into()))
-        }
-        None => Err(CarbideError::NotFoundError {
+    let expected_machine = db::expected_machine::find(&api.database_connection, &req)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
             kind: "expected_machine",
-            id: parsed_mac.to_string(),
-        }
-        .into()),
-    };
+            id: target_id,
+        })?;
 
-    txn.rollback().await?;
-
-    result
+    let response = rpc::ExpectedMachine::from(expected_machine);
+    Ok(tonic::Response::new(response))
 }
 
+/// Adds an expected machine. When `bmc_ip_address` is present, pre-allocates a `machine_interface`
+/// for that BMC MAC and IP (shared helper with expected switches / power shelves) so discovery can
+/// proceed without waiting on DHCP.
 pub(crate) async fn add(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachine>,
@@ -111,72 +93,75 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let request_rack_id = request.rack_id;
-    let mut db_data: ExpectedMachineData = request.try_into()?;
-    // Ensure an id is always supplied by the server if the client omitted it
-    if db_data.override_id.is_none() {
-        db_data.override_id = Some(Uuid::new_v4());
-    }
+    let id = request
+        .id
+        .as_ref()
+        .map(|u| {
+            Uuid::parse_str(&u.value).map_err(|_| {
+                CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+            })
+        })
+        .transpose()?;
+    let db_data: ExpectedMachineData = request.try_into()?;
+
+    let machine = ExpectedMachine {
+        id,
+        bmc_mac_address: parsed_mac,
+        data: db_data,
+    };
+
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
 
     let mut txn = api.txn_begin().await?;
 
-    db::expected_machine::create(&mut txn, parsed_mac, db_data).await?;
+    // Pre-allocate BMC interface if bmc_ip_address is set.
+    if let Some(bmc_ip) = machine.data.bmc_ip_address {
+        preallocate_machine_interface(&mut txn, machine.bmc_mac_address, bmc_ip).await?;
+    }
 
-    if let Some(rack_id) = request_rack_id {
-        match db_rack::get(&mut txn, rack_id).await {
-            Ok(rack) => {
-                let mut config = rack.config.clone();
-                if !config.expected_compute_trays.contains(&parsed_mac) {
-                    config.expected_compute_trays.push(parsed_mac);
-                    db_rack::update(&mut txn, rack_id, &config)
-                        .await
-                        .map_err(CarbideError::from)?;
-                }
-            }
-            Err(_) => {
-                let expected_compute_trays = vec![parsed_mac];
-                let _rack =
-                    db_rack::create(&mut txn, rack_id, expected_compute_trays, vec![], vec![])
-                        .await
-                        .map_err(CarbideError::from)?;
-            }
+    // Pre-allocate machine interfaces for host NICs with fixed IPs.
+    for nic in &machine.data.host_nics {
+        if let Some(ref ip_str) = nic.fixed_ip {
+            let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
+                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
+            })?;
+            preallocate_machine_interface(&mut txn, nic.mac_address, ip).await?;
         }
     }
+
+    db::expected_machine::create(&mut txn, machine).await?;
 
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
 
+/// Deletes an expected machine by id or BMC MAC.
 pub(crate) async fn delete(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachineRequest>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let req: ExpectedMachineRequest = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| CarbideError::InvalidArgument(format!("{}", e)))?;
 
     let mut txn = api.txn_begin().await?;
 
-    if let Some(uuid_val) = request.id.clone() {
-        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
-            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
-        })?;
-        db::expected_machine::delete_by_id(id, &mut txn).await?;
-    } else {
-        // We parse the MAC in order to detect formatting errors before handing it off to the database
-        let parsed_mac: MacAddress = request
-            .bmc_mac_address
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-        db::expected_machine::delete(parsed_mac, &mut txn).await?;
-    }
+    db::expected_machine::delete(&mut txn, &req)
+        .await
+        .map_err(CarbideError::from)?;
 
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
 
+/// Updates an expected machine row and, when `bmc_ip_address` is set, reconciles the pre-allocated
+/// `machine_interface` via [`update_preallocated_machine_interface`] (no-op for interfaces that
+/// already have addresses—operators use `machine-interfaces assign-address` for those).
 pub(crate) async fn update(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachine>,
@@ -190,62 +175,57 @@ pub(crate) async fn update(
         );
     }
     // Save fields needed later before moving `request` into data conversion
-    let request_id = request.id.clone();
-    let request_mac = request.bmc_mac_address.clone();
-    let request_rack_id = request.rack_id;
+    let id = request
+        .id
+        .as_ref()
+        .map(|u| {
+            Uuid::parse_str(&u.value).map_err(|_| {
+                CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+            })
+        })
+        .transpose()?;
+    let parsed_mac: MacAddress = request
+        .bmc_mac_address
+        .parse::<MacAddress>()
+        .map_err(CarbideError::from)?;
     let data: ExpectedMachineData = request.try_into()?;
+
+    let machine = ExpectedMachine {
+        id,
+        bmc_mac_address: parsed_mac,
+        data,
+    };
+
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
 
     let mut txn = api.txn_begin().await?;
 
-    if let Some(uuid_val) = request_id.clone() {
-        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
-            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
-        })?;
-        db::expected_machine::update_by_id(&mut txn, id, data).await?;
-    } else {
-        let parsed_mac: MacAddress = request_mac
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-        let mut expected_machine = ExpectedMachine {
-            id: Some(Uuid::new_v4()),
-            bmc_mac_address: parsed_mac,
-            data: data.clone(),
-        };
-        db::expected_machine::update(&mut expected_machine, &mut txn, data).await?;
+    // Update BMC interface if bmc_ip_address is set.
+    if let Some(bmc_ip) = machine.data.bmc_ip_address {
+        update_preallocated_machine_interface(&mut txn, machine.bmc_mac_address, bmc_ip).await?;
+    }
 
-        // TODO(chet): This should also go into the `update_by_id` flow,
-        // but the fact `parsed_mac` is only in this flow makes me think
-        // there might not be a parsed MAC to work with in the `update_by_id`
-        // flow. That said, the backing queries could be changed to return
-        // the bmc_mac_address in both cases, which would then let this
-        // work for both cases.
-        if let Some(rack_id) = request_rack_id {
-            match db_rack::get(&mut txn, rack_id).await {
-                Ok(rack) => {
-                    let mut config = rack.config.clone();
-                    if !config.expected_compute_trays.contains(&parsed_mac) {
-                        config.expected_compute_trays.push(parsed_mac);
-                        db_rack::update(&mut txn, rack_id, &config)
-                            .await
-                            .map_err(CarbideError::from)?;
-                    }
-                }
-                Err(_) => {
-                    let expected_compute_trays = vec![parsed_mac];
-                    let _rack =
-                        db_rack::create(&mut txn, rack_id, expected_compute_trays, vec![], vec![])
-                            .await
-                            .map_err(CarbideError::from)?;
-                }
-            }
+    // Update/create machine interfaces for host NICs with fixed IPs.
+    for nic in &machine.data.host_nics {
+        if let Some(ref ip_str) = nic.fixed_ip {
+            let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
+                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
+            })?;
+            update_preallocated_machine_interface(&mut txn, nic.mac_address, ip).await?;
         }
     }
+
+    db::expected_machine::update(&mut txn, &machine)
+        .await
+        .map_err(CarbideError::from)?;
 
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
 
+/// Clears all expected machines, then creates each entry via [`add`]. Optional `bmc_ip_address` on
+/// each RPC message runs the same `machine_interface` pre-allocation as a single create.
 pub(crate) async fn replace_all(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachineList>,
@@ -265,6 +245,7 @@ pub(crate) async fn replace_all(
     Ok(tonic::Response::new(()))
 }
 
+/// Lists all expected machines (includes configured `bmc_ip_address` when set).
 pub(crate) async fn get_all(
     api: &Api,
     request: tonic::Request<()>,
@@ -279,6 +260,7 @@ pub(crate) async fn get_all(
     }))
 }
 
+/// Lists expected machines joined to explored interfaces / machines (linkage view).
 pub(crate) async fn get_linked(
     api: &Api,
     request: tonic::Request<()>,
@@ -292,6 +274,27 @@ pub(crate) async fn get_linked(
     Ok(tonic::Response::new(list))
 }
 
+/// Lists host BMC endpoints that Site Explorer has explored but whose MAC is
+/// not listed in any of `expected_machines`, `expected_power_shelf`, or
+/// `expected_switch`. DPUs, power shelves, and switches are filtered out so the
+/// response only contains actual host BMCs.
+///
+/// An entry with a non-null `machine_id` is an orphan: the host was ingested
+/// before its `expected_machines` row was removed.
+pub(crate) async fn get_all_unexpected_machines(
+    api: &Api,
+    request: tonic::Request<()>,
+) -> Result<tonic::Response<rpc::UnexpectedMachineList>, tonic::Status> {
+    log_request_data(&request);
+
+    let out = db::expected_machine::find_all_unexpected(&api.database_connection).await?;
+    let list = rpc::UnexpectedMachineList {
+        unexpected_machines: out.into_iter().map(Into::into).collect(),
+    };
+    Ok(tonic::Response::new(list))
+}
+
+/// Deletes every expected machine row.
 pub(crate) async fn delete_all(
     api: &Api,
     request: tonic::Request<()>,
@@ -305,6 +308,26 @@ pub(crate) async fn delete_all(
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+/// Rejects an ExpectedMachine payload that declares more than one host NIC
+/// with `primary: true`, returning an InvalidArgument if found.
+fn validate_at_most_one_primary_host_nic(
+    host_nics: &[ExpectedHostNic],
+) -> Result<(), CarbideError> {
+    let primaries: Vec<_> = host_nics
+        .iter()
+        .filter(|n| n.primary == Some(true))
+        .map(|n| n.mac_address.to_string())
+        .collect();
+    if primaries.len() > 1 {
+        return Err(CarbideError::InvalidArgument(format!(
+            "at most one host_nic may be flagged primary=true, got {}: {}",
+            primaries.len(),
+            primaries.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 /// Helper function to sanitize expected machine and return parsed IDs (ID+MAC)
@@ -355,69 +378,53 @@ fn sanitize_expected_machine_and_get_ids(
     Ok((id, parsed_mac))
 }
 
-/// Helper function to process rack association
-async fn process_rack_association(
-    txn: &mut sqlx::PgConnection,
-    rack_id: RackId,
-    parsed_mac: MacAddress,
-) -> Result<(), CarbideError> {
-    match db_rack::get(&mut *txn, rack_id).await {
-        Ok(rack) => {
-            let mut config = rack.config.clone();
-            if !config.expected_compute_trays.contains(&parsed_mac) {
-                config.expected_compute_trays.push(parsed_mac);
-                db_rack::update(txn, rack_id, &config)
-                    .await
-                    .map_err(CarbideError::from)?;
-            }
-        }
-        Err(_) => {
-            let expected_compute_trays = vec![parsed_mac];
-            let _rack = db_rack::create(txn, rack_id, expected_compute_trays, vec![], vec![])
-                .await
-                .map_err(CarbideError::from)?;
-        }
-    }
-    Ok(())
-}
-
-/// Helper function to create a single expected machine within a transaction
+/// Creates one expected machine inside an existing transaction (batch API). Applies the same static
+/// BMC pre-allocation rules as [`add`].
 async fn create_expected_machine(
     txn: &mut sqlx::PgConnection,
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id;
-    let mut db_data: ExpectedMachineData = machine.try_into()?;
-    db_data.override_id = Some(id);
+    let db_data: ExpectedMachineData = machine.try_into()?;
 
-    db::expected_machine::create(txn, parsed_mac, db_data).await?;
+    let expected_machine = ExpectedMachine {
+        id: Some(id),
+        bmc_mac_address: parsed_mac,
+        data: db_data,
+    };
 
-    // Handle rack association
-    if let Some(rack_id) = request_rack_id {
-        process_rack_association(txn, rack_id, parsed_mac).await?;
+    if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
+        preallocate_machine_interface(txn, expected_machine.bmc_mac_address, bmc_ip).await?;
     }
+
+    db::expected_machine::create(txn, expected_machine).await?;
 
     Ok(())
 }
 
-/// Helper function to update a single expected machine within a transaction
+/// Updates one expected machine inside an existing transaction (batch API). Applies the same
+/// static BMC reconciliation as [`update`].
 async fn update_expected_machine(
     txn: &mut sqlx::PgConnection,
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id;
     let data: ExpectedMachineData = machine.try_into()?;
 
-    db::expected_machine::update_by_id(txn, id, data).await?;
+    let expected_machine = ExpectedMachine {
+        id: Some(id),
+        bmc_mac_address: parsed_mac,
+        data,
+    };
 
-    // Handle rack association
-    if let Some(rack_id) = request_rack_id {
-        process_rack_association(txn, rack_id, parsed_mac).await?;
+    if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
+        update_preallocated_machine_interface(txn, expected_machine.bmc_mac_address, bmc_ip)
+            .await?;
     }
+
+    db::expected_machine::update(txn, &expected_machine).await?;
 
     Ok(())
 }
@@ -563,6 +570,7 @@ async fn process_batch_operations(
     Ok(results)
 }
 
+/// Batch-create expected machines. Static BMC IP handling matches single [`add`] for each row.
 pub(crate) async fn create_expected_machines(
     api: &Api,
     request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,
@@ -584,6 +592,7 @@ pub(crate) async fn create_expected_machines(
     ))
 }
 
+/// Batch-update expected machines. Static BMC IP handling matches single [`update`] for each row.
 pub(crate) async fn update_expected_machines(
     api: &Api,
     request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,

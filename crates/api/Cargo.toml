@@ -34,12 +34,19 @@ path = "src/main.rs"
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
 bmc-explorer = { path = "../bmc-explorer" }
+bms-dsx-exchange = { path = "../bms-dsx-exchange" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-secrets = { path = "../secrets" }
 carbide-version = { path = "../version" }
+carbide-firmware = { path = "../firmware" }
 carbide-health-report = { path = "../health-report" }
+carbide-ipxe-renderer = { path = "../ipxe-renderer" }
+carbide-ipmi = { path = "../ipmi" }
+carbide-redfish = { path = "../redfish" }
+carbide-site-explorer = { path = "../site-explorer" }
+carbide-preingestion-manager = { path = "../preingestion-manager" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
 libnmxc = { path = "../libnmxc" }
@@ -54,9 +61,11 @@ carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 carbide-libmlx = { path = "../libmlx" }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
+carbide-authn = { path = "../authn" }
 spancounter = { path = "../spancounter" }
 nras = { path = "../nras" }
 carbide-dpf = { path = "../dpf" }
+component-manager = { path = "../component-manager" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
@@ -94,35 +103,42 @@ hyper-util = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 jsonwebtoken = { features = ["rust_crypto"], workspace = true }
+k8s-openapi = { features = ["latest"], workspace = true }
+kube = { default-features = false, features = [
+    "runtime",
+    "derive",
+    "client",
+    "rustls-tls",
+], workspace = true }
 lazy_static = { workspace = true }
 libredfish = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
-md5 = { workspace = true }
 num-bigint-dig = { workspace = true }
 num_cpus = { workspace = true }
-nv-redfish = { workspace = true, features = [ "bmc-http", "oem-hpe" ] }
 oauth2 = { default-features = false, workspace = true }
 oid-registry = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus.workspace = true
 opentelemetry-semantic-conventions = { features = [
-  "semconv_experimental",
+    "semconv_experimental",
 ], workspace = true }
 opentelemetry_sdk = { workspace = true, features = [
-  "logs",
-  "rt-tokio",
-  "spec_unstable_metrics_views",
-  "testing",
+    "logs",
+    "rt-tokio",
+    "spec_unstable_metrics_views",
+    "testing",
 ] }
 pkcs1 = { workspace = true }
+p256 = { workspace = true }
 prometheus = { workspace = true }
+prost-types = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { default-features = false, features = [
-  "rustls-tls",
-  "stream",
+    "rustls-tls",
+    "stream",
 ], workspace = true }
 rsa = { workspace = true }
 rumqttc = { workspace = true }
@@ -134,18 +150,19 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
-  "mac_address",
-  "ipnetwork",
-  "uuid",
-  "migrate",
-  "postgres",
-  "chrono",
-  "macros",
-  "json",
+    "runtime-tokio-rustls",
+    "mac_address",
+    "ipnetwork",
+    "uuid",
+    "migrate",
+    "postgres",
+    "chrono",
+    "macros",
+    "json",
 ] }
 strum = { workspace = true }
 temp-dir = { workspace = true }
+tera = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
@@ -157,16 +174,16 @@ tonic = { workspace = true }
 tonic-reflection = { workspace = true }
 tower = { workspace = true }
 tower-http = { features = [
-  "add-extension",
-  "auth",
-  "normalize-path",
+    "add-extension",
+    "auth",
+    "normalize-path",
 ], workspace = true }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { features = [
-  "env-filter",
-  "local-time",
+    "env-filter",
+    "local-time",
 ], workspace = true }
 tss-esapi = { optional = true, workspace = true }
 url = { features = ["serde"], workspace = true }
@@ -188,22 +205,20 @@ figment = { features = ["env", "test", "toml"], workspace = true }
 ctor = { workspace = true }
 lazy_static = { workspace = true }
 const_format = { workspace = true }
+mockall = { workspace = true }
 rcgen = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-prost-builder = { path = "../prost-builder" }
+carbide-redfish = { path = "../redfish", features = [ "test-support" ] }
+carbide-utils = { path = "../utils", features = ["test-support"] }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 prost = { workspace = true }
 tower-test = { workspace = true }
 hyper = { features = ["client", "http1"], workspace = true }
 http = { workspace = true }
+mockito = { workspace = true }
 once_cell = { workspace = true }
-kube = { default-features = false, features = [
-  "runtime",
-  "derive",
-  "client",
-  "rustls-tls",
-], workspace = true }
 
 [lints]
 workspace = true

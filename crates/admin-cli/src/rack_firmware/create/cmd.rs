@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-use std::fs;
-
 use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use prettytable::{Table, row};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -27,33 +26,24 @@ pub async fn create(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    // Read JSON file
-    let config_json = fs::read_to_string(&opts.json_file).map_err(|e| {
-        CarbideCliError::GenericError(format!(
-            "Failed to read file {}: {}",
-            opts.json_file.display(),
-            e
-        ))
-    })?;
-
-    // Check that the JSON is valid
-    serde_json::from_str::<serde_json::Value>(&config_json)
-        .map_err(|e| CarbideCliError::GenericError(format!("Invalid JSON in file: {}", e)))?;
-
-    let request = rpc::forge::RackFirmwareCreateRequest {
-        config_json,
-        artifactory_token: opts.artifactory_token,
-    };
-
+    let request: rpc::forge::RackFirmwareCreateRequest = opts.try_into()?;
     let result = api_client.0.create_rack_firmware(request).await?;
 
     if format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!("Created Rack firmware configuration:");
-        println!("  ID: {}", result.id);
-        println!("  Available: {}", result.available);
-        println!("  Created: {}", result.created);
+        let mut table = Table::new();
+        table.add_row(row!["ID", result.id]);
+        let hw_type = result
+            .rack_hardware_type
+            .as_ref()
+            .map(|t| t.value.as_str())
+            .unwrap_or("N/A");
+        table.add_row(row!["Hardware Type", hw_type]);
+        table.add_row(row!["Default", result.is_default]);
+        table.add_row(row!["Available", result.available]);
+        table.add_row(row!["Created", result.created]);
+        table.printstd();
     }
 
     Ok(())

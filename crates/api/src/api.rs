@@ -17,10 +17,9 @@
 
 pub mod metrics;
 
-use std::collections::HashMap;
 use std::panic::Location;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
@@ -31,7 +30,8 @@ use ::rpc::protos::dns::{
     UpdateDomainRequest,
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
-use carbide_dpf::KubeImpl;
+use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_site_explorer::EndpointExplorer;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -49,14 +49,14 @@ use tonic::{Request, Response, Status, Streaming};
 use self::metrics::ApiMetricsEmitter;
 use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
+use crate::dpf::DpfOperations;
 use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::nvlink::NmxmClientPool;
-use crate::redfish::RedfishClientPool;
+use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
-use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::controller::Enqueuer;
 use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::{CarbideError, CarbideResult};
@@ -78,9 +78,11 @@ pub struct Api {
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
-    pub(crate) kube_client_provider: Arc<dyn KubeImpl>,
+    pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
     pub(crate) metric_emitter: ApiMetricsEmitter,
+    pub(crate) component_manager: Option<component_manager::component_manager::ComponentManager>,
+    pub(crate) bms_client: OnceLock<Arc<BmsDsxExchangeHandle>>,
 }
 
 pub(crate) type ScoutStreamType =
@@ -287,6 +289,13 @@ impl Forge for Api {
         crate::handlers::ib_partition::delete(self, request).await
     }
 
+    async fn update_ib_partition(
+        &self,
+        request: Request<rpc::IbPartitionUpdateRequest>,
+    ) -> Result<Response<rpc::IbPartition>, Status> {
+        crate::handlers::ib_partition::update(self, request).await
+    }
+
     async fn ib_partitions_for_tenant(
         &self,
         request: Request<rpc::TenantSearchQuery>,
@@ -301,11 +310,32 @@ impl Forge for Api {
         crate::handlers::power_shelf::find_power_shelf(self, request).await
     }
 
+    async fn find_power_shelf_ids(
+        &self,
+        request: Request<rpc::PowerShelfSearchFilter>,
+    ) -> Result<Response<rpc::PowerShelfIdList>, Status> {
+        crate::handlers::power_shelf::find_ids(self, request).await
+    }
+
+    async fn find_power_shelves_by_ids(
+        &self,
+        request: Request<rpc::PowerShelvesByIdsRequest>,
+    ) -> Result<Response<rpc::PowerShelfList>, Status> {
+        crate::handlers::power_shelf::find_by_ids(self, request).await
+    }
+
     async fn delete_power_shelf(
         &self,
         request: Request<rpc::PowerShelfDeletionRequest>,
     ) -> Result<Response<rpc::PowerShelfDeletionResult>, Status> {
         crate::handlers::power_shelf::delete_power_shelf(self, request).await
+    }
+
+    async fn admin_force_delete_power_shelf(
+        &self,
+        request: Request<rpc::AdminForceDeletePowerShelfRequest>,
+    ) -> Result<Response<rpc::AdminForceDeletePowerShelfResponse>, Status> {
+        crate::handlers::power_shelf::admin_force_delete_power_shelf(self, request).await
     }
 
     async fn find_switches(
@@ -315,11 +345,32 @@ impl Forge for Api {
         crate::handlers::switch::find_switch(self, request).await
     }
 
+    async fn find_switch_ids(
+        &self,
+        request: Request<rpc::SwitchSearchFilter>,
+    ) -> Result<Response<rpc::SwitchIdList>, Status> {
+        crate::handlers::switch::find_ids(self, request).await
+    }
+
+    async fn find_switches_by_ids(
+        &self,
+        request: Request<rpc::SwitchesByIdsRequest>,
+    ) -> Result<Response<rpc::SwitchList>, Status> {
+        crate::handlers::switch::find_by_ids(self, request).await
+    }
+
     async fn delete_switch(
         &self,
         request: Request<rpc::SwitchDeletionRequest>,
     ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
         crate::handlers::switch::delete_switch(self, request).await
+    }
+
+    async fn admin_force_delete_switch(
+        &self,
+        request: Request<rpc::AdminForceDeleteSwitchRequest>,
+    ) -> Result<Response<rpc::AdminForceDeleteSwitchResponse>, Status> {
+        crate::handlers::switch::admin_force_delete_switch(self, request).await
     }
 
     async fn find_ib_fabric_ids(
@@ -451,7 +502,7 @@ impl Forge for Api {
     async fn list_health_report_overrides(
         &self,
         request: Request<MachineId>,
-    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
         crate::handlers::health::list_health_report_overrides(self, request).await
     }
 
@@ -472,7 +523,7 @@ impl Forge for Api {
     async fn list_rack_health_report_overrides(
         &self,
         request: Request<rpc::ListRackHealthReportOverridesRequest>,
-    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
         crate::handlers::rack::list_rack_health_report_overrides(self, request).await
     }
 
@@ -488,6 +539,48 @@ impl Forge for Api {
         request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::rack::remove_rack_health_report_override(self, request).await
+    }
+
+    async fn list_switch_health_reports(
+        &self,
+        request: Request<rpc::ListSwitchHealthReportsRequest>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::switch::list_switch_health_reports(self, request).await
+    }
+
+    async fn insert_switch_health_report(
+        &self,
+        request: Request<rpc::InsertSwitchHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::switch::insert_switch_health_report(self, request).await
+    }
+
+    async fn remove_switch_health_report(
+        &self,
+        request: Request<rpc::RemoveSwitchHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::switch::remove_switch_health_report(self, request).await
+    }
+
+    async fn list_power_shelf_health_reports(
+        &self,
+        request: Request<rpc::ListPowerShelfHealthReportsRequest>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::power_shelf::list_power_shelf_health_reports(self, request).await
+    }
+
+    async fn insert_power_shelf_health_report(
+        &self,
+        request: Request<rpc::InsertPowerShelfHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::insert_power_shelf_health_report(self, request).await
+    }
+
+    async fn remove_power_shelf_health_report(
+        &self,
+        request: Request<rpc::RemovePowerShelfHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::remove_power_shelf_health_report(self, request).await
     }
 
     async fn get_all_domain_metadata(
@@ -663,6 +756,14 @@ impl Forge for Api {
         .await?)
     }
 
+    async fn expire_dhcp_lease(
+        &self,
+        request: Request<rpc::ExpireDhcpLeaseRequest>,
+    ) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, Status> {
+        log_request_data(&request);
+        Ok(crate::dhcp::expire::expire_dhcp_lease(self, request).await?)
+    }
+
     async fn find_machine_ids(
         &self,
         request: Request<rpc::MachineSearchConfig>,
@@ -686,100 +787,60 @@ impl Forge for Api {
 
     async fn find_power_shelf_state_histories(
         &self,
-        _request: Request<rpc::PowerShelfStateHistoriesRequest>,
-    ) -> Result<Response<rpc::PowerShelfStateHistories>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        request: Request<rpc::PowerShelfStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::power_shelf::find_power_shelf_state_histories(self, request).await
     }
 
     async fn find_rack_state_histories(
         &self,
         request: tonic::Request<rpc::RackStateHistoriesRequest>,
-    ) -> Result<Response<rpc::RackStateHistories>, Status> {
+    ) -> Result<Response<rpc::StateHistories>, Status> {
         crate::handlers::rack::find_rack_state_histories(self, request).await
     }
 
     async fn find_switch_state_histories(
         &self,
-        _request: Request<rpc::SwitchStateHistoriesRequest>,
-    ) -> Result<Response<rpc::SwitchStateHistories>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        request: Request<rpc::SwitchStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::switch::find_switch_state_histories(self, request).await
     }
 
     async fn find_machine_health_histories(
         &self,
         request: Request<rpc::MachineHealthHistoriesRequest>,
-    ) -> std::result::Result<Response<rpc::MachineHealthHistories>, Status> {
+    ) -> std::result::Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::machine::find_machine_health_histories(self, request).await
+    }
+
+    async fn assign_static_address(
+        &self,
+        request: Request<rpc::AssignStaticAddressRequest>,
+    ) -> Result<Response<rpc::AssignStaticAddressResponse>, Status> {
         log_request_data(&request);
-        let request_inner = request.into_inner();
+        Ok(
+            crate::handlers::machine_interface_address::assign_static_address(self, request)
+                .await?,
+        )
+    }
 
-        // Check if time range filtering is requested
-        if let (Some(start_time), Some(end_time)) =
-            (request_inner.start_time, request_inner.end_time)
-        {
-            // Time-filtered query path
-            let machine_id = request_inner.machine_ids.first().ok_or_else(|| {
-                CarbideError::InvalidArgument("machine_id is required".to_string())
-            })?;
+    async fn remove_static_address(
+        &self,
+        request: Request<rpc::RemoveStaticAddressRequest>,
+    ) -> Result<Response<rpc::RemoveStaticAddressResponse>, Status> {
+        log_request_data(&request);
+        Ok(
+            crate::handlers::machine_interface_address::remove_static_address(self, request)
+                .await?,
+        )
+    }
 
-            // Convert protobuf timestamps to chrono DateTime
-            let start_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
-                start_time.seconds,
-                start_time.nanos as u32,
-            )
-            .ok_or_else(|| {
-                CarbideError::InvalidArgument("Invalid start_time timestamp".to_string())
-            })?;
-            let end_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
-                end_time.seconds,
-                end_time.nanos as u32,
-            )
-            .ok_or_else(|| {
-                CarbideError::InvalidArgument("Invalid end_time timestamp".to_string())
-            })?;
-
-            // Start database transaction
-            let mut txn = self.txn_begin().await?;
-
-            // Call database function to get health history records with time filter
-            let db_records = db::machine_health_history::find_by_time_range(
-                &mut txn, machine_id, &start_dt, &end_dt,
-            )
-            .await?;
-
-            // Convert database records to MachineHealthHistories format
-            let response_records: Vec<rpc::MachineHealthHistoryRecord> = db_records
-                .into_iter()
-                .map(|db_rec| rpc::MachineHealthHistoryRecord {
-                    health: Some(db_rec.health.into()),
-                    time: Some(db_rec.time.into()),
-                })
-                .collect();
-
-            // Put records in a map keyed by machine ID string
-            let machine_id_str = machine_id.to_string();
-            let mut histories = HashMap::new();
-            histories.insert(
-                machine_id_str,
-                rpc::MachineHealthHistoryRecords {
-                    records: response_records,
-                },
-            );
-
-            txn.commit().await?;
-
-            Ok(Response::new(rpc::MachineHealthHistories { histories }))
-        } else {
-            // Original behavior: no time filtering
-            crate::handlers::machine::find_machine_health_histories(
-                self,
-                Request::new(request_inner),
-            )
-            .await
-        }
+    async fn find_interface_addresses(
+        &self,
+        request: Request<rpc::FindInterfaceAddressesRequest>,
+    ) -> Result<Response<rpc::FindInterfaceAddressesResponse>, Status> {
+        log_request_data(&request);
+        crate::handlers::machine_interface_address::find_interface_addresses(self, request).await
     }
 
     async fn find_interfaces(
@@ -796,22 +857,12 @@ impl Forge for Api {
         crate::handlers::machine_interface::delete_interface(self, request).await
     }
 
-    // Fetch the DPU admin SSH password from Vault.
-    // "host_id" can be any of:
-    //  - UUID (primary key)
-    //  - IPv4 address
-    //  - MAC address
-    //  - Hostname
-    //
-    // Usage:
-    //  grpcurl -d '{"host_id": "neptune-bravo"}' -insecure 127.0.0.1:1079 forge.Forge/GetDpuSSHCredential | jq -r -j ".password"
-    // That should evaluate to exactly the password, ready for inclusion in a script.
-    //
-    async fn get_dpu_ssh_credential(
+    // Fetches BMC Credentials
+    async fn get_bmc_credentials(
         &self,
-        request: Request<rpc::CredentialRequest>,
-    ) -> Result<Response<rpc::CredentialResponse>, Status> {
-        crate::handlers::credential::get_dpu_ssh_credential(self, request).await
+        request: Request<rpc::GetBmcCredentialsRequest>,
+    ) -> Result<Response<rpc::GetBmcCredentialsResponse>, Status> {
+        crate::handlers::credential::get_bmc_credentals(self, request).await
     }
 
     /// Network status of each managed host, as reported by forge-dpu-agent.
@@ -975,7 +1026,6 @@ impl Forge for Api {
     /// [vlan-id]
     /// type = "integer"
     /// ranges = [{ start = "100", end = "501" }]
-    ///
     async fn admin_grow_resource_pool(
         &self,
         request: Request<rpc::GrowResourcePoolRequest>,
@@ -995,6 +1045,27 @@ impl Forge for Api {
         request: Request<rpc::MachineMetadataUpdateRequest>,
     ) -> std::result::Result<Response<()>, Status> {
         crate::handlers::machine::update_machine_metadata(self, request).await
+    }
+
+    async fn update_rack_metadata(
+        &self,
+        request: Request<rpc::RackMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::rack::update_rack_metadata(self, request).await
+    }
+
+    async fn update_switch_metadata(
+        &self,
+        request: Request<rpc::SwitchMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::switch::update_switch_metadata(self, request).await
+    }
+
+    async fn update_power_shelf_metadata(
+        &self,
+        request: Request<rpc::PowerShelfMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::power_shelf::update_power_shelf_metadata(self, request).await
     }
 
     async fn update_machine_nv_link_info(
@@ -1060,11 +1131,32 @@ impl Forge for Api {
         crate::handlers::rack::get_rack(self, request).await
     }
 
+    async fn find_rack_ids(
+        &self,
+        request: Request<rpc::RackSearchFilter>,
+    ) -> Result<Response<rpc::RackIdList>, Status> {
+        crate::handlers::rack::find_ids(self, request).await
+    }
+
+    async fn find_racks_by_ids(
+        &self,
+        request: Request<rpc::RacksByIdsRequest>,
+    ) -> Result<Response<rpc::RackList>, Status> {
+        crate::handlers::rack::find_by_ids(self, request).await
+    }
+
     async fn delete_rack(
         &self,
         request: Request<rpc::DeleteRackRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::rack::delete_rack(self, request).await
+    }
+
+    async fn get_rack_profile(
+        &self,
+        request: Request<rpc::GetRackProfileRequest>,
+    ) -> Result<Response<rpc::GetRackProfileResponse>, Status> {
+        crate::handlers::rack::get_rack_profile(self, request).await
     }
 
     /// Trigger DPU reprovisioning
@@ -1094,6 +1186,14 @@ impl Forge for Api {
         request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::host_reprovisioning::mark_manual_firmware_upgrade_complete(self, request)
+            .await
+    }
+
+    async fn report_scout_firmware_upgrade_status(
+        &self,
+        request: Request<rpc::ScoutFirmwareUpgradeStatusRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::host_reprovisioning::report_scout_firmware_upgrade_status(self, request)
             .await
     }
 
@@ -1341,6 +1441,13 @@ impl Forge for Api {
         crate::handlers::expected_machine::get_linked(self, request).await
     }
 
+    async fn get_all_unexpected_machines(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::UnexpectedMachineList>, Status> {
+        crate::handlers::expected_machine::get_all_unexpected_machines(self, request).await
+    }
+
     async fn delete_all_expected_machines(
         &self,
         request: Request<()>,
@@ -1378,7 +1485,7 @@ impl Forge for Api {
 
     async fn list_rack_firmware(
         &self,
-        request: tonic::Request<rpc::RackFirmwareListRequest>,
+        request: tonic::Request<rpc::RackFirmwareSearchFilter>,
     ) -> Result<Response<rpc::RackFirmwareList>, tonic::Status> {
         crate::handlers::rack_firmware::list(self, request).await
     }
@@ -1409,6 +1516,13 @@ impl Forge for Api {
         request: tonic::Request<rpc::RackFirmwareHistoryRequest>,
     ) -> Result<Response<rpc::RackFirmwareHistoryResponse>, tonic::Status> {
         crate::handlers::rack_firmware::get_history(self, request).await
+    }
+
+    async fn rack_firmware_set_default(
+        &self,
+        request: tonic::Request<rpc::RackFirmwareSetDefaultRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::rack_firmware::set_default(self, request).await
     }
 
     async fn get_expected_power_shelf(
@@ -1524,6 +1638,55 @@ impl Forge for Api {
         request: Request<()>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::expected_switch::delete_all_expected_switches(self, request).await
+    }
+
+    async fn add_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRack>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::add_expected_rack(self, request).await
+    }
+
+    async fn delete_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRackRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::delete_expected_rack(self, request).await
+    }
+
+    async fn update_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRack>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::update_expected_rack(self, request).await
+    }
+
+    async fn get_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRackRequest>,
+    ) -> Result<Response<rpc::ExpectedRack>, Status> {
+        crate::handlers::expected_rack::get_expected_rack(self, request).await
+    }
+
+    async fn get_all_expected_racks(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::ExpectedRackList>, Status> {
+        crate::handlers::expected_rack::get_all_expected_racks(self, request).await
+    }
+
+    async fn replace_all_expected_racks(
+        &self,
+        request: Request<rpc::ExpectedRackList>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::replace_all_expected_racks(self, request).await
+    }
+
+    async fn delete_all_expected_racks(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::delete_all_expected_racks(self, request).await
     }
 
     async fn find_connected_devices_by_dpu_machine_ids(
@@ -1962,6 +2125,69 @@ impl Forge for Api {
     ) -> Result<Response<rpc::OsImage>, Status> {
         crate::storage::update_os_image(self, request).await
     }
+
+    async fn create_operating_system(
+        &self,
+        request: Request<rpc::CreateOperatingSystemRequest>,
+    ) -> Result<Response<rpc::OperatingSystem>, Status> {
+        crate::handlers::operating_system::create_operating_system(self, request).await
+    }
+
+    async fn get_operating_system(
+        &self,
+        request: Request<::carbide_uuid::operating_system::OperatingSystemId>,
+    ) -> Result<Response<rpc::OperatingSystem>, Status> {
+        crate::handlers::operating_system::get_operating_system(self, request).await
+    }
+
+    async fn update_operating_system(
+        &self,
+        request: Request<rpc::UpdateOperatingSystemRequest>,
+    ) -> Result<Response<rpc::OperatingSystem>, Status> {
+        crate::handlers::operating_system::update_operating_system(self, request).await
+    }
+
+    async fn delete_operating_system(
+        &self,
+        request: Request<rpc::DeleteOperatingSystemRequest>,
+    ) -> Result<Response<rpc::DeleteOperatingSystemResponse>, Status> {
+        crate::handlers::operating_system::delete_operating_system(self, request).await
+    }
+
+    async fn find_operating_system_ids(
+        &self,
+        request: Request<rpc::OperatingSystemSearchFilter>,
+    ) -> Result<Response<rpc::OperatingSystemIdList>, Status> {
+        crate::handlers::operating_system::find_operating_system_ids(self, request).await
+    }
+
+    async fn find_operating_systems_by_ids(
+        &self,
+        request: Request<rpc::OperatingSystemsByIdsRequest>,
+    ) -> Result<Response<rpc::OperatingSystemList>, Status> {
+        crate::handlers::operating_system::find_operating_systems_by_ids(self, request).await
+    }
+
+    async fn get_operating_system_cachable_ipxe_template_artifacts(
+        &self,
+        request: Request<rpc::GetOperatingSystemCachableIpxeTemplateArtifactsRequest>,
+    ) -> Result<Response<rpc::IpxeTemplateArtifactList>, Status> {
+        crate::handlers::operating_system::get_operating_system_cachable_ipxe_script_artifacts(
+            self, request,
+        )
+        .await
+    }
+
+    async fn update_operating_system_cachable_ipxe_template_artifacts(
+        &self,
+        request: Request<rpc::UpdateOperatingSystemIpxeTemplateArtifactRequest>,
+    ) -> Result<Response<rpc::IpxeTemplateArtifactList>, Status> {
+        crate::handlers::operating_system::update_operating_system_cachable_ipxe_script_artifacts(
+            self, request,
+        )
+        .await
+    }
+
     async fn get_machine_validation_runs(
         &self,
         request: Request<rpc::MachineValidationRunListGetRequest>,
@@ -1981,6 +2207,13 @@ impl Forge for Api {
         request: Request<rpc::MachineValidationOnDemandRequest>,
     ) -> Result<Response<rpc::MachineValidationOnDemandResponse>, Status> {
         crate::handlers::machine_validation::on_demand_machine_validation(self, request).await
+    }
+
+    async fn on_demand_rack_maintenance(
+        &self,
+        request: Request<rpc::RackMaintenanceOnDemandRequest>,
+    ) -> Result<Response<rpc::RackMaintenanceOnDemandResponse>, Status> {
+        crate::handlers::rack::on_demand_rack_maintenance(self, request).await
     }
 
     async fn tpm_add_ca_cert(
@@ -2719,13 +2952,65 @@ impl Forge for Api {
 
     async fn sign_machine_identity(
         &self,
-        _request: tonic::Request<rpc::MachineIdentityRequest>,
+        request: tonic::Request<rpc::MachineIdentityRequest>,
     ) -> Result<Response<rpc::MachineIdentityResponse>, Status> {
-        // TODO: enable after implementing this function fully
-        //return crate::handlers::machine_identity::sign_machine_identity(self, request).await;
-        Err(tonic::Status::unimplemented(
-            "machine identity API is temporarily disabled",
-        ))
+        crate::handlers::machine_identity::sign_machine_identity(self, request).await
+    }
+
+    async fn get_tenant_identity_configuration(
+        &self,
+        request: Request<rpc::GetTenantIdentityConfigRequest>,
+    ) -> Result<Response<rpc::TenantIdentityConfigResponse>, Status> {
+        crate::handlers::tenant_identity_config::get_configuration(self, request).await
+    }
+
+    async fn set_tenant_identity_configuration(
+        &self,
+        request: tonic::Request<rpc::SetTenantIdentityConfigRequest>,
+    ) -> Result<Response<rpc::TenantIdentityConfigResponse>, Status> {
+        crate::handlers::tenant_identity_config::set_configuration(self, request).await
+    }
+
+    async fn delete_tenant_identity_configuration(
+        &self,
+        request: Request<rpc::GetTenantIdentityConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::tenant_identity_config::delete_configuration(self, request).await
+    }
+
+    async fn get_token_delegation(
+        &self,
+        request: Request<rpc::GetTokenDelegationRequest>,
+    ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
+        crate::handlers::tenant_identity_config::get_token_delegation(self, request).await
+    }
+
+    async fn set_token_delegation(
+        &self,
+        request: Request<rpc::TokenDelegationRequest>,
+    ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
+        crate::handlers::tenant_identity_config::set_token_delegation(self, request).await
+    }
+
+    async fn delete_token_delegation(
+        &self,
+        request: Request<rpc::GetTokenDelegationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::tenant_identity_config::delete_token_delegation(self, request).await
+    }
+
+    async fn get_jwks(
+        &self,
+        request: Request<rpc::JwksRequest>,
+    ) -> Result<Response<rpc::Jwks>, Status> {
+        crate::handlers::machine_identity::get_jwks(self, request).await
+    }
+
+    async fn get_open_id_configuration(
+        &self,
+        request: Request<rpc::OpenIdConfigRequest>,
+    ) -> Result<Response<rpc::OpenIdConfiguration>, Status> {
+        crate::handlers::machine_identity::get_open_id_configuration(self, request).await
     }
 
     async fn modify_dpf_state(
@@ -2916,6 +3201,119 @@ impl Forge for Api {
         crate::handlers::power_options::allow_ingestion_and_power_on(self, &request.into_inner())
             .await
     }
+
+    async fn component_power_control(
+        &self,
+        request: Request<rpc::ComponentPowerControlRequest>,
+    ) -> Result<Response<rpc::ComponentPowerControlResponse>, Status> {
+        crate::handlers::component_manager::component_power_control(self, request).await
+    }
+
+    async fn get_component_inventory(
+        &self,
+        request: Request<rpc::GetComponentInventoryRequest>,
+    ) -> Result<Response<rpc::GetComponentInventoryResponse>, Status> {
+        crate::handlers::component_manager::get_component_inventory(self, request).await
+    }
+
+    async fn update_component_firmware(
+        &self,
+        request: Request<rpc::UpdateComponentFirmwareRequest>,
+    ) -> Result<Response<rpc::UpdateComponentFirmwareResponse>, Status> {
+        crate::handlers::component_manager::update_component_firmware(self, request).await
+    }
+
+    async fn get_component_firmware_status(
+        &self,
+        request: Request<rpc::GetComponentFirmwareStatusRequest>,
+    ) -> Result<Response<rpc::GetComponentFirmwareStatusResponse>, Status> {
+        crate::handlers::component_manager::get_component_firmware_status(self, request).await
+    }
+
+    async fn list_component_firmware_versions(
+        &self,
+        request: Request<rpc::ListComponentFirmwareVersionsRequest>,
+    ) -> Result<Response<rpc::ListComponentFirmwareVersionsResponse>, Status> {
+        crate::handlers::component_manager::list_component_firmware_versions(self, request).await
+    }
+
+    async fn get_ipxe_template(
+        &self,
+        request: tonic::Request<::rpc::forge::GetIpxeTemplateRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeTemplate>, Status> {
+        use carbide_ipxe_renderer::IpxeScriptRenderer;
+
+        let req = request.into_inner();
+        let id = req
+            .id
+            .ok_or_else(|| Status::invalid_argument("id is required"))?;
+        let renderer = carbide_ipxe_renderer::DefaultIpxeScriptRenderer::new();
+
+        match renderer.get_template_by_id(&id.to_string()) {
+            Some(template) => Ok(tonic::Response::new(::rpc::forge::IpxeTemplate {
+                id: Some(id),
+                name: template.name.clone(),
+                template: template.template.clone(),
+                required_params: template.required_params.clone(),
+                description: template.description.clone(),
+                reserved_params: template.reserved_params.clone(),
+                required_artifacts: template.required_artifacts.clone(),
+                scope: ipxe_template_scope_to_proto(template.scope).into(),
+            })),
+            None => Err(Status::not_found(format!(
+                "iPXE template '{}' not found",
+                id
+            ))),
+        }
+    }
+
+    async fn list_ipxe_templates(
+        &self,
+        _request: tonic::Request<::rpc::forge::ListIpxeTemplatesRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeTemplateList>, Status> {
+        use carbide_ipxe_renderer::IpxeScriptRenderer;
+
+        let renderer = carbide_ipxe_renderer::DefaultIpxeScriptRenderer::new();
+        let template_names = renderer.list_templates();
+
+        let templates = template_names
+            .iter()
+            .filter_map(|name| renderer.get_template_by_name(name))
+            .map(|t| {
+                let id = t.id.parse().map_err(|e| {
+                    Status::internal(format!(
+                        "embedded iPXE template '{}' has malformed id '{}': {e}",
+                        t.name, t.id,
+                    ))
+                })?;
+                Ok(::rpc::forge::IpxeTemplate {
+                    id: Some(id),
+                    name: t.name.clone(),
+                    template: t.template.clone(),
+                    required_params: t.required_params.clone(),
+                    description: t.description.clone(),
+                    reserved_params: t.reserved_params.clone(),
+                    required_artifacts: t.required_artifacts.clone(),
+                    scope: ipxe_template_scope_to_proto(t.scope).into(),
+                })
+            })
+            .collect::<Result<Vec<_>, Status>>()?;
+
+        Ok(tonic::Response::new(::rpc::forge::IpxeTemplateList {
+            templates,
+        }))
+    }
+}
+
+fn ipxe_template_scope_to_proto(
+    scope: carbide_ipxe_renderer::IpxeTemplateScope,
+) -> ::rpc::forge::IpxeTemplateScope {
+    use ::rpc::forge::IpxeTemplateScope as ProtoScope;
+    use carbide_ipxe_renderer::IpxeTemplateScope as RendererScope;
+    match scope {
+        RendererScope::Internal => ProtoScope::Internal,
+        RendererScope::Public => ProtoScope::Public,
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
@@ -2928,16 +3326,24 @@ pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
     );
 }
 
+/// Logs a pre-redacted request string (e.g. for requests containing secrets).
+pub(crate) fn log_request_data_redacted(s: impl AsRef<str>) {
+    tracing::Span::current().record(
+        "request",
+        truncate(s.as_ref().to_string(), ::rpc::MAX_ERR_MSG_SIZE as usize),
+    );
+}
+
 /// Logs the Machine ID in the current tracing span
 pub(crate) fn log_machine_id(machine_id: &MachineId) {
-    tracing::Span::current().record("forge.machine_id", machine_id.to_string());
+    tracing::Span::current().record("forge.machine_id", tracing::field::display(machine_id));
 }
 
 pub(crate) fn log_tenant_organization_id(organization_id: &str) {
     tracing::Span::current().record("tenant.organization_id", organization_id);
 }
 
-fn truncate(mut s: String, len: usize) -> String {
+pub(crate) fn truncate(mut s: String, len: usize) -> String {
     if s.len() < len || len < 3 {
         return s;
     }

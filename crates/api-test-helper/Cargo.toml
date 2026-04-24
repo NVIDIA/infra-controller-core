@@ -28,6 +28,7 @@ name = "api_test_helper"
 [dependencies]
 
 # [local-dependencies]
+async-trait = { workspace = true }
 bmc-mock = { path = "../bmc-mock" }
 carbide-api = { path = "../api", default-features = false }
 carbide-version = { path = "../version" }
@@ -45,25 +46,27 @@ serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true, features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "migrate",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
 ] }
 tempfile = { workspace = true }
 tokio.workspace = true
+tonic = { workspace = true }
 tokio-util.workspace = true
 tracing = { workspace = true }
 tracing-subscriber = { features = [
-    "env-filter",
-    "local-time",
+  "env-filter",
+  "local-time",
 ], workspace = true }
 futures = { workspace = true }
+librms = { workspace = true }
 itertools = { workspace = true }
 ctor = { workspace = true }
 temp-dir = { workspace = true }

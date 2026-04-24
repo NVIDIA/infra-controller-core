@@ -26,11 +26,7 @@ pub async fn list(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let request = rpc::forge::RackFirmwareListRequest {
-        only_available: opts.only_available,
-    };
-
-    let result = api_client.0.list_rack_firmware(request).await?;
+    let result = api_client.0.list_rack_firmware(opts).await?;
 
     if format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&result.configs)?);
@@ -40,14 +36,24 @@ pub async fn list(
         let mut table = Table::new();
         table.set_titles(Row::new(vec![
             Cell::new("ID"),
+            Cell::new("Hardware Type"),
+            Cell::new("Default"),
             Cell::new("Available"),
             Cell::new("Created"),
             Cell::new("Updated"),
         ]));
 
         for config in result.configs {
+            let hw_type = config
+                .rack_hardware_type
+                .as_ref()
+                .map(|t| t.value.as_str())
+                .unwrap_or("N/A");
+            let default_marker = if config.is_default { "*" } else { "" };
             table.add_row(Row::new(vec![
                 Cell::new(&config.id),
+                Cell::new(hw_type),
+                Cell::new(default_marker),
                 Cell::new(&config.available.to_string()),
                 Cell::new(&config.created),
                 Cell::new(&config.updated),

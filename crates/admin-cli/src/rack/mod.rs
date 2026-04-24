@@ -17,6 +17,9 @@
 
 mod delete;
 mod list;
+mod maintenance;
+pub mod metadata;
+pub mod profile;
 mod show;
 
 #[cfg(test)]
@@ -34,4 +37,10 @@ pub enum Cmd {
     List(list::Args),
     #[clap(about = "Delete the rack")]
     Delete(delete::Args),
+    #[clap(subcommand, about = "Edit Metadata associated with a Rack")]
+    Metadata(metadata::Args),
+    #[clap(subcommand, about = "Rack profile")]
+    Profile(profile::Args),
+    #[clap(subcommand, about = "On-demand rack maintenance")]
+    Maintenance(maintenance::Args),
 }

@@ -20,11 +20,12 @@ use rpc::admin_cli::OutputFormat;
 use crate::cfg::measurement;
 use crate::{
     bmc_machine, boot_override, compute_allocation, credential, devenv, domain, dpa, dpu,
-    dpu_remediation, expected_machines, expected_power_shelf, expected_switch, extension_service,
-    firmware, generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip,
-    jump, machine, machine_interfaces, machine_validation, managed_host, mlx, network_devices,
-    network_security_group, network_segment, nvlink_nmxc_endpoints, nvl_logical_partition,
-    nvl_partition, os_image, ping,
+    dpu_remediation, expected_machines, expected_power_shelf, expected_rack, expected_switch,
+    extension_service, firmware, generate_shell_complete, host, ib_partition, instance,
+    instance_type, inventory, ip, ipxe_template, jump, machine, machine_interfaces,
+    machine_validation, managed_host, managed_switch, mlx, network_devices, network_security_group,
+    network_segment, nvlink_nmxc_endpoints, nvl_partition,
+    operating_system, os_image, ping,
     power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
     site_explorer, sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
     vpc_peering, vpc_prefix,
@@ -162,6 +163,12 @@ pub enum CliCommand {
     )]
     ManagedHost(managed_host::Cmd),
     #[clap(
+        about = "Managed switch related handling",
+        subcommand,
+        visible_alias = "ms"
+    )]
+    ManagedSwitch(managed_switch::Cmd),
+    #[clap(
         subcommand,
         about = "Work with measured boot data.",
         visible_alias = "mb"
@@ -196,7 +203,7 @@ pub enum CliCommand {
     #[clap(about = "Site explorer functions", subcommand)]
     SiteExplorer(site_explorer::Cmd),
     #[clap(
-        about = "List of all Machine interfaces",
+        about = "Machine interfaces and address management",
         subcommand,
         visible_alias = "mi"
     )]
@@ -219,6 +226,8 @@ pub enum CliCommand {
         visible_alias = "ep"
     )]
     ExpectedPowerShelf(expected_power_shelf::Cmd),
+    #[clap(about = "Expected rack handling", subcommand, visible_alias = "er")]
+    ExpectedRack(expected_rack::Cmd),
     #[clap(about = "Expected switch handling", subcommand, visible_alias = "ew")]
     ExpectedSwitch(expected_switch::Cmd),
     #[clap(about = "VPC related handling", subcommand)]
@@ -249,8 +258,22 @@ pub enum CliCommand {
     #[clap(about = "Machine Validation", subcommand, visible_alias = "mv")]
     MachineValidation(machine_validation::Cmd),
 
+    #[clap(
+        about = "iPXE template management",
+        visible_alias = "ipxe-tmpl",
+        subcommand
+    )]
+    IpxeTemplate(ipxe_template::Cmd),
+
     #[clap(about = "OS catalog management", visible_alias = "os", subcommand)]
     OsImage(os_image::Cmd),
+
+    #[clap(
+        about = "Operating system definition management",
+        visible_alias = "osd",
+        subcommand
+    )]
+    OperatingSystem(operating_system::Cmd),
 
     #[clap(about = "Manage TPM CA certificates", subcommand)]
     TpmCa(tpm_ca::Cmd),
@@ -320,18 +343,11 @@ pub enum CliCommand {
     #[clap(about = "Scout Stream Connection Handling", subcommand)]
     ScoutStream(scout_stream::ScoutStreamAction),
     #[clap(
-        about = "NvLink Partition related handling",
+        about = "NVLink logical and physical Partition related handling",
         subcommand,
         visible_alias = "nvp"
     )]
-    NvlPartition(nvl_partition::Cmd),
-
-    #[clap(
-        about = "Logical partition related handling",
-        subcommand,
-        visible_alias = "lp"
-    )]
-    LogicalPartition(nvl_logical_partition::Cmd),
+    NvlinkPartition(nvl_partition::Cmd),
 
     #[clap(subcommand)]
     #[clap(verbatim_doc_comment)]

@@ -15,17 +15,59 @@
  * limitations under the License.
  */
 
-mod show;
+pub mod args;
+pub mod cmds;
 
 #[cfg(test)]
 mod tests;
 
-use clap::Parser;
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+pub use args::Cmd;
 
 use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display NvLink partition information")]
-    Show(show::Args),
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Physical(pp) => match pp {
+                args::NvlPartitionOptions::Show(args) => {
+                    cmds::handle_show_physical_partitions(
+                        args,
+                        ctx.config.format,
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                    )
+                    .await
+                }
+            },
+            Cmd::Logical(lp) => match lp {
+                args::LogicalPartitionOptions::Show(show_options) => {
+                    cmds::handle_show_logical_partitions(
+                        show_options,
+                        ctx.config.format,
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                    )
+                    .await
+                }
+                args::LogicalPartitionOptions::Create(create_options) => {
+                    if !ctx.config.cloud_unsafe_op_enabled {
+                        return Err(CarbideCliError::GenericError(
+                            "Operation not allowed. Run with --cloud-unsafe-op=<username> to create a logical partition.".to_owned(),
+                        ));
+                    }
+                    cmds::handle_logical_partition_create(create_options, &ctx.api_client).await
+                }
+                args::LogicalPartitionOptions::Delete(delete_options) => {
+                    if !ctx.config.cloud_unsafe_op_enabled {
+                        return Err(CarbideCliError::GenericError(
+                            "Operation not allowed. Run with --cloud-unsafe-op=<username> to delete a logical partition.".to_owned(),
+                        ));
+                    }
+                    cmds::handle_logical_partition_delete(delete_options, &ctx.api_client).await
+                }
+            },
+        }
+    }
 }

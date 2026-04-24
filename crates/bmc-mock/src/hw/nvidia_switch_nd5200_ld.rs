@@ -40,7 +40,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "BMC_0",
-                eth_interfaces: vec![
+                eth_interfaces: Some(vec![
                     eth_builder("eth0")
                         .mac_address(self.bmc_mac_address_eth0)
                         .interface_enabled(true)
@@ -53,8 +53,9 @@ impl NvidiaSwitchNd5200Ld<'_> {
                         .mac_address(self.bmc_mac_address_usb0)
                         .interface_enabled(true)
                         .build(),
-                ],
-                firmware_version: "88.0002.1333",
+                ]),
+                host_interfaces: None,
+                firmware_version: Some("88.0002.1333"),
                 oem: None,
             }],
         }
@@ -71,7 +72,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                 eth_interfaces: None,
                 serial_number: None,
                 boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
-                power_control: None,
+                callbacks: None,
                 chassis: vec!["BMC_eeprom".into()],
                 boot_options: None,
                 bios_mode: redfish::computer_system::BiosMode::Generic,
@@ -93,12 +94,9 @@ impl NvidiaSwitchNd5200Ld<'_> {
                     manufacturer: Some("NVIDIA".into()),
                     part_number: Some("692-13809-1404-000".into()),
                     model: Some("P3809".into()),
-                    serial_number: Some(self.bmc_serial_number.to_string().into()), // 1320325107073
-                    network_adapters: None,
-                    pcie_devices: None,
+                    serial_number: Some(self.bmc_serial_number.to_string().into()),
                     sensors: Some(vec![]),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "CPLD_0".into(),
@@ -107,11 +105,9 @@ impl NvidiaSwitchNd5200Ld<'_> {
                     part_number: Some("".into()),
                     model: Some("LCMXO3D-9400HC-5BG256C".into()),
                     serial_number: Some("CPLDSerialNumber".into()),
-                    network_adapters: None,
                     pcie_devices: Some(vec![]),
                     sensors: Some(vec![]),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "MGX_BMC_0".into(),
@@ -120,7 +116,6 @@ impl NvidiaSwitchNd5200Ld<'_> {
                     part_number: Some("692-13809-1404-000".into()),
                     model: Some("P3809".into()),
                     serial_number: Some(self.bmc_serial_number.to_string().into()),
-                    network_adapters: None,
                     pcie_devices: Some(vec![]),
                     sensors: Some(redfish::sensor::generate_chassis_sensors(
                         "MGX_BMC_0",
@@ -129,8 +124,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                             ..Default::default()
                         },
                     )),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
             ]
             .into_iter()
@@ -149,14 +143,8 @@ impl NvidiaSwitchNd5200Ld<'_> {
                         id: erot_chassis_id.into(),
                         chassis_type: "Component".into(),
                         manufacturer: Some("NVIDIA".into()),
-                        part_number: None,
-                        model: None,
                         serial_number: Some(format!("0xFEEEEEEE{n:04X}").into()),
-                        network_adapters: None,
-                        pcie_devices: None,
-                        sensors: None,
-                        assembly: None,
-                        oem: None,
+                        ..redfish::chassis::SingleChassisConfig::defaults()
                     }
                 }),
             )
@@ -179,8 +167,8 @@ impl NvidiaSwitchNd5200Ld<'_> {
                         },
                     )),
                     assembly: None,
-                    oem: None,
                     id: chassis_id.into(),
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 }
             }))
             .collect(),

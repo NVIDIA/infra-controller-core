@@ -35,10 +35,13 @@ pub mod dpu_machine_update;
 pub mod dpu_remediation;
 pub mod expected_machine;
 pub mod expected_power_shelf;
+pub mod expected_rack;
 pub mod expected_switch;
 pub mod explored_endpoints;
 pub mod explored_managed_host;
 pub mod extension_service;
+pub mod health_history;
+pub mod health_report;
 pub mod host_machine_update;
 pub mod ib_partition;
 pub mod instance;
@@ -48,7 +51,6 @@ pub mod instance_type;
 pub mod ip_allocator;
 pub mod machine;
 pub mod machine_boot_override;
-pub mod machine_health_history;
 pub mod machine_interface;
 pub mod machine_interface_address;
 pub mod machine_state_history;
@@ -68,6 +70,7 @@ pub mod network_segment_state_history;
 pub mod nvl_logical_partition;
 pub mod nvl_partition;
 pub mod nvlink_nmxc_endpoints;
+pub mod operating_system;
 pub mod os_image;
 pub mod power_options;
 pub mod power_shelf;
@@ -85,6 +88,7 @@ pub mod sku;
 pub mod switch;
 pub mod switch_state_history;
 pub mod tenant;
+pub mod tenant_identity_config;
 pub mod tenant_keyset;
 pub mod trim_table;
 pub mod vpc;
@@ -106,7 +110,6 @@ use mac_address::MacAddress;
 use model::ConfigValidationError;
 use model::hardware_info::HardwareInfoError;
 use model::tenant::TenantError;
-use rpc::errors::RpcDataConversionError;
 use sqlx::{Acquire, PgPool, PgTransaction, Postgres};
 use tonic::Status;
 
@@ -289,7 +292,6 @@ pub trait ColumnInfo<'a>: Clone + Copy {
 
 ///
 /// Wraps a sqlx::Error and records location and query
-///
 #[derive(Debug)]
 pub struct AnnotatedSqlxError {
     file: &'static str,
@@ -339,8 +341,6 @@ pub enum DatabaseError {
     },
     #[error("Argument is invalid: {0}")]
     InvalidArgument(String),
-    #[error("Can not convert between RPC data model and internal data model - {0}")]
-    RpcDataConversionError(#[from] RpcDataConversionError),
     #[error("Duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
     #[error("Argument is missing in input: {0}")]
@@ -561,7 +561,6 @@ impl From<DatabaseError> for tonic::Status {
                 Status::not_found(format!("{kind} not found: {id}"))
             }
             DatabaseError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
-            DatabaseError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
             error @ DatabaseError::RpcUuidConversionError(_) => {
                 Status::invalid_argument(error.to_string())
             }

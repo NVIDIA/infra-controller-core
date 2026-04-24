@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use config_version::ConfigVersion;
-use health_report::{HealthReport, OverrideMode};
-use mac_address::MacAddress;
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::rack::{Rack, RackConfig, RackState};
+use model::metadata::Metadata;
+use model::rack::{FirmwareUpgradeJob, NvosUpdateJob, Rack, RackConfig, RackState};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -39,68 +39,63 @@ impl ColumnInfo<'_> for IdColumn {
     }
 }
 
-pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Rack>>(
-    txn: &mut PgConnection,
+pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Rack>, DB>(
+    conn: &mut DB,
     filter: ObjectColumnFilter<'a, C>,
-) -> DatabaseResult<Vec<Rack>> {
+) -> DatabaseResult<Vec<Rack>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut query = FilterableQueryBuilder::new("SELECT * FROM racks").filter(&filter);
 
     query
         .build_query_as()
-        .fetch_all(txn)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| DatabaseError::new(query.sql(), e))
 }
 
-pub async fn list(txn: impl DbReader<'_>) -> DatabaseResult<Vec<Rack>> {
-    let query = "SELECT * from racks where deleted IS NULL".to_string();
-    sqlx::query_as(&query)
+pub async fn find_ids(
+    txn: impl DbReader<'_>,
+    _filter: model::rack::RackSearchFilter,
+) -> Result<Vec<RackId>, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT id FROM racks WHERE TRUE "); // The TRUE will be optimized away.
+
+    let query = builder.build_query_as();
+    query
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new("racks get", e))
-}
-
-pub async fn get(txn: impl DbReader<'_>, rack_id: RackId) -> DatabaseResult<Rack> {
-    let query = "SELECT * from racks l WHERE l.id=$1".to_string();
-    sqlx::query_as(&query)
-        .bind(rack_id)
-        .fetch_optional(txn)
-        .await
-        .map_err(|e| DatabaseError::new("racks get", e))?
-        .ok_or_else(|| DatabaseError::NotFoundError {
-            kind: "rack",
-            id: rack_id.to_string(),
-        })
+        .map_err(|e| DatabaseError::new("instance::find_ids", e))
 }
 
 pub async fn create(
     txn: &mut PgConnection,
-    rack_id: RackId,
-    expected_compute_trays: Vec<MacAddress>,
-    expected_nvlink_switches: Vec<MacAddress>,
-    expected_power_shelves: Vec<MacAddress>,
+    rack_id: &RackId,
+    rack_profile_id: Option<&RackProfileId>,
+    config: &RackConfig,
+    expected_metadata: Option<&Metadata>,
 ) -> DatabaseResult<Rack> {
-    if !expected_nvlink_switches.is_empty() {
-        return Err(DatabaseError::new(
-            "nvlink switch todo",
-            sqlx::error::Error::ColumnNotFound("nvlink_switch".to_string()),
-        ));
-    }
-    let config = RackConfig {
-        compute_trays: Vec::new(),
-        power_shelves: Vec::new(),
-        expected_compute_trays,
-        expected_power_shelves,
-    };
-    let controller_state = String::from("{\"state\":\"expected\"}");
+    let controller_state = String::from("{\"state\":\"created\"}");
     let controller_state_outcome = String::from("{}");
-    let query = "INSERT INTO racks(id, config, controller_state, controller_state_outcome)
-            VALUES($1, $2::json, $3::json, $4::json) RETURNING *";
+    let default_metadata = Metadata::default();
+    let src_metadata = expected_metadata.unwrap_or(&default_metadata);
+    let name = match src_metadata.name.as_str() {
+        "" => rack_id.to_string(),
+        name => name.to_string(),
+    };
+    let version = ConfigVersion::initial();
+    let query = "INSERT INTO racks(id, rack_profile_id, config, controller_state, controller_state_outcome, name, description, labels, version)
+            VALUES($1, $2, $3::json, $4::json, $5::json, $6, $7, $8::jsonb, $9) RETURNING *";
     let rack: Rack = sqlx::query_as(query)
         .bind(rack_id)
+        .bind(rack_profile_id)
         .bind(sqlx::types::Json(config))
         .bind(controller_state)
         .bind(controller_state_outcome)
+        .bind(name)
+        .bind(&src_metadata.description)
+        .bind(sqlx::types::Json(&src_metadata.labels))
+        .bind(version)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(query, e))?;
@@ -111,7 +106,7 @@ pub async fn create(
 // only update the config
 pub async fn update(
     txn: &mut PgConnection,
-    rack_id: RackId,
+    rack_id: &RackId,
     config: &RackConfig,
 ) -> DatabaseResult<Rack> {
     let query = "UPDATE racks SET config = $1::json, updated=NOW() WHERE id = $2 RETURNING *";
@@ -127,27 +122,28 @@ pub async fn update(
 
 pub async fn try_update_controller_state(
     txn: &mut PgConnection,
-    rack_id: RackId,
+    rack_id: &RackId,
     expected_version: ConfigVersion,
+    new_version: ConfigVersion,
     new_state: &RackState,
-) -> DatabaseResult<()> {
-    let _query_result = sqlx::query_as::<_, Rack>(
+) -> DatabaseResult<bool> {
+    let query_result = sqlx::query_as::<_, Rack>(
             "UPDATE racks SET controller_state = $1, controller_state_version = $2 WHERE id = $3 AND controller_state_version = $4 RETURNING *",
         )
             .bind(sqlx::types::Json(new_state))
-            .bind(expected_version)
+            .bind(new_version)
             .bind(rack_id)
             .bind(expected_version)
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new("try_update_controller_state", e))?;
 
-    Ok(())
+    Ok(query_result.is_some())
 }
 
 pub async fn update_controller_state_outcome(
     txn: &mut PgConnection,
-    rack_id: RackId,
+    rack_id: &RackId,
     outcome: PersistentStateHandlerOutcome,
 ) -> DatabaseResult<()> {
     sqlx::query("UPDATE racks SET controller_state_outcome = $1 WHERE id = $2")
@@ -160,10 +156,10 @@ pub async fn update_controller_state_outcome(
     Ok(())
 }
 
-pub async fn mark_as_deleted(rack: &Rack, txn: &mut PgConnection) -> DatabaseResult<Rack> {
+pub async fn mark_as_deleted(rack_id: &RackId, txn: &mut PgConnection) -> DatabaseResult<Rack> {
     let query = "UPDATE racks SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
     let updated_rack = sqlx::query_as(query)
-        .bind(rack.id)
+        .bind(rack_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -171,7 +167,38 @@ pub async fn mark_as_deleted(rack: &Rack, txn: &mut PgConnection) -> DatabaseRes
     Ok(updated_rack)
 }
 
-pub async fn final_delete(txn: &mut PgConnection, rack_id: RackId) -> DatabaseResult<()> {
+pub async fn update_firmware_upgrade_job(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    job: Option<&FirmwareUpgradeJob>,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE racks SET firmware_upgrade_job = $1, updated = NOW() WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, (RackId,)>(query)
+        .bind(job.map(sqlx::types::Json))
+        .bind(rack_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_firmware_upgrade_job", e))?;
+    Ok(())
+}
+
+pub async fn update_nvos_update_job(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    job: Option<&NvosUpdateJob>,
+) -> DatabaseResult<()> {
+    let query = "UPDATE racks SET nvos_update_job = $1, updated = NOW() WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, (RackId,)>(query)
+        .bind(job.map(sqlx::types::Json))
+        .bind(rack_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_nvos_update_job", e))?;
+    Ok(())
+}
+
+pub async fn final_delete(txn: &mut PgConnection, rack_id: &RackId) -> DatabaseResult<()> {
     let query = "DELETE from racks WHERE id=$1";
     sqlx::query(query)
         .bind(rack_id)
@@ -185,55 +212,52 @@ pub async fn final_delete(txn: &mut PgConnection, rack_id: RackId) -> DatabaseRe
 pub async fn insert_health_report_override(
     txn: &mut PgConnection,
     rack_id: &RackId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-        OverrideMode::Replace => "replace".to_string(),
-    };
-
-    let query = format!(
-        "UPDATE racks SET {column_name} = jsonb_set(
-            coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
-            '{{{path}}}',
-            $1::jsonb
-        ) WHERE id = $2
-        RETURNING id"
-    );
-
-    let _id: (RackId,) = sqlx::query_as(&query)
-        .bind(sqlx::types::Json(health_report))
-        .bind(rack_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("insert rack health report override", e))?;
-
-    Ok(())
+    crate::health_report::insert_health_report(txn, "racks", rack_id, mode, health_report).await
 }
 
 pub async fn remove_health_report_override(
     txn: &mut PgConnection,
     rack_id: &RackId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,{source}"),
-        OverrideMode::Replace => "replace".to_string(),
-    };
-    let query = format!(
-        "UPDATE racks SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1
-            RETURNING id"
-    );
+    crate::health_report::remove_health_report(txn, "racks", rack_id, mode, source).await
+}
 
-    let _id: (RackId,) = sqlx::query_as(&query)
+pub async fn update_metadata(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    expected_version: ConfigVersion,
+    metadata: Metadata,
+) -> Result<(), DatabaseError> {
+    let next_version = expected_version.increment();
+
+    let query = "UPDATE racks SET
+            version=$1,
+            name=$2, description=$3, labels=$4::jsonb
+            WHERE id=$5 AND version=$6
+            RETURNING id";
+
+    let query_result: Result<(RackId,), _> = sqlx::query_as(query)
+        .bind(next_version)
+        .bind(&metadata.name)
+        .bind(&metadata.description)
+        .bind(sqlx::types::Json(&metadata.labels))
         .bind(rack_id)
+        .bind(expected_version)
         .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("remove rack health report override", e))?;
+        .await;
 
-    Ok(())
+    match query_result {
+        Ok((_id,)) => Ok(()),
+        Err(e) => Err(match e {
+            sqlx::Error::RowNotFound => {
+                DatabaseError::ConcurrentModificationError("rack", expected_version.to_string())
+            }
+            e => DatabaseError::query(query, e),
+        }),
+    }
 }

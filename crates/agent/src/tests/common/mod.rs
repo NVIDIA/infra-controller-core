@@ -114,6 +114,10 @@ pub fn setup_agent_run_env(
             override_network_virtualization_type: None,
             skip_upgrade_check: false,
             dhcp_grpc_server: None,
+            fmds_grpc_server: None,
+            hbn_config_mode: crate::command_line::HbnConfigMode::ContainerExec,
+            agent_platform_type: crate::command_line::AgentPlatformType::DpuOs,
+            dhcp_server_interface_prepend: None,
         }))),
     };
 

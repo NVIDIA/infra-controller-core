@@ -630,7 +630,7 @@ async fn process_object<IO: StateControllerIO>(
             .to_std()
             .unwrap_or(Duration::from_secs(60 * 60 * 24));
 
-        let state_sla = IO::state_sla(&controller_state);
+        let state_sla = io.state_sla(&controller_state, &snapshot);
         metrics.common.time_in_state_above_sla = state_sla.time_in_state_above_sla;
 
         let mut pending_db_writes = DbWriteBatch::new();
@@ -678,8 +678,20 @@ async fn process_object<IO: StateControllerIO>(
             if *next == controller_state.value {
                 tracing::warn!(state=?next, %object_id, "Transition to current state");
             }
-            io.persist_controller_state(&mut txn, &object_id, controller_state.version, next)
-                .await?;
+            let new_version = controller_state.version.increment();
+            if io
+                .persist_controller_state(
+                    &mut txn,
+                    &object_id,
+                    controller_state.version,
+                    new_version,
+                    next,
+                )
+                .await?
+            {
+                io.persist_state_history(&mut txn, &object_id, new_version, next)
+                    .await?;
+            }
         }
 
         let is_success = handler_outcome.is_ok();

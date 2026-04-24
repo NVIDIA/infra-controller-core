@@ -20,8 +20,11 @@ use std::io::Write;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
+use forge_secrets::credentials::{
+    BgpCredentialType, BmcCredentialType, CredentialKey, CredentialType, Credentials,
+};
 use mac_address::MacAddress;
+use model::ConfigValidationError;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use tonic::{Request, Response, Status};
 
@@ -30,13 +33,16 @@ use crate::api::Api;
 use crate::credentials::UpdateCredentials;
 use crate::handlers::utils::convert_and_log_machine_id;
 
-/// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
-const DPU_ADMIN_USERNAME: &str = "forge";
-
 /// Default Username for the admin BMC account.
 const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
 
 pub const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
+
+/// The maximum size that will be accepted in the underlying BGP config
+/// on the DPU.  This was directly verified by checking the maximum accepted
+/// by FRR on the DPU.  NVUE will silently accept seemingly any length,
+/// but FRR reloads fail above this length.
+pub const MAX_BGP_PASSWORD_LENGTH: usize = 80;
 
 pub(crate) async fn create_credential(
     api: &Api,
@@ -57,9 +63,9 @@ pub(crate) async fn create_credential(
 
     match credential_type {
         rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
-            return Err(tonic::Status::invalid_argument(
-                "Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.".into(),
+            ).into());
         }
         rpc::CredentialType::SiteWideBmcRoot => {
             set_sitewide_bmc_root_credentials(api, password)
@@ -93,7 +99,7 @@ pub(crate) async fn create_credential(
             } else if req.username.is_none() && password.is_empty() && req.vendor.is_some() {
                 write_ufm_certs(api, req.vendor.unwrap_or_default()).await?;
             } else {
-                return Err(tonic::Status::invalid_argument("missing UFM Url"));
+                return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
             }
         }
         rpc::CredentialType::DpuUefi => {
@@ -156,10 +162,10 @@ pub(crate) async fn create_credential(
         }
         rpc::CredentialType::HostBmcFactoryDefault => {
             let Some(username) = req.username else {
-                return Err(tonic::Status::invalid_argument("missing username"));
+                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             };
             let Some(vendor) = req.vendor else {
-                return Err(tonic::Status::invalid_argument("missing vendor"));
+                return Err(CarbideError::InvalidArgument("missing vendor".to_string()).into());
             };
             let vendor: bmc_vendor::BMCVendor = vendor.as_str().into();
             api.credential_manager
@@ -178,7 +184,7 @@ pub(crate) async fn create_credential(
         }
         rpc::CredentialType::DpuBmcFactoryDefault => {
             let Some(username) = req.username else {
-                return Err(tonic::Status::invalid_argument("missing username"));
+                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             };
             api.credential_manager
                 .set_credentials(
@@ -196,7 +202,7 @@ pub(crate) async fn create_credential(
         }
         rpc::CredentialType::RootBmcByMacAddress => {
             let Some(mac_address) = req.mac_address else {
-                return Err(tonic::Status::invalid_argument("mac address"));
+                return Err(CarbideError::InvalidArgument("mac address".to_string()).into());
             };
 
             let parsed_mac: MacAddress = mac_address
@@ -213,9 +219,10 @@ pub(crate) async fn create_credential(
         }
         rpc::CredentialType::BmcForgeAdminByMacAddress => {
             // TODO: support credential creation for forge-admin
-            return Err(tonic::Status::invalid_argument(
-                "Forge does not support creating forge-admin credentials yet.",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "Forge does not support creating forge-admin credentials yet.".into(),
+            )
+            .into());
         }
         rpc::CredentialType::NmxM => {
             if let Some(username) = req.username {
@@ -238,8 +245,28 @@ pub(crate) async fn create_credential(
                         ))
                     })?;
             } else {
-                return Err(tonic::Status::invalid_argument("missing username"));
+                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             }
+        }
+        rpc::CredentialType::BgpSiteWideLeafPassword => {
+            api.credential_manager
+                .set_credentials(
+                    &CredentialKey::Bgp {
+                        credential_type: BgpCredentialType::SiteWideLeafPassword,
+                    },
+                    &Credentials::UsernamePassword {
+                        username: "".to_string(),
+                        password: if password.len() <= MAX_BGP_PASSWORD_LENGTH {
+                            password
+                        } else {
+                            return Err(CarbideError::InvalidConfiguration(ConfigValidationError::InvalidValue(format!("BGP password length exceeds {MAX_BGP_PASSWORD_LENGTH} characters"))).into())
+                        },
+                    },
+                )
+                .await
+                .map_err(|e| {
+                    CarbideError::internal(format!("Error setting BGP credential: {e:?}"))
+                })?;
         }
     };
 
@@ -282,7 +309,7 @@ pub(crate) async fn delete_credential(
                         ))
                     })?;
             } else {
-                return Err(tonic::Status::invalid_argument("missing UFM Url"));
+                return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
             }
         }
         rpc::CredentialType::SiteWideBmcRoot => {
@@ -298,9 +325,10 @@ pub(crate) async fn delete_credential(
                 delete_bmc_root_credentials_by_mac(api, parsed_mac).await?;
             }
             None => {
-                return Err(tonic::Status::invalid_argument(
-                    "request does not specify mac address",
-                ));
+                return Err(CarbideError::InvalidArgument(
+                    "request does not specify mac address".into(),
+                )
+                .into());
             }
         },
         rpc::CredentialType::HostBmc
@@ -312,6 +340,16 @@ pub(crate) async fn delete_credential(
         | rpc::CredentialType::BmcForgeAdminByMacAddress
         | rpc::CredentialType::NmxM => {
             // Not support delete credential for these types
+        }
+        rpc::CredentialType::BgpSiteWideLeafPassword => {
+            api.credential_manager
+                .delete_credentials(&CredentialKey::Bgp {
+                    credential_type: BgpCredentialType::SiteWideLeafPassword,
+                })
+                .await
+                .map_err(|e| {
+                    CarbideError::internal(format!("Error deleting BGP credential: {e:?}"))
+                })?;
         }
     };
 
@@ -350,67 +388,40 @@ pub(crate) async fn update_machine_credentials(
         .map(Response::new)?)
 }
 
-pub(crate) async fn get_dpu_ssh_credential(
+/// As for now we only support UsernamePassword credentials type,
+/// in future this function should support SessionToken if available
+pub(crate) async fn get_bmc_credentals(
     api: &Api,
-    request: tonic::Request<rpc::CredentialRequest>,
-) -> Result<Response<rpc::CredentialResponse>, tonic::Status> {
+    request: tonic::Request<rpc::GetBmcCredentialsRequest>,
+) -> Result<Response<rpc::GetBmcCredentialsResponse>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    let query = request.into_inner().host_id;
+    let req = request.into_inner();
 
-    let mut txn = api.txn_begin().await?;
+    let bmc_mac_address: mac_address::MacAddress = req
+        .mac_addr
+        .parse()
+        .map_err(CarbideError::MacAddressParseError)?;
 
-    let machine_id = match db::machine::find_by_query(&mut txn, &query).await? {
-        Some(machine) => {
-            crate::api::log_machine_id(&machine.id);
-            if !machine.is_dpu() {
-                return Err(tonic::Status::not_found(format!(
-                    "Searching for machine {} was found for '{query}', but it is not a DPU",
-                    &machine.id
-                )));
-            }
-            machine.id
-        }
-        None => {
-            return Err(CarbideError::NotFoundError {
-                kind: "machine",
-                id: query,
-            }
-            .into());
-        }
-    };
-
-    // We don't need this transaction
-    txn.rollback().await?;
-
-    // Load credentials from Vault
     let credentials = api
         .credential_manager
-        .get_credentials(&CredentialKey::DpuSsh { machine_id })
+        .get_credentials(&CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+        })
         .await
-        .map_err(|err| CarbideError::internal(format!("Secret manager error: {err}")))?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "dpu-ssh-cred",
-            id: machine_id.to_string(),
-        })?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?
+        .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
 
     let (username, password) = match credentials {
         Credentials::UsernamePassword { username, password } => (username, password),
     };
 
-    // UpdateMachineCredentials only allows a single account currently so warn if it's
-    // not the correct one.
-    if username != DPU_ADMIN_USERNAME {
-        tracing::warn!(
-            expected = DPU_ADMIN_USERNAME,
-            found = username,
-            "Unexpected username in Vault"
-        );
-    }
-
-    Ok(Response::new(rpc::CredentialResponse {
-        username,
-        password,
+    Ok(Response::new(rpc::GetBmcCredentialsResponse {
+        credentials: Some(rpc::BmcCredentials {
+            r#type: Some(rpc::bmc_credentials::Type::UsernamePassword(
+                rpc::UsernamePassword { username, password },
+            )),
+        }),
     }))
 }
 

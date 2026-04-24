@@ -31,7 +31,6 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let expected_initial_states_json = serde_json::json!([
         {"state": "created"},
-        {"state": "verifyrmsmembership"},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "initializing"}}}},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "configuring"}}}},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "enablershim"}}}},
@@ -65,7 +64,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let mut txn = env.pool.begin().await?;
 
         let machine = db::machine::find_one(
-            &mut txn,
+            txn.as_mut(),
             &dpu_machine_id,
             model::machine::machine_search_config::MachineSearchConfig {
                 include_history: true,
@@ -81,7 +80,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         );
 
         let machine = db::machine::find_one(
-            &mut txn,
+            txn.as_mut(),
             &dpu_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )
@@ -143,7 +142,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
@@ -170,7 +169,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert_eq!(result.len(), 250);
 
     let machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
@@ -244,7 +243,7 @@ async fn test_old_machine_state_history(
         .await?;
 
     let machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::machine::{MachineLastRebootRequested, MachineLastRebootRequestedMode};
 use sqlx::PgTransaction;
 
@@ -80,12 +80,16 @@ pub enum MachineWriteOp {
     },
     InsertHealthReportOverride {
         machine_id: MachineId,
-        mode: OverrideMode,
+        mode: HealthReportApplyMode,
         health_report: HealthReport,
     },
     ReExploreIfVersionMatches {
         address: IpAddr,
         version: ConfigVersion,
+    },
+    UseCustomIpxeOnNextBoot {
+        machine_id: MachineId,
+        boot_with_custom_ipxe: bool,
     },
 }
 
@@ -108,7 +112,15 @@ impl WriteOp for MachineWriteOp {
             PersistMachineHealthHistory {
                 machine_id,
                 health_report,
-            } => db::machine_health_history::persist(txn, &machine_id, &health_report).await?,
+            } => {
+                db::health_history::persist(
+                    txn,
+                    db::health_history::HealthHistoryTableId::Machine,
+                    &machine_id,
+                    &health_report,
+                )
+                .await?
+            }
             ResetHostReprovisioningRequest {
                 machine_id,
                 clear_reset,
@@ -182,6 +194,13 @@ impl WriteOp for MachineWriteOp {
             }
             ReExploreIfVersionMatches { address, version } => {
                 db::explored_endpoints::re_explore_if_version_matches(address, version, txn)
+                    .await?;
+            }
+            UseCustomIpxeOnNextBoot {
+                machine_id,
+                boot_with_custom_ipxe,
+            } => {
+                db::instance::use_custom_ipxe_on_next_boot(&machine_id, boot_with_custom_ipxe, txn)
                     .await?;
             }
         };

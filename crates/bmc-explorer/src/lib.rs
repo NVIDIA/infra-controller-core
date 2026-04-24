@@ -25,6 +25,7 @@ mod network_adapter;
 use std::collections::HashMap;
 use std::convert::identity;
 use std::sync::Arc;
+use std::time::Duration;
 
 use chassis::ExploredChassisCollection;
 use computer_system::ExploredComputerSystem;
@@ -57,19 +58,32 @@ pub async fn explore_root<B: Bmc>(bmc: Arc<B>) -> Result<ServiceRoot<B>, Error<B
         .map_err(Error::nv_redfish("service_root"))
 }
 
+#[derive(PartialEq, Eq)]
+pub enum ErrorClass {
+    HttpNotFound,
+}
+
+pub type ErrorClassifier<'a, B> = &'a (dyn Fn(&<B as Bmc>::Error) -> Option<ErrorClass> + Sync);
+
+pub struct Config<'a, B: Bmc> {
+    pub boot_interface_mac: Option<MacAddress>,
+    pub error_classifier: ErrorClassifier<'a, B>,
+    pub retry_timeout: Duration,
+}
+
 pub async fn nv_generate_exploration_report<B: Bmc>(
     bmc: Arc<B>,
-    boot_interface_mac: Option<MacAddress>,
+    config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
     let root = ServiceRoot::new(bmc)
         .await
         .map_err(Error::nv_redfish("service_root"))?;
-    nv_generate_exploration_report_from_root(root, boot_interface_mac).await
+    nv_generate_exploration_report_from_root(root, config).await
 }
 
 pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
     mut root: ServiceRoot<B>,
-    boot_interface_mac: Option<MacAddress>,
+    config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
     let chassis_explore_config = chassis::Config {
         network_adapter: network_adapter::Config {
@@ -80,6 +94,13 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
             (*id.inner() == "Chassis_0")
                 .then_some(|model| model == Some(AssemblyModel::new("GB200 NVL")))
         },
+        // BlueField-3 DPU (Tested on BF-25.10-9 firmware) has issue
+        // with ERoT chassis. It stucks sometimes until next request
+        // of BlueField_ERoT. Because carbide doesn't need
+        // BlueField_ERoT we just skip it.
+        lazy_fetch: (root.vendor() == Some(Vendor::new("Nvidia"))
+            && root.product() == Some(Product::new("BlueField-3 DPU")))
+        .then_some(|odata_id| odata_id.last_segment() != Some("Bluefield_ERoT")),
     };
     let explored_chassis =
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
@@ -89,7 +110,7 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
         root = root.restrict_expand();
     }
 
-    let system = root
+    let mut systems_iter = root
         .systems()
         .await
         .map_err(Error::nv_redfish("systems"))?
@@ -97,9 +118,13 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
         .members()
         .await
         .map_err(Error::nv_redfish("systems members"))?
-        .into_iter()
+        .into_iter();
+
+    let first_system = systems_iter
         .next()
         .ok_or_else(Error::bmc_not_provided("at least one computer system"))?;
+    let other_system_with_bios = systems_iter.find(|system| system.raw().bios.is_some());
+    let system = other_system_with_bios.unwrap_or(first_system);
 
     let manager = root
         .managers()
@@ -115,6 +140,8 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
 
     let system_explore_config = computer_system::Config {
         need_oem_nvidia_bluefield: system.id().into_inner() == "Bluefield",
+        retry_404_on_eth_interfaces: system.id().into_inner() == "Bluefield",
+        explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
 
@@ -165,6 +192,10 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
             ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
             // Provides only one Chassis.
             Some(hw::HwType::LenovoAmi) => true,
+            Some(hw::HwType::LenovoGb300) => {
+                let chassis_id = chassis.chassis.id().into_inner();
+                chassis_id.starts_with("HGX_GPU_")
+            }
             // No meaningful PCIeDevices.
             Some(
                 hw::HwType::Bluefield
@@ -194,7 +225,7 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
                 &explored_chassis,
                 &explored_system,
                 &lockdown_status,
-                boot_interface_mac,
+                config.boot_interface_mac,
             )
         })
         .unwrap_or_else(|| MachineSetupStatus {
@@ -246,6 +277,9 @@ pub(crate) fn hw_type<B: Bmc>(
         .or_else(|| (oem_id == Some("Supermicro")).then_some("Supermicro"))
         .and_then(|vendor_id| match vendor_id {
             "AMI" if system.id().into_inner() == "DGX" => Some(hw::HwType::Viking),
+            "AMI" if explored_chassis.is_gb300() && explored_chassis.is_lenovo() => {
+                Some(hw::HwType::LenovoGb300)
+            }
             "AMI" => Some(hw::HwType::Ami),
             "Dell" => Some(hw::HwType::Dell),
             "Lenovo" if oem_id == Some("Ami") => Some(hw::HwType::LenovoAmi),
@@ -705,6 +739,20 @@ fn machine_setup_status<B: Bmc>(
                     expected: expected_name.to_string(),
                     actual: actual_opt.name().to_string(),
                 });
+            }
+        }
+
+        hw::HwType::LenovoGb300 => {
+            // Check BIOS configuration:
+            diffs.extend(
+                hw::lenovo_gb300::EXPECTED_BIOS_ATTRS
+                    .iter()
+                    .flat_map(|expected| explored_system.verify_bios_attr(expected)),
+            );
+            if let Some(mac) = boot_interface_mac
+                && let Some(diff) = explored_system.check_boot_by_uefi_prefix(mac)
+            {
+                diffs.push(diff)
             }
         }
 

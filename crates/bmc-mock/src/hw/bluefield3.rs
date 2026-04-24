@@ -20,10 +20,11 @@ use std::sync::Arc;
 
 use mac_address::MacAddress;
 use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, DpuData};
+use rpc::{NetworkInterface, PciDeviceProperties};
 use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 
-use crate::{LogService, LogServices, PowerControl, hw, redfish};
+use crate::{BootOptionKind, Callbacks, LogService, LogServices, hw, redfish};
 
 pub struct Bluefield3<'a> {
     pub product_serial_number: Cow<'a, str>,
@@ -35,8 +36,10 @@ pub struct Bluefield3<'a> {
 }
 
 pub enum Mode {
-    B3240ColdAisle,              // => P/N 900-9D3B6-00CN-PA0. Installed on WIWYNN GB200s.
-    SuperNIC { nic_mode: bool }, // => P/N 900-9D3B4-00CC-EA0 & 900-9D3B6-00CV-AA0
+    // P/N 900-9D3B6-00CN-PA0. Installed on WIWYNN GB200s / Lenovo GB300s.
+    B3240ColdAisle,
+    // P/N 900-9D3B4-00CC-EA0 & 900-9D3B6-00CV-AA0
+    SuperNIC { nic_mode: bool },
 }
 
 pub struct FirmwareVersions {
@@ -69,22 +72,14 @@ impl Bluefield3<'_> {
                     part_number: Some(Cow::Borrowed(self.part_number())),
                     pcie_devices: Some(vec![]),
                     serial_number: Some(self.product_serial_number.to_string().into()),
-                    sensors: None,
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Bluefield_ERoT".into(),
                     chassis_type: "Component".into(),
                     manufacturer: Some(Cow::Borrowed("NVIDIA")),
-                    model: None,
-                    network_adapters: None,
-                    part_number: None,
-                    pcie_devices: None,
                     serial_number: Some("".into()),
-                    sensors: None,
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "CPU_0".into(),
@@ -95,9 +90,7 @@ impl Bluefield3<'_> {
                     part_number: Some(format!("OPN: {}", self.opn()).into()),
                     serial_number: Some("Unspecified Serial Number".into()),
                     pcie_devices: Some(vec![]),
-                    sensors: None,
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Card1".into(),
@@ -112,17 +105,16 @@ impl Bluefield3<'_> {
                         "Card1",
                         Self::sensor_layout(),
                     )),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
             ],
         }
     }
 
-    pub fn system_config(&self, pc: Arc<dyn PowerControl>) -> redfish::computer_system::Config {
+    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
         let system_id = "Bluefield";
-        let boot_opt_builder = |id: &str| {
-            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
+        let boot_opt_builder = |id: &str, kind| {
+            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id), kind)
                 .boot_option_reference(id)
         };
         let nic_mode = if let hw::bluefield3::Mode::SuperNIC { nic_mode: true } = self.mode {
@@ -143,7 +135,7 @@ impl Bluefield3<'_> {
                 })
                 .collect();
         let boot_options = [
-            boot_opt_builder("Boot0040")
+            boot_opt_builder("Boot0040", BootOptionKind::Disk)
                 .display_name("ubuntu0")
                 .uefi_device_path("HD(1,GPT,2FAFB38D-05F6-DF41-AE01-F9991E2CC0F0,0x800,0x19000)/\\EFI\\ubuntu\\shimaa64.efi")
                 .build()
@@ -153,7 +145,7 @@ impl Bluefield3<'_> {
                 .replace(':', "")
                 .to_ascii_uppercase();
             vec![
-                boot_opt_builder("Boot0000")
+                boot_opt_builder("Boot0000", BootOptionKind::Network)
                     .display_name("NET-OOB-IPV4-HTTP")
                     .uefi_device_path(&format!("MAC({mocked_mac_no_colons},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"))
                     .build(),
@@ -168,8 +160,8 @@ impl Bluefield3<'_> {
                 eth_interfaces: Some(eth_interfaces),
                 chassis: vec!["Bluefield_BMC".into()],
                 serial_number: Some(self.product_serial_number.to_string().into()),
-                boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
-                power_control: Some(pc),
+                boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
+                callbacks: Some(callbacks),
                 boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::NvidiaBluefield,
@@ -201,15 +193,16 @@ impl Bluefield3<'_> {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "Bluefield_BMC",
-                eth_interfaces: vec![
+                eth_interfaces: Some(vec![
                     redfish::ethernet_interface::builder(
                         &redfish::ethernet_interface::manager_resource("Bluefield_BMC", "eth0"),
                     )
                     .mac_address(self.bmc_mac_address)
                     .interface_enabled(true)
                     .build(),
-                ],
-                firmware_version: "BF-23.10-4",
+                ]),
+                host_interfaces: None,
+                firmware_version: Some("BF-23.10-4"),
                 oem: None,
             }],
         }
@@ -244,18 +237,33 @@ impl Bluefield3<'_> {
         }
     }
 
-    pub fn host_nic(&self) -> hw::nic::Nic {
+    pub fn host_nic(&self) -> hw::nic::Nic<'static> {
         hw::nic::Nic {
             mac_address: self.host_mac_address,
             // This how it represented on host with number of trailing
             // whitespaces.
-            serial_number: format!("{}                 ", self.product_serial_number),
+            serial_number: Some(format!("{}                 ", self.product_serial_number).into()),
             manufacturer: Some("Mellanox Technologies".into()),
             model: Some("BlueField-3 SmartNIC Main Card".into()),
             description: Some(
                 "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
             ),
             part_number: Some(self.part_number().into()),
+            firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
+            is_mat_dpu: true,
+        }
+    }
+
+    pub fn host_nic_h100_variant(&self) -> hw::nic::Nic<'static> {
+        hw::nic::Nic {
+            mac_address: self.host_mac_address,
+            // This how it represented on host with number of trailing
+            // whitespaces.
+            serial_number: Some(format!("{}                 ", self.product_serial_number).into()),
+            manufacturer: Some("MLNX".into()),
+            model: Some("D3B6           ".into()),
+            description: None,
+            part_number: Some(format!("{}       ", self.part_number()).into()),
             firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
             is_mat_dpu: true,
         }
@@ -313,6 +321,27 @@ impl Bluefield3<'_> {
             tpm_ek_certificate: None,
             tpm_description: None,
             ..Default::default()
+        }
+    }
+
+    pub fn host_nic_discovery_info(
+        &self,
+        path: &str,
+        slot: &str,
+        numa_node: i32,
+    ) -> NetworkInterface {
+        NetworkInterface {
+            mac_address: self.host_mac_address.to_string(),
+            pci_properties: Some(PciDeviceProperties {
+                vendor: "Mellanox Technologies".into(),
+                device: "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
+                path: path.into(),
+                numa_node,
+                description: Some(
+                    "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
+                ),
+                slot: Some(slot.into()),
+            }),
         }
     }
 

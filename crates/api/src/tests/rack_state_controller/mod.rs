@@ -20,10 +20,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_uuid::rack::RackId;
-use db::rack as db_rack;
-use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
-use rpc::forge::RackStateHistoryRecord;
+use carbide_uuid::rack::{RackId, RackProfileId};
+use db::db_read::DbReader;
+use db::{self, ObjectColumnFilter, machine as db_machine, rack as db_rack};
+use model::expected_machine::ExpectedMachineData;
+use model::machine::ManagedHostState;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::rack::{
+    FirmwareUpgradeState, NvosUpdateState, Rack, RackConfig, RackMaintenanceState, RackState,
+    RackValidationState, ResolvedNvosArtifact,
+};
+use rpc::forge::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
 use tokio_util::sync::CancellationToken;
 
@@ -34,11 +41,16 @@ use crate::state_controller::rack::io::RackStateControllerIO;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
-use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_test_env, create_test_env_with_overrides,
+};
 
 mod fixtures;
-use fixtures::rack::{mark_rack_as_deleted, set_rack_controller_state};
+mod handler;
+use fixtures::rack::set_rack_controller_state;
+
+use crate::state_controller::rack::handler::RackStateHandler;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestRackStateHandler {
@@ -60,7 +72,7 @@ impl StateHandler for TestRackStateHandler {
         rack_id: &RackId,
         state: &mut Rack,
         controller_state: &Self::ControllerState,
-        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *rack_id);
         self.count.fetch_add(1, Ordering::SeqCst);
@@ -69,26 +81,68 @@ impl StateHandler for TestRackStateHandler {
             *guard.entry(rack_id.to_string()).or_default() += 1;
         }
 
+        // Mirror the real handler: if the rack is marked deleted in DB,
+        // transition to Deleting regardless of current state.
+        if state.deleted.is_some() && !matches!(controller_state, RackState::Deleting) {
+            return Ok(StateHandlerOutcome::transition(RackState::Deleting));
+        }
+
         let state = match controller_state {
-            RackState::Expected => RackState::Discovering,
-
-            RackState::Discovering => RackState::Ready {
-                rack_ready: RackReadyState::Partial,
-            },
-
-            RackState::Ready {
-                rack_ready: ready_state,
-            } => match ready_state {
-                RackReadyState::Partial => RackState::Ready {
-                    rack_ready: RackReadyState::Full,
+            RackState::Created => RackState::Discovering,
+            RackState::Discovering => RackState::Maintenance {
+                maintenance_state: RackMaintenanceState::FirmwareUpgrade {
+                    rack_firmware_upgrade: FirmwareUpgradeState::Start,
                 },
-                RackReadyState::Full => RackState::Maintenance {
-                    rack_maintenance: RackMaintenanceState::RackValidation {
-                        rack_validation: RackValidationState::Topology,
+            },
+            RackState::Maintenance { maintenance_state } => match maintenance_state {
+                RackMaintenanceState::FirmwareUpgrade { .. } => RackState::Maintenance {
+                    maintenance_state: RackMaintenanceState::NVOSUpdate {
+                        nvos_update: NvosUpdateState::Start {
+                            artifact: ResolvedNvosArtifact {
+                                firmware_id: "test-firmware".to_string(),
+                                image_filename: "test-nvos.bin".to_string(),
+                                local_file_path: "/tmp/test-nvos.bin".to_string(),
+                                version: Some("test-version".to_string()),
+                            },
+                        },
                     },
                 },
+                RackMaintenanceState::NVOSUpdate { .. } => RackState::Maintenance {
+                    maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
+                },
+                RackMaintenanceState::ConfigureNmxCluster => RackState::Maintenance {
+                    maintenance_state: RackMaintenanceState::Completed,
+                },
+                RackMaintenanceState::Completed => RackState::Validating {
+                    validating_state: RackValidationState::Pending,
+                },
+                _ => return Ok(StateHandlerOutcome::do_nothing()),
             },
-
+            RackState::Validating { validating_state } => match validating_state {
+                RackValidationState::Pending => RackState::Validating {
+                    validating_state: RackValidationState::InProgress {
+                        run_id: "test-run".to_string(),
+                    },
+                },
+                RackValidationState::InProgress { run_id } => RackState::Validating {
+                    validating_state: RackValidationState::Partial {
+                        run_id: run_id.clone(),
+                    },
+                },
+                RackValidationState::Partial { run_id } => RackState::Validating {
+                    validating_state: RackValidationState::Validated {
+                        run_id: run_id.clone(),
+                    },
+                },
+                RackValidationState::Validated { .. } => RackState::Ready,
+                _ => return Ok(StateHandlerOutcome::do_nothing()),
+            },
+            RackState::Deleting => {
+                // Rack is being deleted
+                let mut txn = ctx.services.db_pool.begin().await?;
+                db::rack::final_delete(&mut txn, rack_id).await?;
+                return Ok(StateHandlerOutcome::deleted().with_txn(txn));
+            }
             _ => return Ok(StateHandlerOutcome::do_nothing()),
         };
 
@@ -96,10 +150,7 @@ impl StateHandler for TestRackStateHandler {
     }
 }
 
-fn validate_state_change_history(
-    histories: &[RackStateHistoryRecord],
-    expected: &Vec<&str>,
-) -> bool {
+fn validate_state_change_history(histories: &[StateHistoryRecord], expected: &Vec<&str>) -> bool {
     for &s in expected {
         if !histories.iter().any(|e| e.state == s) {
             return false;
@@ -109,38 +160,62 @@ fn validate_state_change_history(
 }
 
 #[crate::sqlx_test]
-async fn test_can_retrieve_rack_state_history(
+async fn test_can_retrieve_rack_state_history_with_real_handler(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(handler::config_with_rack_profiles()),
+            ..Default::default()
+        },
+    )
+    .await;
 
-    // Create a rack
+    // Create rack and both compute machines before starting the controller.
+    // Using "Simple" capabilities (compute=2, switch=0, power_shelf=0) so
+    // Created -> Discovering fires once both machines are linked, without
+    // requiring switches or power shelves.
+    let machine_id_1 = handler::new_machine_id(1);
+    let machine_id_2 = handler::new_machine_id(2);
     let mut txn = pool.acquire().await?;
     let rack_id = TestRackDbBuilder::new()
-        .with_expected_compute_trays(vec![
-            [0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
-            [0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
-        ])
-        .with_expected_power_shelves(vec![
-            [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
-            [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
-        ])
+        .with_rack_profile_id("Simple")
         .persist(&mut txn)
         .await?;
 
-    // Verify rack exists
-    db_rack::get(&mut *txn, rack_id).await?;
+    // Insert machine records directly, bypassing the full machine state machine
+    // since this test exercises the rack SM only.
+    let rack_data = ExpectedMachineData {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    };
+    db_machine::create(
+        &mut txn,
+        None,
+        &machine_id_1,
+        ManagedHostState::Ready,
+        Some(&rack_data),
+        2,
+    )
+    .await?;
+    db_machine::create(
+        &mut txn,
+        None,
+        &machine_id_2,
+        ManagedHostState::Ready,
+        Some(&rack_data),
+        2,
+    )
+    .await?;
 
-    // Start the state controller to process the rack while it's active
-    let rack_handler = Arc::new(TestRackStateHandler::default());
-    const ITERATION_TIME: Duration = Duration::from_millis(50);
-
+    // Run the real handler through the controller.
+    let rack_handler = Arc::new(RackStateHandler::default());
     let handler_services = Arc::new(env.state_handler_services());
-
     let cancel_token = CancellationToken::new();
     let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
-            iteration_time: ITERATION_TIME,
+            iteration_time: Duration::from_millis(50),
             processor_dispatch_interval: Duration::from_millis(10),
             ..Default::default()
         })
@@ -151,280 +226,252 @@ async fn test_can_retrieve_rack_state_history(
         .build_for_manual_iterations(cancel_token.clone())
         .unwrap();
 
-    // iterate a few times to get state history
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
+    //--------------------------------------------------------------------------
+
+    // Iteration 1: Created -> Discovering.
+    // Both compute machines are present; Simple caps require no switches or
+    // power shelves, so Created transitions immediately.
     controller.run_single_iteration().await;
 
-    // get state history
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(rack.controller_state.value, RackState::Discovering),
+        "Expected rack to be in Discovering, got: {:?}",
+        rack.controller_state.value
+    );
 
-    let state_histories_request = rpc::forge::RackStateHistoriesRequest {
-        rack_ids: vec![rack_id],
-    };
+    //--------------------------------------------------------------------------
 
+    // Iteration 2: Discovering -> Maintenance(FirmwareUpgrade(Start)).
+    // Both machines are already Ready (created above).
+    controller.run_single_iteration().await;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(
+            rack.controller_state.value,
+            RackState::Maintenance {
+                maintenance_state: RackMaintenanceState::FirmwareUpgrade { .. }
+            }
+        ),
+        "Expected rack to be in Maintenance(FirmwareUpgrade), got: {:?}",
+        rack.controller_state.value
+    );
+
+    //--------------------------------------------------------------------------
+
+    // Iterations 3-5: FirmwareUpgrade -> Completed.
+    //
+    // The test handler uses a simplified maintenance sequence:
+    // FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> Completed.
+    controller.run_single_iteration().await; // FirmwareUpgrade(Start) -> NVOSUpdate(Start)
+    controller.run_single_iteration().await; // NVOSUpdate(Start) -> ConfigureNmxCluster
+    controller.run_single_iteration().await; // ConfigureNmxCluster -> Completed
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(
+            rack.controller_state.value,
+            RackState::Maintenance {
+                maintenance_state: RackMaintenanceState::Completed
+            }
+        ),
+        "Expected rack to be in Maintenance(Completed), got: {:?}",
+        rack.controller_state.value
+    );
+
+    // Iteration 6: Maintenance(Completed) -> Validating(Pending).
+    // The handler clears rv.* labels (none present yet) and transitions.
+    controller.run_single_iteration().await;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(
+            rack.controller_state.value,
+            RackState::Validating {
+                validating_state: RackValidationState::Pending,
+            }
+        ),
+        "Expected rack to be in Validating(Pending), got: {:?}",
+        rack.controller_state.value
+    );
+
+    //--------------------------------------------------------------------------
+
+    // --- Setup for iterations 7-10: Validation states ---
+    //
+    // Set rv.* labels on both compute trays so the real handler can drive the
+    // validation sub-state machine. Both machines are assigned to the same
+    // partition ("p0") and marked "pass", which is the minimal happy path:
+    // one partition, all nodes validated.
+    {
+        let mut txn = pool.begin().await?;
+        let machines = db_machine::find(
+            &mut *txn,
+            db::ObjectFilter::List(&[machine_id_1, machine_id_2]),
+            MachineSearchConfig::default(),
+        )
+        .await?;
+        for machine in machines {
+            let mut metadata = machine.metadata.clone();
+            metadata
+                .labels
+                .insert("rv.run-id".to_string(), "test-run".to_string());
+            metadata
+                .labels
+                .insert("rv.part-id".to_string(), "p0".to_string());
+            metadata
+                .labels
+                .insert("rv.st".to_string(), "pass".to_string());
+            db_machine::update_metadata(&mut txn, &machine.id, machine.version, metadata).await?;
+        }
+        txn.commit().await?;
+    }
+
+    // Iteration 7: Validating(Pending) -> Validating(InProgress).
+    // The handler finds rv.run-id on a machine and promotes to InProgress.
+    controller.run_single_iteration().await;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(
+            rack.controller_state.value,
+            RackState::Validating {
+                validating_state: RackValidationState::InProgress { .. }
+            }
+        ),
+        "Expected Validating(InProgress), got: {:?}",
+        rack.controller_state.value
+    );
+
+    //--------------------------------------------------------------------------
+
+    // Iteration 8: Validating(InProgress) -> Validating(Partial).
+    // Partition p0 has validated > 0 (both nodes pass), so InProgress -> Partial.
+    controller.run_single_iteration().await;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(
+            rack.controller_state.value,
+            RackState::Validating {
+                validating_state: RackValidationState::Partial { .. }
+            }
+        ),
+        "Expected Validating(Partial), got: {:?}",
+        rack.controller_state.value
+    );
+
+    //--------------------------------------------------------------------------
+
+    // Iteration 9: Validating(Partial) -> Validating(Validated).
+    // validated(1) == total_partitions(1) -> Validated.
+    controller.run_single_iteration().await;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(
+            rack.controller_state.value,
+            RackState::Validating {
+                validating_state: RackValidationState::Validated { .. }
+            }
+        ),
+        "Expected Validating(Validated), got: {:?}",
+        rack.controller_state.value
+    );
+
+    //--------------------------------------------------------------------------
+
+    // Iteration 10: Validating(Validated) -> Ready.
+    controller.run_single_iteration().await;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(rack.controller_state.value, RackState::Ready),
+        "Expected Ready, got: {:?}",
+        rack.controller_state.value
+    );
+
+    //--------------------------------------------------------------------------
+
+    // Verify the history RPC contains records for all transitions.
     let result = env
         .api
-        .find_rack_state_histories(tonic::Request::new(state_histories_request))
+        .find_rack_state_histories(tonic::Request::new(rpc::forge::RackStateHistoriesRequest {
+            rack_ids: vec![rack_id.clone()],
+        }))
         .await?;
-
     let mut histories = result.into_inner().histories;
-
     let records = histories
         .remove(&rack_id.to_string())
         .unwrap_or_default()
         .records;
 
-    assert!(records.len() > 1);
-
-    // we should have run through a few states, validate that we did.
+    // States are serialized via serde with #[serde(tag = "state", rename_all = "snake_case")].
     let expected = vec![
         "{\"state\": \"discovering\"}",
-        "{\"state\": \"ready\", \"rack_ready\": \"Partial\"}",
-        "{\"state\": \"ready\", \"rack_ready\": \"Full\"}",
-        "{\"state\": \"maintenance\", \"rack_maintenance\": {\"RackValidation\": {\"rack_validation\": \"Topology\"}}}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Start\"}}}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": \"Completed\"}",
+        "{\"state\": \"validating\", \"validating_state\": \"Pending\"}",
+        "{\"state\": \"validating\", \"validating_state\": {\"Validated\": {\"run_id\": \"test-run\"}}}",
+        "{\"state\": \"ready\"}",
     ];
     assert!(validate_state_change_history(&records, &expected));
 
     Ok(())
 }
 
+/// Verifies (via the full controller) that a rack in Error state stays in
+/// Error state.
+///
+/// Compare with `handler::test_error_state_does_nothing`, which tests the
+/// same behaviour by calling the handler directly — without the controller
+/// ceremony.
 #[crate::sqlx_test]
-async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    // Create a rack
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
-    let mut txn = pool.acquire().await?;
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
-        .persist(&mut txn)
-        .await?;
-
-    // Verify rack exists
-    let rack = db_rack::get(&mut *txn, rack_id).await?;
-
-    // Verify initial state is Expected
-    assert!(matches!(rack.controller_state.value, RackState::Expected));
-
-    // Start the state controller
-    let rack_handler = Arc::new(TestRackStateHandler::default());
-    const ITERATION_TIME: Duration = Duration::from_millis(50);
-
-    let handler_services = Arc::new(env.state_handler_services());
-
-    let cancel_token = CancellationToken::new();
-    let mut controller = StateController::<RackStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: ITERATION_TIME,
-            processor_dispatch_interval: Duration::from_millis(10),
-            ..Default::default()
-        })
-        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(handler_services.clone())
-        .state_handler(rack_handler.clone())
-        .build_for_manual_iterations(cancel_token.clone())
-        .unwrap();
-
-    // iterate a few times
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-
-    // Verify that the handler was called
-    let count = rack_handler.count.load(Ordering::SeqCst);
-    assert!(
-        count > 0,
-        "State handler should have been called at least once"
-    );
-
-    // Verify that the rack ID was processed
-    let guard = rack_handler.counts_per_id.lock().unwrap();
-    let rack_id_str = rack_id.to_string();
-    let count = guard.get(&rack_id_str).copied().unwrap_or_default();
-    assert!(count > 0, "Rack ID should have been processed");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    // Create a rack
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
-    let mut txn = pool.acquire().await?;
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
-        .persist(&mut txn)
-        .await?;
-
-    // Verify rack exists
-    let rack = db_rack::get(&mut *txn, rack_id).await?;
-    assert_eq!(rack.id, rack_id);
-
-    // Start the state controller to process the rack while it's active
-    let rack_handler = Arc::new(TestRackStateHandler::default());
-    const ITERATION_TIME: Duration = Duration::from_millis(50);
-
-    let handler_services = Arc::new(env.state_handler_services());
-
-    let cancel_token = CancellationToken::new();
-    let mut controller = StateController::<RackStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: ITERATION_TIME,
-            processor_dispatch_interval: Duration::from_millis(10),
-            ..Default::default()
-        })
-        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(handler_services.clone())
-        .state_handler(rack_handler.clone())
-        .build_for_manual_iterations(cancel_token.clone())
-        .unwrap();
-
-    controller.run_single_iteration().await;
-
-    // Verify that the handler was called while the rack was active
-    let count_before_deletion = rack_handler.count.load(Ordering::SeqCst);
-    assert!(
-        count_before_deletion > 0,
-        "State handler should have been called while rack was active"
-    );
-
-    // Mark the rack as deleted
-    mark_rack_as_deleted(pool.acquire().await?.as_mut(), rack_id).await?;
-
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-
-    // Verify that the handler count didn't increase significantly after deletion
-    // (since deleted racks should not be processed)
-    let count_after_deletion = rack_handler.count.load(Ordering::SeqCst);
-    let count_increase = count_after_deletion - count_before_deletion;
-
-    // The count might increase slightly due to timing, but should not increase significantly
-    // since deleted racks are excluded from processing
-    assert!(
-        count_increase < 5,
-        "State handler should not process deleted racks significantly. Count increase: {}",
-        count_increase
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_rack_error_state_handling(
+async fn test_error_state_does_nothing_with_controller(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
 
-    // Create a rack
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.acquire().await?;
     TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
+        .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
 
-    // Manually set the rack to error state for testing
-    let error_state = RackState::Error {
-        cause: "Test error state".to_string(),
-    };
-
-    // Update the controller state directly in the database
-    set_rack_controller_state(pool.acquire().await?.as_mut(), rack_id, error_state).await?;
-
-    // Start the state controller
-    let rack_handler = Arc::new(TestRackStateHandler::default());
-    const ITERATION_TIME: Duration = Duration::from_millis(50);
-
-    let handler_services = Arc::new(env.state_handler_services());
-
-    let cancel_token = CancellationToken::new();
-    let mut controller = StateController::<RackStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: ITERATION_TIME,
-            processor_dispatch_interval: Duration::from_millis(10),
-            ..Default::default()
-        })
-        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(handler_services.clone())
-        .state_handler(rack_handler.clone())
-        .build_for_manual_iterations(cancel_token.clone())
-        .unwrap();
-
-    controller.run_single_iteration().await;
-
-    // Verify that the handler was called even in error state
-    let count = rack_handler.count.load(Ordering::SeqCst);
-    assert!(
-        count > 0,
-        "State handler should have been called in error state"
-    );
-
-    // Verify that the rack ID was processed
-    let guard = rack_handler.counts_per_id.lock().unwrap();
-    let rack_id_str = rack_id.to_string();
-    let count = guard.get(&rack_id_str).copied().unwrap_or_default();
-    assert!(
-        count > 0,
-        "Rack ID should have been processed in error state"
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_rack_state_transition_validation(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Create a rack
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
-    let mut txn = pool.acquire().await?;
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
-        .persist(&mut txn)
-        .await?;
-    let rack = db_rack::get(&mut *txn, rack_id).await?;
-
-    // Verify initial state is Expected
-    assert!(matches!(rack.controller_state.value, RackState::Expected));
-
-    // Test state transitions by manually setting different states
-    let states = vec![
-        RackState::Discovering,
-        RackState::Maintenance {
-            rack_maintenance: RackMaintenanceState::Completed,
-        },
-        RackState::Ready {
-            rack_ready: RackReadyState::Partial,
-        },
-        RackState::Ready {
-            rack_ready: RackReadyState::Full,
-        },
+    set_rack_controller_state(
+        pool.acquire().await?.as_mut(),
+        &rack_id,
         RackState::Error {
-            cause: "Test error".to_string(),
+            cause: "test error".to_string(),
         },
-        RackState::Deleting,
-    ];
+    )
+    .await?;
 
-    for state in states {
-        set_rack_controller_state(pool.acquire().await?.as_mut(), rack_id, state.clone()).await?;
+    let rack_handler = Arc::new(RackStateHandler::default());
+    let handler_services = Arc::new(env.state_handler_services());
+    let cancel_token = CancellationToken::new();
+    let mut controller = StateController::<RackStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: Duration::from_millis(50),
+            processor_dispatch_interval: Duration::from_millis(10),
+            ..Default::default()
+        })
+        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
+        .services(handler_services)
+        .state_handler(rack_handler)
+        .build_for_manual_iterations(cancel_token.clone())
+        .unwrap();
 
-        // Verify the state was set correctly
-        let rack = db_rack::get(&pool, rack_id).await?;
-        assert!(matches!(rack.controller_state.value, _ if rack.controller_state.value == state));
-    }
+    controller.run_single_iteration().await;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        matches!(rack.controller_state.value, RackState::Error { .. }),
+        "Error state should not transition"
+    );
 
     Ok(())
 }
@@ -436,10 +483,10 @@ async fn test_rack_deletion_with_state_controller(
     let env = create_test_env(pool.clone()).await;
 
     // Create a rack
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.acquire().await?;
     TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
+        .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
 
@@ -465,17 +512,10 @@ async fn test_rack_deletion_with_state_controller(
 
     controller.run_single_iteration().await;
 
-    // Verify that the handler was called while the rack was active
-    let count_before_deletion = rack_handler.count.load(Ordering::SeqCst);
-    assert!(
-        count_before_deletion > 0,
-        "State handler should have been called while rack was active"
-    );
-
     // Mark the rack as deleted
-    mark_rack_as_deleted(pool.acquire().await?.as_mut(), rack_id).await?;
+    db::rack::mark_as_deleted(&rack_id, pool.acquire().await?.as_mut()).await?;
 
-    // Let the controller run for a bit more after marking as deleted
+    // Let the controller continue to run
     controller.run_single_iteration().await;
     controller.run_single_iteration().await;
     controller.run_single_iteration().await;
@@ -490,18 +530,99 @@ async fn test_rack_deletion_with_state_controller(
     controller.run_single_iteration().await;
     controller.run_single_iteration().await;
 
-    // Verify that the handler count didn't increase significantly after marking as deleted
-    // (since deleted racks should not be processed)
-    let count_after_deletion = rack_handler.count.load(Ordering::SeqCst);
-    let count_increase = count_after_deletion - count_before_deletion;
-
-    // The count might increase slightly due to timing, but should not increase significantly
-    // since deleted racks are excluded from processing
-    assert!(
-        count_increase <= 5, // Allow for some timing-related calls
-        "State handler should not process deleted racks significantly. Count increase: {}",
-        count_increase
-    );
+    // Verify that the DB object is gone
+    let racks = env
+        .api
+        .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+            rack_ids: vec![rack_id],
+        }))
+        .await?
+        .into_inner()
+        .racks;
+    assert!(racks.is_empty());
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_rack_controller_state_version_increment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Create a rack
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+    let mut txn = pool.begin().await?;
+    db_rack::create(
+        &mut txn,
+        &rack_id,
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
+
+    // Verify initial state
+    let rack = get_db_rack(txn.as_mut(), &rack_id).await;
+    assert!(matches!(rack.controller_state.value, RackState::Created));
+    let initial_version = rack.controller_state.version;
+
+    // Update controller state with correct version
+    let new_version = initial_version.increment();
+    let updated = db_rack::try_update_controller_state(
+        &mut txn,
+        &rack_id,
+        initial_version,
+        new_version,
+        &RackState::Discovering,
+    )
+    .await?;
+    assert!(updated, "update with correct version should succeed");
+
+    // Verify version was incremented
+    let rack = get_db_rack(txn.as_mut(), &rack_id).await;
+    assert_eq!(
+        rack.controller_state.version.version_nr(),
+        initial_version.version_nr() + 1,
+        "version should be incremented after update"
+    );
+
+    // Trying to update with the old version should fail (optimistic lock)
+    let stale_update = db_rack::try_update_controller_state(
+        &mut txn,
+        &rack_id,
+        initial_version,
+        initial_version.increment(),
+        &RackState::Ready,
+    )
+    .await?;
+    assert!(
+        !stale_update,
+        "update with stale version should be rejected"
+    );
+
+    // Updating with the current version should succeed
+    let current_version = rack.controller_state.version;
+    let updated_again = db_rack::try_update_controller_state(
+        &mut txn,
+        &rack_id,
+        current_version,
+        current_version.increment(),
+        &RackState::Ready,
+    )
+    .await?;
+    assert!(updated_again, "update with current version should succeed");
+
+    txn.rollback().await?;
+
+    Ok(())
+}
+
+async fn get_db_rack<DB>(conn: &mut DB, rack_id: &RackId) -> Rack
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    db_rack::find_by(conn, ObjectColumnFilter::One(db_rack::IdColumn, rack_id))
+        .await
+        .unwrap()
+        .pop()
+        .unwrap()
 }

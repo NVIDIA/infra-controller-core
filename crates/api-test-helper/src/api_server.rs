@@ -83,11 +83,10 @@ pub async fn start(
         enable_route_servers = false
         deny_prefixes = []
         site_fabric_prefixes = []
-        dpu_ipmi_tool_impl = "test"
+        dpu_ipmi_tool_impl = "bmc-mock"
         initial_domain_name = "{DOMAIN_NAME}"
         initial_dpu_agent_upgrade_policy = "off"
         max_concurrent_machine_updates = 1
-        nvue_enabled = true
         attestation_enabled = false
         max_find_by_ids = 100
         internet_l3_vni = 1337
@@ -274,6 +273,10 @@ pub async fn start(
 
         [machine_validation_config]
         enabled = true
+
+        # [machine_identity] omitted: default is disabled. Enabling requires
+        # current_encryption_key_id and vault/file credentials for encryption_keys;
+        # populate_initial_vault_secrets does not seed those for integration tests.
     "#
         )
     };

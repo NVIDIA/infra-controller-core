@@ -17,7 +17,6 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
-use std::pin::Pin;
 
 use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge_api_client::ForgeApiClient;
@@ -52,21 +51,25 @@ mod dpu;
 mod dpu_remediation;
 mod expected_machines;
 mod expected_power_shelf;
+mod expected_rack;
 mod expected_switch;
 mod extension_service;
 mod firmware;
 mod generate_shell_complete;
+mod health_utils;
 mod host;
 mod ib_partition;
 mod instance;
 mod instance_type;
 mod inventory;
 mod ip;
+mod ipxe_template;
 mod jump;
 mod machine;
 mod machine_interfaces;
 mod machine_validation;
 mod managed_host;
+mod managed_switch;
 mod measurement;
 mod metadata;
 mod mlx;
@@ -74,8 +77,8 @@ mod network_devices;
 mod network_security_group;
 mod network_segment;
 mod nvlink_nmxc_endpoints;
-mod nvl_logical_partition;
 mod nvl_partition;
+mod operating_system;
 mod os_image;
 mod ping;
 mod power_shelf;
@@ -211,6 +214,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::DpuRemediation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedMachine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedPowerShelf(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedRack(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedSwitch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExtensionService(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Firmware(cmd) => cmd.dispatch(ctx).await?,
@@ -222,19 +226,21 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::Inventory(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ip(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Jump(cmd) => cmd.dispatch(ctx).await?,
-        CliCommand::LogicalPartition(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Machine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::MachineInterfaces(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::MachineValidation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ManagedHost(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ManagedSwitch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Measurement(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Mlx(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkDevice(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkSecurityGroup(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlinkNmxcEndpoints(cmd) => cmd.dispatch(ctx).await?,
-        CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NvlinkPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::IpxeTemplate(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OsImage(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::OperatingSystem(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ping(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::PowerShelf(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Rack(cmd) => cmd.dispatch(ctx).await?,
@@ -272,16 +278,16 @@ async fn main() -> color_eyre::Result<()> {
 
 pub async fn get_output_file_or_stdout(
     output_filename: Option<&str>,
-) -> Result<Pin<Box<dyn tokio::io::AsyncWrite>>, CarbideCliError> {
-    let output: Pin<Box<dyn tokio::io::AsyncWrite>> = if let Some(filename) = output_filename {
+) -> Result<Box<dyn tokio::io::AsyncWrite + Unpin>, CarbideCliError> {
+    let output: Box<dyn tokio::io::AsyncWrite + Unpin> = if let Some(filename) = output_filename {
         let file = tokio::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(filename)
             .await?;
-        Box::pin(file)
+        Box::new(file)
     } else {
-        Box::pin(tokio::io::stdout())
+        Box::new(tokio::io::stdout())
     };
     Ok(output)
 }

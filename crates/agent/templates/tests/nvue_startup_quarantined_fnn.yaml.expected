@@ -110,6 +110,12 @@
         enable: on
       policy:
         community-list:
+          BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST:
+            rule:
+              '10':
+                action: permit
+                community:
+                  65100:02: {}
           BYOIP_LEAK_COMMUNITY_LIST:
             rule:
               '10':
@@ -133,6 +139,14 @@
                 action: permit
                 match:
                   10.255.254.253/32: {}
+
+          ALLOW_TO_UNDERLAY_PREFIX_LIST_IPV6:
+            type: ipv6
+            rule:
+              '65535':
+                action: deny
+                match:
+                  any: {}
           DPU_FROM_INSTANCE_PREFIX_LIST:
             rule:
               '1000':
@@ -154,6 +168,20 @@
                 action: deny
                 match:
                   any: {}
+          DPU_FROM_INSTANCE_PREFIX_LIST_IPV6:
+            type: ipv6
+            rule:
+              '65535':
+                action: deny
+                match:
+                  any: {}
+          DPU_FROM_TRAFFIC_INTERCEPT_PEER_PREFIX_LIST_IPV6:
+            type: ipv6
+            rule:
+              '65535':
+                action: deny
+                match:
+                  any: {}
           DPU_TO_EVPN_DROP_PREFIX_LIST:
             rule:
               '10':
@@ -168,6 +196,11 @@
         route-map:
           dpu_to_evpn:
             rule:
+              '9':
+                action:
+                  deny: {}
+                match:
+                  tag: 65102
               '10':
                 action:
                   deny: {}
@@ -195,12 +228,48 @@
                   permit: {}
           leak_to_underlay:
             rule:
+              '65532':
+                action:
+                  permit: {}
+                match:
+                  tag: 65102
+                set:
+                  community:
+                    none: {}
+                  large-community:
+                    none: {}
               '65533':
                 action:
                   permit: {}
                 match:
                   type: ipv4
                   ip-prefix-list: ALLOW_TO_UNDERLAY_PREFIX_LIST
+                set:
+                  community:
+                    none: {}
+                  large-community:
+                    none: {}
+              '65534':
+                action:
+                  permit: {}
+                match:
+                  tag: 65100
+                set:
+                  community:
+                    none: {}
+                  large-community:
+                    none: {}
+              '65535':
+                action:
+                  deny: {}
+          leak_to_underlay_ipv6:
+            rule:
+              '65533':
+                action:
+                  permit: {}
+                match:
+                  type: ipv6
+                  ip-prefix-list: ALLOW_TO_UNDERLAY_PREFIX_LIST_IPV6
                 set:
                   community:
                     none: {}
@@ -248,28 +317,66 @@
                     none: {}
               '65535':
                 action:
-                  deny: {}
-          dpu_from_instance:
+                  deny: {}   
+          dpu_from_instance_vpc_1025186:
             rule:
-              '10':
-                action:
-                  permit: {}
-                match:
-                  type: ipv4
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST
-                  community-list: BYOIP_LEAK_COMMUNITY_LIST
-                set:
-                  tag: 65100
-                  community:
-                      none: {}
-                  large-community:
-                    none: {}
               '11':
                 action:
                   permit: {}
                 match:
                   type: ipv4
                   ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST
+                set:
+                  tag: 65101
+                  community:
+                      none: {}
+                  large-community:
+                    none: {}
+              '65535':
+                action:
+                  deny: {}
+          dpu_from_instance_ipv6_vpc_1025186:
+            rule:
+              '11':
+                action:
+                  permit: {}
+                match:
+                  type: ipv6
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6
+                set:
+                  tag: 65101
+                  community:
+                      none: {}
+                  large-community:
+                    none: {}
+              '65535':
+                action:
+                  deny: {}   
+          dpu_from_instance_vpc_1025197:
+            rule:
+              '11':
+                action:
+                  permit: {}
+                match:
+                  type: ipv4
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST
+                set:
+                  tag: 65101
+                  community:
+                      none: {}
+                  large-community:
+                    none: {}
+              '65535':
+                action:
+                  deny: {}
+          dpu_from_instance_ipv6_vpc_1025197:
+            rule:
+              '11':
+                action:
+                  permit: {}
+                match:
+                  type: ipv6
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6
                 set:
                   tag: 65101
                   community:
@@ -287,6 +394,36 @@
           dpu_to_traffic_intercept_gw_peer:
             rule:
               '10':
+                action:
+                  deny: {}
+          dpu_from_traffic_intercept_gw_peer_ipv6:
+            rule:
+              '10':
+                action:
+                  permit: {}
+                match:
+                  type: ipv6
+                  ip-prefix-list: DPU_FROM_TRAFFIC_INTERCEPT_PEER_PREFIX_LIST_IPV6
+                  community-list: BYOIP_LEAK_COMMUNITY_LIST
+                set:
+                  tag: 65100
+                  community:
+                    none: {}
+                  large-community:
+                    none: {}
+              '11':
+                action:
+                  permit: {}
+                match:
+                  type: ipv6
+                  ip-prefix-list: DPU_FROM_TRAFFIC_INTERCEPT_PEER_PREFIX_LIST_IPV6
+                set:
+                  tag: 65101
+                  community:
+                    none: {}
+                  large-community:
+                    none: {}
+              '65535':
                 action:
                   deny: {}
     system:
@@ -315,6 +452,29 @@
                 redistribute:
                   connected:
                     enable: on
+
+                route-import:
+                  from-vrf:
+                    route-map: leak_to_underlay
+                    enable: on
+                    list:
+                      vpc_1025186: {}
+                      vpc_1025197: {}
+              ipv6-unicast:
+                enable: on
+                multipaths:
+                  ebgp: 128
+                redistribute:
+                  connected:
+                    enable: on
+
+                route-import:
+                  from-vrf:
+                    route-map: leak_to_underlay_ipv6
+                    enable: on
+                    list:
+                      vpc_1025186: {}
+                      vpc_1025197: {}
               l2vpn-evpn:
                 enable: on
             enable: on
@@ -340,6 +500,8 @@
                 address-family:
                   ipv4-unicast:
                     enable: off
+                  ipv6-unicast:
+                    enable: off
                   l2vpn-evpn:
                     enable: on
                     policy:
@@ -354,7 +516,12 @@
                   ipv4-unicast:
                     policy:
                       outbound:
-                        route-map: leak_to_underlay  
+                        route-map: leak_to_underlay
+                  ipv6-unicast:
+                    enable: on
+                    policy:
+                      outbound:
+                        route-map: leak_to_underlay_ipv6
 
 
       vpc_1025186: 
@@ -373,6 +540,14 @@
                 aspath-ignore: on
             address-family:
               ipv4-unicast:
+                enable: on
+                redistribute:
+                  connected:
+                    enable: on
+                route-export:
+                  to-evpn:
+                    enable: on
+              ipv6-unicast:
                 enable: on
                 redistribute:
                   connected:
@@ -403,6 +578,13 @@
                         route-map: dpu_from_traffic_intercept_gw_peer
                       outbound:
                         route-map: dpu_to_traffic_intercept_gw_peer
+                  ipv6-unicast:
+                    enable: on
+                    policy:
+                      inbound:
+                        route-map: dpu_from_traffic_intercept_gw_peer_ipv6
+                      outbound:
+                        route-map: dpu_to_traffic_intercept_gw_peer
                 nexthop-connected-check: off
                 remote-as: external
                 timers:
@@ -415,7 +597,14 @@
                   ipv4-unicast:
                     policy:
                       inbound:
-                        route-map: dpu_from_instance
+                        route-map: dpu_from_instance_vpc_1025186
+                      outbound:
+                        route-map: dpu_to_instance
+                  ipv6-unicast:
+                    enable: on
+                    policy:
+                      inbound:
+                        route-map: dpu_from_instance_ipv6_vpc_1025186
                       outbound:
                         route-map: dpu_to_instance
                 nexthop-connected-check: off
@@ -461,6 +650,14 @@
                 route-export:
                   to-evpn:
                     enable: on
+              ipv6-unicast:
+                enable: on
+                redistribute:
+                  connected:
+                    enable: on
+                route-export:
+                  to-evpn:
+                    enable: on
             enable: on
             neighbor:
               10.217.5.170:
@@ -484,6 +681,13 @@
                         route-map: dpu_from_traffic_intercept_gw_peer
                       outbound:
                         route-map: dpu_to_traffic_intercept_gw_peer
+                  ipv6-unicast:
+                    enable: on
+                    policy:
+                      inbound:
+                        route-map: dpu_from_traffic_intercept_gw_peer_ipv6
+                      outbound:
+                        route-map: dpu_to_traffic_intercept_gw_peer
                 nexthop-connected-check: off
                 remote-as: external
                 timers:
@@ -496,7 +700,14 @@
                   ipv4-unicast:
                     policy:
                       inbound:
-                        route-map: dpu_from_instance
+                        route-map: dpu_from_instance_vpc_1025197
+                      outbound:
+                        route-map: dpu_to_instance
+                  ipv6-unicast:
+                    enable: on
+                    policy:
+                      inbound:
+                        route-map: dpu_from_instance_ipv6_vpc_1025197
                       outbound:
                         route-map: dpu_to_instance
                 nexthop-connected-check: off

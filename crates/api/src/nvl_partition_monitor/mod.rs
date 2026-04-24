@@ -25,8 +25,8 @@ use chrono::Utc;
 use config_version::Versioned;
 use db::machine::find_machine_ids;
 use db::managed_host::load_by_machine_ids;
-use db::nvl_logical_partition::{IdColumn as LpIdColumn, LogicalPartition};
-use db::nvl_partition::{IdColumn, NvlPartition, NvlPartitionName};
+use db::nvl_logical_partition::IdColumn as LpIdColumn;
+use db::nvl_partition::IdColumn;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, ObjectColumnFilter, machine};
 use metrics::{AppliedChange, NmxmPartitionOperationStatus, NvlPartitionMonitorMetrics};
@@ -36,14 +36,16 @@ use model::instance::status::nvlink::InstanceNvLinkStatus;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkStatusObservation};
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::nvl_logical_partition::LogicalPartition;
+use model::nvl_partition::{NvlPartition, NvlPartitionName};
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use utils::periodic_timer::PeriodicTimer;
 
 use crate::api::TransactionVending;
 use crate::cfg::file::NvLinkConfig;
-use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
 use libnmxc::nmxc_model::{GetPartitionInfoListRequest, PartitionInfo};
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
@@ -192,7 +194,7 @@ impl PartitionProcessingContext {
         if let Some(matching_logical_partition) =
             self.db_nvl_logical_partitions.get(logical_partition_id)
         {
-            if db::nvl_logical_partition::is_marked_as_deleted(matching_logical_partition) {
+            if model::nvl_logical_partition::is_marked_as_deleted(matching_logical_partition) {
                 tracing::error!(
                     "logical partition already marked as deleted, cannot modify physical partition"
                 );
@@ -1314,14 +1316,12 @@ impl NvlPartitionMonitor {
         mh: &ManagedHostStateSnapshot,
         partition_ctx: &mut PartitionProcessingContext,
     ) -> CarbideResult<()> {
-        // Check if machine is in admin network
-        let use_admin_network = mh
-            .dpu_snapshots
-            .iter()
-            .any(|dpu| dpu.network_config.use_admin_network.unwrap_or(true));
-
-        // If not on admin network, skip processing
-        if !use_admin_network {
+        // If not in admin-network mode, skip processing. GPUs should stay
+        // attached to tenant partitions, but zero-DPU hosts are always
+        // considered admin network (since they don't have a DPU to put them
+        // in an overlay network). In other words, zero-DPU hosts get GPU
+        // removals, but hosts with DPUs in tenant networks don't.
+        if !mh.use_admin_network() {
             return Ok(());
         }
 
@@ -1672,7 +1672,7 @@ impl NvlPartitionMonitor {
                 match operation.operation_type {
                     NmxcPartitionOperationType::Create => {
                         // Create the nvl partition in the database
-                        let new_partition = db::nvl_partition::NewNvlPartition {
+                        let new_partition = model::nvl_partition::NewNvlPartition {
                             id: NvLinkPartitionId::new(),
                             logical_partition_id,
                             name: NvlPartitionName::try_from(operation.name.clone())?,
@@ -1693,7 +1693,7 @@ impl NvlPartitionMonitor {
                                 }
                             },
                         };
-                        let _partition = new_partition.create(txn).await?;
+                        let _partition = db::nvl_partition::create(&new_partition, txn).await?;
                     }
                     NmxcPartitionOperationType::Remove(_) => {
                         db::nvl_partition::final_delete(
@@ -1716,7 +1716,7 @@ impl NvlPartitionMonitor {
 
         // walk the logical partition list and check if any logical partitions need to be cleaned up
         for lp in db_nvl_logical_partitions {
-            if db::nvl_logical_partition::is_marked_as_deleted(lp) {
+            if model::nvl_logical_partition::is_marked_as_deleted(lp) {
                 tracing::info!(logical_partition_id = %lp.id, "Deleting logical partition");
                 db::nvl_logical_partition::final_delete(lp.id, txn).await?;
             }

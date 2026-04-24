@@ -75,9 +75,43 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     ));
 
     // A reboot with flag `boot_with_custom_ipxe` should provide the custom iPXE
+    // The reboot is handled by the state machine, which makes sure the boot order is configured properly.
     invoke_instance_power(&env, tinstance.id, true).await;
+    env.run_machine_state_controller_iteration_until_state_condition(&mh.id, 5, |machine| {
+        matches!(
+            machine.current_state(),
+            model::machine::ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+                    platform_config_state:
+                        model::machine::HostPlatformConfigurationState::CheckHostConfig
+                }
+            }
+        )
+    })
+    .await;
+    mh.network_configured(&env).await;
+    env.run_machine_state_controller_iteration_until_state_condition(&mh.id, 5, |machine| {
+        matches!(
+            machine.current_state(),
+            model::machine::ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::WaitingForDpusToUp
+            }
+        )
+    })
+    .await;
+    mh.network_configured(&env).await;
+    env.run_machine_state_controller_iteration_until_state_condition(&mh.id, 5, |machine| {
+        matches!(
+            machine.current_state(),
+            model::machine::ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::Ready
+            }
+        )
+    })
+    .await;
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
+    env.run_machine_state_controller_iteration().await;
 
     // The next reboot should again lead to returning "exit"
     invoke_instance_power(&env, tinstance.id, false).await;
@@ -182,7 +216,7 @@ pub async fn create_instance<'a, 'b>(
     run_provisioning_instructions_on_every_boot: bool,
     segment_id: NetworkSegmentId,
 ) -> TestInstance<'a, 'b> {
-    let mut os: rpc::forge::OperatingSystem = default_os_config();
+    let mut os: rpc::forge::InstanceOperatingSystemConfig = default_os_config();
     os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
 
     let config = rpc::InstanceConfig {

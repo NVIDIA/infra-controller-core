@@ -23,7 +23,9 @@ use db::rack::IdColumn;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::rack::{Rack, RackState, state_sla};
+use model::rack::{
+    Rack, RackMaintenanceState, RackSearchFilter, RackState, RackValidationState, state_sla,
+};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -51,9 +53,7 @@ impl StateControllerIO for RackStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_rack::list(txn)
-            .await
-            .map(|racks| racks.into_iter().map(|r| r.id).collect())
+        db_rack::find_ids(txn, RackSearchFilter {}).await
     }
 
     /// Loads a state snapshot from the database
@@ -91,15 +91,21 @@ impl StateControllerIO for RackStateControllerIO {
         txn: &mut PgConnection,
         rack_id: &Self::ObjectId,
         old_version: ConfigVersion,
+        new_version: ConfigVersion,
+        new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db_rack::try_update_controller_state(txn, rack_id, old_version, new_version, new_state)
+            .await
+    }
+
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        rack_id: &Self::ObjectId,
+        new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let _updated =
-            db_rack::try_update_controller_state(txn, *rack_id, old_version, new_state).await?;
-
-        // Persist state history for debugging purposes
-        let _history =
-            db::rack_state_history::persist(txn, *rack_id, new_state, old_version).await?;
-
+        db::rack_state_history::persist(txn, rack_id, new_state, new_version).await?;
         Ok(())
     }
 
@@ -109,22 +115,41 @@ impl StateControllerIO for RackStateControllerIO {
         rack_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        db_rack::update_controller_state_outcome(txn, *rack_id, outcome).await
+        db_rack::update_controller_state_outcome(txn, rack_id, outcome).await
     }
 
     fn metric_state_names(state: &RackState) -> (&'static str, &'static str) {
         match state {
-            RackState::Expected => ("expected", ""),
+            RackState::Created => ("created", ""),
             RackState::Discovering => ("discovering", ""),
-            RackState::Maintenance { .. } => ("maintenance", ""),
-            RackState::Ready { .. } => ("ready", ""),
+            RackState::Validating { validating_state } => match validating_state {
+                RackValidationState::Pending => ("validation", "pending"),
+                RackValidationState::InProgress { .. } => ("validation", "in_progress"),
+                RackValidationState::Partial { .. } => ("validation", "partial"),
+                RackValidationState::FailedPartial { .. } => ("validation", "failed_partial"),
+                RackValidationState::Validated { .. } => ("validation", "validated"),
+                RackValidationState::Failed { .. } => ("validation", "failed"),
+            },
+            RackState::Ready => ("ready", ""),
+            RackState::Maintenance { maintenance_state } => match maintenance_state {
+                RackMaintenanceState::FirmwareUpgrade { .. } => ("maintenance", "firmware_upgrade"),
+                RackMaintenanceState::NVOSUpdate { .. } => ("maintenance", "nvos_update"),
+                RackMaintenanceState::ConfigureNmxCluster => {
+                    ("maintenance", "configure_nmx_cluster")
+                }
+                RackMaintenanceState::PowerSequence { .. } => ("maintenance", "power_sequence"),
+                RackMaintenanceState::Completed => ("maintenance", "completed"),
+            },
             RackState::Error { .. } => ("error", ""),
             RackState::Deleting => ("deleting", ""),
-            RackState::Unknown => ("unknown", ""),
         }
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
+    fn state_sla(
+        &self,
+        state: &Versioned<Self::ControllerState>,
+        _object_state: &Self::State,
+    ) -> StateSla {
         state_sla(&state.value, &state.version)
     }
 }

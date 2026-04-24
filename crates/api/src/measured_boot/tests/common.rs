@@ -24,11 +24,8 @@ use std::str::FromStr;
 use carbide_uuid::machine::MachineId;
 use measured_boot::machine::CandidateMachine;
 use model::hardware_info::HardwareInfo;
-use model::machine::ManagedHostState;
-use model::metadata::Metadata;
+use model::machine::{CURRENT_STATE_MODEL_VERSION, ManagedHostState};
 use sqlx::PgConnection;
-
-use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 
 pub fn load_topology_json(path: &str) -> HardwareInfo {
     const TEST_DATA_DIR: &str = concat!(
@@ -52,9 +49,7 @@ pub async fn create_test_machine(
         None,
         &machine_id,
         ManagedHostState::Ready,
-        &Metadata::default(),
         None,
-        true,
         CURRENT_STATE_MODEL_VERSION,
     )
     .await?;

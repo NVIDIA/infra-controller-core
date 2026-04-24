@@ -25,3 +25,12 @@ pub struct Args {
     #[clap(long, help = "Filter by rack ID(s)")]
     pub rack_id: Vec<String>,
 }
+
+impl From<Args> for rpc::forge::RackFirmwareHistoryRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            firmware_id: args.firmware_id.unwrap_or_default(),
+            rack_ids: args.rack_id,
+        }
+    }
+}

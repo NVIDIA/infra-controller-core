@@ -199,7 +199,7 @@ async fn test_remove_machine_update_markers(
     assert!(
         !managed_host
             .host_snapshot
-            .health_report_overrides
+            .health_reports
             .merges
             .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE)
     );
@@ -214,14 +214,10 @@ fn test_start(pool: sqlx::PgPool) {
     let test_module = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
-    let work_lock_manager_handle = db::work_lock_manager::start(
-        &mut join_set,
-        pool.clone(),
-        Default::default(),
-        cancel_token.clone(),
-    )
-    .await
-    .unwrap();
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default())
+            .await
+            .unwrap();
 
     let mut config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
@@ -314,7 +310,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     db::machine::insert_health_report_override(
         &mut txn,
         &host_machine_id2,
-        health_report::OverrideMode::Merge,
+        health_report::HealthReportApplyMode::Merge,
         &health_override_2,
         false,
     )
@@ -354,7 +350,7 @@ async fn add_host_update_alert(
     db::machine::insert_health_report_override(
         txn,
         &machine_update.host_machine_id,
-        health_report::OverrideMode::Merge,
+        health_report::HealthReportApplyMode::Merge,
         &health_override,
         false,
     )

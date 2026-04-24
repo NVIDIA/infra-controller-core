@@ -98,16 +98,21 @@ pub struct StaticBmcEndpoint {
     pub port: Option<u16>,
     pub mac: String,
     pub username: String,
-    pub password: String,
+    pub password: Option<String>,
+    pub switch_serial: Option<String>,
+    pub machine_id: Option<String>,
+    pub rack_id: Option<String>,
 }
 
-/// Debug structure omits credentials
 impl Debug for StaticBmcEndpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StaticBmcEndpoint")
             .field("ip", &self.ip)
             .field("port", &self.port)
             .field("mac", &self.mac)
+            .field("switch_serial", &self.switch_serial)
+            .field("machine_id", &self.machine_id)
+            .field("rack_id", &self.rack_id)
             .finish()
     }
 }
@@ -125,14 +130,26 @@ pub struct SinksConfig {
     /// Health override sink: sends health override events to Carbide API.
     #[serde(alias = "carbide_override")]
     pub health_override: Configurable<HealthOverrideSinkConfig>,
+
+    /// Rack health override sink: sends rack-level health overrides to Carbide API.
+    pub rack_health_override: Configurable<RackHealthOverrideSinkConfig>,
+
+    /// Log file sink: writes log events as JSONL to rotating files on disk.
+    pub log_file: Configurable<LogFileSinkConfig>,
+
+    /// OTLP log export sink: streams events to an OpenTelemetry collector via gRPC.
+    pub otlp: Configurable<OtlpSinkConfig>,
 }
 
 impl Default for SinksConfig {
     fn default() -> Self {
         Self {
-            tracing: Configurable::Enabled(TracingSinkConfig::default()),
+            tracing: Configurable::Disabled,
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
             health_override: Configurable::Enabled(HealthOverrideSinkConfig::default()),
+            rack_health_override: Configurable::Enabled(RackHealthOverrideSinkConfig::default()),
+            log_file: Configurable::Disabled,
+            otlp: Configurable::Disabled,
         }
     }
 }
@@ -144,6 +161,43 @@ pub struct TracingSinkConfig {}
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct PrometheusSinkConfig {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LogFileSinkConfig {
+    pub output_dir: String,
+    pub max_file_size: u64,
+    pub max_backups: usize,
+}
+
+impl Default for LogFileSinkConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: "/tmp/logs".to_string(),
+            max_file_size: 104_857_600, // 100MB
+            max_backups: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OtlpSinkConfig {
+    pub endpoint: String,
+    pub batch_size: usize,
+    #[serde(with = "humantime_serde")]
+    pub flush_interval: std::time::Duration,
+}
+
+impl Default for OtlpSinkConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: "http://localhost:4317".to_string(),
+            batch_size: 512,
+            flush_interval: std::time::Duration::from_secs(2),
+        }
+    }
+}
 
 /// Shared Carbide API connection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,6 +248,25 @@ impl Default for HealthOverrideSinkConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct RackHealthOverrideSinkConfig {
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
+
+    /// Number of concurrent workers submitting rack-level reports to Carbide API.
+    pub workers: usize,
+}
+
+impl Default for RackHealthOverrideSinkConfig {
+    fn default() -> Self {
+        Self {
+            connection: CarbideApiConnectionConfig::default(),
+            workers: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RateLimitConfig {
     /// Burst value for explorations, optimal to set to max rate limit.
     pub bucket_burst: usize,
@@ -223,6 +296,9 @@ pub struct CollectorsConfig {
 
     /// Switch NMX-T collector configuration (if present, nmxt collector is enabled)
     pub nmxt: Configurable<NmxtCollectorConfig>,
+
+    /// NVUE collector configuration for direct NVUE HTTP(s) polling of NVLink switches
+    pub nvue: Configurable<NvueCollectorConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -232,6 +308,7 @@ impl Default for CollectorsConfig {
             firmware: Configurable::Disabled,
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
+            nvue: Configurable::Disabled,
         }
     }
 }
@@ -241,12 +318,16 @@ impl Default for CollectorsConfig {
 pub struct ProcessorsConfig {
     /// Leak detection processor configuration (if present, leak detection is enabled)
     pub leak_detection: Configurable<LeakDetectionProcessorConfig>,
+
+    /// Rack-level leak processor: aggregates tray leak reports per rack.
+    pub rack_leak: Configurable<RackLeakProcessorConfig>,
 }
 
 impl Default for ProcessorsConfig {
     fn default() -> Self {
         Self {
             leak_detection: Configurable::Enabled(LeakDetectionProcessorConfig::default()),
+            rack_leak: Configurable::Enabled(RackLeakProcessorConfig::default()),
         }
     }
 }
@@ -263,6 +344,21 @@ impl Default for LeakDetectionProcessorConfig {
     fn default() -> Self {
         Self {
             minimum_alerts_per_report: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RackLeakProcessorConfig {
+    /// Number of leaking trays in a rack required to trigger a rack-level leak override.
+    pub leaking_tray_threshold: usize,
+}
+
+impl Default for RackLeakProcessorConfig {
+    fn default() -> Self {
+        Self {
+            leaking_tray_threshold: 2,
         }
     }
 }
@@ -317,9 +413,34 @@ impl Default for FirmwareCollectorConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// SSE is the preferred mode for real-time log streaming.
+/// Periodic polling is retained as a fallback for BMCs that lack SSE support.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogCollectionMode {
+    Sse,
+    Periodic,
+}
+
+impl Default for LogCollectionMode {
+    fn default() -> Self {
+        Self::Sse
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LogsCollectorConfig {
+    /// Collection mode: "sse" (default, preferred) or "periodic" (fallback).
+    pub mode: LogCollectionMode,
+
+    /// Configuration for periodic log polling
+    pub periodic: Option<PeriodicLogConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PeriodicLogConfig {
     /// Interval between log collection.
     #[serde(with = "humantime_serde")]
     pub logs_collection_interval: Duration,
@@ -330,26 +451,28 @@ pub struct LogsCollectorConfig {
 
     /// Path to logs collector state file (supports {machine_id} placeholder).
     pub logs_state_file: String,
-
-    /// Directory path for log output files.
-    pub logs_output_dir: String,
-
-    /// Maximum log file size before rotation (in bytes).
-    pub logs_max_file_size: u64,
-
-    /// Maximum number of rotated log files to keep.
-    pub logs_max_backups: usize,
 }
 
-impl Default for LogsCollectorConfig {
+impl Default for PeriodicLogConfig {
     fn default() -> Self {
         Self {
             logs_collection_interval: Duration::from_secs(300),
             state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
-            logs_output_dir: "/tmp/logs".to_string(),
-            logs_max_file_size: 104857600,
-            logs_max_backups: 5,
+        }
+    }
+}
+
+impl LogsCollectorConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        match self.mode {
+            LogCollectionMode::Periodic if self.periodic.is_none() => {
+                Err("[collectors.logs.periodic] is required when mode = \"periodic\"".to_string())
+            }
+            LogCollectionMode::Sse if self.periodic.is_some() => {
+                Err("[collectors.logs.periodic] should not be set when mode = \"sse\"".to_string())
+            }
+            _ => Ok(()),
         }
     }
 }
@@ -360,12 +483,81 @@ pub struct NmxtCollectorConfig {
     /// Interval between switch NMX-T metric scrapes.
     #[serde(with = "humantime_serde")]
     pub scrape_interval: Duration,
+
+    /// Timeout for individual NMX-T HTTP requests.
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Duration,
 }
 
 impl Default for NmxtCollectorConfig {
     fn default() -> Self {
         Self {
             scrape_interval: Duration::from_secs(60),
+            request_timeout: Duration::from_secs(30),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueCollectorConfig {
+    pub rest: Configurable<NvueRestConfig>,
+}
+
+impl Default for NvueCollectorConfig {
+    fn default() -> Self {
+        Self {
+            rest: Configurable::Enabled(NvueRestConfig::default()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueRestConfig {
+    /// Interval between NVUE REST poll iterations.
+    #[serde(with = "humantime_serde")]
+    pub poll_interval: Duration,
+
+    /// Timeout for individual REST requests.
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Duration,
+
+    /// NVUE REST paths to poll.
+    pub paths: NvueRestPaths,
+}
+
+impl Default for NvueRestConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(300),
+            request_timeout: Duration::from_secs(30),
+            paths: NvueRestPaths::default(),
+        }
+    }
+}
+
+/// Supported NVUE REST API paths.
+/// - system_health_enabled: Poll `/nvue_v1/system/health`.
+/// - cluster_apps_enabled: Poll `/nvue_v1/cluster/apps`.
+/// - sdn_partitions_enabled: Poll `/nvue_v1/sdn/partition` (including per-partition details)
+/// - interfaces_enabled: Poll `/nvue_v1/interface`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueRestPaths {
+    pub system_health_enabled: bool,
+    pub cluster_apps_enabled: bool,
+    pub sdn_partitions_enabled: bool,
+    pub interfaces_enabled: bool,
+}
+
+impl Default for NvueRestPaths {
+    fn default() -> Self {
+        Self {
+            system_health_enabled: true,
+            cluster_apps_enabled: true,
+            sdn_partitions_enabled: true,
+            interfaces_enabled: true,
         }
     }
 }
@@ -455,6 +647,15 @@ impl Config {
             && health_override.workers == 0
         {
             return Err("sinks.health_override.workers must be greater than 0".to_string());
+        }
+
+        if let Configurable::Enabled(logs) = &self.collectors.logs {
+            logs.validate()?;
+        }
+
+        if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
+            tonic::transport::Channel::from_shared(otlp.endpoint.clone())
+                .map_err(|_| format!("invalid sinks.otlp.endpoint: {}", otlp.endpoint))?;
         }
 
         self.metrics_addr()?;
@@ -570,6 +771,7 @@ mod tests {
         assert!(config.collectors.sensors.is_enabled());
         assert!(config.collectors.firmware.is_enabled());
         assert!(config.collectors.logs.is_enabled());
+        assert!(config.collectors.nvue.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
 
@@ -581,7 +783,12 @@ mod tests {
         }
 
         if let Configurable::Enabled(ref logs) = config.collectors.logs {
-            assert_eq!(logs.state_refresh_interval, Duration::from_secs(1800));
+            assert_eq!(logs.mode, LogCollectionMode::Sse);
+            assert!(
+                logs.periodic.is_none(),
+                "SSE mode should not have periodic config"
+            );
+            assert!(logs.validate().is_ok());
         } else {
             panic!("logs empty")
         }
@@ -598,6 +805,17 @@ mod tests {
         assert_eq!(config.shards_count, 1);
 
         assert_eq!(config.cache_size, 100);
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert_eq!(rest.poll_interval, Duration::from_secs(60));
+                assert_eq!(rest.request_timeout, Duration::from_secs(30));
+            } else {
+                panic!("nvue rest config should be enabled in example config");
+            }
+        } else {
+            panic!("nvue config should be enabled in example config");
+        }
     }
 
     #[test]
@@ -709,6 +927,38 @@ cache_size = 50
             ..HealthOverrideSinkConfig::default()
         });
         assert!(config.validate().is_err());
+
+        config.sinks.health_override = Configurable::Enabled(HealthOverrideSinkConfig::default());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Periodic,
+            periodic: None,
+        });
+        assert!(config.validate().is_err());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Sse,
+            periodic: Some(PeriodicLogConfig::default()),
+        });
+        assert!(config.validate().is_err());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Sse,
+            periodic: None,
+        });
+        assert!(config.validate().is_ok());
+
+        config.collectors.logs = Configurable::Disabled;
+        assert!(config.validate().is_ok());
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+            endpoint: "not a valid uri\n".to_string(),
+            ..OtlpSinkConfig::default()
+        });
+        assert!(config.validate().is_err());
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig::default());
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -720,10 +970,278 @@ cache_size = 50
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(config.rate_limit.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_defaults() {
+        let defaults = NvueCollectorConfig::default();
+        assert!(defaults.rest.is_enabled());
+
+        if let Configurable::Enabled(ref rest) = defaults.rest {
+            assert_eq!(rest.poll_interval, Duration::from_secs(300));
+            assert_eq!(rest.request_timeout, Duration::from_secs(30));
+            assert!(rest.paths.system_health_enabled);
+            assert!(rest.paths.cluster_apps_enabled);
+            assert!(rest.paths.sdn_partitions_enabled);
+            assert!(rest.paths.interfaces_enabled);
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_parsing() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "2m"
+request_timeout = "45s"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse nvue config");
+
+        assert!(config.collectors.nvue.is_enabled());
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert_eq!(rest.poll_interval, Duration::from_secs(120));
+                assert_eq!(rest.request_timeout, Duration::from_secs(45));
+                assert!(rest.paths.system_health_enabled);
+            } else {
+                panic!("nvue rest config should be enabled");
+            }
+        } else {
+            panic!("nvue config should be enabled");
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_disabled_by_default() {
+        let config = Config::default();
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_explicit_disable() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue]
+enabled = false
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse");
+
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_rest_only() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "1m"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse");
+
+        assert!(config.collectors.nvue.is_enabled());
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            assert!(nvue.rest.is_enabled());
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_selective_endpoints() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "1m"
+
+[collectors.nvue.rest.paths]
+system_health_enabled = true
+cluster_apps_enabled = false
+sdn_partitions_enabled = true
+interfaces_enabled = false
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse nvue config with selective endpoints");
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert!(rest.paths.system_health_enabled);
+                assert!(!rest.paths.cluster_apps_enabled);
+                assert!(rest.paths.sdn_partitions_enabled);
+                assert!(!rest.paths.interfaces_enabled);
+            } else {
+                panic!("nvue rest config should be enabled");
+            }
+        } else {
+            panic!("nvue config should be enabled");
+        }
+    }
+
+    #[test]
+    fn test_static_endpoint_with_switch_serial() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.0.1"
+mac = "aa:bb:cc:dd:ee:ff"
+username = "admin"
+password = "pass"
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.1"
+mac = "11:22:33:44:55:66"
+username = "cumulus"
+password = "pass"
+switch_serial = "SN-SW-001"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse static switch endpoint config");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert!(
+            config.endpoint_sources.static_bmc_endpoints[0]
+                .switch_serial
+                .is_none()
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .switch_serial
+                .as_deref(),
+            Some("SN-SW-001")
+        );
+    }
+
+    #[test]
+    fn test_example_config_static_endpoint_has_switch_serial() {
+        let toml_content = include_str!("../example/config.example.toml");
+        let config: Config = Figment::new()
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("could not parse config toml file");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert!(
+            config.endpoint_sources.static_bmc_endpoints[0]
+                .switch_serial
+                .is_none()
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .switch_serial
+                .as_deref(),
+            Some("SN-SWITCH-001")
+        );
         if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
-            assert_eq!(health_override.workers, 4);
+            assert_eq!(health_override.workers, 8);
         } else {
             panic!("health override sink is disabled");
         }
+    }
+
+    #[test]
+    fn test_log_config_sse_mode_rejects_periodic_config() {
+        let toml = r#"
+            mode = "sse"
+            [periodic]
+            logs_collection_interval = "5m"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_log_config_periodic_mode_requires_periodic_config() {
+        let toml = r#"
+            mode = "periodic"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_log_config_periodic_mode_with_periodic_config_valid() {
+        let toml = r#"
+            mode = "periodic"
+            [periodic]
+            logs_collection_interval = "5m"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_log_config_sse_mode_without_periodic_config_valid() {
+        let toml = r#"
+            mode = "sse"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_log_config_default_is_sse() {
+        let config = LogsCollectorConfig::default();
+        assert_eq!(config.mode, LogCollectionMode::Sse);
+        assert!(config.periodic.is_none());
+        assert!(config.validate().is_ok());
     }
 }

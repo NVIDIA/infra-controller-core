@@ -39,6 +39,14 @@ mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
 
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.1"
+port = 443
+mac = "11:22:33:44:55:66"
+username = "admin"
+password = "secret"
+switch_serial = "SN-SWITCH-001"
+
 # ==============================================================================
 # Sinks: Where collector events are sent
 # ==============================================================================
@@ -48,6 +56,18 @@ enabled = false
 
 [sinks.prometheus]
 enabled = true
+
+[sinks.log_file]
+enabled = false
+output_dir = "/tmp/logs"
+max_file_size = 104857600 # 100MB
+max_backups = 5
+
+[sinks.otlp]
+enabled = false
+endpoint = "http://localhost:4317"
+batch_size = 512
+flush_interval = "2s"
 
 [sinks.health_override]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
@@ -66,7 +86,7 @@ bucket_replenish = "35ms"
 max_jitter = "40ms"
 
 # ==============================================================================
-# Collectors: What data to collect from BMCs and NMX-T enabled switches
+# Collectors: What data to collect from BMCs and Switches (NMX-T/NVUE REST)
 # ==============================================================================
 
 [collectors.sensors]
@@ -80,15 +100,27 @@ include_sensor_thresholds = true
 firmware_refresh_interval = "30m"
 
 [collectors.logs]
-logs_collection_interval = "5m"
-state_refresh_interval = "30m"
-logs_state_file = "/tmp/logs_collector_{machine_id}.json"
-logs_output_dir = "/tmp/logs"
-logs_max_file_size = 104857600                            # 100MB
-logs_max_backups = 5
+mode = "sse" # "sse" (default, preferred) or "periodic" (fallback)
+
+# required when mode = "periodic", must not be set when mode = "sse"
+# [collectors.logs.periodic]
+# logs_collection_interval = "5m"
+# state_refresh_interval = "30m"
+# logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 
 [collectors.nmxt]
 scrape_interval = "1m"
+request_timeout = "30s"
+
+[collectors.nvue.rest]
+poll_interval = "1m"
+request_timeout = "30s"
+
+[collectors.nvue.rest.paths]
+system_health_enabled = true
+cluster_apps_enabled = true
+sdn_partitions_enabled = true
+interfaces_enabled = true
 
 # ==============================================================================
 # Processors
@@ -97,6 +129,9 @@ scrape_interval = "1m"
 [processors.leak_detection]
 enabled = true
 minimum_alerts_per_report = 1
+
+[processors.rack_leak]
+leaking_tray_threshold = 2
 
 # ==============================================================================
 # Metrics

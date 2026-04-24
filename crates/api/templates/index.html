@@ -19,6 +19,10 @@
 		<td>{{ agent_upgrade_policy }}</td>
 	</tr>
 	<tr>
+		<th>Site explorer enabled</th>
+		<td>{{ site_explorer_enabled }}</td>
+	</tr>
+	<tr>
 		<th>Site explorer create machines</th>
 		<td>{{ create_machines }}</td>
 	</tr>
@@ -232,10 +236,6 @@
 			Not Configured (Default: 0)
 			{% endmatch %}
 		</td>
-	</tr>
-	<tr>
-		<th>NVUE Enabled</th>
-		<td>{{ carbide_config.nvue_enabled }}</td>
 	</tr>
 	<tr>
 		<th>Machine Attestation Enabled</th>

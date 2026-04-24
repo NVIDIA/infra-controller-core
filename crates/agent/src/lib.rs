@@ -22,9 +22,11 @@ use ::rpc::DiscoveryInfo;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
 use carbide_host_support::agent_config::AgentConfig;
-use carbide_host_support::hardware_enumeration::enumerate_hardware;
+use carbide_host_support::hardware_enumeration::{
+    enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
+};
 use carbide_host_support::registration::register_machine;
-pub use command_line::{AgentCommand, Options, RunOptions, WriteTarget};
+pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
@@ -33,31 +35,29 @@ use utils::models::arch::CpuArchitecture;
 use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
-use crate::frr::FrrVlanConfig;
 use crate::health::HealthCheckParams;
+use crate::host_machine_id::get_host_machine_id_retry;
 
 pub mod dpu;
 
-pub mod acl;
 mod acl_rules;
 pub mod agent_platform;
 mod command_line;
 pub mod containerd;
-mod daemons;
 mod dhcp;
 mod dhcp_server_grpc_client;
 mod ethernet_virtualization;
 use carbide_uuid::machine::MachineId;
 pub use ethernet_virtualization::FPath;
 pub mod extension_services;
+mod fmds_client;
 
 pub mod duppet;
-mod frr;
 mod hbn;
 mod health;
+mod host_machine_id;
 mod instance_metadata_endpoint;
 pub mod instrumentation;
-mod interfaces;
 pub mod lldp;
 mod machine_inventory_updater;
 mod main_loop;
@@ -79,7 +79,8 @@ pub mod util;
 /// The minimum version of HBN that FMDS supports
 pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 
-/// The minimum version of HBN that has compatible NVUE
+/// The minimum version of HBN that supports NVUE. Since NVUE is now the only
+/// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
@@ -133,7 +134,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 factory_mac_address,
             } = match options.override_machine_id {
                 // Normal case
-                None => register(&agent).await.wrap_err("registration error")?,
+                None => register(&agent, &options.agent_platform_type)
+                    .await
+                    .wrap_err("registration error")?,
                 // Dev / test override
                 Some(machine_id) => Registration {
                     machine_id,
@@ -153,11 +156,23 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         }
 
         // enumerate hardware and exit
-        Some(AgentCommand::Hardware) => {
-            let info = enumerate_hardware()?;
+        Some(AgentCommand::Hardware(options)) => {
+            let info = match options.agent_platform_type {
+                // Init: enumerate from host and persist to the shared volume for the containerized agent
+                AgentPlatformType::ContainerInitializer => enumerate_and_save_hardware()?,
+                // Containerized: read the snapshot written by the init container
+                AgentPlatformType::Containerized => load_hardware_from_cache()?,
+                // No container mode, just plain old dpu-agent running as a service on DPU OS.
+                AgentPlatformType::DpuOs => enumerate_hardware()?,
+            };
             let string_result = serde_json::to_string_pretty(&info)?;
-            // print to stderr so it can be re-directed to a file without logs
-            eprintln!("{string_result}");
+            match options.output_file.as_ref() {
+                Some(output_file) => tokio::fs::write(output_file.as_path(), string_result).await?,
+                None => {
+                    // print to stderr so it can be re-directed to a file without logs
+                    eprintln!("{string_result}");
+                }
+            }
         }
 
         // One-off health check.
@@ -184,7 +199,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // One-off network monitor check.
         // dumps JSON-formatted peer DPU network reachability and latency status
         Some(AgentCommand::Network(options)) => {
-            let machine_id = register(&agent)
+            let machine_id = register(&agent, &AgentPlatformType::DpuOs)
                 .await
                 .wrap_err("network check machine registration error")?
                 .machine_id;
@@ -219,11 +234,13 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 summary_format: parsed_format,
             };
 
-            // Since the duppet sync also syncs out the otel machine_id
-            // file, we need to make a registration call to get the machine_id,
-            // and a single fetch to get the host_machine_id.
-            let Registration { machine_id, .. } =
-                register(&agent).await.wrap_err("registration error")?;
+            // Since the duppet sync also syncs out the otel machine_id and
+            // host_machine_id files, we need to make a registration call to
+            // get the machine_id, and a carbide api request to get the
+            // host_machine_id.
+            let Registration { machine_id, .. } = register(&agent, &AgentPlatformType::DpuOs)
+                .await
+                .wrap_err("registration error")?;
 
             let forge_api_server = agent.forge_system.api_server.clone();
             let periodic_config_fetcher = periodic_config_fetcher::PeriodicConfigFetcher::new(
@@ -238,82 +255,33 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             )
             .await;
 
-            managed_files::main_sync(sync_options, &machine_id, &periodic_config_fetcher);
+            let host_machine_id = match get_host_machine_id_retry(
+                &agent,
+                &periodic_config_fetcher,
+                Arc::clone(&forge_client_config),
+                &forge_api_server,
+            )
+            .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+                    return Err(e);
+                }
+            };
+
+            managed_files::main_sync(sync_options, &machine_id, &host_machine_id);
         }
 
         // Output a templated file
         // Normally this is (will be) done when receiving requests from carbide-api
         Some(AgentCommand::Write(target)) => match target {
-            // Example:
-            // forge-dpu-agent
-            //     --config-path example_agent_config.toml
-            //     write frr
-            //     --path ~/Temp/frr.conf
-            //     --asn 1234
-            //     --loopback-ip 10.11.12.13
-            //     --vlan 1,bob
-            //     --vlan 2,bill
-            WriteTarget::Frr(opts) => {
-                let access_vlans = opts
-                    .vlan
-                    .into_iter()
-                    .map(|s| {
-                        let mut parts = s.split(',');
-                        let vlan_id = parts.next().unwrap().parse().unwrap();
-                        let ip = parts.next().unwrap().to_string();
-                        FrrVlanConfig {
-                            vlan_id,
-                            network: ip.clone() + "/32",
-                            ip,
-                        }
-                    })
-                    .collect();
-                let contents = frr::build(frr::FrrConfig {
-                    asn: opts.asn,
-                    uplinks: HBNDeviceNames::hbn_23()
-                        .uplinks
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect(),
-                    loopback_ip: opts.loopback_ip,
-                    access_vlans,
-                    vpc_vni: Some(opts.vpc_vni),
-                    route_servers: opts.route_servers.clone(),
-                    use_admin_network: opts.admin,
-                })?;
-                std::fs::write(&opts.path, contents)?;
-                println!("Wrote {}", opts.path);
+            // Legacy ETV write targets are no longer supported
+            WriteTarget::Frr(_) | WriteTarget::Interfaces(_) | WriteTarget::Dhcp(_) => {
+                eyre::bail!(
+                    "Legacy ETV write targets (frr, interfaces, dhcp) are no longer supported. Use 'write nvue' instead."
+                );
             }
-
-            // Example:
-            // forge-dpu-agent
-            //    --config-path example_agent_config.toml
-            //    write interfaces
-            //    --path /home/graham/Temp/if
-            //    --loopback-ip 1.2.3.4
-            //    --vni-device ""
-            //    --network '{"interface_name": "pf0hpf", "vlan": 1, "vni": 3042, "gateway_cidr": "6.5.4.3/24"}'`
-            WriteTarget::Interfaces(opts) => {
-                let mut networks = Vec::with_capacity(opts.network.len());
-                for net_json in opts.network {
-                    let c: interfaces::Network = serde_json::from_str(&net_json)?;
-                    networks.push(c);
-                }
-                let contents = interfaces::build(interfaces::InterfacesConfig {
-                    uplinks: HBNDeviceNames::hbn_23()
-                        .uplinks
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect(),
-                    loopback_ip: opts.loopback_ip,
-                    vni_device: opts.vni_device,
-                    networks,
-                })?;
-                std::fs::write(&opts.path, contents)?;
-                println!("Wrote {}", opts.path);
-            }
-
-            WriteTarget::Dhcp(_opts) => {}
 
             // Example:
             // forge-dpu-agent write nvue
@@ -367,6 +335,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                             vlan_id,
                             network: ip.clone() + "/32",
                             ip,
+                            ipv6_vlan_config: None,
                         }
                     })
                     .collect();
@@ -377,6 +346,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     vpc_virtualization_type: opts.virtualization_type,
                     hbn_version: opts.hbn_version,
                     use_admin_network: true,
+                    tenancy_enabled: true,
                     loopback_ip: opts.loopback_ip.to_string(),
                     secondary_overlay_vtep_ip: opts.secondary_overlay_vtep_ip,
                     internal_bridge_routing_prefix: opts.internal_bridge_routing_prefix,
@@ -414,6 +384,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                         .map(|r| serde_json::from_str::<nvue::RoutingProfile>(&r))
                         .transpose()?,
                     network_security_groups,
+                    bgp_leaf_session_password: opts.bgp_leaf_session_password,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;
@@ -482,9 +453,17 @@ impl HBNDeviceNames {
     }
 }
 
-/// Discover hardware, register DPU with carbide-api, and return machine id
-async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
-    let mut hardware_info = enumerate_hardware().wrap_err("enumerate_hardware failed")?;
+/// Discover hardware, register DPU with carbide-api, and return machine id.
+async fn register(
+    agent: &AgentConfig,
+    platform_type: &AgentPlatformType,
+) -> Result<Registration, eyre::Report> {
+    let mut hardware_info = match platform_type {
+        AgentPlatformType::Containerized => {
+            load_hardware_from_cache().wrap_err("load_hardware_from_cache failed")
+        }
+        _ => enumerate_hardware().wrap_err("enumerate_hardware failed"),
+    }?;
 
     // Pretend to be a bluefield DPU for local dev.
     // see model/hardware_info.rs::is_dpu

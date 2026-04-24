@@ -15,10 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use model::metadata::Metadata;
-use model::tenant::{RoutingProfileType, Tenant, TenantPublicKeyValidationRequest};
+use model::tenant::{Tenant, TenantPublicKeyValidationRequest};
 use sqlx::PgConnection;
 
 use super::ObjectFilter;
@@ -30,7 +29,7 @@ type OrganizationID = String;
 pub async fn create_and_persist(
     organization_id: String,
     metadata: Metadata,
-    routing_profile_type: Option<RoutingProfileType>,
+    routing_profile_type: Option<String>,
     txn: &mut PgConnection,
 ) -> Result<Tenant, DatabaseError> {
     let version = ConfigVersion::initial();
@@ -40,7 +39,7 @@ pub async fn create_and_persist(
         .bind(organization_id)
         .bind(metadata.name)
         .bind(version)
-        .bind(routing_profile_type.map(|p| p.to_string()))
+        .bind(routing_profile_type)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -72,7 +71,7 @@ pub async fn update(
     organization_id: String,
     metadata: Metadata,
     expected_version: ConfigVersion,
-    routing_profile_type: Option<RoutingProfileType>,
+    routing_profile_type: Option<String>,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Tenant> {
     let next_version = expected_version.increment();
@@ -91,7 +90,7 @@ pub async fn update(
     sqlx::query_as(query)
         .bind(next_version)
         .bind(metadata.name)
-        .bind(routing_profile_type.map(|p| p.to_string()))
+        .bind(routing_profile_type)
         .bind(organization_id)
         .bind(expected_version)
         .fetch_one(txn)
@@ -104,9 +103,39 @@ pub async fn update(
         })
 }
 
+/// Increments the tenant version. Used when identity config or token delegation changes.
+/// Caller must hold a transaction. Returns error if tenant not found.
+pub async fn increment_version<S: AsRef<str>>(
+    organization_id: S,
+    txn: &mut PgConnection,
+) -> DatabaseResult<()> {
+    let tenant = find(organization_id.as_ref(), true, txn)
+        .await?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "Tenant",
+            id: organization_id.as_ref().to_string(),
+        })?;
+    let next_version = tenant.version.increment();
+    let query = "UPDATE tenants SET version=$1 WHERE organization_id=$2 AND version=$3";
+    let result = sqlx::query(query)
+        .bind(next_version)
+        .bind(organization_id.as_ref())
+        .bind(tenant.version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::ConcurrentModificationError(
+            "tenant",
+            tenant.version.to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn find_tenant_organization_ids(
     txn: impl DbReader<'_>,
-    search_config: rpc::TenantSearchFilter,
+    search_config: model::tenant::TenantSearchFilter,
 ) -> Result<Vec<OrganizationID>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT organization_id FROM tenants");
 

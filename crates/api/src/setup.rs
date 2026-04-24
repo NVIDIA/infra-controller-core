@@ -15,12 +15,19 @@
  * limitations under the License.
  */
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
+use carbide_firmware::FirmwareDownloader;
+use carbide_ipmi::IPMITool;
+use carbide_preingestion_manager::PreingestionManager;
+use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
@@ -45,6 +52,7 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_log::AsLog as _;
+use utils::HostPortPair;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
@@ -52,11 +60,9 @@ use crate::cfg::file::{CarbideConfig, ListenMode};
 use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
-use crate::firmware_downloader::FirmwareDownloader;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::ib::{self, IBFabricManager};
 use crate::ib_fabric_monitor::IbFabricMonitor;
-use crate::ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl};
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
@@ -66,13 +72,10 @@ use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
-use crate::nv_redfish::NvRedfishClientPool;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
-use crate::preingestion_manager::PreingestionManager;
-use crate::redfish::RedfishClientPool;
+use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
-use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
@@ -93,25 +96,6 @@ use crate::state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::{attestation, db_init, ethernet_virtualization, listener};
-
-const API_URL_KEY: &str = "api_url";
-const PXE_URL_KEY: &str = "pxe_url";
-const API_URL: &str = "https://carbide-api.forge";
-const PXE_URL: &str = "http://carbide-pxe.forge";
-const BMC_FW_UPDATE_KEY: &str = "bmc_fw_update";
-const SECONDS_SINCE_EPOCH_KEY: &str = "seconds_since_epoch";
-const HBN_REPS_KEY: &str = "forge_hbn_reps";
-const HBN_SFS_KEY: &str = "forge_hbn_sfs";
-const VF_INTERCEPT_BRIDGE_NAME_KEY: &str = "forge_vf_intercept_bridge_name";
-const HOST_INTERCEPT_BRIDGE_NAME_KEY: &str = "forge_host_intercept_bridge_name";
-const HOST_INTERCEPT_HBN_PORT_KEY: &str = "forge_host_intercept_hbn_port";
-const HOST_INTERCEPT_BRIDGE_PORT_KEY: &str = "forge_host_intercept_bridge_port";
-const VF_INTERCEPT_HBN_PORT_KEY: &str = "forge_vf_intercept_hbn_port";
-const VF_INTERCEPT_BRIDGE_PORT_KEY: &str = "forge_vf_intercept_bridge_port";
-const VF_INTERCEPT_BRIDGE_SF_REPRESENTOR_KEY: &str = "forge_vf_intercept_bridge_sf_representor";
-const VF_INTERCEPT_BRIDGE_SF_HBN_BRIDGE_REPRESENTOR_KEY: &str =
-    "forge_vf_intercept_bridge_sf_hbn_bridge_representor";
-const VF_INTERCEPT_BRIDGE_SF_KEY: &str = "forge_vf_intercept_bridge_sf";
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -172,6 +156,25 @@ pub fn parse_carbide_config(
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
 
+    model::tenant::validate_trust_domain_allowlist_patterns(
+        &config.machine_identity.trust_domain_allowlist,
+    )
+    .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
+
+    model::tenant::validate_token_endpoint_domain_allowlist_patterns(
+        &config.machine_identity.token_endpoint_domain_allowlist,
+    )
+    .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
+
+    if config.machine_identity.enabled
+        && config.machine_identity.current_encryption_key_id.is_none()
+    {
+        return Err(eyre::eyre!(
+            "current_encryption_key_id must be set in [machine_identity] when machine identity is enabled"
+        )
+        .wrap_err("Invalid configuration"));
+    }
+
     tracing::trace!("Carbide config: {:#?}", config.redacted());
     Ok(Arc::new(config))
 }
@@ -179,22 +182,23 @@ pub fn parse_carbide_config(
 pub fn create_ipmi_tool(
     credential_reader: Arc<dyn CredentialReader>,
     carbide_config: &CarbideConfig,
+    bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
 ) -> Arc<dyn IPMITool> {
-    if carbide_config
-        .dpu_ipmi_tool_impl
-        .as_ref()
-        .is_some_and(|tool| tool == "test")
-    {
-        tracing::trace!("Disabling ipmitool");
-        Arc::new(IPMIToolTestImpl {})
-    } else {
-        Arc::new(IPMIToolImpl::new(
-            credential_reader,
-            &carbide_config.dpu_ipmi_reboot_attempts,
-        ))
+    match carbide_config.dpu_ipmi_tool_impl.as_deref() {
+        Some("test") => {
+            tracing::info!("Disabling ipmitool");
+            carbide_ipmi::test_support()
+        }
+        Some("bmc-mock") => {
+            tracing::info!("Using HTTP IPMI transport via bmc_proxy");
+            carbide_ipmi::bmc_mock(bmc_proxy)
+        }
+        _ => {
+            tracing::info!("Using lanplus IPMI transport (/usr/bin/ipmitool)");
+            carbide_ipmi::tool(credential_reader, carbide_config.dpu_ipmi_reboot_attempts)
+        }
     }
 }
-
 /// Configure and create a postgres connection pool
 ///
 /// This connects to the database to verify settings
@@ -235,7 +239,11 @@ pub async fn start_api(
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
-    let ipmi_tool = create_ipmi_tool(credential_manager.clone(), &carbide_config);
+    let ipmi_tool = create_ipmi_tool(
+        credential_manager.clone(),
+        &carbide_config,
+        dynamic_settings.bmc_proxy.clone(),
+    );
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
@@ -243,15 +251,17 @@ pub async fn start_api(
         join_set,
         db_pool.clone(),
         work_lock_manager::KeepaliveConfig::default(),
-        cancel_token.clone(),
     )
     .await?;
 
-    let rms_client = match carbide_config.rms_api_url.clone() {
+    let rms_client = match carbide_config.rms.api_url.clone() {
         Some(url) if !url.is_empty() => {
-            // let the crate pick up default certs, enforce tls
-            let rms_client_config =
-                librms::client_config::RmsClientConfig::new(None, None, None, true);
+            let rms_client_config = librms::client_config::RmsClientConfig::new(
+                carbide_config.rms.root_ca_path.clone(),
+                carbide_config.rms.client_cert.clone(),
+                carbide_config.rms.client_key.clone(),
+                carbide_config.rms.enforce_tls,
+            );
             let rms_api_config = librms::client::RmsApiConfig::new(&url, &rms_client_config);
             let rms_client_pool = librms::RmsClientPool::new(&rms_api_config);
             let shared_rms_client = rms_client_pool.create_client().await;
@@ -388,6 +398,123 @@ pub async fn start_api(
 
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
 
+    // Create DPF SDK and initialize CRs if enabled
+    // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
+    let dpf_sdk: Option<Arc<dyn crate::dpf::DpfOperations>> = if carbide_config.dpf.enabled {
+        tracing::info!("Initializing DPF SDK");
+        let repo = carbide_dpf::KubeRepository::new()
+            .await
+            .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
+
+        let provider = crate::dpf::CarbideBmcPasswordProvider::new(credential_manager.clone());
+
+        let services = vec![carbide_dpf::services::dts_service(
+            &carbide_dpf::services::ServiceRegistryConfig::default(),
+        )];
+        let reg = crate::dpf_services::CarbideServiceRegistryConfig::default();
+        let v2_services = vec![
+            carbide_dpf::services::dts_service(
+                &carbide_dpf::services::ServiceRegistryConfig::default(),
+            ),
+            crate::dpf_services::dhcp_server_service(&reg),
+            crate::dpf_services::doca_hbn_service(&reg),
+            crate::dpf_services::dpu_agent_service(&reg),
+            crate::dpf_services::fmds_service(&reg),
+        ];
+
+        let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
+            Some(crate::dpf::render_bfcfg(&carbide_config)?)
+        } else {
+            None
+        };
+
+        let bfb_url = if carbide_config.dpf.v2 && carbide_config.dpf.bfb_url.is_empty() {
+            // This should move to cfg/file as a default value once v2 is the only mode.
+            "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb".to_string()
+        } else if carbide_config.dpf.bfb_url.is_empty() {
+            crate::dpf::resolve_bfb_url().await?
+        } else {
+            carbide_config.dpf.bfb_url.clone()
+        };
+
+        // This is just temparary code until we make v2 only option. (just 2 weeks)
+        // Soon v2 flag will be removed and will become only mode for dpf handling.
+        let init_config = carbide_dpf::InitDpfResourcesConfig {
+            bfb_url,
+            flavor_name: carbide_config.dpf.flavor_name.clone(),
+            deployment_name: if carbide_config.dpf.v2 {
+                // We can't keep name longer than 20 chars (DPF restriction)
+                "nico-deployment-v2".to_string()
+            } else {
+                carbide_config.dpf.deployment_name.clone()
+            },
+            services: if carbide_config.dpf.v2 {
+                v2_services
+            } else {
+                services
+            },
+            bfcfg_template: if carbide_config.dpf.v2 {
+                // We use default bf.cfg.
+                None
+            } else {
+                bfcfg_template
+            },
+        };
+
+        let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
+            .with_labeler(crate::dpf::CarbideDPFLabeler::new(
+                if carbide_config.dpf.v2 {
+                    // This will be removed and moved to config file when v1 code is deleted.
+                    "carbide.nvidia.com/controlled.node.v2".to_string()
+                } else {
+                    carbide_config.dpf.node_label_key.clone()
+                },
+            ))
+            .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
+            .with_join_set(join_set)
+            .initialize(&init_config)
+            .await
+            .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
+
+        Some(Arc::new(crate::dpf::DpfSdkOps::new(
+            Arc::new(sdk),
+            db_pool.clone(),
+            join_set,
+        )?))
+    } else {
+        None
+    };
+
+    let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
+        match component_manager::component_manager::build_component_manager(
+            cd_config,
+            rms_client.clone(),
+            Some(db_pool.clone()),
+        )
+        .await
+        {
+            Ok(cm) => {
+                tracing::info!(
+                    "Component manager configured (nv_switch={}, power_shelf={})",
+                    cm.nv_switch.name(),
+                    cm.power_shelf.name()
+                );
+                Some(cm)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to build component managers, component manager RPCs will be unavailable: {e}"
+                );
+                None
+            }
+        }
+    } else {
+        tracing::info!(
+            "No [component_manager] config found; component manager RPCs will be unavailable"
+        );
+        None
+    };
+
     let api_service = Arc::new(Api {
         certificate_provider,
         common_pools,
@@ -404,9 +531,11 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
-        kube_client_provider: Arc::new(carbide_dpf::Production {}),
+        dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
+        component_manager,
+        bms_client: std::sync::OnceLock::new(),
     });
 
     if carbide_config.listen_only {
@@ -468,6 +597,8 @@ pub async fn initialize_and_start_controllers(
         nmxm_pool: _,
         work_lock_manager_handle,
         rms_client,
+        dpf_sdk,
+        credential_manager,
         ..
     } = api_service.as_ref();
     // As soon as we get the database up, observe this version of forge so that we know when it was
@@ -657,6 +788,23 @@ pub async fn initialize_and_start_controllers(
                 config.mqtt_endpoint,
                 config.mqtt_broker_port
             );
+
+            let bms_client = BmsDsxExchangeHandle::new(
+                client.clone(),
+                db_pool,
+                join_set,
+                config.publish_timeout,
+                config.queue_capacity,
+                &meter,
+                cancel_token.clone(),
+            )
+            .await?;
+
+            api_service
+                .bms_client
+                .set(bms_client)
+                .map_err(|_| eyre::eyre!("BMS DSX Exchange handle already initialized"))?;
+
             emitter_builder = emitter_builder.hook(Box::new(MqttStateChangeHook::new(
                 client,
                 join_set,
@@ -680,6 +828,23 @@ pub async fn initialize_and_start_controllers(
         site_config: carbide_config.clone(),
         dpa_info,
         rms_client: rms_client.clone(),
+        switch_system_image_rms_client: carbide_config
+            .rms
+            .api_url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .map(|url| {
+                let rms_client_config = librms::client_config::RmsClientConfig::new(
+                    carbide_config.rms.root_ca_path.clone(),
+                    carbide_config.rms.client_cert.clone(),
+                    carbide_config.rms.client_key.clone(),
+                    carbide_config.rms.enforce_tls,
+                );
+                let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+                Arc::new(librms::RackManagerApi::new(&rms_api_config))
+                    as Arc<dyn crate::rack::rms_client::SwitchSystemImageRmsClient>
+            }),
+        credential_manager: credential_manager.clone(),
     });
 
     // Use the hostname as cluster-wide state controller ID
@@ -690,31 +855,6 @@ pub async fn initialize_and_start_controllers(
         .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string().into())
         .to_string_lossy()
         .to_string();
-
-    // Run dpf init regardless of dpf flag.
-    carbide_dpf::init()?;
-
-    // Create DPF CRDs if enabled
-    if carbide_config.dpf.enabled {
-        tracing::info!("Creating DPF CRDs");
-        let key = forge_secrets::credentials::CredentialKey::BmcCredentials {
-            credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
-        };
-        let credentials = api_service.credential_manager.get_credentials(&key).await?;
-        let Some(forge_secrets::credentials::Credentials::UsernamePassword {
-            username: _,
-            password,
-        }) = credentials
-        else {
-            return Err(eyre::eyre!("Site wide BMC root credentials are not set"));
-        };
-        if let Err(err) =
-            carbide_dpf::create_crds_and_secret(bfcfg_context(carbide_config), password).await
-        {
-            tracing::error!("Failed to create DPF CRDs: {err}");
-            return Err(eyre::eyre!("Failed to create DPF CRDs: {err}"));
-        }
-    }
 
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
@@ -758,10 +898,7 @@ pub async fn initialize_and_start_controllers(
                 )
                 .credential_reader(api_service.credential_manager.clone())
                 .power_options_config(carbide_config.power_manager_options.clone().into())
-                .dpf_config(crate::state_controller::machine::handler::DpfConfig::from(
-                    carbide_config.dpf.clone(),
-                    Arc::new(carbide_dpf::Production {}) as Arc<dyn carbide_dpf::KubeImpl>,
-                ))
+                .dpf_sdk(dpf_sdk.clone())
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {
@@ -773,7 +910,16 @@ pub async fn initialize_and_start_controllers(
                 prevent_allocations_on_stale_dpu_agent_version: carbide_config
                     .host_health
                     .prevent_allocations_on_stale_dpu_agent_version,
+                prevent_allocations_on_scout_heartbeat_timeout: carbide_config
+                    .host_health
+                    .prevent_allocations_on_scout_heartbeat_timeout,
+                suppress_external_alerting_on_scout_heartbeat_timeout: carbide_config
+                    .host_health
+                    .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
+            sla_config: model::machine::slas::MachineSlaConfig::new(
+                carbide_config.machine_state_controller.failure_retry_time,
+            ),
         }))
         .state_change_emitter(state_change_emitter)
         .build_and_spawn(join_set, cancel_token.clone())
@@ -917,6 +1063,7 @@ pub async fn initialize_and_start_controllers(
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_client.clone(),
+        credential_manager.clone(),
     )
     .start(join_set, cancel_token.clone())?;
 
@@ -930,13 +1077,14 @@ pub async fn initialize_and_start_controllers(
 
     PreingestionManager::new(
         db_pool.clone(),
-        carbide_config.clone(),
+        carbide_config.preingestion_manager(),
         shared_redfish_pool.clone(),
         meter.clone(),
         Some(downloader.clone()),
         Some(upload_limiter),
         Some(api_service.credential_manager.clone()),
         work_lock_manager_handle.clone(),
+        bmc_explorer.clone(),
     )
     .start(join_set, cancel_token.clone())?;
 
@@ -964,90 +1112,6 @@ pub async fn initialize_and_start_controllers(
     .await?;
 
     Ok(())
-}
-
-/// Constructs a context map for bf.cfg Tera template from CarbideConfig.
-/// Used to populate deployment and runtime parameters for the DPF setup.
-fn bfcfg_context(config: &CarbideConfig) -> HashMap<String, String> {
-    let mut context = HashMap::new();
-    context.insert(API_URL_KEY.to_string(), API_URL.to_string());
-    context.insert(PXE_URL_KEY.to_string(), PXE_URL.to_string());
-    context.insert(
-        BMC_FW_UPDATE_KEY.to_string(),
-        carbide_dpf::get_fw_update_data(),
-    );
-    let start = std::time::SystemTime::now();
-    let seconds_since_epoch = start
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs();
-
-    context.insert(
-        SECONDS_SINCE_EPOCH_KEY.to_string(),
-        seconds_since_epoch.to_string(),
-    );
-
-    if let Some(vmaas) = config.vmaas_config.as_ref() {
-        if let Some(hbn_reps) = vmaas.hbn_reps.as_ref() {
-            context.insert(HBN_REPS_KEY.to_string(), hbn_reps.clone());
-        }
-
-        if let Some(hbn_sfs) = vmaas.hbn_sfs.as_ref() {
-            context.insert(HBN_SFS_KEY.to_string(), hbn_sfs.clone());
-        }
-
-        if let Some(bridge) = vmaas.bridging.as_ref() {
-            context.insert(
-                VF_INTERCEPT_BRIDGE_NAME_KEY.to_string(),
-                bridge.vf_intercept_bridge_name.clone(),
-            );
-
-            context.insert(
-                HOST_INTERCEPT_BRIDGE_NAME_KEY.to_string(),
-                bridge.host_intercept_bridge_name.clone(),
-            );
-
-            let host_intercept_bridge_port = bridge.host_intercept_bridge_port.clone();
-            context.insert(
-                HOST_INTERCEPT_HBN_PORT_KEY.to_string(),
-                format!("patch-hbn-{host_intercept_bridge_port}"),
-            );
-
-            context.insert(
-                HOST_INTERCEPT_BRIDGE_PORT_KEY.to_string(),
-                host_intercept_bridge_port,
-            );
-
-            let vf_intercept_bridge_port = bridge.vf_intercept_bridge_port.clone();
-            context.insert(
-                VF_INTERCEPT_HBN_PORT_KEY.to_string(),
-                format!("patch-hbn-{vf_intercept_bridge_port}"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_PORT_KEY.to_string(),
-                vf_intercept_bridge_port,
-            );
-
-            let vf_intercept_bridge_sf = bridge.vf_intercept_bridge_sf.clone();
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_REPRESENTOR_KEY.to_string(),
-                format!("{vf_intercept_bridge_sf}_r"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_HBN_BRIDGE_REPRESENTOR_KEY.to_string(),
-                format!("{vf_intercept_bridge_sf}_if_r"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_KEY.to_string(),
-                vf_intercept_bridge_sf,
-            );
-        }
-    }
-
-    context
 }
 
 fn nmxc_tls_config_from_nvlink(cfg: &crate::cfg::file::NvLinkConfig) -> Option<libnmxc::NmxcTlsConfig> {

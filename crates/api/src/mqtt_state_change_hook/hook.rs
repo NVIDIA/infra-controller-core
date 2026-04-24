@@ -35,7 +35,7 @@ use crate::mqtt_state_change_hook::metrics::MqttHookMetrics;
 use crate::state_controller::state_change_emitter::{StateChangeEvent, StateChangeHook};
 
 /// Topic prefix for state change messages.
-const TOPIC_PREFIX: &str = "carbide/v1/machine";
+const TOPIC_PREFIX: &str = "nico/v1/machine";
 
 /// Internal queue item containing pre-serialized MQTT message with deadline.
 struct QueuedMessage {
@@ -69,7 +69,7 @@ impl<T: MqttPublisher> MqttPublisher for Arc<T> {
 /// MQTT hook that publishes `ManagedHostState` changes to the MQTT broker.
 ///
 /// Implements the AsyncAPI specification in `carbide.yaml`, publishing to
-/// `carbide/v1/machine/{machineId}/state`.
+/// `nico/v1/machine/{machineId}/state`.
 ///
 /// This hook maintains an internal queue and processes events in a background task.
 /// If the queue is full, events are dropped and a warning is logged.
@@ -95,7 +95,7 @@ impl MqttStateChangeHook {
         cancel_token: CancellationToken,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(queue_capacity);
-        let metrics = MqttHookMetrics::new(meter, sender.downgrade());
+        let metrics = MqttHookMetrics::new(meter, sender.downgrade(), "managed_host");
         join_set.spawn(process_events(
             receiver,
             client,
@@ -117,8 +117,11 @@ impl MqttStateChangeHook {
 impl StateChangeHook<MachineId, ManagedHostState> for MqttStateChangeHook {
     fn on_state_changed(&self, event: &StateChangeEvent<'_, MachineId, ManagedHostState>) {
         // Serialize immediately to avoid cloning state
-        let message =
-            ManagedHostStateChangeMessage::new(event.object_id, event.new_state, event.timestamp);
+        let message = ManagedHostStateChangeMessage {
+            machine_id: event.object_id,
+            managed_host_state: event.new_state,
+            timestamp: event.timestamp,
+        };
         let topic = Self::build_topic(event.object_id);
 
         match message.to_json_bytes() {
@@ -257,7 +260,7 @@ mod tests {
         // Wait for publish to complete
         let (topic, payload) = receiver.recv().await.expect("should receive message");
 
-        assert!(topic.starts_with("carbide/v1/machine/"));
+        assert!(topic.starts_with("nico/v1/machine/"));
         assert!(topic.ends_with("/state"));
 
         let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();

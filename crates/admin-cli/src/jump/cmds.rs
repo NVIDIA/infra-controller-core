@@ -56,7 +56,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
         return Ok(());
     }
 
-    // Is it an IP?
+    // Is it an IP? Uses FindIpAddress (machine / BMC / static BMC / instance / …).
     if IpAddr::from_str(&args.id).is_ok() {
         let req = forgerpc::FindIpAddressRequest { ip: args.id };
 
@@ -105,7 +105,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                MachineAddress | BmcIp | LoopbackIp => {
+                // StaticBmcIp: operator-configured BMC IP (same `jump` target as BmcIp / MachineAddress).
+                MachineAddress | BmcIp | StaticBmcIp | LoopbackIp => {
                     machine::handle_show(
                         machine::ShowMachine {
                             machine: Some(
@@ -176,7 +177,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                ResourcePool => resource_pool::list(&ctx.api_client).await?,
+                ResourcePool => resource_pool::list(Default::default(), &ctx.api_client).await?,
                 DpaInterface =>  {
                     dpa::show(
                         &ShowDpa {
