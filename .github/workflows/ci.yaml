@@ -693,21 +693,6 @@ jobs:
     secrets: inherit
 
   # ============================================================================
-  # BUILD STAGE - Publish Documentation
-  # ============================================================================
-
-  build-publish-documentation:
-    if: false
-    needs:
-      - prepare
-      - build-container-x86_64
-    uses: ./.github/workflows/docs.yml
-    with:
-      build_container: ${{ format('nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:{0}', (needs['build-container-x86_64'].result == 'success' && needs.prepare.outputs.version) || 'latest') }}
-      runner: linux-amd64-cpu4
-    secrets: inherit
-
-  # ============================================================================
   # SECURITY STAGE
   # ============================================================================
 
