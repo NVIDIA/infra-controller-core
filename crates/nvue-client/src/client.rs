@@ -297,7 +297,7 @@ impl std::fmt::Debug for NvueAuth {
 
 #[derive(thiserror::Error, Debug)]
 pub enum NvueClientError {
-    #[error("Reqwest client error")]
+    #[error("Reqwest client error: {0}")]
     ReqwestError(#[from] reqwest::Error),
 
     #[error("Environment variable error ({0}): {1}")]

@@ -50,8 +50,7 @@ spec:
             privileged: true
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
-            - hardware
-            - "--agent-platform-type=init-container"
+            - init-container
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: RUST_BACKTRACE

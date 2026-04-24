@@ -109,6 +109,10 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 prost = { workspace = true }
+reqwest = { default-features = false, features = [
+  "rustls-tls",
+  "stream",
+], workspace = true }
 tower = { workspace = true }
 tower-http = { features = ["trace"], workspace = true }
 tracing = { workspace = true }
@@ -124,10 +128,6 @@ tonic-prost-build = { workspace = true }
 [dev-dependencies]
 ctor = { workspace = true }
 prost = { workspace = true }
-reqwest = { default-features = false, features = [
-  "rustls-tls",
-  "stream",
-], workspace = true }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 

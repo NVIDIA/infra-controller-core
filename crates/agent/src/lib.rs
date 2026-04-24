@@ -14,6 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::fs::File;
+use std::io::Cursor;
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,6 +34,7 @@ use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
+use tokio::fs;
 use utils::models::arch::CpuArchitecture;
 use version_compare::{Part, Version};
 
@@ -82,6 +86,22 @@ pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// The minimum version of HBN that supports NVUE. Since NVUE is now the only
 /// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
+
+// Downloads cert (pem) file in case of dpu-agent is running as initcontainer.
+async fn download_cert() -> eyre::Result<()> {
+    let url = "http://carbide-pxe.forge/api/v0/tls/root_ca.pem";
+    let output_file = "/opt/forge/forge_root.pem";
+    let permissions = std::fs::Permissions::from_mode(0o644);
+
+    let response = reqwest::get(url).await?;
+
+    let mut file = File::create(output_file)?;
+    let mut content = Cursor::new(response.bytes().await?);
+    std::io::copy(&mut content, &mut file)?;
+    fs::set_permissions(output_file, permissions).await?;
+
+    Ok(())
+}
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     if cmdline.version {
@@ -158,8 +178,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // enumerate hardware and exit
         Some(AgentCommand::Hardware(options)) => {
             let info = match options.agent_platform_type {
-                // Init: enumerate from host and persist to the shared volume for the containerized agent
-                AgentPlatformType::ContainerInitializer => enumerate_and_save_hardware()?,
                 // Containerized: read the snapshot written by the init container
                 AgentPlatformType::Containerized => load_hardware_from_cache()?,
                 // No container mode, just plain old dpu-agent running as a service on DPU OS.
@@ -173,6 +191,13 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     eprintln!("{string_result}");
                 }
             }
+        }
+
+        // Init-container entry point: download cert + snapshot hardware to the shared volume.
+        // Output path is fixed (HW_CACHE_PATH) so the main container can always find it.
+        Some(AgentCommand::InitContainer) => {
+            download_cert().await?;
+            enumerate_and_save_hardware()?;
         }
 
         // One-off health check.

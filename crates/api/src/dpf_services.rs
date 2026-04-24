@@ -57,13 +57,13 @@ pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
 // DPU Agent Service Definitions
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
-pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = "0.9.0";
+pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = "0.9.6";
 pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
-pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = "v0.5-arm64-multistage";
+pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = "v0.9.5-arm64-multistage";
 
 /// FMDS Agent Service Definitions
 pub const FMDS_SERVICE_HELM_NAME: &str = "carbide-fmds";
-pub const FMDS_SERVICE_HELM_VERSION: &str = "0.1.0";
+pub const FMDS_SERVICE_HELM_VERSION: &str = "0.2.0";
 pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
 pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
 pub const FMDS_SERVICE_IMAGE_TAG: &str = "v0.1-arm64-distroless";
@@ -74,6 +74,9 @@ fn doca_hbn_service_interfaces() -> Vec<ServiceInterface> {
 }
 fn dhcp_server_service_interfaces() -> Vec<ServiceInterface> {
     dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME)
+}
+fn fmds_service_interfaces() -> Vec<ServiceInterface> {
+    dpu_service_interfaces(FMDS_SERVICE_NAME, FMDS_SERVICE_NAD_NAME)
 }
 
 fn dpu_service_interfaces(service_name: &str, network: &str) -> Vec<ServiceInterface> {
@@ -102,6 +105,10 @@ fn doca_hbn_startup_yaml(interfaces: &[ServiceInterface]) -> String {
         "    rev-id: 1.0\n",
         "    version: HBN 2.4.0\n",
         "- set:\n",
+        "    system:\n",
+        "      api:\n",
+        "        listening-address:\n",
+        "          0.0.0.0: {}\n",
         "    interface:\n",
     ));
 
@@ -154,10 +161,7 @@ pub fn doca_hbn_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition
             "configuration": {
                 "user": {
                     "create": true,
-                    "username": {
-                        "secretName": "hbn-user-password",
-                        "secretKey": "username",
-                    },
+                    "username": "carbide",
                     "password": {
                         "secretName": "hbn-user-password",
                         "secretKey": "password",
@@ -231,7 +235,6 @@ pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinitio
             "hbn": {
                 "nvue_https_address": "nvue",
                 "nvue_credentials_secret_name": "hbn-user-password",
-                "nvue_username_key": "username",
                 "nvue_password_key": "password",
             },
         })),
@@ -242,8 +245,11 @@ pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinitio
             "dhcp_server": {
                 "service_name": "{{ (index .Services \"carbide-dhcp-server\").Name }}"
             },
-            "carbide_fmds": {
+            "fmds": {
                 "service_name": "{{ (index .Services \"carbide-fmds\").Name }}"
+            },
+            "hbn": {
+                "nvue_https_address": "{{ (index .Services \"doca-hbn\").Name }}"
             }
         })),
 
@@ -312,10 +318,7 @@ pub fn fmds_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
             }
         })),
 
-        interfaces: vec![ServiceInterface {
-            name: "f_pf0hpf_if".to_string(),
-            network: FMDS_SERVICE_NAD_NAME.to_string(),
-        }],
+        interfaces: fmds_service_interfaces(),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
 

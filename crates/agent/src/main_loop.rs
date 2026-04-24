@@ -135,10 +135,15 @@ pub async fn setup_and_run(
             fmds_address = fmds_addr,
             "Using FmdsUpdater::External FMDS service"
         );
-        let fmds_client = crate::fmds_client::FmdsGrpcClient::connect(fmds_addr)
-            .await
-            .wrap_err("Failed to connect to external FMDS service")?;
-        FmdsUpdater::External(fmds_client)
+        match crate::fmds_client::FmdsGrpcClient::connect(fmds_addr).await {
+            Ok(fmds_client) => FmdsUpdater::External(fmds_client),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to connect to external FMDS service: {e:#}, falling back to embedded"
+                );
+                FmdsUpdater::Embedded(instance_metadata_state.clone())
+            }
+        }
     } else {
         if options.enable_metadata_service {
             crate::metadata_service::spawn_metadata_service(
@@ -615,22 +620,6 @@ impl MainLoop {
                     }
 
                     tracing::trace!("Desired network config is {conf:?}");
-                    // Generate the fmds interface plan from the config. This does not apply the plan.
-                    // The plan is applied when the NVUE template is written
-                    let fmds_proposed_interfaces = &self.agent_config.fmds_armos_networking;
-                    let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
-
-                    let fmds_interface_plan =
-                        Interface::plan(self.hbn_device_names.sfs[0], network_plan).await?;
-                    tracing::trace!("Interface plan: {:?}", fmds_interface_plan);
-
-                    // Generate the fmds route plan from conf.tenant_interfaces[n].address
-                    // the plan is applied when the nvue template is written
-                    let route_plan =
-                        plan_fmds_armos_routing(self.hbn_device_names.sfs[0], &proposed_routes)
-                            .await?;
-                    tracing::trace!("Route plan: {:?}", route_plan);
-
                     // Get the actual virtualization type to use for configuring
                     // an interface, where we'll default to reading the one provided
                     // by the Carbide API, with the ability to override via RunOptions.
@@ -651,6 +640,24 @@ impl MainLoop {
                         if self.options.agent_platform_type.is_dpu_os()
                             && hbn_version >= self.fmds_minimum_hbn_version
                         {
+                            // Generate the fmds interface plan from the config. This does not apply the plan.
+                            // The plan is applied when the NVUE template is written
+                            let fmds_proposed_interfaces = &self.agent_config.fmds_armos_networking;
+                            let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
+
+                            let fmds_interface_plan =
+                                Interface::plan(self.hbn_device_names.sfs[0], network_plan).await?;
+                            tracing::trace!("Interface plan: {:?}", fmds_interface_plan);
+
+                            // Generate the fmds route plan from conf.tenant_interfaces[n].address
+                            // the plan is applied when the nvue template is written
+                            let route_plan = plan_fmds_armos_routing(
+                                self.hbn_device_names.sfs[0],
+                                &proposed_routes,
+                            )
+                            .await?;
+                            tracing::trace!("Route plan: {:?}", route_plan);
+
                             // Apply the interface plan. This is where we actually configure
                             // the FMDS phone home interface on the DPU.
                             Interface::apply(fmds_interface_plan).await?;
@@ -934,9 +941,10 @@ impl MainLoop {
             }
         }
 
-        if let result @ IterationResult {
-            stop_agent: true, ..
-        } = self.perform_upgrade_check(now).await
+        if self.options.agent_platform_type.is_dpu_os()
+            && let result @ IterationResult {
+                stop_agent: true, ..
+            } = self.perform_upgrade_check(now).await
         {
             return Ok(result);
         }

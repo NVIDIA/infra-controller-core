@@ -647,6 +647,9 @@ pub fn build_deployment<L: ResourceLabeler>(
                             DpuDeploymentServicesDependsOn {
                                 name: FMDS_SERVICE_NAME.to_string(),
                             },
+                            DpuDeploymentServicesDependsOn {
+                                name: DOCA_HBN_SERVICE_NAME.to_string(),
+                            },
                         ])
                     } else {
                         None
@@ -762,6 +765,7 @@ pub fn build_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> 
             chained_svc_if: Some(vec![
                 (DOCA_HBN_SERVICE_NAME.into(), "pf0hpf_if".into()),
                 (DHCP_SERVER_SERVICE_NAME.into(), "d_pf0hpf_if".into()),
+                (FMDS_SERVICE_NAME.into(), "f_pf0hpf_if".into()),
             ]),
         },
         DpuServiceInterfaceTemplateDefinition {
