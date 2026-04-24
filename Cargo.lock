@@ -1375,6 +1375,7 @@ dependencies = [
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
+ "carbide-nvlink-manager",
  "carbide-preingestion-manager",
  "carbide-prost-builder",
  "carbide-redfish",
@@ -2330,6 +2331,35 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "carbide-nvlink-manager"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-rpc",
+ "carbide-secrets",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "duration-str",
+ "eyre",
+ "http",
+ "libnmxm",
+ "opentelemetry",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
