@@ -37,47 +37,14 @@ pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Resul
             let headers = vec![
                 "Rack ID",
                 "Rack State",
-                "Expected Compute Trays",
-                "Current Compute Tray IDs",
-                "Expected Power Shelves",
-                "Current Power Shelf IDs",
-                "Expected NVLink Switches",
-                "Current NVLink Switch IDs",
             ];
             table.set_titles(Row::new(
                 headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
             ));
             for r in racks {
-                let expected_compute_trays = r.expected_compute_trays.join("\n");
-                let current_compute_trays: String = r
-                    .compute_trays
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let expected_power_shelves = r.expected_power_shelves.join("\n");
-                let current_power_shelves: String = r
-                    .power_shelves
-                    .iter()
-                    .map(|ps| ps.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let expected_nvlink_switches = r.expected_nvlink_switches.join("\n");
-                let current_switches: String = r
-                    .switches
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
                 table.add_row(prettytable::row![
                     r.id.map(|id| id.to_string()).unwrap_or_default(),
                     r.rack_state.as_str(),
-                    expected_compute_trays,
-                    current_compute_trays,
-                    expected_power_shelves,
-                    current_power_shelves,
-                    expected_nvlink_switches,
-                    current_switches,
                 ]);
             }
             table.printstd();
