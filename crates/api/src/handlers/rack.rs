@@ -69,35 +69,7 @@ pub async fn get_rack(
 
     let mut result = Vec::with_capacity(racks.len());
     for r in racks {
-        let machine_ids = db_machine::find_machine_ids(
-            reader.as_mut(),
-            MachineSearchConfig {
-                rack_id: Some(r.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let switch_ids = db_switch::find_ids(
-            reader.as_mut(),
-            model::switch::SwitchSearchFilter {
-                rack_id: Some(r.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let power_shelf_ids = db_power_shelf::find_ids(
-            reader.as_mut(),
-            model::power_shelf::PowerShelfSearchFilter {
-                rack_id: Some(r.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-
         let mut rpc_rack: rpc::Rack = r.into();
-        rpc_rack.compute_trays = machine_ids;
-        rpc_rack.switches = switch_ids;
-        rpc_rack.power_shelves = power_shelf_ids;
         result.push(rpc_rack);
     }
 
