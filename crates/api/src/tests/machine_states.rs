@@ -1654,14 +1654,51 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     }
 }
 
+/// Exercises WaitingForBiosJob state by configuring mock BMC to return a job ID from machine_setup.
+/// Verifies that host reaches "Ready" and that state machine transitioned through WaitingForBiosJob.
+#[crate::sqlx_test]
+async fn test_bios_config_job_happy_path(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    env.redfish_sim
+        .set_machine_setup_bios_job_id(Some("JID_BIOS_TEST_123".to_string()));
+    env.redfish_sim.set_job_state_sequence(vec![
+        libredfish::JobState::Scheduled,
+        libredfish::JobState::Completed,
+    ]);
+
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        matches!(host.current_state(), ManagedHostState::Ready),
+        "Expected host to reach Ready, but got: {:?}",
+        host.current_state()
+    );
+
+    let history = mh.host().parsed_history(None).await;
+    let went_through_bios_job = history.iter().any(|state| {
+        matches!(
+            state,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForBiosJob { .. },
+            }
+        )
+    });
+    assert!(
+        went_through_bios_job,
+        "Expected state history to include WaitingForBiosJob, but it did not. History: {:#?}",
+        history
+    );
+}
+
 #[crate::sqlx_test]
 async fn test_scout_heartbeat_timeout_alert_cleared_on_ready_transition(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = create_managed_host(&env).await;
     let host_machine_id = mh.host().id;
 
-    // Keep scout in timed-out state so Ready does not clear this via the normal
-    // "heartbeat recovered" path before we exercise transition-out-of-Ready logic.
     let mut txn = env.db_txn().await;
     sqlx::query(
         "UPDATE machines SET last_scout_contact_time = NOW() - INTERVAL '2 years' WHERE id = $1",
@@ -1850,14 +1887,10 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
 
     let machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
-    // First discovery - establishes the host with the original TPM-based ID
     host_discover_machine(&env, &host_config, machine_interface_id).await;
 
-    // Second discovery - different TPM EK cert simulates TPM replacement
-    // without force-delete, producing a different stable_machine_id
     let mut discovery_info =
         DiscoveryInfo::try_from(model::hardware_info::HardwareInfo::from(&host_config)).unwrap();
-    // Use a different valid EK cert to simulate TPM replacement
     discovery_info.tpm_ek_certificate =
         Some(BASE64_STANDARD.encode(common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED));
     discovery_info.attest_key_info = Some(AttestKeyInfo {

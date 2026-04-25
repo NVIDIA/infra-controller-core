@@ -360,6 +360,19 @@ impl RedfishClient {
         Ok(())
     }
 
+    pub async fn get_power_state(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<libredfish::PowerState, EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.get_power_state().await.map_err(map_redfish_error)
+    }
+
     pub async fn power(
         &self,
         bmc_ip_address: SocketAddr,

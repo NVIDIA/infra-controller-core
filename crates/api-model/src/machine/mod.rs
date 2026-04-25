@@ -1937,7 +1937,15 @@ pub enum PerformPowerOperation {
 pub enum MachineState {
     Init,
     EnableIpmiOverLan,
-    WaitingForPlatformConfiguration,
+    WaitingForPlatformConfiguration {
+        /// Retries after BIOS job failure remediation; re-run machine_setup from this state.
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Wait for BIOS config job (Dell) to complete before PollingBiosSetup / SetBootOrder.
+    WaitingForBiosJob {
+        bios_config_info: BiosConfigInfo,
+    },
     PollingBiosSetup,
     SetBootOrder {
         set_boot_order_info: Option<SetBootOrderInfo>,
@@ -1987,6 +1995,32 @@ pub enum UefiSetupState {
     // Deprecated: no-op state, transitions directly to WaitingForLockdown::SetLockdown
     // Kept for backwards compatibility with hosts that may be in this state
     LockdownHost,
+}
+
+/// Tracks progress waiting for the Dell BIOS config job (from machine_setup PATCH) to complete
+/// before configuring boot order. Same pattern as SetBootOrderInfo / SetBootOrderState.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct BiosConfigInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bios_job_id: Option<String>,
+    pub bios_config_state: BiosConfigState,
+    /// Full configure_host_bios retry count across HandleBiosJobFailure recovery cycles.
+    #[serde(default)]
+    pub retry_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum BiosConfigState {
+    WaitForBiosJobScheduled,
+    RebootHost,
+    WaitForBiosJobCompletion,
+    /// Power off → BMC reset → power on when job fails or is scheduled with errors (same as boot order).
+    HandleBiosJobFailure {
+        failure: String,
+        power_state: PowerState,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -2158,7 +2192,18 @@ pub enum HostPlatformConfigurationState {
         unlock_host_state: UnlockHostState,
     },
     CheckHostConfig,
-    ConfigureBios,
+    /// Run `machine_setup` / BIOS PATCH; on job ID, transition to [`WaitingForBiosJob`].
+    ConfigureBios {
+        /// Legacy only: persisted `Some` is migrated to `WaitingForBiosJob` on next handle. New flows use [`WaitingForBiosJob`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bios_config_info: Option<BiosConfigInfo>,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Wait for Dell (etc.) BIOS config Redfish job to complete before `PollingBiosSetup` (mirrors HostInit `WaitingForBiosJob`).
+    WaitingForBiosJob {
+        bios_config_info: BiosConfigInfo,
+    },
     PollingBiosSetup,
     SetBootOrder {
         set_boot_order_info: SetBootOrderInfo,

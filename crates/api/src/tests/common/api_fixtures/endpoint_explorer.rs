@@ -109,6 +109,14 @@ impl EndpointExplorer for MockEndpointExplorer {
         Ok(())
     }
 
+    async fn redfish_get_power_state(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<libredfish::PowerState, EndpointExplorationError> {
+        Ok(libredfish::PowerState::On)
+    }
+
     async fn redfish_power_control(
         &self,
         _address: SocketAddr,

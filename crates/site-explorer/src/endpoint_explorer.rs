@@ -67,6 +67,12 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         interface: &MachineInterfaceSnapshot,
     ) -> Result<(), EndpointExplorationError>;
 
+    async fn redfish_get_power_state(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<libredfish::PowerState, EndpointExplorationError>;
+
     async fn redfish_power_control(
         &self,
         address: SocketAddr,
