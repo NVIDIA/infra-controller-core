@@ -29,6 +29,8 @@ use db::nvl_logical_partition::IdColumn as LpIdColumn;
 use db::nvl_partition::IdColumn;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, ObjectColumnFilter, machine};
+use libnmxc::nmxc_model::{GetPartitionInfoListRequest, PartitionInfo};
+use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
 use metrics::{AppliedChange, NmxmPartitionOperationStatus, NvlPartitionMonitorMetrics};
 use model::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use model::instance::status::SyncState;
@@ -47,8 +49,6 @@ use utils::periodic_timer::PeriodicTimer;
 use crate::api::TransactionVending;
 use crate::cfg::file::NvLinkConfig;
 use crate::{CarbideError, CarbideResult};
-use libnmxc::nmxc_model::{GetPartitionInfoListRequest, PartitionInfo};
-use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
 
 mod metrics;
 
@@ -1266,7 +1266,8 @@ impl NvlPartitionMonitor {
                     .or_insert(vec![operation.clone()]);
             }
         }
-        for (_partition_nmx_c_id, operation) in partition_ctx.unknown_partition_addition_operations.iter()
+        for (_partition_nmx_c_id, operation) in
+            partition_ctx.unknown_partition_addition_operations.iter()
         {
             partition_ctx
                 .nmx_c_operations

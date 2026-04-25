@@ -518,7 +518,7 @@ impl InternalRBACRules {
         );
         x.perm("RedfishBrowse", vec![ForgeAdminCLI]);
         x.perm("UfmBrowse", vec![ForgeAdminCLI]);
-        x.perm("NmxmBrowse", vec![ForgeAdminCLI]);
+        x.perm("NmxcBrowse", vec![ForgeAdminCLI]);
         x.perm("UpdateMachineMetadata", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateRackMetadata", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateSwitchMetadata", vec![ForgeAdminCLI, SiteAgent]);

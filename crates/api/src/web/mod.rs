@@ -109,7 +109,7 @@ mod network_device;
 mod network_security_group;
 mod network_segment;
 mod network_status;
-mod nmxm_browser;
+mod nmxc_browser;
 mod nvlink;
 mod operating_system;
 mod power_shelf;
@@ -538,7 +538,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(operating_system::show_all_json),
             )
             .route("/operating-system/{os_id}", get(operating_system::detail))
-            .route("/nmxm-browser", get(nmxm_browser::query))
+            .route("/nmxc-browser", get(nmxc_browser::query))
             .route(
                 "/nvlink-partition",
                 get(nvlink::show_nvlink_logical_partitions_html),

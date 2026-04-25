@@ -398,6 +398,15 @@ pub async fn start_api(
 
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
 
+    let mut nmxc_builder = libnmxc::NmxcClientPool::builder();
+    if let Some(tls) = nmxc_tls_config_from_nvlink(&nvlink_config) {
+        nmxc_builder = nmxc_builder.tls(tls);
+    }
+    let nmxc_client_pool = nmxc_builder
+        .build()
+        .map_err(|e| eyre::eyre!("Failed to build NMX-C client pool: {e}"))?;
+    let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
+
     // Create DPF SDK and initialize CRs if enabled
     // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
     let dpf_sdk: Option<Arc<dyn crate::dpf::DpfOperations>> = if carbide_config.dpf.enabled {
@@ -530,6 +539,7 @@ pub async fn start_api(
         scout_stream_registry: ConnectionRegistry::new(),
         rms_client: rms_client.clone(),
         nmxm_pool: shared_nmxm_pool,
+        nmxc_client_pool: shared_nmxc_pool.clone(),
         work_lock_manager_handle,
         dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
@@ -1034,19 +1044,9 @@ pub async fn initialize_and_start_controllers(
     )
     .start(join_set, cancel_token.clone())?;
 
-    let nvlink_for_nmxc = carbide_config.nvlink_config.clone().unwrap_or_default();
-    let mut nmxc_builder = libnmxc::NmxcClientPool::builder();
-    if let Some(tls) = nmxc_tls_config_from_nvlink(&nvlink_for_nmxc) {
-        nmxc_builder = nmxc_builder.tls(tls);
-    }
-    let nmxc_client_pool = nmxc_builder
-        .build()
-        .map_err(|e| eyre::eyre!("Failed to build NMX-C client pool: {e}"))?;
-    let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
-
     NvlPartitionMonitor::new(
         db_pool.clone(),
-        shared_nmxc_pool,
+        api_service.nmxc_client_pool.clone(),
         meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
         carbide_config.host_health,
@@ -1114,19 +1114,12 @@ pub async fn initialize_and_start_controllers(
     Ok(())
 }
 
-fn nmxc_tls_config_from_nvlink(cfg: &crate::cfg::file::NvLinkConfig) -> Option<libnmxc::NmxcTlsConfig> {
-    let ca = cfg
-        .nmx_c_tls_ca_cert_path
-        .as_ref()
-        .map(PathBuf::from);
-    let client_cert = cfg
-        .nmx_c_tls_client_cert_path
-        .as_ref()
-        .map(PathBuf::from);
-    let client_key = cfg
-        .nmx_c_tls_client_key_path
-        .as_ref()
-        .map(PathBuf::from);
+fn nmxc_tls_config_from_nvlink(
+    cfg: &crate::cfg::file::NvLinkConfig,
+) -> Option<libnmxc::NmxcTlsConfig> {
+    let ca = cfg.nmx_c_tls_ca_cert_path.as_ref().map(PathBuf::from);
+    let client_cert = cfg.nmx_c_tls_client_cert_path.as_ref().map(PathBuf::from);
+    let client_key = cfg.nmx_c_tls_client_key_path.as_ref().map(PathBuf::from);
     if ca.is_none()
         && client_cert.is_none()
         && client_key.is_none()

@@ -885,7 +885,7 @@ service Forge {
   // Get position related information for machines
   rpc GetMachinePositionInfo(MachinePositionQuery) returns (MachinePositionInfoList);
 
-  rpc NmxmBrowse(NmxmBrowseRequest) returns (NmxmBrowseResponse);
+  rpc NmxcBrowse(NmxcBrowseRequest) returns (NmxcBrowseResponse);
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
@@ -6756,11 +6756,23 @@ message MachineNVLinkGpuStatusObservation {
   uint64 guid = 6;
 }
 
-message NmxmBrowseRequest {
-  string path = 1;
+enum NmxcBrowseOperation {
+  NMXC_BROWSE_OPERATION_UNSPECIFIED = 0;
+  NMXC_BROWSE_OPERATION_COMPUTE_NODE_INFO_LIST = 1;
+  NMXC_BROWSE_OPERATION_GPU_INFO = 2;
 }
 
-message NmxmBrowseResponse {
+message NmxcBrowseRequest {
+  reserved 1;
+  reserved "path";
+  // Chassis serial used to resolve the NMX-C gRPC endpoint URL from `nvlink_nmxc_endpoints`.
+  string chassis_serial = 2;
+  NmxcBrowseOperation operation = 3;
+  // Required when `operation` is `NMXC_BROWSE_OPERATION_GPU_INFO`.
+  uint64 gpu_uid = 4;
+}
+
+message NmxcBrowseResponse {
   // Response body
   string body = 1;
   // Response status code

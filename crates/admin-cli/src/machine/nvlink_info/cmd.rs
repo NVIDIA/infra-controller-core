@@ -88,46 +88,7 @@ pub async fn handle_nvlink_info_populate(
         .and_then(|b| b.ip.clone())
         .ok_or_else(|| CarbideCliError::GenericError("No BMC IP available".to_string()))?;
 
-    // Fetch nmx-m compute nodes and build lookup map by (serial_number, tray_index)
-    let nmxm_compute_nodes: HashMap<(String, i32), serde_json::Value> = match api_client
-        .0
-        .nmxm_browse("nmx/v1/compute-nodes".to_string())
-        .await
-    {
-        Ok(response) => {
-            // Check for HTTP error codes
-            if response.code < 200 || response.code >= 300 {
-                return Err(CarbideCliError::GenericError(format!(
-                    "NMX-M compute-nodes request failed with HTTP {}: {}",
-                    response.code, response.body
-                )));
-            }
-            if let Ok(nodes) = serde_json::from_str::<Vec<serde_json::Value>>(&response.body) {
-                nodes
-                    .into_iter()
-                    .filter_map(|node| {
-                        let location_info = node.get("LocationInfo")?;
-                        let serial = location_info
-                            .get("ChassisSerialNumber")?
-                            .as_str()?
-                            .to_string();
-                        let tray_idx = location_info.get("TrayIndex")?.as_i64()? as i32;
-                        Some(((serial, tray_idx), node))
-                    })
-                    .collect()
-            } else {
-                HashMap::new()
-            }
-        }
-        Err(e) => {
-            return Err(CarbideCliError::GenericError(format!(
-                "Failed to fetch nmx-m compute nodes: {}",
-                e
-            )));
-        }
-    };
-
-    // Fetch Redfish data
+    // Fetch Redfish data first (serial + tray are required to resolve the NMX-C endpoint mapping).
     let uri = format!("https://{}/redfish/v1/Chassis/CBC_0", bmc_ip);
 
     let redfish_response = api_client
@@ -159,6 +120,49 @@ pub async fn handle_nvlink_info_populate(
         .ok_or_else(|| {
             CarbideCliError::GenericError("No SerialNumber found in Redfish response".to_string())
         })?;
+
+    // Fetch compute nodes and build lookup map by (serial_number, tray_index)
+    let nmxm_compute_nodes: HashMap<(String, i32), serde_json::Value> = match api_client
+        .0
+        .nmxc_browse(forgerpc::NmxcBrowseRequest {
+            chassis_serial: serial_number.clone(),
+            operation: forgerpc::NmxcBrowseOperation::ComputeNodeInfoList as i32,
+            gpu_uid: 0,
+        })
+        .await
+    {
+        Ok(response) => {
+            // Check for HTTP error codes
+            if response.code < 200 || response.code >= 300 {
+                return Err(CarbideCliError::GenericError(format!(
+                    "NMX-C compute-nodes request failed with HTTP {}: {}",
+                    response.code, response.body
+                )));
+            }
+            if let Ok(nodes) = serde_json::from_str::<Vec<serde_json::Value>>(&response.body) {
+                nodes
+                    .into_iter()
+                    .filter_map(|node| {
+                        let location_info = node.get("LocationInfo")?;
+                        let serial = location_info
+                            .get("ChassisSerialNumber")?
+                            .as_str()?
+                            .to_string();
+                        let tray_idx = location_info.get("TrayIndex")?.as_i64()? as i32;
+                        Some(((serial, tray_idx), node))
+                    })
+                    .collect()
+            } else {
+                HashMap::new()
+            }
+        }
+        Err(e) => {
+            return Err(CarbideCliError::GenericError(format!(
+                "Failed to fetch NMX-C compute nodes: {}",
+                e
+            )));
+        }
+    };
 
     // Look up matching nmx-m compute node
     let nmxm_node = nmxm_compute_nodes
@@ -196,10 +200,16 @@ pub async fn handle_nvlink_info_populate(
     // Fetch GPU details from nmx-m for each GPU in the list
     let mut gpus: Vec<forgerpc::NvLinkGpu> = Vec::new();
     for gpu_id in &gpu_id_list {
-        let gpu_path = format!("nmx/v1/gpus/{}", gpu_id);
+        let gpu_uid: u64 = gpu_id.parse().map_err(|_| {
+            CarbideCliError::GenericError(format!("Invalid GPU id (expected u64): {}", gpu_id))
+        })?;
         let gpu_response = api_client
             .0
-            .nmxm_browse(gpu_path.clone())
+            .nmxc_browse(forgerpc::NmxcBrowseRequest {
+                chassis_serial: serial_number.clone(),
+                operation: forgerpc::NmxcBrowseOperation::GpuInfo as i32,
+                gpu_uid,
+            })
             .await
             .map_err(|e| {
                 CarbideCliError::GenericError(format!("Failed to fetch GPU {}: {}", gpu_id, e))
@@ -208,7 +218,7 @@ pub async fn handle_nvlink_info_populate(
         // Check for HTTP error codes
         if gpu_response.code < 200 || gpu_response.code >= 300 {
             return Err(CarbideCliError::GenericError(format!(
-                "NMX-M GPU {} request failed with HTTP {}: {}",
+                "NMX-C GPU {} request failed with HTTP {}: {}",
                 gpu_id, gpu_response.code, gpu_response.body
             )));
         }

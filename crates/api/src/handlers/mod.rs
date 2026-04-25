@@ -59,6 +59,7 @@ pub mod mlx_admin;
 pub mod network_devices;
 pub mod network_security_group;
 pub mod network_segment;
+pub mod nmxc_browse;
 pub mod nvl_partition;
 pub mod nvlink_nmxc_endpoints;
 pub mod operating_system;

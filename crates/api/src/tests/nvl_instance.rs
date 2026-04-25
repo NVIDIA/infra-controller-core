@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-use libnmxc::nmxc_model::GetPartitionInfoListRequest;
 //use rpc::forge::NvlPartitionSearchFilter;
 use ::rpc::machine_discovery::Gpu;
 use common::api_fixtures::create_managed_host_with_hardware_info_template;
@@ -24,6 +23,7 @@ use common::api_fixtures::instance::{
 };
 use common::api_fixtures::managed_host::HardwareInfoTemplate;
 use common::api_fixtures::nvl_logical_partition::create_nvl_logical_partition;
+use libnmxc::nmxc_model::GetPartitionInfoListRequest;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
@@ -1241,7 +1241,6 @@ async fn test_instance_delete_with_nvl_config(pool: sqlx::PgPool) {
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(ids_all.partition_ids.len(), 0);
-
 }
 
 #[crate::sqlx_test]

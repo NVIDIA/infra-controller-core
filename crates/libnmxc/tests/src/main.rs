@@ -148,7 +148,7 @@ async fn run(cli: Cli) -> Result<(), NmxcError> {
             break;
         }
 
-        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.is_empty() {
             continue;
         }

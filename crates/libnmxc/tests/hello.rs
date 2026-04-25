@@ -7,7 +7,7 @@
 // Insecure / plain HTTP is acceptable for local testing.
 //
 
-use libnmxc::{Endpoint, Nmxc, NmxcClientPool};
+use libnmxc::{Endpoint, NmxcClientPool};
 
 fn test_endpoint() -> Option<String> {
     std::env::var("NMXC_GRPC_ENDPOINT").ok()

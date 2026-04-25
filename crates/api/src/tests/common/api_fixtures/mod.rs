@@ -51,6 +51,7 @@ use futures::FutureExt as _;
 use health_report::{HealthReport, HealthReportApplyMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
+use libnmxc::NmxcPool;
 use measured_boot::pcr::PcrRegisterValue;
 use model::attestation::spdm::Verifier;
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
@@ -141,7 +142,6 @@ use crate::tests::common::api_fixtures::network_segment::{
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 use crate::tests::common::test_certificates::TestCertificateProvider;
-use libnmxc::NmxcPool;
 
 pub mod dpu;
 pub mod endpoint_explorer;
@@ -1533,6 +1533,7 @@ pub async fn create_test_env_with_overrides(
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
         rms_client: rms_sim.as_rms_client(),
         nmxm_pool: nmxm_sim.clone(),
+        nmxc_client_pool: nmxc_sim.clone(),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
@@ -2453,15 +2454,16 @@ pub async fn create_managed_host_with_hardware_info_template(
     test_mh
 }
 
-/// Returns true when discovery looks like a GB200-class host 
+/// Returns true when discovery looks like a GB200-class host
 fn discovery_indicates_gb200(discovery: &rpc::DiscoveryInfo) -> bool {
-    if discovery.dmi_data.as_ref().is_some_and(|d| d.product_name.contains("GB200")) {
+    if discovery
+        .dmi_data
+        .as_ref()
+        .is_some_and(|d| d.product_name.contains("GB200"))
+    {
         return true;
     }
-    discovery
-        .gpus
-        .iter()
-        .any(|g| g.name.contains("GB200"))
+    discovery.gpus.iter().any(|g| g.name.contains("GB200"))
 }
 
 /// Inserts `nvlink_nmxc_endpoints` using the first non-empty
@@ -2491,7 +2493,8 @@ pub async fn insert_nvlink_nmxc_endpoint_from_managed_host_discovery(
     let Ok(mut txn) = db::Transaction::begin(&env.pool).await else {
         return;
     };
-    let Ok(existing) = db::nvlink_nmxc_endpoints::find_by_chassis_serial(&mut txn, chassis_serial).await
+    let Ok(existing) =
+        db::nvlink_nmxc_endpoints::find_by_chassis_serial(&mut txn, chassis_serial).await
     else {
         txn.rollback().await.ok();
         return;

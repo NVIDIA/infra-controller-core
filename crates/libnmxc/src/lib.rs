@@ -147,7 +147,10 @@ impl NmxcClientPool {
 
         if let Some(ref path) = t.ca_cert_path {
             let pem = tokio::fs::read(path).await.map_err(|e| {
-                NmxcError::InvalidEndpoint(format!("read NMX-C TLS CA cert {}: {e}", path.display()))
+                NmxcError::InvalidEndpoint(format!(
+                    "read NMX-C TLS CA cert {}: {e}",
+                    path.display()
+                ))
             })?;
             config = config.ca_certificate(Certificate::from_pem(pem));
         }
@@ -171,8 +174,7 @@ impl NmxcClientPool {
             (None, None) => {}
             _ => {
                 return Err(NmxcError::InvalidEndpoint(
-                    "NMX-C TLS client cert path and key path must both be set for mTLS"
-                        .to_string(),
+                    "NMX-C TLS client cert path and key path must both be set for mTLS".to_string(),
                 ));
             }
         }

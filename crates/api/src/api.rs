@@ -38,6 +38,7 @@ use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialManager;
+use libnmxc::NmxcPool;
 use librms::RmsApi;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -77,6 +78,7 @@ pub struct Api {
     #[allow(unused)]
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
+    pub(crate) nmxc_client_pool: Arc<dyn NmxcPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
     pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
@@ -2650,11 +2652,11 @@ impl Forge for Api {
         crate::handlers::logical_partition::update(self, request).await
     }
 
-    async fn nmxm_browse(
+    async fn nmxc_browse(
         &self,
-        request: Request<rpc::NmxmBrowseRequest>,
-    ) -> Result<Response<rpc::NmxmBrowseResponse>, Status> {
-        crate::handlers::nvl_partition::nmxm_browse(self, request).await
+        request: Request<rpc::NmxcBrowseRequest>,
+    ) -> Result<Response<rpc::NmxcBrowseResponse>, Status> {
+        crate::handlers::nmxc_browse::nmxc_browse(self, request).await
     }
 
     // Return a Vector of all the DPA interface IDs
