@@ -82,6 +82,12 @@ pub struct AgentConfig {
     pub updates: UpdateConfig,
     #[serde(default, rename = "fmds-armos-networking")]
     pub fmds_armos_networking: FmdsDpuNetworkingConfig,
+    #[serde(
+        default,
+        rename = "machine-identity",
+        skip_serializing_if = "MachineIdentityConfig::is_default"
+    )]
+    pub machine_identity: MachineIdentityConfig,
 }
 
 impl AgentConfig {
@@ -161,6 +167,78 @@ impl Default for MetadataServiceConfig {
         Self {
             address: INSTANCE_METADATA_SERVICE_ADDRESS.to_string(),
         }
+    }
+}
+
+/// Rate limit and timeout for `GET /v1/meta-data/identity` on the embedded metadata service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct MachineIdentityConfig {
+    /// Sustained admission rate (Generic Cell Rate Algorithm refill), in requests per second.
+    /// Valid range: 1–20.
+    #[serde(default = "default_machine_identity_requests_per_second")]
+    pub requests_per_second: u8,
+    /// Maximum burst (cells) allowed by the rate limiter. Valid range: 1–40.
+    #[serde(default = "default_machine_identity_burst")]
+    pub burst: u8,
+    /// Max time to wait for a rate-limit permit before failing the request (seconds).
+    /// Applies to governor wait (`until_ready`), not to the `sign_machine_identity` RPC duration.
+    /// Valid range: 1–10.
+    #[serde(default = "default_machine_identity_wait_timeout_secs")]
+    pub wait_timeout_secs: u8,
+}
+
+fn default_machine_identity_requests_per_second() -> u8 {
+    3
+}
+
+fn default_machine_identity_burst() -> u8 {
+    8
+}
+
+fn default_machine_identity_wait_timeout_secs() -> u8 {
+    2
+}
+
+impl Default for MachineIdentityConfig {
+    fn default() -> Self {
+        Self {
+            requests_per_second: default_machine_identity_requests_per_second(),
+            burst: default_machine_identity_burst(),
+            wait_timeout_secs: default_machine_identity_wait_timeout_secs(),
+        }
+    }
+}
+
+impl MachineIdentityConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        const RPS_MIN: u8 = 1;
+        const RPS_MAX: u8 = 20;
+        const BURST_MIN: u8 = 1;
+        const BURST_MAX: u8 = 40;
+        const WAIT_TIMEOUT_MIN: u8 = 1;
+        const WAIT_TIMEOUT_MAX: u8 = 10;
+
+        if !(RPS_MIN..=RPS_MAX).contains(&self.requests_per_second) {
+            return Err(format!(
+                "machine-identity.requests-per-second must be between {RPS_MIN} and {RPS_MAX} (inclusive)"
+            ));
+        }
+        if !(BURST_MIN..=BURST_MAX).contains(&self.burst) {
+            return Err(format!(
+                "machine-identity.burst must be between {BURST_MIN} and {BURST_MAX} (inclusive)"
+            ));
+        }
+        if !(WAIT_TIMEOUT_MIN..=WAIT_TIMEOUT_MAX).contains(&self.wait_timeout_secs) {
+            return Err(format!(
+                "machine-identity.wait-timeout-secs must be between {WAIT_TIMEOUT_MIN} and {WAIT_TIMEOUT_MAX} (inclusive)"
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
     }
 }
 
@@ -301,6 +379,63 @@ mod tests {
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test");
 
     #[test]
+    fn machine_identity_config_validate_accepts_defaults() {
+        assert!(MachineIdentityConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_rps_out_of_range() {
+        let c = MachineIdentityConfig {
+            requests_per_second: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+        let c = MachineIdentityConfig {
+            requests_per_second: 21,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_burst_out_of_range() {
+        let c = MachineIdentityConfig {
+            burst: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+        let c = MachineIdentityConfig {
+            burst: 41,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_accepts_boundary_values() {
+        let c = MachineIdentityConfig {
+            requests_per_second: 20,
+            burst: 40,
+            wait_timeout_secs: 10,
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_wait_timeout_out_of_range() {
+        let c = MachineIdentityConfig {
+            wait_timeout_secs: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+        let c = MachineIdentityConfig {
+            wait_timeout_secs: 11,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
     // Load up the input, which is a minimum barebones
     // config, and then dump it back out to a string,
     // which should then have defaults set (and match
@@ -396,6 +531,7 @@ interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
 
         assert_eq!(config.metadata_service, MetadataServiceConfig::default());
         assert_eq!(config.telemetry, TelemetryConfig::default());
+        assert_eq!(config.machine_identity, MachineIdentityConfig::default());
 
         assert_eq!(config.hbn.root_dir, PathBuf::from(HBN_DEFAULT_ROOT));
         assert!(!config.hbn.skip_reload);

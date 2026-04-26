@@ -120,6 +120,7 @@ pub async fn setup_and_run(
             machine_id,
             forge_api_server.clone(),
             Arc::clone(&forge_client_config),
+            agent_config.machine_identity.clone(),
         ),
     );
 

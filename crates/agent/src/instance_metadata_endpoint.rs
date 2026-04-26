@@ -14,7 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::num::NonZeroU32;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use arc_swap::ArcSwapOption;
@@ -25,6 +27,7 @@ use axum::http::header::{ACCEPT, HeaderMap, HeaderValue};
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
+use carbide_host_support::agent_config::MachineIdentityConfig;
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
 use forge_dpu_agent_utils::utils::create_forge_client;
@@ -82,6 +85,10 @@ pub struct InstanceMetadataRouterStateImpl {
     forge_client_config: Arc<ForgeClientConfig>,
     outbound_governor:
         Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
+    machine_identity_governor:
+        Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
+    /// Max wait for `governor::RateLimiter::until_ready` (rate-limit permit), not RPC duration.
+    machine_identity_wait_timeout: Duration,
 }
 
 #[async_trait]
@@ -124,9 +131,19 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
         &self,
         audiences: Vec<String>,
     ) -> Result<forge::MachineIdentityResponse, tonic::Status> {
+        let lim = Arc::clone(&self.machine_identity_governor);
+        tokio::time::timeout(self.machine_identity_wait_timeout, lim.until_ready())
+            .await
+            .map_err(|_| {
+                tonic::Status::resource_exhausted(
+                    "timed out waiting for machine-identity rate limit capacity (machine-identity.wait-timeout-secs)",
+                )
+            })?;
+
         let mut client = create_forge_client(&self.forge_api, &self.forge_client_config)
             .await
             .map_err(|e| tonic::Status::internal(e.to_string()))?;
+
         let resp = client
             .sign_machine_identity(forge::MachineIdentityRequest {
                 audience: audiences,
@@ -141,7 +158,13 @@ impl InstanceMetadataRouterStateImpl {
         machine_id: MachineId,
         forge_api: String,
         forge_client_config: Arc<ForgeClientConfig>,
+        machine_identity: MachineIdentityConfig,
     ) -> Self {
+        let rps = NonZeroU32::new(u32::from(machine_identity.requests_per_second))
+            .expect("MachineIdentityConfig.requests_per_second validated non-zero");
+        let burst = NonZeroU32::new(u32::from(machine_identity.burst))
+            .expect("MachineIdentityConfig.burst validated non-zero");
+        let identity_quota = Quota::per_second(rps).allow_burst(burst);
         Self {
             latest_instance_data: ArcSwapOption::new(None),
             latest_network_config: ArcSwapOption::new(None),
@@ -149,6 +172,10 @@ impl InstanceMetadataRouterStateImpl {
             forge_api,
             forge_client_config,
             outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
+            machine_identity_governor: Arc::new(RateLimiter::direct(identity_quota)),
+            machine_identity_wait_timeout: Duration::from_secs(u64::from(
+                machine_identity.wait_timeout_secs,
+            )),
         }
     }
 

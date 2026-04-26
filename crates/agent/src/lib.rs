@@ -121,6 +121,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             config_path.display().to_string(),
         ),
     };
+    agent
+        .machine_identity
+        .validate()
+        .map_err(|e| eyre::eyre!("invalid [machine-identity] in agent config: {e}"))?;
     tracing::info!("Using configuration from {path}: {agent:?}");
 
     if agent.machine.is_fake_dpu {
