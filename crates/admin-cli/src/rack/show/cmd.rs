@@ -38,6 +38,9 @@ struct RackOutput {
 
 impl From<&Rack> for RackOutput {
     fn from(r: &Rack) -> Self {
+
+        println!("CALEB_DEBUG: r: {:?}", r);
+
         Self {
             id: r.id.as_ref().map(|id| id.to_string()).unwrap_or_default(),
             name: r
@@ -47,9 +50,9 @@ impl From<&Rack> for RackOutput {
                 .unwrap_or_default(),
             state: r.rack_state.clone(),
             version: r.version.clone(),
-            current_compute_trays: vec![],
-            current_power_shelves: vec![],
-            current_nvlink_switches: vec![],
+            current_compute_trays: vec![], // TODO: Use API to get current compute trays
+            current_power_shelves: vec![], // TODO: Use API to get current power shelves
+            current_nvlink_switches: vec![], // TODO: Use API to get current nvlink switches
         }
     }
 }
@@ -93,9 +96,9 @@ fn show_list(racks: &[Rack], format: OutputFormat) -> Result<()> {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&outputs)?),
         OutputFormat::Yaml => println!("{}", serde_yaml::to_string(&outputs)?),
         OutputFormat::Csv => {
-            show_table_csv(racks);
+            show_table_csv(&outputs);
         }
-        _ => show_table(racks),
+        _ => show_table(&outputs),
     }
     Ok(())
 }
@@ -145,7 +148,7 @@ fn show_detail(output: &RackOutput) {
     table.printstd();
 }
 
-fn show_table(racks: &[Rack]) {
+fn show_table(outputs: &[RackOutput]) {
     let mut table = Table::new();
     table.set_titles(row![
         "ID",
@@ -156,31 +159,22 @@ fn show_table(racks: &[Rack]) {
         "Switches",
     ]);
 
-    for r in racks {
-        let name = r
-            .metadata
-            .as_ref()
-            .map(|m| m.name.as_str())
-            .unwrap_or("N/A");
-
+    for output in outputs {
         table.add_row(row![
-            r.id.as_ref().map(|id| id.to_string()).unwrap_or_default(),
-            name,
-            r.rack_state,
+            output.id,
+            output.name,
+            output.state,
             format!(
-                "{} / {}",
-                r.compute_trays.len(),
-                r.expected_compute_trays.len()
+                "{}",
+                output.current_compute_trays.len(),
             ),
             format!(
-                "{} / {}",
-                r.power_shelves.len(),
-                r.expected_power_shelves.len()
+                "{}",
+                output.current_power_shelves.len(),
             ),
             format!(
-                "{} / {}",
-                r.switches.len(),
-                r.expected_nvlink_switches.len()
+                "{}",
+                output.current_nvlink_switches.len(),
             ),
         ]);
     }
@@ -188,7 +182,7 @@ fn show_table(racks: &[Rack]) {
     table.printstd();
 }
 
-fn show_table_csv(racks: &[Rack]) {
+fn show_table_csv(outputs: &[RackOutput]) {
     let mut table = Table::new();
     table.set_titles(row![
         "ID",
@@ -199,31 +193,22 @@ fn show_table_csv(racks: &[Rack]) {
         "Switches",
     ]);
 
-    for r in racks {
-        let name = r
-            .metadata
-            .as_ref()
-            .map(|m| m.name.as_str())
-            .unwrap_or("N/A");
-
+    for output in outputs {
         table.add_row(row![
-            r.id.as_ref().map(|id| id.to_string()).unwrap_or_default(),
-            name,
-            r.rack_state,
+            output.id,
+            output.name,
+            output.state,
             format!(
-                "{} / {}",
-                r.compute_trays.len(),
-                r.expected_compute_trays.len()
+                "{}",
+                output.current_compute_trays.len(),
             ),
             format!(
-                "{} / {}",
-                r.power_shelves.len(),
-                r.expected_power_shelves.len()
+                "{}",
+                output.current_power_shelves.len(),
             ),
             format!(
-                "{} / {}",
-                r.switches.len(),
-                r.expected_nvlink_switches.len()
+                "{}",
+                output.current_nvlink_switches.len(),
             ),
         ]);
     }
