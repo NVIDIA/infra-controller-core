@@ -69,7 +69,7 @@ pub async fn create(
                 controller_state,
                 status)
             SELECT $1, $2, $3::json, $4, $5, $6, $7, $8, $9, $10, $11, $12, $14
-            WHERE (SELECT COUNT(*) FROM ib_partitions WHERE organization_id = $6) < $13
+            WHERE (SELECT COUNT(*) FROM ib_partitions WHERE organization_id = $6 AND deleted IS NULL) < $13
             RETURNING *";
     let segment: IBPartition = sqlx::query_as(query)
         .bind(value.id)

@@ -260,6 +260,58 @@ async fn test_create_ib_partition_over_max_limit(
 }
 
 #[crate::sqlx_test]
+async fn test_create_ib_partition_cap_excludes_soft_deleted(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Cap subquery in db::ib_partition::create must filter out soft-deleted
+    // rows; otherwise tenants that create + soft-delete partitions hit the cap
+    // with phantom deleted entries before the state controller hard-deletes
+    // them.
+    let cap: i32 = 2;
+
+    let make_partition = |name: &str| NewIBPartition {
+        id: IBPartitionId::new(),
+        config: IBPartitionConfig {
+            name: name.to_string(),
+            pkey: None,
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
+            mtu: Some(IBMtu::default()),
+            rate_limit: Some(IBRateLimit::default()),
+            service_level: Some(IBServiceLevel::default()),
+        },
+        metadata: Metadata {
+            name: name.to_string(),
+            labels: HashMap::new(),
+            description: "soft-delete cap test".to_string(),
+        },
+    };
+
+    let status = |pkey: u16| IBPartitionStatus {
+        partition: None,
+        mtu: None,
+        rate_limit: None,
+        service_level: None,
+        pkey: Some(pkey.try_into().unwrap()),
+    };
+
+    let mut txn = pool.begin().await?;
+    let p1 = db::ib_partition::create(make_partition("p1"), &mut txn, cap, status(42)).await?;
+    let _p2 = db::ib_partition::create(make_partition("p2"), &mut txn, cap, status(43)).await?;
+
+    db::ib_partition::mark_as_deleted(&p1, &mut txn).await?;
+
+    let result = db::ib_partition::create(make_partition("p3"), &mut txn, cap, status(44)).await;
+    assert!(
+        result.is_ok(),
+        "soft-deleted partitions must not count toward the per-tenant cap. got: {:?}",
+        result.err()
+    );
+
+    txn.commit().await?;
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_reject_create_with_invalid_metadata(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
