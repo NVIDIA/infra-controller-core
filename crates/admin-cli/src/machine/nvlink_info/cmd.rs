@@ -231,11 +231,6 @@ pub async fn handle_nvlink_info_populate(
                 ))
             })?;
 
-        let gpu_nmx_m_id = gpu_json
-            .get("ID")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
         let gpu_device_id = gpu_json
             .get("DeviceID")
             .and_then(|v| v.as_i64())
@@ -255,7 +250,6 @@ pub async fn handle_nvlink_info_populate(
             .unwrap_or(0) as i32;
 
         gpus.push(forgerpc::NvLinkGpu {
-            nmx_m_id: gpu_nmx_m_id,
             device_id: gpu_device_id,
             guid: gpu_device_uid,
             tray_index: gpu_tray_index,
@@ -280,7 +274,6 @@ pub async fn handle_nvlink_info_populate(
     let nvlink_info = serde_json::json!({
         "domain_uuid": domain_uuid,
         "gpus": gpus.iter().map(|g| serde_json::json!({
-            "nmx_m_id": g.nmx_m_id,
             "device_id": g.device_id,
             "guid": g.guid,
             "tray_index": g.tray_index,

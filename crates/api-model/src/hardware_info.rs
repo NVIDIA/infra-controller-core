@@ -1035,7 +1035,6 @@ impl From<MachineNvLinkInfo> for rpc::forge::MachineNvLinkInfo {
 impl From<NvLinkGpu> for rpc::forge::NvLinkGpu {
     fn from(value: NvLinkGpu) -> Self {
         rpc::forge::NvLinkGpu {
-            nmx_m_id: value.nmx_m_id,
             tray_index: value.tray_index,
             slot_id: value.slot_id,
             device_id: value.device_id,
@@ -1060,7 +1059,6 @@ impl TryFrom<rpc::forge::MachineNvLinkInfo> for MachineNvLinkInfo {
 impl From<rpc::forge::NvLinkGpu> for NvLinkGpu {
     fn from(value: rpc::forge::NvLinkGpu) -> Self {
         NvLinkGpu {
-            nmx_m_id: value.nmx_m_id,
             tray_index: value.tray_index,
             slot_id: value.slot_id,
             device_id: value.device_id,
@@ -1071,7 +1069,6 @@ impl From<rpc::forge::NvLinkGpu> for NvLinkGpu {
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct NvLinkGpu {
-    pub nmx_m_id: String,
     pub tray_index: i32,
     pub slot_id: i32,
     pub device_id: i32, // For GB200s, 1-based index of GPU in compute tray.
@@ -1081,7 +1078,6 @@ pub struct NvLinkGpu {
 impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {
     fn from(gpu: libnmxm::nmxm_model::Gpu) -> Self {
         NvLinkGpu {
-            nmx_m_id: gpu.id.unwrap_or_default(),
             tray_index: gpu
                 .location_info
                 .as_ref()

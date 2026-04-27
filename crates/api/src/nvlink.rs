@@ -42,6 +42,7 @@ pub enum NvLinkPartitionError {
 }
 
 #[async_trait]
+#[allow(dead_code)]
 pub trait NmxmClientPool: Send + Sync + 'static {
     async fn create_client(
         &self,
@@ -51,6 +52,7 @@ pub trait NmxmClientPool: Send + Sync + 'static {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct NmxmClientPoolImpl<C> {
     pool: libnmxm::NmxmClientPool,
     credential_reader: C,

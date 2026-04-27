@@ -1017,7 +1017,7 @@ impl NvlPartitionMonitor {
                         let mut gpu_status_observation = MachineNvLinkGpuStatusObservation {
                             device_instance,
                             domain_id: info.domain_uuid,
-                            gpu_id: nvlink_gpu.nmx_m_id.clone(),
+                            gpu_id: nvlink_gpu.guid.to_string(),
                             guid: nvlink_gpu.guid,
                             ..Default::default()
                         };

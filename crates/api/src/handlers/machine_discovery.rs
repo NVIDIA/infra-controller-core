@@ -24,6 +24,8 @@ pub use ::rpc::forge as rpc;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
+use libnmxc::nmxc_model::GetGpuInfoListRequest;
+use libnmxc::{Endpoint, NMX_C_GATEWAY_ID};
 use model::hardware_info::{GpuPlatformInfo, HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::machine::machine_id::{from_hardware_info, host_id_from_dpu_hardware_info};
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -94,7 +96,7 @@ pub(crate) async fn discover_machine(
     log_machine_id(&stable_machine_id);
 
     // Before opening a database transaction, get information from nvlink if we need it.
-    // Discover NMX-M info if this is a GBX00 machine
+    // Discover NMX-C info if this is a GBX00 machine
     let nvlink_info = if hardware_info.is_gbx00()
         && let Some(platform_info) = hardware_info
             .gpus
@@ -103,10 +105,10 @@ pub(crate) async fn discover_machine(
         && let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref()
         && nvlink_config.enabled
     {
-        get_nvlink_info_from_nmx_m(api, nvlink_config, platform_info)
+        get_nvlink_info_from_nmx_c(api, nvlink_config, platform_info)
             .await
             .map_err(|e| {
-                tracing::warn!("Failed to get NVLink info from NMX-M: {e}");
+                tracing::warn!("Failed to get NVLink info from NMX-C: {e}");
                 e
             })
             .ok()
@@ -437,55 +439,88 @@ pub(crate) async fn discovery_completed(
     Ok(Response::new(rpc::MachineDiscoveryCompletedResponse {}))
 }
 
-// Match up the platform info from scout with the GPU data from NMX-M to get the domain UUID and NMX-M GPU IDs.
-async fn get_nvlink_info_from_nmx_m(
+// Match up the platform info from scout with the GPU data from NMX-C to get the domain UUID and GPU IDs.
+async fn get_nvlink_info_from_nmx_c(
     api: &Api,
     nvlink_config: &NvLinkConfig,
     platform_info: &GpuPlatformInfo,
 ) -> CarbideResult<MachineNvLinkInfo> {
-    let nmx_m_client = api
-        .nmxm_pool
-        .create_client(&nvlink_config.nmx_m_endpoint, None)
+    let nmx_c_client = api
+        .nmxc_client_pool
+        .create_client(Endpoint::new(nvlink_config.nmx_c_endpoint.clone()))
         .await
-        .map_err(|e| CarbideError::internal(format!("Failed to create NMX-M client: {e}")))?;
+        .map_err(|e| CarbideError::internal(format!("Failed to create NMX-C client: {e}")))?;
 
-    let nmx_m_gpu_list = nmx_m_client
-        .get_gpu(None)
+    let hello = nmx_c_client
+        .hello(NMX_C_GATEWAY_ID)
         .await
-        .map_err(|e| CarbideError::internal(format!("Failed to get compute nodes: {e}")))?;
+        .map_err(|e| CarbideError::internal(format!("Failed to call NMX-C hello: {e}")))?;
+
+    let domain_uuid = hello
+        .server_header
+        .as_ref()
+        .and_then(|header| uuid::Uuid::parse_str(&header.domain_uuid).ok())
+        .ok_or_else(|| {
+            CarbideError::internal(format!(
+                "Failed to parse domain UUID from NMX-C hello response: {hello:?}"
+            ))
+        })?;
+
+    let nmx_c_gpu_list = nmx_c_client
+        .get_gpu_info_list(GetGpuInfoListRequest {
+            context: Some(libnmxc::nmxc_model::Context {
+                context: String::new(),
+            }),
+            attr: libnmxc::nmxc_model::GpuAttr::NmxGpuAttrAll as i32,
+            num_gpus: 0,
+            loc: None,
+            partition_id: None,
+            gateway_id: NMX_C_GATEWAY_ID.into(),
+            gpu_health: libnmxc::nmxc_model::GpuHealth::NmxGpuHealthUnknown as i32,
+        })
+        .await
+        .map_err(|e| CarbideError::internal(format!("Failed to get NMX-C GPU list: {e}")))?;
 
     // Get the list of GPUs which match the location info returned from scout.
-    let matching_gpus = nmx_m_gpu_list
+    let matching_gpus = nmx_c_gpu_list
+        .gpu_info_list
         .iter()
         .filter(|gpu| {
-            // If NMX-M GPU location info tray index matches the tray index returned from scout.
-            gpu.location_info
+            // Match using tray/slot/chassis from NMX-C location info.
+            gpu.loc
                 .as_ref()
                 .map(|info| {
-                    info.tray_index.unwrap_or_default() as u32 == platform_info.tray_index
-                        && info.slot_id.unwrap_or_default() as u32 == platform_info.slot_number
-                        && info.chassis_serial_number.as_deref().unwrap_or_default()
-                            == platform_info.chassis_serial
+                    let slot_id = info
+                        .location
+                        .as_ref()
+                        .map(|location| location.slot_id as u32)
+                        .unwrap_or_default();
+                    info.slot_index as u32 == platform_info.tray_index
+                        && slot_id == platform_info.slot_number
+                        && info.chassis_serial_number == platform_info.chassis_serial
                 })
                 .unwrap_or(false)
         })
         .collect::<Vec<_>>();
 
-    let domain_uuid = matching_gpus
-        .first()
-        .and_then(|gpu| gpu.domain_uuid)
-        .ok_or_else(|| {
-            CarbideError::internal(format!(
-                "Failed to find domain UUID for GPUs: {matching_gpus:?}"
-            ))
-        })?;
-
     Ok(MachineNvLinkInfo {
         domain_uuid: NvLinkDomainId::from(domain_uuid),
         gpus: matching_gpus
             .into_iter()
-            .cloned()
-            .map(NvLinkGpu::from)
+            .map(|gpu| NvLinkGpu {
+                tray_index: gpu
+                    .loc
+                    .as_ref()
+                    .map(|l| l.slot_index as i32)
+                    .unwrap_or_default(),
+                slot_id: gpu
+                    .loc
+                    .as_ref()
+                    .and_then(|l| l.location.as_ref().map(|loc| loc.slot_id as i32))
+                    .unwrap_or_default(),
+                device_id: gpu.gpu_index as i32,
+                guid: gpu.gpu_uid,
+            })
             .collect(),
     })
 }

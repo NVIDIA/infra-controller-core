@@ -6736,7 +6736,8 @@ message UpdateMachineNvLinkInfoRequest {
 }
 
 message NVLinkGpu {
-  string nmx_m_id = 1;
+  reserved 1;
+  reserved "nmx_m_id";
   int32 tray_index = 2;
   int32 slot_id = 3;
   int32 device_id = 4;
