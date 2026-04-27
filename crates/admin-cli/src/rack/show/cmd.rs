@@ -38,7 +38,6 @@ struct RackOutput {
 
 impl From<&Rack> for RackOutput {
     fn from(r: &Rack) -> Self {
-
         println!("CALEB_DEBUG: r: {:?}", r);
 
         Self {
@@ -114,7 +113,8 @@ fn show_detail(output: &RackOutput) {
         if output.current_compute_trays.is_empty() {
             "N/A".to_string()
         } else {
-            output.current_compute_trays
+            output
+                .current_compute_trays
                 .iter()
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>()
@@ -126,7 +126,8 @@ fn show_detail(output: &RackOutput) {
         if output.current_power_shelves.is_empty() {
             "N/A".to_string()
         } else {
-            output.current_power_shelves
+            output
+                .current_power_shelves
                 .iter()
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>()
@@ -138,7 +139,8 @@ fn show_detail(output: &RackOutput) {
         if output.current_nvlink_switches.is_empty() {
             "N/A".to_string()
         } else {
-            output.current_nvlink_switches
+            output
+                .current_nvlink_switches
                 .iter()
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>()
@@ -164,18 +166,9 @@ fn show_table(outputs: &[RackOutput]) {
             output.id,
             output.name,
             output.state,
-            format!(
-                "{}",
-                output.current_compute_trays.len(),
-            ),
-            format!(
-                "{}",
-                output.current_power_shelves.len(),
-            ),
-            format!(
-                "{}",
-                output.current_nvlink_switches.len(),
-            ),
+            format!("{}", output.current_compute_trays.len(),),
+            format!("{}", output.current_power_shelves.len(),),
+            format!("{}", output.current_nvlink_switches.len(),),
         ]);
     }
 
@@ -198,18 +191,9 @@ fn show_table_csv(outputs: &[RackOutput]) {
             output.id,
             output.name,
             output.state,
-            format!(
-                "{}",
-                output.current_compute_trays.len(),
-            ),
-            format!(
-                "{}",
-                output.current_power_shelves.len(),
-            ),
-            format!(
-                "{}",
-                output.current_nvlink_switches.len(),
-            ),
+            format!("{}", output.current_compute_trays.len(),),
+            format!("{}", output.current_power_shelves.len(),),
+            format!("{}", output.current_nvlink_switches.len(),),
         ]);
     }
 

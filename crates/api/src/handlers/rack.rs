@@ -24,9 +24,8 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{
-    ObjectColumnFilter, WithTransaction, expected_machine as db_expected_machine,
-    expected_power_shelf as db_expected_power_shelf, expected_switch as db_expected_switch,
-    machine as db_machine, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch,
+    ObjectColumnFilter, WithTransaction, machine as db_machine, power_shelf as db_power_shelf,
+    rack as db_rack, switch as db_switch,
 };
 use futures_util::FutureExt;
 use health_report::HealthReportApplyMode;
@@ -69,7 +68,7 @@ pub async fn get_rack(
 
     let mut result = Vec::with_capacity(racks.len());
     for r in racks {
-        let mut rpc_rack: rpc::Rack = r.into();
+        let rpc_rack: rpc::Rack = r.into();
         result.push(rpc_rack);
     }
 
@@ -119,53 +118,53 @@ pub async fn find_by_ids(
 
     let mut result = Vec::with_capacity(racks.len());
     for rack in racks {
-        let machine_ids = db_machine::find_machine_ids(
-            &mut txn,
-            MachineSearchConfig {
-                rack_id: Some(rack.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let switch_ids = db_switch::find_ids(
-            &mut txn,
-            model::switch::SwitchSearchFilter {
-                rack_id: Some(rack.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let power_shelf_ids = db_power_shelf::find_ids(
-            &mut txn,
-            model::power_shelf::PowerShelfSearchFilter {
-                rack_id: Some(rack.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
+        // let machine_ids = db_machine::find_machine_ids(
+        //     &mut txn,
+        //     MachineSearchConfig {
+        //         rack_id: Some(rack.id.clone()),
+        //         ..Default::default()
+        //     },
+        // )
+        // .await?;
+        // let switch_ids = db_switch::find_ids(
+        //     &mut txn,
+        //     model::switch::SwitchSearchFilter {
+        //         rack_id: Some(rack.id.clone()),
+        //         ..Default::default()
+        //     },
+        // )
+        // .await?;
+        // let power_shelf_ids = db_power_shelf::find_ids(
+        //     &mut txn,
+        //     model::power_shelf::PowerShelfSearchFilter {
+        //         rack_id: Some(rack.id.clone()),
+        //         ..Default::default()
+        //     },
+        // )
+        // .await?;
 
-        let expected_compute_trays =
-            db_expected_machine::find_all_by_rack_id(&mut txn, &rack.id).await?;
-        let expected_power_shelves =
-            db_expected_power_shelf::find_all_by_rack_id(&mut txn, &rack.id).await?;
-        let expected_nvlink_switches =
-            db_expected_switch::find_all_by_rack_id(&mut txn, &rack.id).await?;
-        let mut rpc_rack: rpc::Rack = rack.into();
-        rpc_rack.compute_trays = machine_ids;
-        rpc_rack.switches = switch_ids;
-        rpc_rack.power_shelves = power_shelf_ids;
-        rpc_rack.expected_compute_trays = expected_compute_trays
-            .into_iter()
-            .map(|e| e.bmc_mac_address.to_string())
-            .collect();
-        rpc_rack.expected_power_shelves = expected_power_shelves
-            .into_iter()
-            .map(|e| e.bmc_mac_address.to_string())
-            .collect();
-        rpc_rack.expected_nvlink_switches = expected_nvlink_switches
-            .into_iter()
-            .map(|e| e.bmc_mac_address.to_string())
-            .collect();
+        // let expected_compute_trays =
+        //     db_expected_machine::find_all_by_rack_id(&mut txn, &rack.id).await?;
+        // let expected_power_shelves =
+        //     db_expected_power_shelf::find_all_by_rack_id(&mut txn, &rack.id).await?;
+        // let expected_nvlink_switches =
+        //     db_expected_switch::find_all_by_rack_id(&mut txn, &rack.id).await?;
+        let rpc_rack: rpc::Rack = rack.into();
+        // rpc_rack.compute_trays = machine_ids;
+        // rpc_rack.switches = switch_ids;
+        // rpc_rack.power_shelves = power_shelf_ids;
+        // rpc_rack.expected_compute_trays = expected_compute_trays
+        //     .into_iter()
+        //     .map(|e| e.bmc_mac_address.to_string())
+        //     .collect();
+        // rpc_rack.expected_power_shelves = expected_power_shelves
+        //     .into_iter()
+        //     .map(|e| e.bmc_mac_address.to_string())
+        //     .collect();
+        // rpc_rack.expected_nvlink_switches = expected_nvlink_switches
+        //     .into_iter()
+        //     .map(|e| e.bmc_mac_address.to_string())
+        //     .collect();
 
         result.push(rpc_rack);
     }

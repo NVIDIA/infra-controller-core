@@ -34,10 +34,7 @@ pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Resul
     match format {
         OutputFormat::AsciiTable => {
             let mut table = Table::new();
-            let headers = vec![
-                "Rack ID",
-                "Rack State",
-            ];
+            let headers = vec!["Rack ID", "Rack State"];
             table.set_titles(Row::new(
                 headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
             ));

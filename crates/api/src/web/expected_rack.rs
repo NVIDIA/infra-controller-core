@@ -75,23 +75,23 @@ async fn fetch_expected_racks(
         }
     };
 
-    let rack_response = match super::rack::fetch_racks(api).await {
-        Ok(racks) => racks,
-        Err(err) => {
-            tracing::error!(%err, "fetch_racks");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to list racks".to_string(),
-            ));
-        }
-    };
+    // let rack_response = match super::rack::fetch_racks(api).await {
+    //     Ok(racks) => racks,
+    //     Err(err) => {
+    //         tracing::error!(%err, "fetch_racks");
+    //         return Err((
+    //             StatusCode::INTERNAL_SERVER_ERROR,
+    //             "Failed to list racks".to_string(),
+    //         ));
+    //     }
+    // };
 
     // Index actual racks by their ID for quick lookup.
-    let racks_by_id: std::collections::HashMap<String, &rpc::forge::Rack> = rack_response
-        .racks
-        .iter()
-        .filter_map(|r| r.id.as_ref().map(|id| (id.to_string(), r)))
-        .collect();
+    // let racks_by_id: std::collections::HashMap<String, &rpc::forge::Rack> = rack_response
+    //     .racks
+    //     .iter()
+    //     .filter_map(|r| r.id.as_ref().map(|id| (id.to_string(), r)))
+    //     .collect();
 
     let rows = expected_response
         .expected_racks
@@ -109,46 +109,49 @@ async fn fetch_expected_racks(
                 .unwrap_or_default();
 
             // Look up capabilities from the rack profile config.
-            let profile = api.runtime_config.rack_profiles.get(&rack_profile_id);
+            // let profile = api.runtime_config.rack_profiles.get(&rack_profile_id);
 
             // Look up the actual rack to count adopted devices.
-            let actual_rack = racks_by_id.get(&rack_id);
+            // let actual_rack = racks_by_id.get(&rack_id);
 
-            let compute_trays = match (actual_rack, profile) {
-                (Some(rack), Some(p)) => {
-                    format!(
-                        "{}/{}",
-                        rack.expected_compute_trays.len(),
-                        p.rack_capabilities.compute.count
-                    )
-                }
-                (None, Some(p)) => format!("0/{}", p.rack_capabilities.compute.count),
-                _ => "?/?".to_string(),
-            };
+            // let compute_trays = match (actual_rack, profile) {
+            //     (Some(rack), Some(p)) => {
+            //         format!(
+            //             "{}/{}",
+            //             rack.expected_compute_trays.len(),
+            //             p.rack_capabilities.compute.count
+            //         )
+            //     }
+            //     (None, Some(p)) => format!("0/{}", p.rack_capabilities.compute.count),
+            //     _ => "?/?".to_string(),
+            // };
+            let compute_trays = "0/?".to_string();
 
-            let switches = match (actual_rack, profile) {
-                (Some(rack), Some(p)) => {
-                    format!(
-                        "{}/{}",
-                        rack.expected_nvlink_switches.len(),
-                        p.rack_capabilities.switch.count
-                    )
-                }
-                (None, Some(p)) => format!("0/{}", p.rack_capabilities.switch.count),
-                _ => "?/?".to_string(),
-            };
+            // let switches = match (actual_rack, profile) {
+            //     (Some(rack), Some(p)) => {
+            //         format!(
+            //             "{}/{}",
+            //             rack.expected_nvlink_switches.len(),
+            //             p.rack_capabilities.switch.count
+            //         )
+            //     }
+            //     (None, Some(p)) => format!("0/{}", p.rack_capabilities.switch.count),
+            //     _ => "?/?".to_string(),
+            // };
+            let switches = "0/?".to_string();
 
-            let power_shelves = match (actual_rack, profile) {
-                (Some(rack), Some(p)) => {
-                    format!(
-                        "{}/{}",
-                        rack.expected_power_shelves.len(),
-                        p.rack_capabilities.power_shelf.count
-                    )
-                }
-                (None, Some(p)) => format!("0/{}", p.rack_capabilities.power_shelf.count),
-                _ => "?/?".to_string(),
-            };
+            // let power_shelves = match (actual_rack, profile) {
+            //     (Some(rack), Some(p)) => {
+            //         format!(
+            //             "{}/{}",
+            //             rack.expected_power_shelves.len(),
+            //             p.rack_capabilities.power_shelf.count
+            //         )
+            //     }
+            //     (None, Some(p)) => format!("0/{}", p.rack_capabilities.power_shelf.count),
+            //     _ => "?/?".to_string(),
+            // };
+            let power_shelves = "0/?".to_string();
 
             ExpectedRackRow {
                 rack_id,
