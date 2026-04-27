@@ -44,6 +44,7 @@ ipnetwork = { workspace = true }
 libudev = { optional = true, workspace = true }
 procfs = { optional = true, workspace = true }
 regex = { workspace = true }
+rustls-pemfile = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 smbios-lib = { workspace = true }
@@ -58,6 +59,7 @@ tracing-subscriber = { features = [
 ], workspace = true }
 tryhard = { workspace = true }
 uname = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true }
 serde_with = { workspace = true }
 

@@ -121,7 +121,8 @@ pub async fn setup_and_run(
             forge_api_server.clone(),
             Arc::clone(&forge_client_config),
             agent_config.machine_identity.clone(),
-        ),
+        )
+        .map_err(|e| eyre::eyre!("failed to initialize instance metadata router state: {e}"))?,
     );
 
     let agent_meter = get_dpu_agent_meter();

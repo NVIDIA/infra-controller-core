@@ -182,10 +182,26 @@ pub struct MachineIdentityConfig {
     #[serde(default = "default_machine_identity_burst")]
     pub burst: u8,
     /// Max time to wait for a rate-limit permit before failing the request (seconds).
-    /// Applies to governor wait (`until_ready`), not to the `sign_machine_identity` RPC duration.
+    /// Applies to governor wait (`until_ready`), not to the Forge signing call.
     /// Valid range: 1–10.
     #[serde(default = "default_machine_identity_wait_timeout_secs")]
     pub wait_timeout_secs: u8,
+    /// Wall-clock limit for the full Forge signing path on `GET /v1/meta-data/identity`
+    /// (client build including connect retries, plus `SignMachineIdentity` RPC).
+    /// Valid range: 1–60 seconds. Applies to the Forge gRPC signing path and to the optional
+    /// HTTP sign proxy origin (`sign-proxy-url`).
+    #[serde(default = "default_machine_identity_sign_timeout_secs")]
+    pub sign_timeout_secs: u8,
+    /// When set, `GET /v1/meta-data/identity` is forwarded over HTTP to `{url}/v1/meta-data/identity`
+    /// with the same query string; the upstream response (status, body, `Content-Type`) is returned
+    /// verbatim. When unset, the agent uses `SignMachineIdentity` gRPC to Forge.
+    #[serde(default, rename = "sign-proxy-url")]
+    pub sign_proxy_url: Option<String>,
+    /// PEM file (one or more concatenated certificates) trusted as additional TLS roots when
+    /// connecting to `sign-proxy-url` over HTTPS. Ignored for `http:` sign-proxy URLs.
+    /// Requires `sign-proxy-url` to be set.
+    #[serde(default, rename = "sign-proxy-tls-root-ca")]
+    pub sign_proxy_tls_root_ca: Option<String>,
 }
 
 fn default_machine_identity_requests_per_second() -> u8 {
@@ -200,12 +216,19 @@ fn default_machine_identity_wait_timeout_secs() -> u8 {
     2
 }
 
+fn default_machine_identity_sign_timeout_secs() -> u8 {
+    5
+}
+
 impl Default for MachineIdentityConfig {
     fn default() -> Self {
         Self {
             requests_per_second: default_machine_identity_requests_per_second(),
             burst: default_machine_identity_burst(),
             wait_timeout_secs: default_machine_identity_wait_timeout_secs(),
+            sign_timeout_secs: default_machine_identity_sign_timeout_secs(),
+            sign_proxy_url: None,
+            sign_proxy_tls_root_ca: None,
         }
     }
 }
@@ -218,6 +241,8 @@ impl MachineIdentityConfig {
         const BURST_MAX: u8 = 40;
         const WAIT_TIMEOUT_MIN: u8 = 1;
         const WAIT_TIMEOUT_MAX: u8 = 10;
+        const SIGN_TIMEOUT_MIN: u8 = 1;
+        const SIGN_TIMEOUT_MAX: u8 = 60;
 
         if !(RPS_MIN..=RPS_MAX).contains(&self.requests_per_second) {
             return Err(format!(
@@ -233,6 +258,68 @@ impl MachineIdentityConfig {
             return Err(format!(
                 "machine-identity.wait-timeout-secs must be between {WAIT_TIMEOUT_MIN} and {WAIT_TIMEOUT_MAX} (inclusive)"
             ));
+        }
+        if !(SIGN_TIMEOUT_MIN..=SIGN_TIMEOUT_MAX).contains(&self.sign_timeout_secs) {
+            return Err(format!(
+                "machine-identity.sign-timeout-secs must be between {SIGN_TIMEOUT_MIN} and {SIGN_TIMEOUT_MAX} (inclusive)"
+            ));
+        }
+        if let Some(ref raw) = self.sign_proxy_url {
+            let s = raw.trim();
+            if s.is_empty() {
+                return Err(
+                    "machine-identity.sign-proxy-url must not be empty or whitespace-only"
+                        .to_string(),
+                );
+            }
+            let u = url::Url::parse(s)
+                .map_err(|e| format!("machine-identity.sign-proxy-url: invalid URL ({e})"))?;
+            match u.scheme() {
+                "http" | "https" => {}
+                other => {
+                    return Err(format!(
+                        "machine-identity.sign-proxy-url: scheme must be http or https, got {other}"
+                    ));
+                }
+            }
+        }
+        if let Some(ref raw_ca) = self.sign_proxy_tls_root_ca {
+            let path = raw_ca.trim();
+            if path.is_empty() {
+                return Err(
+                    "machine-identity.sign-proxy-tls-root-ca must not be empty or whitespace-only"
+                        .to_string(),
+                );
+            }
+            let url_ok = self
+                .sign_proxy_url
+                .as_ref()
+                .is_some_and(|u| !u.trim().is_empty());
+            if !url_ok {
+                return Err(
+                    "machine-identity.sign-proxy-tls-root-ca requires machine-identity.sign-proxy-url"
+                        .to_string(),
+                );
+            }
+            let pem = std::fs::read(path).map_err(|e| {
+                format!("machine-identity.sign-proxy-tls-root-ca: failed to read {path}: {e}")
+            })?;
+            if pem.is_empty() {
+                return Err(format!(
+                    "machine-identity.sign-proxy-tls-root-ca: file is empty: {path}"
+                ));
+            }
+            let mut cursor = std::io::Cursor::new(&pem[..]);
+            let certs: Vec<_> = rustls_pemfile::certs(&mut cursor)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    format!("machine-identity.sign-proxy-tls-root-ca: invalid PEM in {path}: {e}")
+                })?;
+            if certs.is_empty() {
+                return Err(format!(
+                    "machine-identity.sign-proxy-tls-root-ca: no certificates found in {path}"
+                ));
+            }
         }
         Ok(())
     }
@@ -417,8 +504,103 @@ mod tests {
             requests_per_second: 20,
             burst: 40,
             wait_timeout_secs: 10,
+            sign_timeout_secs: 1,
+            ..Default::default()
         };
         assert!(c.validate().is_ok());
+        let c = MachineIdentityConfig {
+            sign_timeout_secs: 60,
+            ..c
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_timeout_out_of_range() {
+        let c = MachineIdentityConfig {
+            sign_timeout_secs: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+        let c = MachineIdentityConfig {
+            sign_timeout_secs: 61,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_accepts_sign_proxy_url() {
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("https://idp.example.com/prefix".to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_url_whitespace_only() {
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("   ".to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_url_scheme() {
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("ftp://x".to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_without_url() {
+        let c = MachineIdentityConfig {
+            sign_proxy_tls_root_ca: Some("/etc/forge/sign_proxy_ca.pem".to_string()),
+            ..Default::default()
+        };
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("sign-proxy-url"));
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_whitespace_only() {
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("https://x.example".to_string()),
+            sign_proxy_tls_root_ca: Some("  \t  ".to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_accepts_sign_proxy_tls_root_ca_with_pem_file() {
+        let pem_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../dev/certs/forge_root.pem"
+        );
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("https://sign-proxy.example".to_string()),
+            sign_proxy_tls_root_ca: Some(pem_path.to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_invalid_pem() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        use std::io::Write;
+        f.write_all(b"not a certificate").unwrap();
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("https://x".to_string()),
+            sign_proxy_tls_root_ca: Some(f.path().to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
     }
 
     #[test]
