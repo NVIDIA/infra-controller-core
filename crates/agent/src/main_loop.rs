@@ -30,6 +30,7 @@ use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_systemd::systemd;
+use carbide_utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
@@ -40,7 +41,6 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::log::error;
-use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
 use crate::command_line::HbnConfigMode;

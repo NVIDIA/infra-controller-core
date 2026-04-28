@@ -35,6 +35,7 @@ use carbide_nvlink_manager::nvlink::test_support::NmxmSimClient;
 use carbide_redfish::libredfish::test_support::RedfishSim;
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
@@ -89,7 +90,6 @@ use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
-use utils::test_support::test_meter::TestMeter;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;

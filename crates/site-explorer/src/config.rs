@@ -20,13 +20,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use arc_swap::ArcSwap;
+use carbide_utils::HostPortPair;
+use carbide_utils::config::{
+    as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
+};
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use utils::HostPortPair;
-use utils::config::{
-    as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
-};
 
 /// SiteExplorer related configuration for hardware discovery and ingestion.
 #[derive(Clone, Debug, Deserialize, Serialize)]

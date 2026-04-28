@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
@@ -49,7 +50,6 @@ use rpc::site_explorer::{
 };
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
-use utils::test_support::test_meter::TestMeter;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures;

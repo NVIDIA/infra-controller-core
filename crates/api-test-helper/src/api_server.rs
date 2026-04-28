@@ -17,10 +17,10 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use carbide_utils::HostPortPair;
 use forge_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
-use utils::HostPortPair;
 
 use crate::utils::LOCALHOST_CERTS;
 

@@ -28,6 +28,9 @@ use carbide_firmware::FirmwareConfig;
 use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_preingestion_manager::PreingestionManagerConfig;
 use carbide_site_explorer::config::SiteExplorerConfig;
+use carbide_utils::config::{
+    as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
+};
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -48,9 +51,6 @@ use model::resource_pool::define::ResourcePoolDef;
 use model::tenant::identity_config::SigningAlgorithm;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
-use utils::config::{
-    as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
-};
 
 use crate::state_controller::config::IterationConfig;
 

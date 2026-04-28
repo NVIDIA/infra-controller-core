@@ -20,7 +20,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 

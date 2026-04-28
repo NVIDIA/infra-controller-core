@@ -22,6 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_utils::models::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
@@ -40,7 +41,6 @@ use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
 use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use model::network_segment::NetworkSegmentSearchConfig;
 use tonic::{Request, Response, Status};
-use utils::models::arch::CpuArchitecture;
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;

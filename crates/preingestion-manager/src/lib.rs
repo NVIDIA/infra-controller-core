@@ -28,6 +28,7 @@ use std::time::Duration;
 use carbide_firmware::FirmwareDownloader;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
 use carbide_site_explorer::EndpointExplorer;
+use carbide_utils::periodic_timer::PeriodicTimer;
 use chrono::{DateTime, Utc};
 pub use config::PreingestionManagerConfig;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -48,7 +49,6 @@ use tokio::io::AsyncBufReadExt;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use utils::periodic_timer::PeriodicTimer;
 
 use crate::errors::{PreingestionManagerError, PreingestionManagerResult};
 use crate::metrics::PreingestionMetrics;

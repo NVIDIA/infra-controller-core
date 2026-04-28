@@ -28,13 +28,13 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
+use carbide_utils::HostPortPair;
 pub use error::RedfishClientCreationError;
 use forge_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use libredfish::Redfish;
 use libredfish::model::service_root::RedfishVendor;
 use model::machine::Machine;
 use sqlx::PgPool;
-use utils::HostPortPair;
 
 pub fn new_pool(
     credential_reader: Arc<dyn CredentialReader>,

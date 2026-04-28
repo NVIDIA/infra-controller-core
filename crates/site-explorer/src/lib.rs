@@ -27,6 +27,7 @@ use std::time::Instant;
 
 use carbide_firmware::FirmwareConfig;
 use carbide_network::sanitized_mac;
+use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
@@ -55,7 +56,6 @@ use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use utils::periodic_timer::PeriodicTimer;
 use version_compare::Cmp;
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;

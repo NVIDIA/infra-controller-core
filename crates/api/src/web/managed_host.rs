@@ -22,6 +22,8 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use carbide_utils::managed_host_display::get_memory_details;
+use carbide_utils::{ManagedHostMetadata, reason_to_user_string};
 use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
@@ -29,8 +31,6 @@ use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 use model::{self, machine};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
-use utils::managed_host_display::get_memory_details;
-use utils::{ManagedHostMetadata, reason_to_user_string};
 
 use super::filters;
 use crate::api::Api;
@@ -649,7 +649,7 @@ pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
 async fn fetch_managed_hosts_with_metadata(
     AxumState(api): AxumState<Arc<Api>>,
     include_history: bool,
-) -> eyre::Result<Vec<utils::ManagedHostOutput>> {
+) -> eyre::Result<Vec<carbide_utils::ManagedHostOutput>> {
     let machine_ids = api
         .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
             include_dpus: true,
@@ -677,7 +677,7 @@ async fn fetch_managed_hosts_with_metadata(
     }
 
     let managed_host_metadata = ManagedHostMetadata::lookup_from_api(all_machines, api).await;
-    let managed_hosts = utils::get_managed_host_output(managed_host_metadata);
+    let managed_hosts = carbide_utils::get_managed_host_output(managed_host_metadata);
     Ok(managed_hosts)
 }
 

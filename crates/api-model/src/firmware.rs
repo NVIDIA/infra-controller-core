@@ -29,7 +29,7 @@ use crate::site_explorer::EndpointExplorationReport;
 #[serde(rename_all = "PascalCase")]
 pub struct DesiredFirmwareVersions {
     /// Parsed versions, serializtion override means it will always be sorted
-    #[serde(default, serialize_with = "utils::ordered_map")]
+    #[serde(default, serialize_with = "carbide_utils::ordered_map")]
     pub versions: HashMap<FirmwareComponentType, String>,
 }
 

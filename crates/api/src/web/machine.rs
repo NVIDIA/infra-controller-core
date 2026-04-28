@@ -22,6 +22,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
+use carbide_utils::managed_host_display::to_time;
 use carbide_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use itertools::Itertools;
@@ -29,7 +30,6 @@ use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
-use utils::managed_host_display::to_time;
 
 use super::filters;
 use super::state_history::StateHistoryTable;

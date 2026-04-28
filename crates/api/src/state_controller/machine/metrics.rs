@@ -19,7 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use model::hardware_info::MachineInventorySoftwareComponent;
 use model::tenant::TenantOrganizationId;
 use opentelemetry::KeyValue;

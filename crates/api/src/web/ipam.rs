@@ -22,11 +22,11 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use carbide_utils::models::dhcp::DhcpConfig;
 use chrono::{DateTime, Utc};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-use utils::models::dhcp::DhcpConfig;
 
 use crate::api::Api;
 

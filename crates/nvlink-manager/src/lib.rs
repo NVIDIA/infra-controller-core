@@ -25,6 +25,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::Utc;
@@ -50,7 +51,6 @@ use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use utils::periodic_timer::PeriodicTimer;
 
 use crate::nvlink::NmxmClientPool;
 

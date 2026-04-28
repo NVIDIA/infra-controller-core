@@ -25,10 +25,10 @@ use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
 use carbide_host_support::cpu::aggregate_cpus;
 use carbide_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
+use carbide_utils::models::arch::CpuArchitecture;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
-use utils::models::arch::CpuArchitecture;
 
 use crate::machine::machine_id::MissingHardwareInfo;
 use crate::try_convert_vec;

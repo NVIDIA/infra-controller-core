@@ -19,6 +19,7 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 
+use carbide_utils::cmd::TokioCmd;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use forge_tls::client_config::ClientCert;
@@ -26,7 +27,6 @@ use rpc::forge_tls_client;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace};
-use utils::cmd::TokioCmd;
 
 use crate::{
     IMAGE_LIST_FILE, MACHINE_VALIDATION_IMAGE_FILE, MACHINE_VALIDATION_IMAGE_PATH,

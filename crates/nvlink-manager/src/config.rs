@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
+use carbide_utils::config::as_std_duration;
 use duration_str::deserialize_duration;
 use serde::{Deserialize, Serialize};
-use utils::config::as_std_duration;
 
 /// NvLink related configuration.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

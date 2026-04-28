@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_utils::HostPortPair;
 use eyre::WrapErr;
 use forge_secrets::credentials::{CredentialReader, CredentialWriter};
 use forge_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
@@ -24,7 +25,6 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
-use utils::HostPortPair;
 
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
