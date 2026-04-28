@@ -1275,10 +1275,13 @@ fn nv_error_classifier(
 ) -> Option<bmc_explorer::ErrorClass> {
     type BmcError = carbide_redfish::nv_redfish::BmcError;
     match err {
-        BmcError::InvalidResponse {
-            status: http::StatusCode::NOT_FOUND,
-            ..
-        } => Some(bmc_explorer::ErrorClass::HttpNotFound),
+        BmcError::InvalidResponse { status, .. } => match *status {
+            http::StatusCode::NOT_FOUND => Some(bmc_explorer::ErrorClass::NotFound),
+            http::StatusCode::INTERNAL_SERVER_ERROR => {
+                Some(bmc_explorer::ErrorClass::InternalServerError)
+            }
+            _ => None,
+        },
         _ => None,
     }
 }

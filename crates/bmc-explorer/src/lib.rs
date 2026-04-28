@@ -54,7 +54,8 @@ use nv_redfish::{Bmc, Resource, ServiceRoot};
 
 #[derive(PartialEq, Eq)]
 pub enum ErrorClass {
-    HttpNotFound,
+    NotFound,
+    InternalServerError,
 }
 
 pub type ErrorClassifier<'a, B> = &'a (dyn Fn(&<B as Bmc>::Error) -> Option<ErrorClass> + Sync);
@@ -122,9 +123,11 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         .next()
         .ok_or_else(Error::bmc_not_provided("at least one manager"))?;
 
+    let is_bluefield_system = system.id().into_inner() == "Bluefield";
     let system_explore_config = computer_system::Config {
-        need_oem_nvidia_bluefield: system.id().into_inner() == "Bluefield",
-        retry_404_on_eth_interfaces: system.id().into_inner() == "Bluefield",
+        need_oem_nvidia_bluefield: is_bluefield_system,
+        ignore_500_on_bios_fetch: is_bluefield_system,
+        retry_404_on_eth_interfaces: is_bluefield_system,
         explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
