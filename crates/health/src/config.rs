@@ -1409,5 +1409,4 @@ switch_serial = "SN-SW-001"
         assert_eq!(defaults.connect_failure_window, Duration::from_secs(300));
         assert_eq!(defaults.connect_failure_threshold, 5);
     }
-
 }
