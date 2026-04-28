@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
+use carbide_uuid::rack::RackId;
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::Rack;
+use rpc::forge::{MachineSearchConfig, SwitchSearchFilter, PowerShelfSearchFilter, Rack};
 use serde::Serialize;
 
 use super::args::Args;
@@ -38,7 +39,6 @@ struct RackOutput {
 
 impl From<&Rack> for RackOutput {
     fn from(r: &Rack) -> Self {
-        println!("CALEB_DEBUG: r: {:?}", r);
         Self {
             id: r.id.as_ref().map(|id| id.to_string()).unwrap_or_default(),
             name: r
@@ -48,11 +48,81 @@ impl From<&Rack> for RackOutput {
                 .unwrap_or_default(),
             state: r.rack_state.clone(),
             version: r.version.clone(),
-            current_compute_trays: vec![], // TODO: Use API to get current compute trays
-            current_power_shelves: vec![], // TODO: Use API to get current power shelves
-            current_nvlink_switches: vec![], // TODO: Use API to get current nvlink switches
+            current_compute_trays: vec![],
+            current_power_shelves: vec![],
+            current_nvlink_switches: vec![],
         }
     }
+}
+
+/// Gets the compute trays associated with a rack.
+async fn get_compute_trays(api_client: &ApiClient, rack_id: &RackId) -> Result<Vec<String>> {
+    // Use a MachineSearchConfig with the RackId to get a Vec<MachineId>.
+    let request = MachineSearchConfig {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    };
+    let machine_ids = api_client.0.find_machine_ids(request).await?.machine_ids;
+
+    // Convert these to a vector of Strings and return them in a Result.
+    let compute_trays = machine_ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
+    Ok(compute_trays)
+}
+
+/// Gets the power shelves associated with a rack.
+async fn get_power_shelves(api_client: &ApiClient, rack_id: &RackId) -> Result<Vec<String>> {
+    // Use a PowerShelfSearchFilter with the RackId to get a Vec<PowerShelfId>.
+    let request = PowerShelfSearchFilter {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    };
+    let power_shelf_ids = api_client.0.find_power_shelf_ids(request).await?.ids;
+
+    // Convert these to a vector of Strings and return them in a Result.
+    let power_shelves = power_shelf_ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
+    Ok(power_shelves)
+}
+
+/// Gets the switches associated with a rack.
+async fn get_nvlink_switches(api_client: &ApiClient, rack_id: &RackId) -> Result<Vec<String>> {
+    // Use a SwitchSearchFilter with the RackId to get a Vec<SwitchId>.
+    let request = SwitchSearchFilter {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    };
+    let switch_ids = api_client.0.find_switch_ids(request).await?.ids;
+
+    // Convert these to a vector of Strings and return them in a Result.
+    let switches = switch_ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
+    Ok(switches)
+}
+
+/// Takes a list of Racks and returns a list of RackOutputs.
+/// Since limited information is available from the Rack object, we need additional API calls
+/// to get full details like compute trays, power shelves, and nvlink switches.
+async fn get_rack_outputs(api_client: &ApiClient, racks: &Vec<Rack>) -> Result<Vec<RackOutput>> {
+    let mut outputs: Vec<RackOutput> = Vec::new();
+    for rack in racks {
+        let rack_id = rack.id.as_ref().unwrap().clone();
+        let compute_trays = get_compute_trays(api_client, &rack_id).await?;
+        let power_shelves = get_power_shelves(api_client, &rack_id).await?;
+        let nvlink_switches = get_nvlink_switches(api_client, &rack_id).await?;
+        let mut output = RackOutput::from(rack);
+        output.current_compute_trays = compute_trays;
+        output.current_power_shelves = power_shelves;
+        output.current_nvlink_switches = nvlink_switches;
+        outputs.push(output);
+    }
+    Ok(outputs)
 }
 
 pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfig) -> Result<()> {
@@ -60,8 +130,11 @@ pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfi
     match args.rack {
         Some(rack_id) => {
             let racks = api_client.get_one_rack(rack_id).await?.racks;
-            match racks.first() {
-                Some(r) => show_single(r, format)?,
+            let outputs = get_rack_outputs(api_client, &racks).await?;
+            match outputs.first() {
+                Some(output) => {
+                    show_single(output, format)?
+                }
                 None => println!("No rack found"),
             }
         }
@@ -70,7 +143,8 @@ pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfi
             if racks.is_empty() {
                 println!("No racks found");
             } else {
-                show_list(&racks, format)?;
+                let outputs = get_rack_outputs(api_client, &racks).await?;
+                show_list(&outputs, format)?;
             }
         }
     }
@@ -78,8 +152,7 @@ pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfi
     Ok(())
 }
 
-fn show_single(r: &Rack, format: OutputFormat) -> Result<()> {
-    let output = RackOutput::from(r);
+fn show_single(output: &RackOutput, format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&output)?),
         OutputFormat::Yaml => println!("{}", serde_yaml::to_string(&output)?),
@@ -88,8 +161,7 @@ fn show_single(r: &Rack, format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-fn show_list(racks: &[Rack], format: OutputFormat) -> Result<()> {
-    let outputs: Vec<RackOutput> = racks.iter().map(RackOutput::from).collect();
+fn show_list(outputs: &[RackOutput], format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&outputs)?),
         OutputFormat::Yaml => println!("{}", serde_yaml::to_string(&outputs)?),
