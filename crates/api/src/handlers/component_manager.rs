@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use ::rpc::common::SystemPowerControl;
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, BmcEndpointRequest};
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::switch::SwitchId;
 use component_manager::component_manager::ComponentManager;
@@ -34,6 +34,9 @@ use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use tonic::{Code, Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
+
+const MACHINE_POWER_OVERRIDE_SOURCE: &str = "component_power_control";
+const MACHINE_POWER_OVERRIDE_MESSAGE: &str = "Compute-Tray component power control in progress";
 
 fn require_component_manager(api: &Api) -> Result<&ComponentManager, Status> {
     api.component_manager
@@ -573,7 +576,7 @@ pub(crate) async fn component_power_control(
                 {
                     Ok((req, _)) => resolved.push((*machine_id, req)),
                     Err(e) => results.push(error_result(&id_str, e.to_string())),
-                };
+                }
             }
             txn.commit().await?;
 
@@ -584,11 +587,12 @@ pub(crate) async fn component_power_control(
                     ips.push(ip);
                 }
 
-                let outcome = compute_power_control(api, machine_id, action).await;
+                let outcome =
+                    compute_power_control(api, machine_id, bmc_endpoint_request, action).await;
 
                 match outcome {
                     Ok(()) => results.push(success_result(&id_str)),
-                    Err(e) => results.push(error_result(&id_str, e.message().into())),
+                    Err(e) => results.push(error_result(&id_str, e.message().to_string())),
                 }
             }
 
@@ -610,11 +614,12 @@ pub(crate) async fn component_power_control(
 async fn compute_power_control(
     api: &Api,
     machine_id: carbide_uuid::machine::MachineId,
+    bmc_endpoint: BmcEndpointRequest,
     action: PowerAction,
 ) -> Result<(), Status> {
     let override_inserted = power_control_health_override(api, machine_id, true).await;
 
-    let result = machine_power_control(api, machine_id, action).await;
+    let result = machine_power_control(api, machine_id, bmc_endpoint, action).await;
 
     if override_inserted {
         power_control_health_override(api, machine_id, false).await;
@@ -622,10 +627,6 @@ async fn compute_power_control(
 
     result
 }
-
-const MACHINE_POWER_OVERRIDE_SOURCE: &str = "component_power_control";
-const MACHINE_POWER_OVERRIDE_ALERT_ID: &str = "component-management-maintenance";
-const MACHINE_POWER_OVERRIDE_MESSAGE: &str = "Compute-Tray component power control in progress";
 
 /// Best-effort insert or removal of the health report override used to
 /// suppress external alerting during compute power control.
@@ -645,7 +646,7 @@ async fn power_control_health_override(
                     observed_at: None,
                     successes: vec![],
                     alerts: vec![::rpc::health::HealthProbeAlert {
-                        id: MACHINE_POWER_OVERRIDE_ALERT_ID.to_string(),
+                        id: health_report::HealthProbeId::internal_maintenance().to_string(),
                         target: None,
                         in_alert_since: None,
                         message: MACHINE_POWER_OVERRIDE_MESSAGE.to_string(),
@@ -684,27 +685,33 @@ async fn power_control_health_override(
     result.is_ok()
 }
 
+/*
+machine_power_control facilitates power control against compute trays:
+    1. Configures the desired power state for the machine in the power-manager
+    2. Synchronously sends the redfish command to the compute tray's BMC to perform the action specified
+On success, the power manager will have the desired power state set for the machine and the redfish command will have been successfully sent to the compute BMC
+In the case of partial failure, the power manager may have the desired power state updated for the machine but the redfish command may have failed. We will leave reconvergence in this case to the power manager.
+*/
 async fn machine_power_control(
     api: &Api,
     machine_id: carbide_uuid::machine::MachineId,
+    bmc_endpoint: BmcEndpointRequest,
     action: PowerAction,
 ) -> Result<(), Status> {
     use rpc::admin_power_control_request::SystemPowerControl;
 
     let (desired_power_state, redfish_action) = match action {
         PowerAction::On => (rpc::PowerState::On as i32, SystemPowerControl::On),
-        PowerAction::ForceRestart => {
-            (rpc::PowerState::On as i32, SystemPowerControl::ForceRestart)
-        }
-        PowerAction::GracefulRestart => {
-            (rpc::PowerState::On as i32, SystemPowerControl::GracefulRestart)
-        }
-        PowerAction::AcPowercycle => {
-            (rpc::PowerState::On as i32, SystemPowerControl::AcPowercycle)
-        }
-        PowerAction::GracefulShutdown => {
-            (rpc::PowerState::Off as i32, SystemPowerControl::GracefulShutdown)
-        }
+        PowerAction::ForceRestart => (rpc::PowerState::On as i32, SystemPowerControl::ForceRestart),
+        PowerAction::GracefulRestart => (
+            rpc::PowerState::On as i32,
+            SystemPowerControl::GracefulRestart,
+        ),
+        PowerAction::AcPowercycle => (rpc::PowerState::On as i32, SystemPowerControl::AcPowercycle),
+        PowerAction::GracefulShutdown => (
+            rpc::PowerState::Off as i32,
+            SystemPowerControl::GracefulShutdown,
+        ),
         PowerAction::ForceOff => (rpc::PowerState::Off as i32, SystemPowerControl::ForceOff),
     };
 
@@ -725,7 +732,7 @@ async fn machine_power_control(
     }
 
     let admin_req = rpc::AdminPowerControlRequest {
-        bmc_endpoint_request: None,
+        bmc_endpoint_request: Some(bmc_endpoint),
         machine_id: Some(machine_id.to_string()),
         action: redfish_action as i32,
     };
