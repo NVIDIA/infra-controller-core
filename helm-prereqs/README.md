@@ -383,6 +383,10 @@ vault:
     create: false
   configJob:
     enabled: false
+    ## Optional: override tool images for GitOps clusters that mirror images or
+    ## need a kubectl tag matching the cluster minor version.
+    vaultImage: hashicorp/vault:1.17
+    kubectlImage: alpine/k8s:1.34.4
   tls:
     create: false
 
@@ -420,6 +424,11 @@ When using `setup.sh`, `helmfile` supplies `vault.token` dynamically from the
 `vaultroottoken` Secret. Direct Helm users should either set `vault.token` when
 `vault.tokenSecret.create=true`, or pre-create `carbide-vault-token` and set
 `vault.tokenSecret.create=false`.
+
+`vault.configJob.vaultImage` and `vault.configJob.kubectlImage` only affect the
+`vault-pki-config` hook Job. Defaults preserve the `setup.sh` flow; GitOps
+installations can override them for pinned, mirrored, or cluster-version-aligned
+tool images.
 
 ---
 

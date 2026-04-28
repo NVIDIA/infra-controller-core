@@ -41,6 +41,8 @@ vault:
     create: true
   configJob:
     enabled: true
+    vaultImage: "hashicorp/vault:1.17"
+    kubectlImage: "bitnami/kubectl:latest"
   tls:
     create: true
   pkiMount: "forgeca"
