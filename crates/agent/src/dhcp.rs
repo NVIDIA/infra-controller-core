@@ -85,6 +85,7 @@ pub fn build_server_host_config(
         hbn_devic_names.reps[0],
         hbn_devic_names.virt_rep_begin,
         hbn_devic_names.sf_id,
+        true,
     )?)?)
 }
 

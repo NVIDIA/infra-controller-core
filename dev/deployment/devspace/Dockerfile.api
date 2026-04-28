@@ -2,6 +2,7 @@
 
 FROM build-container-localdev AS builder
 
+ENV CARGO_HOME=/cargo-home
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 ENV CARGO_TARGET_DIR=/cargo-target
 
@@ -9,12 +10,11 @@ WORKDIR /workspace
 
 COPY . .
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-  --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-  --mount=type=cache,target=/cargo-target,sharing=locked \
-  cargo build -p carbide-api --bin carbide-api --locked && \
+RUN --mount=type=cache,id=nico-devspace-cargo-home,target=/cargo-home,sharing=locked \
+  --mount=type=cache,id=nico-devspace-cargo-target,target=/cargo-target,sharing=locked \
+  cargo build -p carbide-api --bin carbide-api -p carbide-admin-cli --bin carbide-admin-cli --locked && \
   mkdir -p /artifacts && \
-  cp /cargo-target/debug/carbide-api /artifacts/carbide-api
+  cp /cargo-target/debug/carbide-api /cargo-target/debug/carbide-admin-cli /artifacts/
 
 FROM ubuntu:24.04
 
@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /opt/carbide /opt/carbide/firmware /mnt/persistence /var/run/kea
 
 COPY --from=builder /artifacts/carbide-api /opt/carbide/carbide-api
+COPY --from=builder /artifacts/carbide-admin-cli /opt/carbide/carbide-admin-cli
 COPY crates/api/casbin-policy.csv /opt/carbide/casbin-policy.csv
-COPY pxe/static/blobs/internal/aarch64/secure-boot-pk.pem /forge-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem
 
 ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv

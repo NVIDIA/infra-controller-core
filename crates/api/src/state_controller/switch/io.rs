@@ -19,11 +19,10 @@
 
 use carbide_uuid::switch::SwitchId;
 use config_version::{ConfigVersion, Versioned};
-use db::switch::SwitchSearchConfig;
 use db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::switch::{Switch, SwitchControllerState, state_sla};
+use model::switch::{Switch, SwitchControllerState, SwitchSearchFilter, state_sla};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -51,7 +50,16 @@ impl StateControllerIO for SwitchStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_switch::find_all(txn).await
+        db_switch::find_ids(
+            txn,
+            SwitchSearchFilter {
+                rack_id: None,
+                deleted: model::DeletedFilter::Include,
+                controller_state: None,
+                bmc_mac: None,
+            },
+        )
+        .await
     }
 
     /// Loads a state snapshot from the database
@@ -63,7 +71,6 @@ impl StateControllerIO for SwitchStateControllerIO {
         let mut switches = db_switch::find_by(
             txn,
             ObjectColumnFilter::One(db::switch::IdColumn, switch_id),
-            SwitchSearchConfig::default(),
         )
         .await?;
         if switches.is_empty() {
@@ -112,7 +119,14 @@ impl StateControllerIO for SwitchStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::switch_state_history::persist(txn, object_id, new_state, new_version).await?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::Switch,
+            object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 
@@ -140,6 +154,7 @@ impl StateControllerIO for SwitchStateControllerIO {
     }
 
     fn state_sla(
+        &self,
         state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {

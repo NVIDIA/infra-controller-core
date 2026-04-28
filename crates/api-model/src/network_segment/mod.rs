@@ -33,7 +33,7 @@ use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::errors::ModelError;
 use crate::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::network_segment_state_history::NetworkSegmentStateHistory;
+use crate::state_history::StateHistoryRecord;
 
 mod slas;
 
@@ -95,6 +95,14 @@ pub struct NetworkDefinition {
     pub mtu: i32,
     /// How many addresses to skip before allocating
     pub reserve_first: i32,
+    /// Controls whether DHCP allocates IPs dynamically from the pool
+    /// for this specific network (with the ability to have per-IP static
+    /// reservations), or ONLY serves pre-configured static reservations.
+    ///
+    /// Defaults to dynamic if not specified, which is the traditional
+    /// behavior of Carbide + carbide-dhcp.
+    #[serde(default)]
+    pub allocation_strategy: AllocationStrategy,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -334,7 +342,7 @@ pub struct NetworkSegment {
 
     pub prefixes: Vec<NetworkPrefix>,
     /// History of state changes.
-    pub history: Vec<NetworkSegmentStateHistory>,
+    pub history: Vec<StateHistoryRecord>,
 
     pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
     pub vni: Option<i32>,
@@ -342,6 +350,8 @@ pub struct NetworkSegment {
     pub segment_type: NetworkSegmentType,
 
     pub can_stretch: Option<bool>,
+
+    pub allocation_strategy: AllocationStrategy,
 }
 
 impl NetworkSegment {
@@ -371,6 +381,25 @@ impl NetworkSegmentType {
     }
 }
 
+/// Controls how IP addresses are assigned via DHCP on a network segment,
+/// giving us support for segment-wide dynamic DHCP allocations or static
+/// DHCP leases/reservations. It is worth noting that even if the entire
+/// network segment is configured as `Dynamic`, an operator can still
+/// do per-IP static reservation overrides within that segment.
+///
+/// - `Dynamic`: The DHCP allocator hands out IPs from the pool (default).
+/// - `Reserved`: Only pre-existing static reservations are served.
+///
+/// Devices without a reservation get no DHCP response.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum AllocationStrategy {
+    #[default]
+    Dynamic,
+    Reserved,
+}
+
 #[derive(Debug)]
 pub struct NewNetworkSegment {
     pub id: NetworkSegmentId,
@@ -383,6 +412,7 @@ pub struct NewNetworkSegment {
     pub vni: Option<i32>,
     pub segment_type: NetworkSegmentType,
     pub can_stretch: Option<bool>,
+    pub allocation_strategy: AllocationStrategy,
 }
 
 impl TryFrom<i32> for NetworkSegmentType {
@@ -446,7 +476,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
         let prefixes = prefixes_json.0.into_iter().flatten().collect();
 
         let history = if let Some(column) = row.columns().iter().find(|c| c.name() == "history") {
-            let value: sqlx::types::Json<Vec<Option<NetworkSegmentStateHistory>>> =
+            let value: sqlx::types::Json<Vec<Option<StateHistoryRecord>>> =
                 row.try_get(column.ordinal())?;
             value.0.into_iter().flatten().collect()
         } else {
@@ -474,6 +504,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             vni: row.try_get("vni_id").unwrap_or_default(),
             segment_type: row.try_get("network_segment_type")?,
             can_stretch: row.try_get("can_stretch")?,
+            allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
         })
     }
 }
@@ -532,6 +563,7 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
             vni: None,
             segment_type,
             can_stretch,
+            allocation_strategy: AllocationStrategy::Dynamic,
         })
     }
 }
@@ -562,7 +594,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
         let mut history = Vec::with_capacity(src.history.len());
 
         for state in src.history {
-            history.push(rpc::forge::NetworkSegmentStateHistory::try_from(state)?);
+            history.push(state.into());
         }
 
         let flags: Vec<i32> = {
@@ -645,6 +677,7 @@ impl NewNetworkSegment {
                 NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
             },
             can_stretch: None,
+            allocation_strategy: value.allocation_strategy,
         })
     }
 }

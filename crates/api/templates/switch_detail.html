@@ -14,22 +14,7 @@
 		<th>ID</th>
 		<td>{{ id }}</td>
 	</tr>
-	<tr>
-		<th>State</th>
-		<td>
-			{% if controller_state.to_lowercase().contains("failed") %}
-				<span class="bubble error">{{ controller_state }}</span>
-			{% else if controller_state == "Ready" %}
-				<span class="bubble success">{{ controller_state }}</span>
-			{% else %}
-				<span class="bubble">{{ controller_state }}</span>
-			{% endif %}
-		</td>
-	</tr>
-	<tr>
-		<th>State Reason</th>
-		<td>{{ state_reason|controller_state_reason_fmt|safe }}</td>
-	</tr>
+	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
 	{% if let Some(power_state) = power_state %}
 	<tr>
 		<th>Power State</th>
@@ -52,21 +37,30 @@
 	{% endif %}
 </table>
 
-<h2>Metadata</h2>
+{{ lifecycle_detail|safe }}
+
+<h2>Configuration</h2>
 <table class="detailsview">
 	<tr>
 		<th>Name</th>
 		<td>{{ name }}</td>
 	</tr>
 	<tr>
-		<th>Location</th>
-		<td>{{ location }}</td>
+		<th>Slot Number</th>
+		<td>{{ slot_number }}</td>
+	</tr>
+	<tr>
+		<th>Tray Index</th>
+		<td>{{ tray_index }}</td>
 	</tr>
 	<tr>
 		<th>Enable NMXC</th>
 		<td>{{ enable_nmxc }}</td>
 	</tr>
 </table>
+
+<h2>Metadata</h2>
+{{ metadata_detail|safe }}
 
 <h2>Health</h2>
 <table class="detailsview">

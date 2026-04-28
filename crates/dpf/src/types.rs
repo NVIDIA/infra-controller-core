@@ -34,6 +34,11 @@ impl BmcPasswordProvider for String {
     }
 }
 
+/// Service name constants for use across crates
+pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
+pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
+pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
+
 /// Configuration for creating DPF operator resources (BFB, DPUFlavor,
 /// DPUDeployment, service templates, etc.) during initialization.
 #[derive(Debug, Clone)]
@@ -81,6 +86,23 @@ pub struct ServiceConfigPort {
     pub node_port: Option<i64>,
 }
 
+/// Service Network Attachment Definition (NAD)
+#[derive(Debug, Clone)]
+pub enum ServiceNADResourceType {
+    Vf,
+    Sf,
+    Veth,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServiceNAD {
+    pub name: String,
+    pub bridge: Option<String>,
+    pub ipam: Option<bool>,
+    pub resource_type: ServiceNADResourceType,
+    pub mtu: Option<i64>,
+}
+
 /// Protocol for a config port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceConfigPortProtocol {
@@ -113,6 +135,34 @@ pub struct ServiceDefinition {
     pub service_chain_switches: Vec<ServiceChainSwitch>,
     /// Optional annotations for the service DaemonSet (e.g. Multus CNI networks).
     pub service_daemon_set_annotations: Option<std::collections::BTreeMap<String, String>>,
+    /// Optional service Network Attachment Definition specification
+    pub service_nad: Option<ServiceNAD>,
+}
+
+/// Service Network Attachment Definition (NAD)
+#[derive(Debug, Clone)]
+pub enum DpuServiceInterfaceTemplateType {
+    Vlan,
+    Physical,
+    Pf,
+    Vf,
+    Ovn,
+    Service,
+}
+
+/// Network interface for a DPU service.
+#[derive(Debug, Clone)]
+pub struct DpuServiceInterfaceTemplateDefinition {
+    /// Interface name.
+    pub name: String,
+    /// Interface Type
+    pub iface_type: DpuServiceInterfaceTemplateType,
+    /// PF Interface ID
+    pub pf_id: i64,
+    /// VF Interface ID
+    pub vf_id: i64,
+    /// Chained service interfaces vector
+    pub chained_svc_if: Option<Vec<(String, String)>>,
 }
 
 /// Network interface for a DPU service.
@@ -151,6 +201,15 @@ impl ServiceDefinition {
             ..Default::default()
         }
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DpuFlavorBridgeDefinition {
+    pub vf_intercept_bridge_name: String,
+    pub vf_intercept_bridge_port: String,
+    pub host_intercept_bridge_name: String,
+    pub host_intercept_bridge_port: String,
+    pub vf_intercept_bridge_sf: String,
 }
 
 /// Information about a DPU device (DPUDevice CR).

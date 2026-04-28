@@ -16,7 +16,6 @@
  */
 
 use std::fmt::Write;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use carbide_uuid::dpu_remediations::RemediationId;
@@ -30,7 +29,7 @@ use crate::{async_write, async_writeln};
 pub(crate) async fn handle_show(
     args: Args,
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
@@ -77,22 +76,11 @@ fn convert_remediation_to_nice_format(
         writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
-    if let Some(metadata) = remediation.metadata {
-        writeln!(&mut lines, "METADATA: ")?;
-        writeln!(&mut lines, "\tNAME: {}", metadata.name)?;
-        writeln!(&mut lines, "\tDESCRIPTION: {}", metadata.description)?;
-        writeln!(&mut lines, "\tLABELS:")?;
-        for label in metadata.labels {
-            writeln!(
-                &mut lines,
-                "\t\t{}:{}",
-                label.key,
-                label.value.unwrap_or_default()
-            )?;
-        }
-    } else {
-        writeln!(&mut lines, "{:<width$}: None", "METADATA")?;
-    }
+    crate::metadata::write_metadata_in_nice_format(
+        &mut lines,
+        width,
+        remediation.metadata.as_ref(),
+    )?;
 
     if display_script {
         writeln!(
@@ -108,7 +96,7 @@ fn convert_remediation_to_nice_format(
 async fn show_remediation_information(
     remediation_id: RemediationId,
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     display_script: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -136,7 +124,7 @@ async fn show_remediation_information(
 
 async fn show_all_remediations(
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
@@ -177,8 +165,7 @@ fn convert_remediations_to_nice_table(remediations: RemediationList) -> Box<Tabl
         table.add_row(row!["None", "None", "None", "None", "None", "None", "None"]);
     } else {
         for remediation in remediations.remediations.into_iter() {
-            let labels =
-                crate::metadata::get_nice_labels_from_rpc_metadata(remediation.metadata.as_ref());
+            let labels = crate::metadata::fmt_labels_as_kv_pairs(remediation.metadata.as_ref());
 
             table.add_row(row![
                 remediation.id.unwrap_or_default().to_string(),

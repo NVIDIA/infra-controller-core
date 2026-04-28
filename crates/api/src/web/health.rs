@@ -24,10 +24,10 @@ use axum::response::{Html, IntoResponse, Response};
 use carbide_uuid::machine::{MachineId, MachineType};
 use health_report::HealthReport;
 use hyper::http::StatusCode;
-use model::machine::health_override::HealthReportOverrides;
+use model::health::HealthReportSources;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
+    HealthReportApplyMode, InsertHealthReportOverrideRequest, MachinesByIdsRequest,
     RemoveHealthReportOverrideRequest,
 };
 
@@ -40,27 +40,27 @@ use crate::auth::AuthContext;
 struct MachineHealth {
     id: MachineId,
     machine_type: MachineType,
-    overrides: Vec<HealthReportOverride>,
+    entries: Vec<HealthReportEntry>,
     aggregate_health: LabeledHealthReport,
     component_health: Vec<LabeledHealthReport>,
-    history: MachineHealthHistoryTable,
+    history: HealthHistoryTable,
 }
 
 #[derive(Template)]
-#[template(path = "machine_health_history_table.html")]
-pub(super) struct MachineHealthHistoryTable {
-    pub records: Vec<MachineHealthHistoryRecord>,
+#[template(path = "health_history_table.html")]
+pub(super) struct HealthHistoryTable {
+    pub records: Vec<HealthHistoryRecord>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub(super) struct MachineHealthHistoryRecord {
+pub(super) struct HealthHistoryRecord {
     pub timestamp: String,
     pub health: health_report::HealthReport,
 }
 
-impl MachineHealthHistoryRecord {
-    pub fn from_rpc_convert_invalid(record: ::rpc::forge::MachineHealthHistoryRecord) -> Self {
-        MachineHealthHistoryRecord {
+impl HealthHistoryRecord {
+    pub fn from_rpc_convert_invalid(record: ::rpc::forge::HealthHistoryRecord) -> Self {
+        HealthHistoryRecord {
             timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
             health: record
                 .health
@@ -130,10 +130,10 @@ pub async fn health(
     };
 
     let request = tonic::Request::new(machine_id);
-    let mut listed_overrides = match state
+    let mut listed_entries = match state
         .list_health_report_overrides(request)
         .await
-        .map(|response| response.into_inner().overrides)
+        .map(|response| response.into_inner().health_report_entries)
     {
         Ok(m) => m,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
@@ -143,15 +143,15 @@ pub async fn health(
         }
     };
     let mut hardware_health: Option<health_report::HealthReport> = None;
-    let mut overrides = Vec::new();
-    for override_entry in listed_overrides.drain(..) {
-        let source = override_entry
+    let mut entries = Vec::new();
+    for entry in listed_entries.drain(..) {
+        let source = entry
             .report
             .as_ref()
             .map(|report| report.source.as_str())
             .unwrap_or_default();
-        if HealthReportOverrides::is_hardware_health_override_source(source) {
-            if let Some(report) = override_entry.report {
+        if HealthReportSources::is_hardware_health_override_source(source) {
+            if let Some(report) = entry.report {
                 let report = health_report_from_rpc_convert_invalid(report);
                 if let Some(aggregated) = hardware_health.as_mut() {
                     aggregated.merge(&report);
@@ -161,14 +161,14 @@ pub async fn health(
             }
             continue;
         }
-        overrides.push(override_entry);
+        entries.push(entry);
     }
 
     // Sort by type first and source name second.
-    overrides.sort_by(|a, b| {
-        if a.mode() == OverrideMode::Replace {
+    entries.sort_by(|a, b| {
+        if a.mode() == HealthReportApplyMode::Replace {
             return std::cmp::Ordering::Less;
-        } else if b.mode() == OverrideMode::Replace {
+        } else if b.mode() == HealthReportApplyMode::Replace {
             return std::cmp::Ordering::Greater;
         }
         a.report
@@ -177,9 +177,9 @@ pub async fn health(
             .cmp(&b.report.as_ref().map(|b| &b.source))
     });
 
-    let overrides: Vec<HealthReportOverride> = overrides
+    let entries: Vec<HealthReportEntry> = entries
         .iter()
-        .map(|o| HealthReportOverride::from_rpc_convert_invalid(o.clone()))
+        .map(|o| HealthReportEntry::from_rpc_convert_invalid(o.clone()))
         .collect();
 
     let mut component_health = Vec::new();
@@ -216,8 +216,8 @@ pub async fn health(
         }
     }
 
-    component_health.extend(overrides.iter().map(|o| LabeledHealthReport {
-        label: format!("Override {} {}", o.mode, o.health_report.source),
+    component_health.extend(entries.iter().map(|o| LabeledHealthReport {
+        label: format!("Health Report {} {}", o.mode, o.health_report.source),
         report: Some(o.health_report.clone()),
     }));
 
@@ -237,8 +237,8 @@ pub async fn health(
             report: aggregate_health,
         },
         component_health,
-        overrides,
-        history: MachineHealthHistoryTable {
+        entries,
+        history: HealthHistoryTable {
             records: health_records,
         },
     };
@@ -247,16 +247,16 @@ pub async fn health(
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-pub struct HealthReportOverride {
+pub struct HealthReportEntry {
     mode: String,
     health_report: HealthReport,
 }
 
-impl HealthReportOverride {
-    fn from_rpc_convert_invalid(o: ::rpc::forge::HealthReportOverride) -> Self {
+impl HealthReportEntry {
+    fn from_rpc_convert_invalid(o: ::rpc::forge::HealthReportEntry) -> Self {
         let mode = match o.mode() {
-            OverrideMode::Merge => "Merge",
-            OverrideMode::Replace => "Replace",
+            HealthReportApplyMode::Merge => "Merge",
+            HealthReportApplyMode::Replace => "Replace",
         }
         .to_string();
 
@@ -265,28 +265,28 @@ impl HealthReportOverride {
             .map(health_report_from_rpc_convert_invalid)
             .unwrap_or_else(HealthReport::missing_report);
 
-        HealthReportOverride {
+        HealthReportEntry {
             mode,
             health_report,
         }
     }
 }
 
-impl TryFrom<HealthReportOverride> for ::rpc::forge::HealthReportOverride {
+impl TryFrom<HealthReportEntry> for ::rpc::forge::HealthReportEntry {
     type Error = String;
 
-    fn try_from(value: HealthReportOverride) -> Result<Self, Self::Error> {
+    fn try_from(value: HealthReportEntry) -> Result<Self, Self::Error> {
         let mode = match value.mode.as_str() {
-            "Replace" => OverrideMode::Replace,
-            "Merge" => OverrideMode::Merge,
+            "Replace" => HealthReportApplyMode::Replace,
+            "Merge" => HealthReportApplyMode::Merge,
             m => {
                 return Err(format!(
-                    "Override mode must be \"Replace\" or \"Merge\", but was \"{m}\""
+                    "Apply mode must be \"Replace\" or \"Merge\", but was \"{m}\""
                 ));
             }
         };
 
-        Ok(::rpc::forge::HealthReportOverride {
+        Ok(::rpc::forge::HealthReportEntry {
             mode: mode as i32,
             report: Some(::rpc::health::HealthReport::from(value.health_report)),
         })
@@ -294,18 +294,18 @@ impl TryFrom<HealthReportOverride> for ::rpc::forge::HealthReportOverride {
 }
 
 #[derive(serde::Deserialize)]
-pub struct RemoveOverride {
+pub struct RemoveHealthReport {
     source: String,
 }
 
-pub async fn add_override(
+pub async fn add_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     auth_context: Option<axum::Extension<AuthContext>>,
-    extract::Json(payload): extract::Json<HealthReportOverride>,
+    extract::Json(payload): extract::Json<HealthReportEntry>,
 ) -> impl IntoResponse {
-    let report_override = match ::rpc::forge::HealthReportOverride::try_from(payload) {
-        Ok(report_override) => report_override,
+    let entry = match ::rpc::forge::HealthReportEntry::try_from(payload) {
+        Ok(entry) => entry,
         Err(e) => return (StatusCode::BAD_REQUEST, e),
     };
 
@@ -316,7 +316,7 @@ pub async fn add_override(
 
     let mut request = tonic::Request::new(InsertHealthReportOverrideRequest {
         machine_id: Some(machine_id),
-        r#override: Some(report_override),
+        health_report_entry: Some(entry),
     });
     if let Some(axum::Extension(auth_context)) = auth_context {
         request.extensions_mut().insert(auth_context);
@@ -337,10 +337,10 @@ pub async fn add_override(
     }
 }
 
-pub async fn remove_override(
+pub async fn remove_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
-    extract::Json(payload): extract::Json<RemoveOverride>,
+    extract::Json(payload): extract::Json<RemoveHealthReport>,
 ) -> impl IntoResponse {
     let machine_id = match machine_id.parse::<MachineId>() {
         Ok(id) => id,
@@ -376,8 +376,8 @@ fn health_report_from_rpc_convert_invalid(
 pub(super) async fn fetch_health_history(
     api: &Api,
     machine_id: &MachineId,
-) -> Result<Vec<MachineHealthHistoryRecord>, tonic::Status> {
-    let mut records = api
+) -> Result<Vec<HealthHistoryRecord>, tonic::Status> {
+    let records = api
         .find_machine_health_histories(tonic::Request::new(
             ::rpc::forge::MachineHealthHistoriesRequest {
                 machine_ids: vec![*machine_id],
@@ -391,12 +391,10 @@ pub(super) async fn fetch_health_history(
         .remove(&machine_id.to_string())
         .unwrap_or_default()
         .records;
-    // History is delivered with the oldest Entry First. Reverse for better display ordering
-    records.reverse();
 
     let records = records
         .into_iter()
-        .map(MachineHealthHistoryRecord::from_rpc_convert_invalid)
+        .map(HealthHistoryRecord::from_rpc_convert_invalid)
         .collect();
 
     Ok(records)

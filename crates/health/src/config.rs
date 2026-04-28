@@ -127,12 +127,19 @@ pub struct SinksConfig {
     /// Prometheus sink: stores metric events in Prometheus exporter format.
     pub prometheus: Configurable<PrometheusSinkConfig>,
 
-    /// Health override sink: sends health override events to Carbide API.
-    #[serde(alias = "carbide_override")]
-    pub health_override: Configurable<HealthOverrideSinkConfig>,
+    /// Health report sink: sends health report events to Carbide API.
+    #[serde(alias = "carbide_override", alias = "health_override")]
+    pub health_report: Configurable<HealthReportSinkConfig>,
 
-    /// Rack health override sink: sends rack-level health overrides to Carbide API.
-    pub rack_health_override: Configurable<RackHealthOverrideSinkConfig>,
+    /// Rack health report sink: sends rack-level health reports to Carbide API.
+    #[serde(alias = "rack_health_override")]
+    pub rack_health_report: Configurable<RackHealthReportSinkConfig>,
+
+    /// Log file sink: writes log events as JSONL to rotating files on disk.
+    pub log_file: Configurable<LogFileSinkConfig>,
+
+    /// OTLP log export sink: streams events to an OpenTelemetry collector via gRPC.
+    pub otlp: Configurable<OtlpSinkConfig>,
 }
 
 impl Default for SinksConfig {
@@ -140,8 +147,10 @@ impl Default for SinksConfig {
         Self {
             tracing: Configurable::Disabled,
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
-            health_override: Configurable::Enabled(HealthOverrideSinkConfig::default()),
-            rack_health_override: Configurable::Enabled(RackHealthOverrideSinkConfig::default()),
+            health_report: Configurable::Enabled(HealthReportSinkConfig::default()),
+            rack_health_report: Configurable::Enabled(RackHealthReportSinkConfig::default()),
+            log_file: Configurable::Disabled,
+            otlp: Configurable::Disabled,
         }
     }
 }
@@ -153,6 +162,43 @@ pub struct TracingSinkConfig {}
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct PrometheusSinkConfig {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LogFileSinkConfig {
+    pub output_dir: String,
+    pub max_file_size: u64,
+    pub max_backups: usize,
+}
+
+impl Default for LogFileSinkConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: "/tmp/logs".to_string(),
+            max_file_size: 104_857_600, // 100MB
+            max_backups: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OtlpSinkConfig {
+    pub endpoint: String,
+    pub batch_size: usize,
+    #[serde(with = "humantime_serde")]
+    pub flush_interval: std::time::Duration,
+}
+
+impl Default for OtlpSinkConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: "http://localhost:4317".to_string(),
+            batch_size: 512,
+            flush_interval: std::time::Duration::from_secs(2),
+        }
+    }
+}
 
 /// Shared Carbide API connection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,7 +230,7 @@ impl Default for CarbideApiConnectionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct HealthOverrideSinkConfig {
+pub struct HealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
@@ -192,7 +238,7 @@ pub struct HealthOverrideSinkConfig {
     pub workers: usize,
 }
 
-impl Default for HealthOverrideSinkConfig {
+impl Default for HealthReportSinkConfig {
     fn default() -> Self {
         Self {
             connection: CarbideApiConnectionConfig::default(),
@@ -203,7 +249,7 @@ impl Default for HealthOverrideSinkConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct RackHealthOverrideSinkConfig {
+pub struct RackHealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
@@ -211,7 +257,7 @@ pub struct RackHealthOverrideSinkConfig {
     pub workers: usize,
 }
 
-impl Default for RackHealthOverrideSinkConfig {
+impl Default for RackHealthReportSinkConfig {
     fn default() -> Self {
         Self {
             connection: CarbideApiConnectionConfig::default(),
@@ -368,9 +414,34 @@ impl Default for FirmwareCollectorConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// SSE is the preferred mode for real-time log streaming.
+/// Periodic polling is retained as a fallback for BMCs that lack SSE support.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogCollectionMode {
+    Sse,
+    Periodic,
+}
+
+impl Default for LogCollectionMode {
+    fn default() -> Self {
+        Self::Sse
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LogsCollectorConfig {
+    /// Collection mode: "sse" (default, preferred) or "periodic" (fallback).
+    pub mode: LogCollectionMode,
+
+    /// Configuration for periodic log polling
+    pub periodic: Option<PeriodicLogConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PeriodicLogConfig {
     /// Interval between log collection.
     #[serde(with = "humantime_serde")]
     pub logs_collection_interval: Duration,
@@ -381,26 +452,28 @@ pub struct LogsCollectorConfig {
 
     /// Path to logs collector state file (supports {machine_id} placeholder).
     pub logs_state_file: String,
-
-    /// Directory path for log output files.
-    pub logs_output_dir: String,
-
-    /// Maximum log file size before rotation (in bytes).
-    pub logs_max_file_size: u64,
-
-    /// Maximum number of rotated log files to keep.
-    pub logs_max_backups: usize,
 }
 
-impl Default for LogsCollectorConfig {
+impl Default for PeriodicLogConfig {
     fn default() -> Self {
         Self {
             logs_collection_interval: Duration::from_secs(300),
             state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
-            logs_output_dir: "/tmp/logs".to_string(),
-            logs_max_file_size: 104857600,
-            logs_max_backups: 5,
+        }
+    }
+}
+
+impl LogsCollectorConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        match self.mode {
+            LogCollectionMode::Periodic if self.periodic.is_none() => {
+                Err("[collectors.logs.periodic] is required when mode = \"periodic\"".to_string())
+            }
+            LogCollectionMode::Sse if self.periodic.is_some() => {
+                Err("[collectors.logs.periodic] should not be set when mode = \"sse\"".to_string())
+            }
+            _ => Ok(()),
         }
     }
 }
@@ -571,10 +644,19 @@ impl Config {
             );
         }
 
-        if let Configurable::Enabled(health_override) = &self.sinks.health_override
-            && health_override.workers == 0
+        if let Configurable::Enabled(health_report) = &self.sinks.health_report
+            && health_report.workers == 0
         {
-            return Err("sinks.health_override.workers must be greater than 0".to_string());
+            return Err("sinks.health_report.workers must be greater than 0".to_string());
+        }
+
+        if let Configurable::Enabled(logs) = &self.collectors.logs {
+            logs.validate()?;
+        }
+
+        if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
+            tonic::transport::Channel::from_shared(otlp.endpoint.clone())
+                .map_err(|_| format!("invalid sinks.otlp.endpoint: {}", otlp.endpoint))?;
         }
 
         self.metrics_addr()?;
@@ -669,14 +751,14 @@ mod tests {
             panic!("carbide api empty for sources")
         }
 
-        if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
+        if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
             assert_eq!(
-                health_override.connection.root_ca,
+                health_report.connection.root_ca,
                 "/var/run/secrets/spiffe.io/ca.crt"
             );
-            assert_eq!(health_override.workers, 8);
+            assert_eq!(health_report.workers, 8);
         } else {
-            panic!("health override sink is disabled")
+            panic!("health report sink is disabled")
         }
 
         if let Configurable::Enabled(ref rate_limit) = config.rate_limit {
@@ -702,7 +784,12 @@ mod tests {
         }
 
         if let Configurable::Enabled(ref logs) = config.collectors.logs {
-            assert_eq!(logs.state_refresh_interval, Duration::from_secs(1800));
+            assert_eq!(logs.mode, LogCollectionMode::Sse);
+            assert!(
+                logs.periodic.is_none(),
+                "SSE mode should not have periodic config"
+            );
+            assert!(logs.validate().is_ok());
         } else {
             panic!("logs empty")
         }
@@ -744,7 +831,7 @@ password = "pass"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.sensors]
@@ -769,7 +856,7 @@ cache_size = 50
             .expect("failed to parse");
 
         assert!(!config.endpoint_sources.carbide_api.is_enabled());
-        assert!(!config.sinks.health_override.is_enabled());
+        assert!(!config.sinks.health_report.is_enabled());
 
         assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
         assert_eq!(
@@ -836,11 +923,43 @@ cache_size = 50
 
         config.processors.leak_detection =
             Configurable::Enabled(LeakDetectionProcessorConfig::default());
-        config.sinks.health_override = Configurable::Enabled(HealthOverrideSinkConfig {
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig {
             workers: 0,
-            ..HealthOverrideSinkConfig::default()
+            ..HealthReportSinkConfig::default()
         });
         assert!(config.validate().is_err());
+
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig::default());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Periodic,
+            periodic: None,
+        });
+        assert!(config.validate().is_err());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Sse,
+            periodic: Some(PeriodicLogConfig::default()),
+        });
+        assert!(config.validate().is_err());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Sse,
+            periodic: None,
+        });
+        assert!(config.validate().is_ok());
+
+        config.collectors.logs = Configurable::Disabled;
+        assert!(config.validate().is_ok());
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+            endpoint: "not a valid uri\n".to_string(),
+            ..OtlpSinkConfig::default()
+        });
+        assert!(config.validate().is_err());
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig::default());
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -876,7 +995,7 @@ cache_size = 50
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -917,7 +1036,7 @@ request_timeout = "45s"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue]
@@ -939,7 +1058,7 @@ enabled = false
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -964,7 +1083,7 @@ poll_interval = "1m"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -1003,7 +1122,7 @@ interfaces_enabled = false
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [[endpoint_sources.static_bmc_endpoints]]
@@ -1060,10 +1179,70 @@ switch_serial = "SN-SW-001"
                 .as_deref(),
             Some("SN-SWITCH-001")
         );
-        if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
-            assert_eq!(health_override.workers, 8);
+        if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
+            assert_eq!(health_report.workers, 8);
         } else {
-            panic!("health override sink is disabled");
+            panic!("health report sink is disabled");
         }
+    }
+
+    #[test]
+    fn test_log_config_sse_mode_rejects_periodic_config() {
+        let toml = r#"
+            mode = "sse"
+            [periodic]
+            logs_collection_interval = "5m"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_log_config_periodic_mode_requires_periodic_config() {
+        let toml = r#"
+            mode = "periodic"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_log_config_periodic_mode_with_periodic_config_valid() {
+        let toml = r#"
+            mode = "periodic"
+            [periodic]
+            logs_collection_interval = "5m"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_log_config_sse_mode_without_periodic_config_valid() {
+        let toml = r#"
+            mode = "sse"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_log_config_default_is_sse() {
+        let config = LogsCollectorConfig::default();
+        assert_eq!(config.mode, LogCollectionMode::Sse);
+        assert!(config.periodic.is_none());
+        assert!(config.validate().is_ok());
     }
 }

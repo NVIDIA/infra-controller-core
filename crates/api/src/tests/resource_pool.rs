@@ -557,20 +557,25 @@ async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 50)]
 async fn test_parallel() -> Result<(), eyre::Report> {
-    // We have to do [crate::sqlx_test] 's work manually here so that we can use a multi-threaded executor
-    let db_url = std::env::var("DATABASE_URL")? + "/test_parallel";
-    if sqlx::Postgres::database_exists(&db_url).await? {
-        sqlx::Postgres::drop_database(&db_url).await?;
-    }
+    // We can't use #[sqlx::test] here because we need a multi-threaded
+    // executor with 50 worker threads. Instead we manage the test database
+    // lifecycle manually, using a random name so multiple test runs (or
+    // parallel CI jobs) never collide on the same Postgres instance.
+    let base_url = std::env::var("DATABASE_URL")?;
+    // ResourcePool.name is varchar(32), so keep the DB name short.
+    let short_id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let db_name = format!("test_par_{short_id}");
+    let db_url = format!("{base_url}/{db_name}");
+
+    let admin = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&base_url).await?;
+
     sqlx::Postgres::create_database(&db_url).await?;
     let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
     tests::MIGRATOR.run(&db_pool).await?;
 
     let mut txn = db_pool.begin().await?;
-    let pool = Arc::new(ResourcePool::new(
-        "test_parallel".to_string(),
-        ValueType::Integer,
-    ));
+    let pool = Arc::new(ResourcePool::new(db_name.clone(), ValueType::Integer));
+
     db::resource_pool::populate(
         &pool,
         &mut txn,
@@ -611,10 +616,13 @@ async fn test_parallel() -> Result<(), eyre::Report> {
     drop(pool);
     db_pool.close().await;
 
-    // Every value we got was unique, so the HashSet had no duplicates
     assert_eq!(all_values.lock().await.len(), 5_000);
 
-    sqlx::Postgres::drop_database(&db_url).await?;
+    // WITH (FORCE) terminates any lingering backends before dropping,
+    // avoiding the flaky "database is being accessed by other users" error.
+    let drop_stmt = format!("DROP DATABASE \"{db_name}\" WITH (FORCE)");
+    sqlx::query(&drop_stmt).execute(&admin).await?;
+    admin.close().await;
     Ok(())
 }
 

@@ -132,9 +132,13 @@ pub async fn get_segments(
 
 #[cfg(test)]
 pub async fn text_history(txn: &mut PgConnection, segment_id: NetworkSegmentId) -> Vec<String> {
-    let entries = db::network_segment_state_history::for_segment(txn, &segment_id)
-        .await
-        .unwrap();
+    let entries = db::state_history::for_object(
+        txn,
+        db::state_history::StateHistoryTableId::NetworkSegment,
+        &segment_id,
+    )
+    .await
+    .unwrap();
 
     // // Check that version numbers are always incrementing by 1
     if !entries.is_empty() {

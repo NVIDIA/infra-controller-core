@@ -50,6 +50,7 @@ mod cfg;
 mod client;
 mod deprovision;
 mod discovery;
+mod firmware_upgrade;
 mod machine_validation;
 mod mlx_device;
 mod register;
@@ -62,6 +63,7 @@ struct DevEnv {
 static IN_QEMU_VM: Lazy<RwLock<DevEnv>> = Lazy::new(|| RwLock::new(DevEnv { in_qemu: false }));
 const POLL_INTERVAL: Duration = Duration::from_secs(60);
 pub const REBOOT_COMPLETED_PATH: &str = "/tmp/reboot_completed";
+const MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE: usize = 1500;
 
 async fn check_if_running_in_qemu() {
     use tokio::process::Command;
@@ -428,8 +430,111 @@ async fn handle_action(
             handle_mlxreport_action(config, machine_id, controller_response.data).await;
             return Ok(());
         }
+        Action::FirmwareUpgrade => {
+            handle_firmware_upgrade_action(config, machine_id, controller_response.data).await?;
+        }
     }
     Ok(())
+}
+
+// handle_firmware_upgrade_action processes a firmware upgrade task received
+// from carbide-api via ForgeAgentControl. The task data is a JSON-serialized
+// FirmwareUpgradeTask in the "firmware_upgrade_task" key-value pair.
+async fn handle_firmware_upgrade_action(
+    config: &Options,
+    machine_id: &MachineId,
+    data: Option<ForgeAgentControlExtraInfo>,
+) -> Result<(), CarbideClientError> {
+    let extra = data.ok_or_else(|| {
+        CarbideClientError::GenericError("firmware upgrade action missing extra data".to_string())
+    })?;
+
+    let task_json = extra
+        .pair
+        .iter()
+        .find(|kv| kv.key == "firmware_upgrade_task")
+        .map(|kv| &kv.value)
+        .ok_or_else(|| {
+            CarbideClientError::GenericError(
+                "firmware upgrade action missing firmware_upgrade_task key".to_string(),
+            )
+        })?;
+
+    let task: firmware_upgrade::FirmwareUpgradeTask =
+        serde_json::from_str(task_json).map_err(|e| {
+            CarbideClientError::GenericError(format!("failed to parse firmware upgrade task: {e}"))
+        })?;
+
+    let http_client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
+        CarbideClientError::GenericError(format!("failed to build HTTP client: {e}"))
+    })?;
+
+    tracing::info!(
+        "[firmware_upgrade] received upgrade task for component={} version={}",
+        task.component_type,
+        task.target_version,
+    );
+
+    let result = firmware_upgrade::handle_firmware_upgrade(&http_client, &task).await;
+
+    tracing::info!(
+        "[firmware_upgrade] upgrade finished: success={} component={} version={} exit_code={}",
+        result.success,
+        task.component_type,
+        task.target_version,
+        result.exit_code,
+    );
+
+    report_firmware_upgrade_status(config, machine_id, &result).await?;
+
+    if !result.success {
+        return Err(CarbideClientError::GenericError(format!(
+            "firmware upgrade failed for component={} version={}: exit_code={} error={}",
+            task.component_type, task.target_version, result.exit_code, result.error,
+        )));
+    }
+    Ok(())
+}
+
+async fn report_firmware_upgrade_status(
+    config: &Options,
+    machine_id: &MachineId,
+    result: &firmware_upgrade::FirmwareUpgradeResult,
+) -> Result<(), CarbideClientError> {
+    let mut client = client::create_forge_client(config).await?;
+    let request = tonic::Request::new(rpc_forge::ScoutFirmwareUpgradeStatusRequest {
+        machine_id: Some(*machine_id),
+        success: result.success,
+        exit_code: result.exit_code,
+        stdout: truncate(&result.stdout, MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE),
+        stderr: truncate(&result.stderr, MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE),
+        error: truncate(&result.error, MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE),
+    });
+    client.report_scout_firmware_upgrade_status(request).await?;
+    Ok(())
+}
+
+fn truncate(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.to_string();
+    }
+
+    if limit < 3 {
+        let mut end = limit;
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        return value[..end].to_string();
+    }
+
+    let mut end = limit - 2;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut truncated = String::with_capacity(end + 2);
+    truncated.push_str(&value[..end]);
+    truncated.push_str("..");
+    truncated
 }
 
 // carbide sent us an Action::MlxReport command in response to our
@@ -846,5 +951,33 @@ fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
         Err(CarbideClientError::GenericError(format!(
             "Could not parse NotAfter timestamp: {not_after}"
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_handles_short_long_and_utf8_values() {
+        // Short values are preserved unchanged.
+        assert_eq!(truncate("ok", MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE), "ok");
+
+        // Long values are capped and marked as truncated.
+        let value = "x".repeat(MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE + 100);
+        let truncated = truncate(&value, MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE);
+        assert_eq!(truncated.len(), MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE);
+        assert!(truncated.ends_with(".."));
+
+        // Multi-byte characters are never split.
+        let value = "é".repeat(MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE);
+        let truncated = truncate(&value, MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE);
+        assert!(truncated.len() <= MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE);
+        assert!(truncated.ends_with(".."));
+
+        // Degenerate limits still respect the requested size.
+        assert_eq!(truncate("hello", 0), "");
+        assert_eq!(truncate("hello", 1), "h");
+        assert_eq!(truncate("é", 1), "");
     }
 }

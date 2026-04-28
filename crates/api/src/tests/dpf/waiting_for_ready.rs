@@ -23,14 +23,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use carbide_dpf::DpuPhase;
+use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::machine::{DpfState, DpuInitState, ManagedHostState};
 use tokio::time::timeout;
 
 use crate::dpf::MockDpfOperations;
-use crate::redfish::RedfishClientPool;
-use crate::redfish::test_support::RedfishSimAction;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_managed_host_with_dpf_multi, create_test_env_with_overrides, discovery_completed,
@@ -38,6 +38,18 @@ use crate::tests::common::api_fixtures::{
 };
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// True after the DPF `DeviceReady` sync: no DPU remains in `DpfStates`, or host init has started.
+fn dpf_left_operator_provisioning_substates(host: &ManagedHostState) -> bool {
+    match host {
+        ManagedHostState::DPUInit { dpu_states } => dpu_states
+            .states
+            .values()
+            .all(|s| !matches!(s, DpuInitState::DpfStates { .. })),
+        ManagedHostState::HostInit { .. } => true,
+        _ => false,
+    }
+}
 
 /// Set up the initial provisioning expectations shared by all WaitingForReady tests.
 /// Does NOT set up `get_dpu_phase` -- each test configures it to control the
@@ -52,6 +64,7 @@ fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
+        v2: true,
         ..Default::default()
     }
 }
@@ -103,7 +116,7 @@ async fn get_host_state(
 
 /// WaitingForReady with reboot required:
 ///   1. Releases maintenance hold, sees reboot required, power-cycles host (ForceOff + On)
-///   2. After reboot_completed, device ready -> HostInit
+///   2. After reboot_completed, device ready -> leaves DPF `DpfStates` (then may advance further)
 #[crate::sqlx_test]
 async fn test_waiting_for_ready_reboot_flow(pool: sqlx::PgPool) {
     let mut mock = MockDpfOperations::new();
@@ -182,8 +195,8 @@ async fn test_waiting_for_ready_reboot_flow(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DeviceReady, got: {:?}",
         host
     );
 }
@@ -253,8 +266,8 @@ async fn test_waiting_for_ready_no_reboot(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit after DPU Ready, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DeviceReady, got: {:?}",
         host
     );
 }
@@ -459,8 +472,8 @@ async fn test_waiting_for_ready_host_already_off(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DeviceReady, got: {:?}",
         host
     );
 }
@@ -502,6 +515,7 @@ async fn test_waiting_for_ready_reboot_blocked_without_discovery(pool: sqlx::PgP
     let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
+    config.dpf.v2 = false;
 
     let env = create_test_env_with_overrides(
         pool.clone(),
@@ -578,6 +592,7 @@ async fn test_waiting_for_ready_reboot_proceeds_after_discovery(pool: sqlx::PgPo
     let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
+    config.dpf.v2 = false;
 
     let env = create_test_env_with_overrides(
         pool.clone(),
@@ -650,8 +665,8 @@ async fn test_waiting_for_ready_reboot_proceeds_after_discovery(pool: sqlx::PgPo
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit after single-DPU discovery + reboot, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DeviceReady, got: {:?}",
         host
     );
 }
@@ -732,6 +747,7 @@ async fn test_waiting_for_ready_reboot_blocked_until_all_dpus_discover(pool: sql
     let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
+    config.dpf.v2 = false;
 
     let env = create_test_env_with_overrides(
         pool.clone(),

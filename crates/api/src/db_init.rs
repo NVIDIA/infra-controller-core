@@ -26,7 +26,8 @@ use model::dns::NewDomain;
 use model::firmware::AgentUpgradePolicyChoice;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::metadata::Metadata;
-use model::network_segment::{NetworkDefinition, NewNetworkSegment};
+use model::network_prefix::NewNetworkPrefix;
+use model::network_segment::{NetworkDefinition, NetworkSegmentType, NewNetworkSegment};
 use model::vpc::{NewVpc, VpcStatus};
 use sqlx::{Pool, Postgres};
 
@@ -68,7 +69,11 @@ pub async fn create_initial_networks(
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
-    if all_domains.len() != 1 {
+    if all_domains.is_empty() {
+        tracing::warn!("No domain configured, skipping initial network creation");
+        return Ok(());
+    }
+    if all_domains.len() > 1 {
         // We only create initial networks if we only have a single domain - usually created
         // as initial_domain_name in config file.
         // Having multiple domains is fine, it means we probably created the network much
@@ -92,7 +97,51 @@ pub async fn create_initial_networks(
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
         tracing::info!("Created network segment {name}");
     }
+
+    ensure_static_assignments_segment(api, &mut txn, Some(domain_id)).await?;
+
     txn.commit().await?;
+    Ok(())
+}
+
+/// Create the static-assignments anchor segment if it doesn't exist.
+/// This segment holds external static IP assignments that don't fall
+/// within any managed network prefix. The 169.254.254.254/32 prefix is
+/// a link-local placeholder -- the allocator will never hand out IPs
+/// from it, it exists only because the schema requires a prefix.
+pub async fn ensure_static_assignments_segment(
+    api: &Api,
+    txn: &mut db::Transaction<'_>,
+    subdomain_id: Option<carbide_uuid::domain::DomainId>,
+) -> Result<(), CarbideError> {
+    let segment_name = network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME;
+    if db::network_segment::find_by_name(txn, segment_name)
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    let ns = NewNetworkSegment {
+        id: uuid::Uuid::new_v4().into(),
+        name: segment_name.to_string(),
+        subdomain_id,
+        vpc_id: None,
+        mtu: 1500,
+        prefixes: vec![NewNetworkPrefix {
+            prefix: "169.254.254.254/32".parse().unwrap(),
+            gateway: None,
+            num_reserved: 1,
+        }],
+        vlan_id: None,
+        vni: None,
+        segment_type: NetworkSegmentType::Underlay,
+        can_stretch: Some(false),
+        allocation_strategy: model::network_segment::AllocationStrategy::Reserved,
+    };
+    crate::handlers::network_segment::save(api, txn, ns, true, false).await?;
+    tracing::info!("Created internal {segment_name} segment for holding static assignments");
+
     Ok(())
 }
 
@@ -229,7 +278,7 @@ pub(crate) async fn create_admin_vpc(
         tenant_organization_id: "carbide_internal".to_string(),
         // For consistency, but admin routing profile is defined in-line in the
         // FNN config.
-        routing_profile_type: Some(model::tenant::RoutingProfileType::Admin),
+        routing_profile_type: None, // It's purely informational.  Admin profile is pulled from an inline-config and not tied to a name or ID.
         network_security_group_id: None,
         network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {

@@ -205,10 +205,7 @@ struct NetworkSegmentDetail {
     created: String,
     updated: String,
     deleted: String,
-    state: String,
-    state_sla: String,
-    time_in_state_above_sla: bool,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    lifecycle_detail: super::LifecycleDetail,
     domain_id: String,
     domain_name: String,
     segment_type: String,
@@ -252,10 +249,15 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 version: h.version,
             });
         }
+        let state = format!(
+            "{:?}",
+            forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+        );
+        let version = segment.version;
         Self {
             id: segment.id.unwrap_or_default().to_string(),
             name: segment.name,
-            version: segment.version,
+            version: version.clone(),
             vpc_id: segment.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
             updated: segment.updated.unwrap_or_default().to_string(),
@@ -263,26 +265,14 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 .deleted
                 .map(|x| x.to_string())
                 .unwrap_or("Not Deleted".to_string()),
-            state: format!(
-                "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+            // TODO: This version field is wrong. We should be showing the controller state version,
+            // but it isn't exposed over gRPC
+            lifecycle_detail: super::LifecycleDetail::new(
+                state,
+                version,
+                segment.state_reason,
+                segment.state_sla,
             ),
-            state_sla: segment
-                .state_sla
-                .as_ref()
-                .and_then(|sla| sla.sla)
-                .map(|sla| {
-                    config_version::format_duration(
-                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
-                    )
-                })
-                .unwrap_or_default(),
-            time_in_state_above_sla: segment
-                .state_sla
-                .as_ref()
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
-            state_reason: segment.state_reason,
             domain_id: segment.subdomain_id.unwrap_or_default().to_string(),
             domain_name: String::new(), // filled in later
             segment_type: format!(

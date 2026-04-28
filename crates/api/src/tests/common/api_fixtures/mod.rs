@@ -27,6 +27,14 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_ipmi::IPMITool;
+use carbide_nvlink_manager::NvlPartitionMonitor;
+use carbide_nvlink_manager::config::NvLinkConfig;
+use carbide_nvlink_manager::nvlink::NmxmClientPool;
+use carbide_nvlink_manager::nvlink::test_support::NmxmSimClient;
+use carbide_redfish::libredfish::test_support::RedfishSim;
+use carbide_site_explorer::SiteExplorer;
+use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
@@ -43,7 +51,7 @@ use forge_secrets::credentials::{
 };
 use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use futures::FutureExt as _;
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use measured_boot::pcr::PcrRegisterValue;
@@ -60,7 +68,7 @@ use model::metadata::Metadata;
 use model::network_security_group;
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
-use model::tenant::{RoutingProfileType, TenantOrganizationId};
+use model::tenant::TenantOrganizationId;
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
@@ -69,7 +77,7 @@ use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportOverride, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
+    HealthReportEntry, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
     VpcVirtualizationType,
 };
 use rpc_instance::RpcInstance;
@@ -81,6 +89,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
+use utils::test_support::test_meter::TestMeter;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
@@ -90,26 +99,18 @@ use crate::cfg::file::{
     IBFabricConfig, IbFabricDefinition, IbPartitionStateControllerConfig, ListenMode,
     MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
-    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig,
-    SiteExplorerExploreMode, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
+    NetworkSegmentStateControllerConfig, PowerManagerOptions, PowerShelfStateControllerConfig,
+    RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
     SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::dpf::DpfOperations;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
 use crate::ib_fabric_monitor::IbFabricMonitor;
-use crate::ipmitool::IPMIToolTestImpl;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
-use crate::nv_redfish::NvRedfishClientPool;
-use crate::nvl_partition_monitor::NvlPartitionMonitor;
-use crate::nvlink::NmxmClientPool;
-use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::test_support::RmsSim;
-use crate::redfish::test_support::RedfishSim;
 use crate::scout_stream;
-use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
@@ -134,11 +135,11 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
-    create_tenant_network_segment, create_underlay_network_segment,
+    create_static_assignments_segment, create_tenant_network_segment,
+    create_underlay_network_segment,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 use crate::tests::common::test_certificates::TestCertificateProvider;
-use crate::tests::common::test_meter::TestMeter;
 
 pub mod dpu;
 pub mod endpoint_explorer;
@@ -278,19 +279,27 @@ impl TestEnvOverrides {
                 additional_route_target_imports: vec![],
                 routing_profiles: HashMap::from([
                     (
-                        RoutingProfileType::External.to_string(),
+                        "EXTERNAL".to_string(),
                         crate::cfg::file::FnnRoutingProfileConfig {
+                            access_tier: 2,
                             internal: false,
                             route_target_imports: vec![],
                             route_targets_on_exports: vec![],
+                            leak_default_route_from_underlay: false,
+                            leak_tenant_host_routes_to_underlay: false,
+                            tenant_leak_communities_accepted: false,
                         },
                     ),
                     (
-                        RoutingProfileType::Internal.to_string(),
+                        "INTERNAL".to_string(),
                         crate::cfg::file::FnnRoutingProfileConfig {
+                            access_tier: 1,
                             internal: true,
                             route_target_imports: vec![],
                             route_targets_on_exports: vec![],
+                            leak_default_route_from_underlay: false,
+                            leak_tenant_host_routes_to_underlay: false,
+                            tenant_leak_communities_accepted: false,
                         },
                     ),
                 ]),
@@ -329,7 +338,7 @@ pub struct TestEnv {
     pub redfish_sim: Arc<RedfishSim>,
     pub ib_fabric_monitor: Arc<IbFabricMonitor>,
     pub ib_fabric_manager: Arc<IBFabricManagerImpl>,
-    pub ipmi_tool: Arc<IPMIToolTestImpl>,
+    pub ipmi_tool: Arc<dyn IPMITool>,
     machine_state_controller: Arc<Mutex<StateController<MachineStateControllerIO>>>,
     spdm_state_controller: Arc<Mutex<StateController<SpdmStateControllerIO>>>,
     pub machine_state_handler: SwapHandler<MachineStateHandler>,
@@ -368,6 +377,8 @@ impl TestEnv {
             site_config: self.config.clone(),
             dpa_info: None,
             rms_client: self.rms_sim.as_rms_client(),
+            switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
+            credential_manager: self.test_credential_manager.clone(),
         }
     }
 
@@ -391,14 +402,14 @@ impl TestEnv {
     ) -> ManagedHostState {
         //This block is to fill data that is populated within statemachine
         match state.clone() {
-            ManagedHostState::RegisterRmsMembership => state.clone(),
-            ManagedHostState::VerifyRmsMembership => state.clone(),
             ManagedHostState::DpuDiscoveringState { .. } => state.clone(),
             ManagedHostState::DPUInit { .. } => state.clone(),
             ManagedHostState::HostInit { machine_state } => {
                 let mc = match machine_state {
                     model::machine::MachineState::Init => machine_state,
-                    model::machine::MachineState::WaitingForPlatformConfiguration => machine_state,
+                    model::machine::MachineState::WaitingForPlatformConfiguration { .. } => {
+                        machine_state
+                    }
                     model::machine::MachineState::PollingBiosSetup => machine_state,
                     model::machine::MachineState::SetBootOrder { .. } => machine_state,
                     model::machine::MachineState::UefiSetup { .. } => machine_state,
@@ -408,6 +419,7 @@ impl TestEnv {
                     model::machine::MachineState::Measuring { .. } => machine_state,
 
                     model::machine::MachineState::EnableIpmiOverLan => machine_state,
+                    model::machine::MachineState::WaitingForBiosJob { .. } => machine_state,
                 };
                 ManagedHostState::HostInit { machine_state: mc }
             }
@@ -1043,6 +1055,12 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
 
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
+        default_tenant_routing_profile_type: "EXTERNAL".to_string(),
+        bgp_leaf_session_password: None,
+        rack_validation_config: crate::cfg::file::RackValidationConfig {
+            enabled: true,
+            ..Default::default()
+        },
         site_global_vpc_vni: None,
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
         metrics_endpoint: None,
@@ -1077,7 +1095,7 @@ pub fn get_config() -> CarbideConfig {
         max_concurrent_machine_updates: None,
         machine_update_run_interval: Some(1),
         site_explorer: SiteExplorerConfig {
-            enabled: false,
+            enabled: Arc::new(false.into()),
             run_interval: std::time::Duration::from_secs(0),
             concurrent_explorations: 0,
             explorations_per_run: 0,
@@ -1164,6 +1182,7 @@ pub fn get_config() -> CarbideConfig {
         fnn: None,
         bios_profiles: HashMap::default(),
         selected_profile: libredfish::BiosProfileType::Performance,
+        oem_manager_profiles: HashMap::default(),
         bom_validation: BomValidationConfig::default(),
         listen_mode: ListenMode::Tls,
         listen_only: false,
@@ -1192,11 +1211,13 @@ pub fn get_config() -> CarbideConfig {
         }),
         mlxconfig_profiles: None,
         rack_management_enabled: false,
-        force_dpu_nic_mode: false,
-        rms_api_url: Some(
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
-        ),
-        rack_types: Default::default(),
+        rms: crate::cfg::file::RmsConfig {
+            api_url: Some(
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
+            ),
+            ..Default::default()
+        },
+        rack_profiles: Default::default(),
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
@@ -1204,12 +1225,19 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             nras_config: Some(nras::Config::default()),
         },
-        machine_identity: crate::cfg::file::MachineIdentityConfig::default(),
+        machine_identity: crate::cfg::file::MachineIdentityConfig {
+            enabled: true,
+            current_encryption_key_id: Some("test".to_string()),
+            ..Default::default()
+        },
         dsx_exchange_event_bus: None,
-        use_onboard_nic: Arc::new(false.into()),
+        force_dpu_nic_mode: Arc::new(false.into()),
         dpf: crate::cfg::file::DpfConfig::default(),
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
+        external_api_url: None,
+        external_pxe_url: None,
+        external_static_pxe_url: None,
         supernic_firmware_profiles: HashMap::default(),
         component_manager: None,
     }
@@ -1446,22 +1474,22 @@ pub async fn create_test_env_with_overrides(
                 .unwrap(),
             None,
         )),
+        site_explorer_enabled: config.site_explorer.enabled.clone(),
         create_machines: config.site_explorer.create_machines.clone(),
         bmc_proxy: config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: Arc::new(false.into()),
     };
 
-    let ipmi_tool = Arc::new(IPMIToolTestImpl {});
     let bmc_proxy = Arc::new(ArcSwap::new(None.into()));
-    let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
+    let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
         redfish_sim.clone(),
-        Arc::new(NvRedfishClientPool::new(bmc_proxy)),
-        ipmi_tool.clone(),
+        carbide_redfish::nv_redfish::new_pool(bmc_proxy),
+        carbide_ipmi::test_support(),
         composite_manager.clone(),
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         SiteExplorerExploreMode::NvRedfish,
-    ));
+    );
 
     let reachability_params = ReachabilityParams {
         dpu_wait_time: Duration::seconds(0),
@@ -1496,10 +1524,11 @@ pub async fn create_test_env_with_overrides(
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
         component_manager: None,
+        bms_client: std::sync::OnceLock::new(),
     });
 
     let attestation_enabled = config.attestation_enabled;
-    let ipmi_tool = Arc::new(IPMIToolTestImpl {});
+    let ipmi_tool = carbide_ipmi::test_support();
     let mut power_options: PowerOptionConfig = config.power_manager_options.clone().into();
     if let Some(v) = overrides.power_manager_enabled {
         power_options.enabled = v;
@@ -1546,6 +1575,8 @@ pub async fn create_test_env_with_overrides(
         site_config: config.clone(),
         dpa_info: None,
         rms_client: rms_sim.as_rms_client(),
+        switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
+        credential_manager: credential_manager.clone(),
     });
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();
@@ -1558,6 +1589,9 @@ pub async fn create_test_env_with_overrides(
         .state_handler(Arc::new(machine_swap.clone()))
         .io(Arc::new(MachineStateControllerIO {
             host_health: config.host_health,
+            sla_config: model::machine::slas::MachineSlaConfig::new(
+                config.machine_state_controller.failure_retry_time,
+            ),
         }))
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
@@ -1624,6 +1658,7 @@ pub async fn create_test_env_with_overrides(
 
     let fake_endpoint_explorer = MockEndpointExplorer {
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
+        set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
 
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one
@@ -1633,7 +1668,7 @@ pub async fn create_test_env_with_overrides(
     let site_explorer = SiteExplorer::new(
         db_pool.clone(),
         SiteExplorerConfig {
-            enabled: true,
+            enabled: Arc::new(true.into()),
             // run_interval shouldn't matter, this should not be run(), we only trigger intervals manually.
             run_interval: Duration::seconds(0).to_std().unwrap(),
             concurrent_explorations: 100,
@@ -1654,7 +1689,7 @@ pub async fn create_test_env_with_overrides(
             create_switches: Arc::new(true.into()),
             switches_created_per_run: 1,
             rotate_switch_nvos_credentials: Arc::new(false.into()),
-            use_onboard_nic: Arc::new(false.into()),
+            force_dpu_nic_mode: Arc::new(false.into()),
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },
@@ -1664,6 +1699,7 @@ pub async fn create_test_env_with_overrides(
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_sim.as_rms_client(),
+        credential_manager.clone(),
     );
 
     // Create some instance types
@@ -1714,6 +1750,13 @@ pub async fn create_test_env_with_overrides(
 
         // Create underlay network
         let underlay = Some(create_underlay_network_segment(&api).await);
+        network_controller.run_single_iteration().await;
+        network_controller.run_single_iteration().await;
+
+        // Synthetic segment for operator static IPs outside Carbide-managed prefixes (expected
+        // machine / switch / shelf BMC pre-allocation). Required for static-BMC integration tests.
+        // Pass the domain to match production behavior (db_init passes Some(domain_id)).
+        create_static_assignments_segment(&api, Some(domain)).await;
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
 
@@ -1895,6 +1938,13 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
 }
 
 fn test_static_credential_snapshot() -> CredentialSnapshot {
+    use std::collections::HashMap;
+
+    use base64::Engine;
+
+    let test_key_b64 = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
+    let mut encryption_keys = HashMap::new();
+    encryption_keys.insert("test".to_string(), test_key_b64);
     CredentialSnapshot {
         dpu_redfish_factory_default: Some(UsernamePassword {
             username: "root".to_string(),
@@ -1908,6 +1958,7 @@ fn test_static_credential_snapshot() -> CredentialSnapshot {
             username: "root".to_string(),
             password: "hostredfish_sitedefault".to_string(),
         }),
+        machine_identity: Some(forge_secrets::MachineIdentityConfig { encryption_keys }),
         ..Default::default()
     }
 }
@@ -2219,14 +2270,14 @@ pub async fn simulate_hardware_health_report(
     health_report: health_report::HealthReport,
 ) {
     use rpc::forge::forge_server::Forge;
-    use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest};
+    use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest};
     use tonic::Request;
 
     let _ = env
         .api
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
             machine_id: Some(*host_machine_id),
-            r#override: Some(HealthReportOverride {
+            health_report_entry: Some(HealthReportEntry {
                 report: Some(health_report.into()),
                 ..Default::default()
             }),
@@ -2235,11 +2286,11 @@ pub async fn simulate_hardware_health_report(
         .unwrap();
 }
 
-/// Send a health report override
-pub async fn send_health_report_override(
+/// Send a health report entry
+pub async fn send_health_report_entry(
     env: &TestEnv,
     machine_id: &MachineId,
-    r#override: (HealthReport, OverrideMode),
+    entry: (HealthReport, HealthReportApplyMode),
 ) {
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
@@ -2247,17 +2298,17 @@ pub async fn send_health_report_override(
         .api
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
             machine_id: Some(*machine_id),
-            r#override: Some(HealthReportOverride {
-                report: Some(r#override.0.into()),
-                mode: r#override.1 as i32,
+            health_report_entry: Some(HealthReportEntry {
+                report: Some(entry.0.into()),
+                mode: entry.1 as i32,
             }),
         }))
         .await
         .unwrap();
 }
 
-/// Remove a health report override
-pub async fn remove_health_report_override(env: &TestEnv, machine_id: &MachineId, source: String) {
+/// Remove a health report entry
+pub async fn remove_health_report_entry(env: &TestEnv, machine_id: &MachineId, source: String) {
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env

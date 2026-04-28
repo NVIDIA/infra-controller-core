@@ -17,7 +17,6 @@
 
 use std::collections::VecDeque;
 use std::fmt::Write;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
@@ -57,6 +56,24 @@ fn convert_machine_to_nice_format(
         ("VERSION", machine.version),
         ("SKU", sku),
         ("SKU DEVICE TYPE", sku_device_type),
+        (
+            "SLOT NUMBER",
+            machine
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.slot_number)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+        ),
+        (
+            "TRAY INDEX",
+            machine
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.tray_index)
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+        ),
     ];
     if let Some(di) = machine.discovery_info
         && let Some(dmi) = di.dmi_data
@@ -84,19 +101,7 @@ fn convert_machine_to_nice_format(
         writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
-    let metadata = machine.metadata.unwrap_or_default();
-    writeln!(&mut lines, "METADATA")?;
-    writeln!(&mut lines, "\tNAME: {}", metadata.name)?;
-    writeln!(&mut lines, "\tDESCRIPTION: {}", metadata.description)?;
-    writeln!(&mut lines, "\tLABELS:")?;
-    for label in metadata.labels {
-        writeln!(
-            &mut lines,
-            "\t\t{}:{}",
-            label.key,
-            label.value.unwrap_or_default()
-        )?;
-    }
+    crate::metadata::write_metadata_in_nice_format(&mut lines, width, machine.metadata.as_ref())?;
 
     writeln!(&mut lines, "STATE HISTORY: (Latest {history_count} only)")?;
     if machine.events.is_empty() {
@@ -224,6 +229,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
         "MAC Address",
         "Type",
         "Vendor",
+        "Slot",
+        "Tray",
         "Labels",
     ]);
 
@@ -274,7 +281,20 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             vendor = dmi.sys_vendor;
         }
 
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(machine.metadata.as_ref());
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(machine.metadata.as_ref());
+
+        let slot_number = machine
+            .placement_in_rack
+            .as_ref()
+            .and_then(|p| p.slot_number)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let tray_index = machine
+            .placement_in_rack
+            .as_ref()
+            .and_then(|p| p.tray_index)
+            .map(|t| t.to_string())
+            .unwrap_or_default();
 
         let is_unhealthy = machine
             .health
@@ -292,6 +312,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             mac,
             machine_type,
             vendor,
+            slot_number,
+            tray_index,
             labels.join(", ")
         ]);
     }
@@ -300,7 +322,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 }
 
 async fn show_all_machines(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
     search_config: rpc::forge::MachineSearchConfig,
@@ -341,7 +363,7 @@ async fn show_machine_information(
     machine_id: MachineId,
     args: &Args,
     output_format: &OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let machine = api_client.get_machine(machine_id).await?;
@@ -372,7 +394,7 @@ async fn show_machine_information(
 pub async fn handle_show(
     args: Args,
     output_format: &OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     page_size: usize,
     sort_by: &SortField,
