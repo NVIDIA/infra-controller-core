@@ -944,11 +944,25 @@ pub async fn update_site_explorer_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::SITE_EXPLORER_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::SITE_EXPLORER_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "site_explorer_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }

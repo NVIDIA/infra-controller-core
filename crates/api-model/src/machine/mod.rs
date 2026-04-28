@@ -457,10 +457,6 @@ impl ManagedHostStateSnapshot {
 
         let mut output = health_report::HealthReport::empty("".to_string());
 
-        if let Some(report) = self.host_snapshot.site_explorer_health_report.as_ref() {
-            output.merge(report);
-        }
-
         let merge_or_timeout =
             |output: &mut HealthReport, input: &Option<HealthReport>, target: String| {
                 if let Some(input) = input {
@@ -506,10 +502,6 @@ impl ManagedHostStateSnapshot {
             }
 
             merge_or_timeout(&mut output, &health_report, "forge-dpu-agent".to_string());
-
-            if let Some(report) = snapshot.site_explorer_health_report.as_ref() {
-                output.merge(report);
-            }
 
             for (source, over) in snapshot.health_reports.merges.iter_mut() {
                 let merged_hardware = Self::merge_override_report_with_hw_health(
@@ -869,9 +861,6 @@ pub struct Machine {
     /// Latest health report received by forge-dpu-agent
     pub dpu_agent_health_report: Option<HealthReport>,
 
-    /// Latest health report submitted by site-explorer
-    pub site_explorer_health_report: Option<HealthReport>,
-
     /// All health report sources
     pub health_reports: HealthReportSources,
 
@@ -1042,6 +1031,13 @@ impl Machine {
         self.health_reports
             .merges
             .get(HealthReport::SKU_VALIDATION_SOURCE)
+    }
+
+    /// Latest site-explorer health report, if exploration found alerts.
+    pub fn site_explorer_health_report(&self) -> Option<&HealthReport> {
+        self.health_reports
+            .merges
+            .get(HealthReport::SITE_EXPLORER_SOURCE)
     }
 
     /// K8s-safe identifier derived from the BMC MAC address, used as both the
@@ -1244,9 +1240,6 @@ impl From<Machine> for rpc::forge::Machine {
                         false,
                     )
                 });
-                if let Some(hr) = machine.site_explorer_health_report.as_ref() {
-                    health.merge(hr);
-                }
                 match machine.health_reports.replace.as_ref() {
                     Some(over) => over.clone(),
                     None => {

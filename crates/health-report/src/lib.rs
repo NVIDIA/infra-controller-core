@@ -57,6 +57,7 @@ impl Default for HealthReport {
 
 impl HealthReport {
     pub const MACHINE_VALIDATION_SOURCE: &str = "machine-validation";
+    pub const SITE_EXPLORER_SOURCE: &str = "site-explorer";
     pub const SKU_VALIDATION_SOURCE: &str = "sku-validation";
     pub const QUARANTINE_SOURCE: &str = "quarantine";
 
