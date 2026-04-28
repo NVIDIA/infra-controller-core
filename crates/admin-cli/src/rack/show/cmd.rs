@@ -39,7 +39,6 @@ struct RackOutput {
 impl From<&Rack> for RackOutput {
     fn from(r: &Rack) -> Self {
         println!("CALEB_DEBUG: r: {:?}", r);
-
         Self {
             id: r.id.as_ref().map(|id| id.to_string()).unwrap_or_default(),
             name: r
@@ -198,4 +197,44 @@ fn show_table_csv(outputs: &[RackOutput]) {
     }
 
     table.to_csv(std::io::stdout()).ok();
+}
+
+#[cfg(test)]
+mod tests {
+
+    use rpc::forge::{Metadata, Rack};
+    use super::*;
+
+    fn make_rack(id: &str, state: &str, name: &str, version: &str) -> Rack {
+        Rack {
+            id: Some(id.parse().unwrap()),
+            rack_state: state.to_string(),
+            version: version.to_string(),
+            metadata: Some(Metadata {
+                name: name.to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// Test that the RackOutput maps the fields from the Rack correctly,
+    /// and the current compute trays, power shelves, and nvlink switches are empty.
+    #[test]
+    fn rack_output_maps_fields_from_rack() {
+        let id = "Rack1";
+        let rack_state = "Created";
+        let metadata_name = "NVL72";
+        let version= "V1-T1777407111818648";
+        let rack = make_rack(id, rack_state, metadata_name, version);
+        let output = RackOutput::from(&rack);
+        assert_eq!(output.id, id);
+        assert_eq!(output.name, metadata_name);
+        assert_eq!(output.state, rack_state);
+        assert_eq!(output.version, version);
+
+        assert!(output.current_compute_trays.is_empty());
+        assert!(output.current_power_shelves.is_empty());
+        assert!(output.current_nvlink_switches.is_empty());
+    }
 }
