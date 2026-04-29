@@ -138,6 +138,20 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         .use_mgmt_vrf()?,
     );
 
+
+    {
+        tracing::info!("**** Running ls -l / ****");
+        let mut cmd = tokio::process::Command::new("ls");
+        cmd.args(vec!["-l", "/"]);
+        cmd.kill_on_drop(true);
+        let cmd_str = pretty_cmd(cmd.as_std());
+        let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
+            .await
+            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+
+        tracing::info!("{cmd_str}: {}", String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
     match cmdline.cmd {
         None => {
             tracing::error!("Missing cmd. Try `forge-dpu-agent --help`");
