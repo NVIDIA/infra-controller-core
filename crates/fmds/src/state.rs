@@ -15,12 +15,15 @@
  * limitations under the License.
  */
 
+use std::num::NonZeroU32;
 use std::sync::Arc;
+use std::time::Duration;
 
-use arc_swap::ArcSwapOption;
+use arc_swap::{ArcSwap, ArcSwapOption};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
@@ -28,6 +31,57 @@ use nonzero_ext::nonzero;
 use rpc::forge_tls_client::ForgeClientConfig;
 
 const PHONE_HOME_RATE_LIMIT: Quota = Quota::per_minute(nonzero!(10u32));
+
+/// Rate limiting, timeouts, and optional HTTP sign-proxy client for `GET …/meta-data/identity`.
+#[derive(Debug)]
+pub struct MachineIdentityServing {
+    pub governor: Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
+    pub wait_timeout: Duration,
+    pub forge_call_timeout: Duration,
+    pub sign_proxy_base: Option<String>,
+    pub sign_proxy_http_client: Option<reqwest::Client>,
+}
+
+impl MachineIdentityServing {
+    /// Defaults match [`MachineIdentityParams::fmds_default`].
+    pub fn try_default() -> Result<Self, String> {
+        Self::try_from_params(MachineIdentityParams::fmds_default())
+    }
+
+    /// Builds serving state from parsed [`MachineIdentityParams`] (via [`MachineIdentityParams::try_from_limits`]
+    /// or `TryFrom<&FmdsMachineIdentityConfig>`). Input must already be normalized (trimmed option strings).
+    pub fn try_from_params(params: MachineIdentityParams) -> Result<Self, String> {
+        let rps = NonZeroU32::new(u32::from(params.requests_per_second())).ok_or_else(|| {
+            "machine-identity.requests-per-second: expected a positive value (internal error)"
+                .to_string()
+        })?;
+        let burst_nz = NonZeroU32::new(u32::from(params.burst())).ok_or_else(|| {
+            "machine-identity.burst: expected a positive value (internal error)".to_string()
+        })?;
+        let identity_quota = Quota::per_second(rps).allow_burst(burst_nz);
+
+        let sign_proxy_base = params.sign_proxy_url().map(str::to_string);
+        let call_timeout = Duration::from_secs(u64::from(params.sign_timeout_secs()));
+        let sign_proxy_http_client = if sign_proxy_base.is_some() {
+            Some(
+                forge_dpu_fmds_shared::machine_identity::build_sign_proxy_http_client(
+                    call_timeout,
+                    params.sign_proxy_tls_root_ca(),
+                )?,
+            )
+        } else {
+            None
+        };
+
+        Ok(Self {
+            governor: Arc::new(RateLimiter::direct(identity_quota)),
+            wait_timeout: Duration::from_secs(u64::from(params.wait_timeout_secs())),
+            forge_call_timeout: call_timeout,
+            sign_proxy_base,
+            sign_proxy_http_client,
+        })
+    }
+}
 
 /// Shared state between the gRPC server (writer) and REST server (reader).
 pub struct FmdsState {
@@ -37,17 +91,41 @@ pub struct FmdsState {
     pub forge_client_config: Option<Arc<ForgeClientConfig>>,
     pub outbound_governor:
         Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
+    pub machine_identity: ArcSwap<MachineIdentityServing>,
+    last_machine_identity_params: ArcSwapOption<MachineIdentityParams>,
 }
 
 impl FmdsState {
-    pub fn new(forge_api: String, forge_client_config: Option<Arc<ForgeClientConfig>>) -> Self {
-        Self {
+    pub fn try_new(
+        forge_api: String,
+        forge_client_config: Option<Arc<ForgeClientConfig>>,
+    ) -> Result<Self, String> {
+        let serving = Arc::new(MachineIdentityServing::try_default()?);
+        Ok(Self {
             config: ArcSwapOption::new(None),
             machine_id: ArcSwapOption::new(None),
             forge_api,
             forge_client_config,
             outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
+            machine_identity: ArcSwap::new(serving),
+            last_machine_identity_params: ArcSwapOption::new(None),
+        })
+    }
+
+    /// Applies gRPC `machine_identity` only when it differs from the last applied config.
+    pub fn apply_machine_identity_from_proto(
+        &self,
+        mi: rpc::fmds::FmdsMachineIdentityConfig,
+    ) -> Result<(), String> {
+        let params = MachineIdentityParams::try_from(&mi)?;
+        if self.last_machine_identity_params.load_full().as_deref() == Some(&params) {
+            return Ok(());
         }
+        let serving = MachineIdentityServing::try_from_params(params.clone())?;
+        self.machine_identity.store(Arc::new(serving));
+        self.last_machine_identity_params
+            .store(Some(Arc::new(params)));
+        Ok(())
     }
 
     pub fn update_config(&self, config: FmdsConfig) {
@@ -88,6 +166,8 @@ pub struct IBInstanceConfig {
 
 #[cfg(test)]
 mod tests {
+    use rpc::fmds::FmdsMachineIdentityConfig;
+
     use super::*;
 
     fn make_test_config() -> FmdsConfig {
@@ -108,15 +188,59 @@ mod tests {
     }
 
     #[test]
+    fn machine_identity_apply_skips_when_unchanged() {
+        let state = FmdsState::try_new("https://api.test".to_string(), None).unwrap();
+        let mi = FmdsMachineIdentityConfig {
+            requests_per_second: 5,
+            burst: 10,
+            wait_timeout_secs: 3,
+            sign_timeout_secs: 6,
+            sign_proxy_url: None,
+            sign_proxy_tls_root_ca: None,
+        };
+        state.apply_machine_identity_from_proto(mi.clone()).unwrap();
+        let p_first = Arc::as_ptr(&*state.machine_identity.load());
+        state.apply_machine_identity_from_proto(mi).unwrap();
+        let p_second = Arc::as_ptr(&*state.machine_identity.load());
+        assert_eq!(p_first, p_second);
+    }
+
+    #[test]
+    fn machine_identity_apply_replaces_when_changed() {
+        let state = FmdsState::try_new("https://api.test".to_string(), None).unwrap();
+        let mi1 = FmdsMachineIdentityConfig {
+            requests_per_second: 5,
+            burst: 10,
+            wait_timeout_secs: 3,
+            sign_timeout_secs: 6,
+            sign_proxy_url: None,
+            sign_proxy_tls_root_ca: None,
+        };
+        let mi2 = FmdsMachineIdentityConfig {
+            requests_per_second: 6,
+            burst: 10,
+            wait_timeout_secs: 3,
+            sign_timeout_secs: 6,
+            sign_proxy_url: None,
+            sign_proxy_tls_root_ca: None,
+        };
+        state.apply_machine_identity_from_proto(mi1).unwrap();
+        let p1 = Arc::as_ptr(&*state.machine_identity.load());
+        state.apply_machine_identity_from_proto(mi2).unwrap();
+        let p2 = Arc::as_ptr(&*state.machine_identity.load());
+        assert_ne!(p1, p2);
+    }
+
+    #[test]
     fn test_new_state_starts_empty() {
-        let state = FmdsState::new("https://api.test".to_string(), None);
+        let state = FmdsState::try_new("https://api.test".to_string(), None).unwrap();
         assert!(state.config.load_full().is_none());
         assert!(state.machine_id.load_full().is_none());
     }
 
     #[test]
     fn test_update_config_stores_config() {
-        let state = FmdsState::new("https://api.test".to_string(), None);
+        let state = FmdsState::try_new("https://api.test".to_string(), None).unwrap();
         let config = make_test_config();
 
         state.update_config(config);
@@ -131,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_update_config_extracts_machine_id() {
-        let state = FmdsState::new("https://api.test".to_string(), None);
+        let state = FmdsState::try_new("https://api.test".to_string(), None).unwrap();
         let config = make_test_config();
         let expected_mid = config.machine_id.unwrap();
 
@@ -143,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_update_config_without_machine_id() {
-        let state = FmdsState::new("https://api.test".to_string(), None);
+        let state = FmdsState::try_new("https://api.test".to_string(), None).unwrap();
         let config = FmdsConfig {
             machine_id: None,
             ..make_test_config()
@@ -157,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_update_config_replaces_previous() {
-        let state = FmdsState::new("https://api.test".to_string(), None);
+        let state = FmdsState::try_new("https://api.test".to_string(), None).unwrap();
 
         state.update_config(make_test_config());
         assert_eq!(state.config.load_full().unwrap().hostname, "test-host");

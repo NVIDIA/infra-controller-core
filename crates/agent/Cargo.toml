@@ -36,6 +36,7 @@ path = "src/main.rs"
 config-version = { path = "../config-version" }
 carbide-certs = { path = "../certs" }
 carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
+carbide-dpu-fmds-shared = { path = "../dpu-fmds-shared" }
 carbide-dpu-remediation = { path = "../dpu-remediation" }
 carbide-host-support = { path = "../host-support" }
 carbide-http-connector = { path = "../http-connector" }

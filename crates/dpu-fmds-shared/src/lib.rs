@@ -14,5 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+//! Shared **carbide-agent** / **carbide-fmds** machine-identity and IMDS identity surface.
+
 pub mod machine_identity;
-pub mod utils;

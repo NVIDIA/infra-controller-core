@@ -236,40 +236,38 @@ impl Default for MachineIdentityConfig {
 
 impl MachineIdentityConfig {
     pub fn validate(&self) -> Result<(), String> {
-        const RPS_MIN: u8 = 1;
-        const RPS_MAX: u8 = 20;
-        const BURST_MIN: u8 = 1;
-        const BURST_MAX: u8 = 40;
-        const WAIT_TIMEOUT_MIN: u8 = 1;
-        const WAIT_TIMEOUT_MAX: u8 = 10;
-        const SIGN_TIMEOUT_MIN: u8 = 1;
-        const SIGN_TIMEOUT_MAX: u8 = 60;
+        use forge_dpu_agent_utils::machine_identity::limits::{
+            BURST_MAX, BURST_MIN, REQUESTS_PER_SECOND_MAX, REQUESTS_PER_SECOND_MIN,
+            SIGN_TIMEOUT_SECS_MAX, SIGN_TIMEOUT_SECS_MIN, WAIT_TIMEOUT_SECS_MAX,
+            WAIT_TIMEOUT_SECS_MIN,
+        };
 
-        if !(RPS_MIN..=RPS_MAX).contains(&self.requests_per_second) {
+        if !(REQUESTS_PER_SECOND_MIN..=REQUESTS_PER_SECOND_MAX).contains(&self.requests_per_second)
+        {
             return Err(format!(
-                "machine-identity.requests-per-second must be between {RPS_MIN} and {RPS_MAX} (inclusive)"
+                "machine-identity.requests-per-second: must be between {REQUESTS_PER_SECOND_MIN} and {REQUESTS_PER_SECOND_MAX} (inclusive)"
             ));
         }
         if !(BURST_MIN..=BURST_MAX).contains(&self.burst) {
             return Err(format!(
-                "machine-identity.burst must be between {BURST_MIN} and {BURST_MAX} (inclusive)"
+                "machine-identity.burst: must be between {BURST_MIN} and {BURST_MAX} (inclusive)"
             ));
         }
-        if !(WAIT_TIMEOUT_MIN..=WAIT_TIMEOUT_MAX).contains(&self.wait_timeout_secs) {
+        if !(WAIT_TIMEOUT_SECS_MIN..=WAIT_TIMEOUT_SECS_MAX).contains(&self.wait_timeout_secs) {
             return Err(format!(
-                "machine-identity.wait-timeout-secs must be between {WAIT_TIMEOUT_MIN} and {WAIT_TIMEOUT_MAX} (inclusive)"
+                "machine-identity.wait-timeout-secs: must be between {WAIT_TIMEOUT_SECS_MIN} and {WAIT_TIMEOUT_SECS_MAX} (inclusive)"
             ));
         }
-        if !(SIGN_TIMEOUT_MIN..=SIGN_TIMEOUT_MAX).contains(&self.sign_timeout_secs) {
+        if !(SIGN_TIMEOUT_SECS_MIN..=SIGN_TIMEOUT_SECS_MAX).contains(&self.sign_timeout_secs) {
             return Err(format!(
-                "machine-identity.sign-timeout-secs must be between {SIGN_TIMEOUT_MIN} and {SIGN_TIMEOUT_MAX} (inclusive)"
+                "machine-identity.sign-timeout-secs: must be between {SIGN_TIMEOUT_SECS_MIN} and {SIGN_TIMEOUT_SECS_MAX} (inclusive)"
             ));
         }
         if let Some(ref raw) = self.sign_proxy_url {
             let s = raw.trim();
             if s.is_empty() {
                 return Err(
-                    "machine-identity.sign-proxy-url must not be empty or whitespace-only"
+                    "machine-identity.sign-proxy-url: must not be empty or whitespace-only"
                         .to_string(),
                 );
             }
@@ -288,7 +286,7 @@ impl MachineIdentityConfig {
             let path = raw_ca.trim();
             if path.is_empty() {
                 return Err(
-                    "machine-identity.sign-proxy-tls-root-ca must not be empty or whitespace-only"
+                    "machine-identity.sign-proxy-tls-root-ca: must not be empty or whitespace-only"
                         .to_string(),
                 );
             }
@@ -298,7 +296,7 @@ impl MachineIdentityConfig {
                 .is_some_and(|u| !u.trim().is_empty());
             if !url_ok {
                 return Err(
-                    "machine-identity.sign-proxy-tls-root-ca requires machine-identity.sign-proxy-url"
+                    "machine-identity.sign-proxy-tls-root-ca: requires machine-identity.sign-proxy-url"
                         .to_string(),
                 );
             }

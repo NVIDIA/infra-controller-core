@@ -32,6 +32,7 @@ path = "src/main.rs"
 
 # [local-dependencies]
 carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
+carbide-dpu-fmds-shared = { path = "../dpu-fmds-shared" }
 carbide-rpc = { path = "../rpc" }
 carbide-tls = { path = "../tls" }
 carbide-uuid = { path = "../uuid" }
@@ -49,6 +50,7 @@ governor = { workspace = true }
 ipnetwork = { workspace = true }
 netlink-packet-route = { workspace = true }
 nonzero_ext = { workspace = true }
+reqwest = { default-features = false, features = ["rustls-tls"], workspace = true }
 rtnetlink = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }

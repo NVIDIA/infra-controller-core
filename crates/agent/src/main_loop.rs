@@ -137,8 +137,13 @@ pub async fn setup_and_run(
             fmds_address = fmds_addr,
             "Using FmdsUpdater::External FMDS service"
         );
-        match crate::fmds_client::FmdsGrpcClient::connect(fmds_addr).await {
-            Ok(fmds_client) => FmdsUpdater::External(fmds_client),
+        match crate::fmds_client::FmdsGrpcClient::connect(
+            fmds_addr,
+            agent_config.machine_identity.clone(),
+        )
+        .await
+        {
+            Ok(fmds_client) => FmdsUpdater::External(Box::new(fmds_client)),
             Err(e) => {
                 tracing::warn!(
                     "Failed to connect to external FMDS service: {e:#}, falling back to embedded"

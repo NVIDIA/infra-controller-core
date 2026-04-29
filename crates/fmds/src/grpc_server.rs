@@ -87,6 +87,13 @@ impl FmdsConfigService for FmdsGrpcServer {
 
         self.state.update_config(config);
 
+        let machine_identity = update.machine_identity.ok_or_else(|| {
+            Status::invalid_argument("machine_identity is required on each FmdsConfigUpdate")
+        })?;
+        self.state
+            .apply_machine_identity_from_proto(machine_identity)
+            .map_err(Status::invalid_argument)?;
+
         tracing::info!(agent_address, "Received config update from agent");
 
         Ok(Response::new(UpdateConfigResponse {}))
@@ -95,12 +102,13 @@ impl FmdsConfigService for FmdsGrpcServer {
 
 #[cfg(test)]
 mod tests {
+    use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
     use rpc::fmds::{FmdsConfigUpdate, IbDevice, IbInstance};
 
     use super::*;
 
     fn make_test_state() -> Arc<FmdsState> {
-        Arc::new(FmdsState::new("https://api.test".to_string(), None))
+        Arc::new(FmdsState::try_new("https://api.test".to_string(), None).unwrap())
     }
 
     fn make_test_update() -> FmdsConfigUpdate {
@@ -117,7 +125,25 @@ mod tests {
             user_data: "cloud-init-data".to_string(),
             ib_devices: vec![],
             asn: 65000,
+            machine_identity: Some(MachineIdentityParams::fmds_default().to_fmds_proto()),
         }
+    }
+
+    #[tokio::test]
+    async fn test_update_config_rejects_missing_machine_identity() {
+        let state = make_test_state();
+        let server = FmdsGrpcServer::new(state);
+
+        let mut update = make_test_update();
+        update.machine_identity = None;
+
+        let response = server
+            .update_config(Request::new(UpdateConfigRequest {
+                config_update: Some(update),
+            }))
+            .await;
+        assert!(response.is_err());
+        assert_eq!(response.unwrap_err().code(), tonic::Code::InvalidArgument);
     }
 
     #[tokio::test]
