@@ -35,6 +35,35 @@ use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
 
+// Well-known label keys!
+//
+// For rack chassis and location, there are currently a few labels that we
+// are passing through from the NICo REST API into NICo. These labels get
+// used by orchestration systems and tooling who want to work on, and have
+// awareness of, racks based on their physical location.
+//
+// At the time of this writing, these are all new and optional, but it made
+// the most sense to put them in as labels due to their optional and flexible
+// nature as we smooth things out. In the interim, it seemed to make sense
+// to at least have some "well known" defs for now, which may very well
+// change over time.
+//
+// These labels apply to both ExpectedRack AND Rack metadata labels, which
+// are applied from Expected -> Managed at promition time.
+//
+// First, rack chassis info labels, which physically identifies the rack
+// hardware itself.
+pub const LABEL_CHASSIS_MANUFACTURER: &str = "chassis.manufacturer";
+pub const LABEL_CHASSIS_SERIAL_NUMBER: &str = "chassis.serial-number";
+pub const LABEL_CHASSIS_MODEL: &str = "chassis.model";
+
+// Next, rack location info labels, which identifies where the rack
+// physically lives.
+pub const LABEL_LOCATION_REGION: &str = "location.region";
+pub const LABEL_LOCATION_DATACENTER: &str = "location.datacenter";
+pub const LABEL_LOCATION_ROOM: &str = "location.room";
+pub const LABEL_LOCATION_POSITION: &str = "location.position";
+
 #[derive(Debug, Clone)]
 pub struct Rack {
     pub id: RackId,
@@ -288,11 +317,15 @@ impl From<Rack> for rpc::forge::Rack {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct RackSearchFilter {}
+pub struct RackSearchFilter {
+    pub label: Option<crate::metadata::LabelFilter>,
+}
 
 impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
-    fn from(_filter: rpc::forge::RackSearchFilter) -> Self {
-        RackSearchFilter {}
+    fn from(filter: rpc::forge::RackSearchFilter) -> Self {
+        RackSearchFilter {
+            label: filter.label.map(crate::metadata::LabelFilter::from),
+        }
     }
 }
 
@@ -1059,5 +1092,40 @@ mod tests {
         let rejection = RackMaintenanceRejection::AlreadyPending;
         let msg = rejection.to_string();
         assert!(msg.contains("already has a pending maintenance request"));
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_with_label_key_and_value() {
+        let rpc_filter = rpc::forge::RackSearchFilter {
+            label: Some(rpc::forge::Label {
+                key: LABEL_LOCATION_DATACENTER.to_string(),
+                value: Some("az01".to_string()),
+            }),
+        };
+        let filter = RackSearchFilter::from(rpc_filter);
+        let label = filter.label.unwrap();
+        assert_eq!(label.key, LABEL_LOCATION_DATACENTER);
+        assert_eq!(label.value, Some("az01".to_string()));
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_with_label_key_only() {
+        let rpc_filter = rpc::forge::RackSearchFilter {
+            label: Some(rpc::forge::Label {
+                key: LABEL_CHASSIS_MANUFACTURER.to_string(),
+                value: None,
+            }),
+        };
+        let filter = RackSearchFilter::from(rpc_filter);
+        let label = filter.label.unwrap();
+        assert_eq!(label.key, LABEL_CHASSIS_MANUFACTURER);
+        assert!(label.value.is_none());
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_no_label() {
+        let rpc_filter = rpc::forge::RackSearchFilter { label: None };
+        let filter = RackSearchFilter::from(rpc_filter);
+        assert!(filter.label.is_none());
     }
 }

@@ -287,7 +287,10 @@ impl ApiClient {
     }
 
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
-        Ok(self.0.find_rack_ids().await?)
+        Ok(self
+            .0
+            .find_rack_ids(rpc::RackSearchFilter::default())
+            .await?)
     }
 
     pub async fn get_all_switches(

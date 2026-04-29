@@ -2163,6 +2163,8 @@ message ExpectedRack {
   // The rack profile ID. Determines expected counts of compute trays, switches, and power shelves.
   common.RackProfileId rack_profile_id = 2;
   // Metadata that will be associated with the rack.
+  // This includes things like chassis and location attributes,
+  // which has some "well known" definitions in api-model::rack.
   Metadata metadata = 3;
 }
 
@@ -6614,6 +6616,8 @@ message RackList {
 }
 
 message RackSearchFilter {
+  // Supports filtering on key, value, or key and value.
+  optional Label label = 1;
 }
 
 message RackIdList {
