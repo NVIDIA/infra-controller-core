@@ -15,6 +15,7 @@
 
 # Helm charts
 /helm/ @NVIDIA/dsx-sw-helm
+/helm-prereqs/ @NVIDIA/dsx-sw-helm @shayan1995
 
 # Network IP module
 /common/network/src/ip/ @DrewBloechl
