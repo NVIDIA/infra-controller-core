@@ -1,3 +1,5 @@
+use crate::client::NvueClientError;
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
 pub struct NvueConfig {
@@ -21,20 +23,32 @@ impl NvueConfig {
 
     /// Extract the value under the `set` key from the top-level list structure
     /// produced by the NVUE startup templates (i.e. `[{header: ...}, {set: ...}]`).
-    /// Returns `None` if the config is not in that list form.
-    pub fn extract_set_payload(&self) -> Option<Self> {
+    ///
+    /// Returns:
+    /// - `Ok(Some(_))` if the config was a template-wrapped array and a `set`
+    ///   entry was found.
+    /// - `Ok(None)` if the config is not an array, i.e. it is already a plain
+    ///   object and can be used as-is.
+    /// - `Err(SchemaMismatch)` if the config *is* a top-level array but
+    ///   contains no `set` entry — this is an unexpected shape that would
+    ///   produce a hard-to-debug REST API rejection if sent as-is.
+    pub fn extract_set_payload(&self) -> Result<Option<Self>, NvueClientError> {
         if let serde_json::Value::Array(arr) = &self.config_json {
             for item in arr {
                 if let serde_json::Value::Object(map) = item
                     && let Some(set_value) = map.get("set")
                 {
-                    return Some(Self {
+                    return Ok(Some(Self {
                         config_json: set_value.clone(),
-                    });
+                    }));
                 }
             }
+            Err(NvueClientError::SchemaMismatch(
+                "config is a top-level array but contains no \"set\" entry",
+            ))
+        } else {
+            Ok(None)
         }
-        None
     }
 
     /// Remove any interfaces whose names start with `pf0dpu` from the config.

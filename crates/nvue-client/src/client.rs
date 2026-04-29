@@ -131,7 +131,13 @@ impl NvueClient {
         config.remove_rev_id();
         // The startup templates wrap the payload in a [{header:...},{set:...}] list.
         // The REST API expects only the inner config object, so strip the wrapper.
-        let mut config = config.extract_set_payload().unwrap_or(config);
+        // If the config is a top-level array but has no "set" entry that is a
+        // schema error — surface it now rather than letting the API reject it
+        // with a cryptic response.
+        let mut config = match config.extract_set_payload()? {
+            Some(inner) => inner,
+            None => config,
+        };
         // pf0dpu* interfaces lack a `type` field and are rejected by the REST API;
         // skip them for now.
         config.remove_pf0dpu_interfaces();
