@@ -194,9 +194,7 @@ pub(crate) async fn forge_agent_control(
                         Action::MachineValidation(fac::MachineValidation {
                             is_enabled: true,
                             context: context.clone(),
-                            validation_id: Some(::rpc::Uuid {
-                                value: id.to_string(),
-                            }),
+                            validation_id: Some(*id),
                             filter: Some(machine_validation.filter.unwrap_or_default().into()),
                         }),
                         Some(txn),

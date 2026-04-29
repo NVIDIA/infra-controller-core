@@ -701,7 +701,7 @@ impl MachineStateMachine {
                 if let Some(validation_id) = get_validation_id(&control_response) {
                     self.app_context
                         .api_client()
-                        .machine_validation_complete(&machine_id, validation_id)
+                        .machine_validation_complete(&machine_id, &validation_id)
                         .await?;
                 }
             }

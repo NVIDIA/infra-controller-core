@@ -20,6 +20,7 @@ use std::sync::Arc;
 use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use carbide_uuid::machine_validation::MachineValidationId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
@@ -100,14 +101,14 @@ use super::filters;
 #[template(path = "validation_result_details.html")]
 struct ValidationResultDetailDisplay {
     test_id: String,
-    validation_id: String,
+    validation_id: MachineValidationId,
     validation_results: Vec<ValidationResultDetail>,
 }
 
 #[derive(Template)]
 #[template(path = "validation_results.html")]
 struct ValidationResults {
-    validation_id: String,
+    validation_id: MachineValidationId,
     validation_results: Vec<ValidationResult>,
 }
 
@@ -191,10 +192,18 @@ pub async fn results(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(validation_id): AxumPath<String>,
 ) -> Response {
+    let validation_id: MachineValidationId = match validation_id.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid validation_id {validation_id}: {e}"),
+            )
+                .into_response();
+        }
+    };
     let request = tonic::Request::new(forgerpc::MachineValidationGetRequest {
-        validation_id: Some(rpc::common::Uuid {
-            value: validation_id.clone(),
-        }),
+        validation_id: Some(validation_id),
         include_history: false,
         machine_id: None,
     });
@@ -241,10 +250,18 @@ pub async fn result_details(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath((validation_id, test_id)): AxumPath<(String, String)>,
 ) -> Response {
+    let validation_id: MachineValidationId = match validation_id.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid validation_id {validation_id}: {e}"),
+            )
+                .into_response();
+        }
+    };
     let request = tonic::Request::new(forgerpc::MachineValidationGetRequest {
-        validation_id: Some(rpc::common::Uuid {
-            value: validation_id.clone(),
-        }),
+        validation_id: Some(validation_id),
         include_history: false,
         machine_id: None,
     });
