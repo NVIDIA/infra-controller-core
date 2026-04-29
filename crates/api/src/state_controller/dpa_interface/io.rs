@@ -19,7 +19,7 @@
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use config_version::{ConfigVersion, Versioned};
-use db::DatabaseError;
+use db::{self, DatabaseError};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpa_interface::{self, DpaInterface, DpaInterfaceControllerState};
@@ -100,11 +100,34 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
+        new_version: ConfigVersion,
+        new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db::dpa_interface::try_update_controller_state(
+            txn,
+            *object_id,
+            old_version,
+            new_version,
+            new_state,
+        )
+        .await
+    }
+
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let _updated =
-            db::dpa_interface::try_update_controller_state(txn, *object_id, old_version, new_state)
-                .await?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::DpaInterface,
+            object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 
@@ -132,6 +155,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
     }
 
     fn state_sla(
+        &self,
         state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {

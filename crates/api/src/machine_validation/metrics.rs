@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use model::machine_validation::MachineValidationTest;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
-
-use crate::logging::metrics_utils::SharedMetricsHolder;
 
 #[derive(Clone, Debug)]
 pub struct MachineValidationMetrics {
@@ -128,13 +127,13 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use carbide_utils::test_support::test_meter::TestMeter;
     use chrono::Utc;
     use config_version::ConfigVersion;
     use prometheus_text_parser::ParsedPrometheusMetrics;
 
     use super::*;
     use crate::machine_validation::metrics::MachineValidationMetrics;
-    use crate::tests::common::test_meter::TestMeter;
 
     #[test]
     fn test_metrics_collector() {

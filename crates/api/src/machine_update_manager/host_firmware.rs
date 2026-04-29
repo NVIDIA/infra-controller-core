@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
+use carbide_firmware::FirmwareConfig;
 use carbide_uuid::machine::MachineId;
 use db::{self, desired_firmware};
 use model::machine::ManagedHostStateSnapshot;
@@ -31,7 +32,7 @@ use tokio::sync::Mutex;
 
 use super::machine_update_module::MachineUpdateModule;
 use crate::CarbideResult;
-use crate::cfg::file::{CarbideConfig, FirmwareConfig};
+use crate::cfg::file::CarbideConfig;
 
 pub struct HostFirmwareUpdate {
     pub metrics: HostFirmwareUpdateMetrics,
@@ -66,8 +67,9 @@ impl MachineUpdateModule for HostFirmwareUpdate {
                     < firmware_dir_mod_time // Using an auto firmware directory, and a new file has been created or this is the first run
             })) {
                 // Save the firmware config in an SQL table so that we can filter for hosts with non-matching firmware there.
-                tracing::info!("Firmware config now: {:?}", self.firmware_config.map());
-                let models = self.firmware_config.map().into_values().collect::<Vec<_>>();
+                let fw_config_snapshot = self.firmware_config.create_snapshot();
+                tracing::info!("Firmware config now: {:?}", fw_config_snapshot);
+                let models = fw_config_snapshot.into_values().collect::<Vec<_>>();
                 desired_firmware::snapshot_desired_firmware(txn, &models).await?;
                 *firmware_dir_last_read =
                     Some(firmware_dir_mod_time.unwrap_or(std::time::SystemTime::now()));
@@ -109,7 +111,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
                 db::machine::remove_health_report_override(
                     txn,
                     &machine,
-                    health_report::OverrideMode::Merge,
+                    health_report::HealthReportApplyMode::Merge,
                     HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
                 )
                 .await?;

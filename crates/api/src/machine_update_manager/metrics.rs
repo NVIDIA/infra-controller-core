@@ -49,7 +49,7 @@ impl MachineUpdateManagerMetrics {
         meter
             .u64_observable_gauge("carbide_machine_updates_started_count")
             .with_description(
-                "The number of machines in the system that in the process of updating.",
+                "The number of machines in the system that are in the process of updating.",
             )
             .with_callback(move |observer| {
                 observer.observe(machine_updates_started.load(Ordering::Relaxed), &[])

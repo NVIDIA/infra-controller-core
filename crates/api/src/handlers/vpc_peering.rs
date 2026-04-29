@@ -71,12 +71,11 @@ pub async fn create(
                 kind: "VPC",
                 id: peer_vpc_id.to_string(),
             })?;
-            // If nvue_enabled, then ETHERNET_VIRTUALIZER = ETHERNET_VIRTUALIZER_WITH_NVUE and
-            // only type of peering not allowed is between Fnn <-> ETV/ETV_WITH_NVUE
+            // Peering not allowed between Fnn <-> ETV/ETV_NVUE.
+            // ETV and ETV_NVUE are treated as equivalent since NVUE is always enabled.
             if vpc1.network_virtualization_type != vpc2.network_virtualization_type
-                && (!api.runtime_config.nvue_enabled
-                    || (vpc1.network_virtualization_type == VpcVirtualizationType::Fnn
-                        || vpc2.network_virtualization_type == VpcVirtualizationType::Fnn))
+                && (vpc1.network_virtualization_type == VpcVirtualizationType::Fnn
+                    || vpc2.network_virtualization_type == VpcVirtualizationType::Fnn)
             {
                 return Err(CarbideError::internal(
                             "VPC peering between VPCs of different network virtualization type not allowed.".to_string(),

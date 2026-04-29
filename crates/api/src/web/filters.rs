@@ -35,6 +35,8 @@ pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
 /// Generates a formatted link for Machine IDs to a predefined path
 fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
     let id = id.to_string();
+    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+
     let short_id = if MachineId::from_str(&id).is_err() {
         // Not a Machine ID. Escape HTML to make it safe for post processing with safe filter
         let mut output = String::new();
@@ -47,7 +49,7 @@ fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String
 
     let formatted = format!(
         r#"
-    <a href="/admin/{path}/{id}">
+    <a href="/admin/{path}/{link_path}">
         <div class="machine_id">
             <div>{id}</div><div>{short_id}</div>
         </div>
@@ -55,6 +57,42 @@ fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String
     );
 
     Ok(formatted)
+}
+
+fn escaped_shortened_id_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
+    // Sanitize ID for HTML content and links (it can contain arbitrary content)
+    let id = id.to_string();
+    if id == "Unlinked" || id.is_empty() {
+        return Ok("Unlinked".to_string());
+    }
+    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+
+    let mut escaped_id = String::new();
+    askama_escape::Html.write_escaped(&mut escaped_id, &id)?;
+
+    let short_id = &escaped_id[escaped_id.len().saturating_sub(6)..];
+    let formatted = format!(
+        r#"
+    <a href="/admin/{path}/{link_path}">
+        <div class="machine_id">
+            <div>{escaped_id}</div><div>{short_id}</div>
+        </div>
+    </a>"#
+    );
+
+    Ok(formatted)
+}
+
+pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "rack")
+}
+
+pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "power-shelf")
+}
+
+pub fn switch_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "switch")
 }
 
 /// Formats labels into HTML
@@ -184,6 +222,69 @@ pub fn option_fmt(value: &Option<impl Display>) -> askama::Result<String> {
     })
 }
 
+pub fn option_fmt_or(value: &Option<impl Display>, default: &str) -> askama::Result<String> {
+    Ok(match value {
+        Some(value) => value.to_string(),
+        None => default.to_string(),
+    })
+}
+
+pub(crate) fn normalize_state_label(state: impl Display) -> String {
+    state_and_substate_labels(state).0
+}
+
+pub(crate) fn state_and_substate_labels(state_json: impl Display) -> (String, String) {
+    let state_json = state_json.to_string();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&state_json) else {
+        return (state_json, String::new());
+    };
+    let Some(object) = value.as_object() else {
+        return (state_json, String::new());
+    };
+    let Some(state) = object.get("state").and_then(|value| value.as_str()) else {
+        return (state_json, String::new());
+    };
+
+    let state_specific_key = format!("{state}_state");
+    let substate = object
+        .get(&state_specific_key)
+        .or_else(|| {
+            object
+                .iter()
+                .find(|(key, _)| key.as_str() != "state" && key.ends_with("_state"))
+                .map(|(_, value)| value)
+        })
+        .map(format_substate_label)
+        .unwrap_or_default();
+
+    (capitalize_state(state), substate)
+}
+
+pub fn state_with_substate_label(state: impl Display) -> ::askama::Result<String> {
+    let (state, substate) = state_and_substate_labels(state);
+    Ok(if substate.is_empty() {
+        state
+    } else {
+        format!("{state}/{substate}")
+    })
+}
+
+fn format_substate_label(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .or_else(|| value.get("state").and_then(|value| value.as_str()))
+        .map(capitalize_state)
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn capitalize_state(state: &str) -> String {
+    let mut chars = state.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
 /// Formats the boot order list
 pub fn boot_order_fmt(
     boot_order: &Option<rpc::site_explorer::BootOrder>,
@@ -233,7 +334,7 @@ pub fn controller_state_reason_fmt(
     }
 
     if let Some(source_ref) = reason.source_ref.as_ref() {
-        const GITLAB_REPO: &str = "https://gitlab-master.nvidia.com/nvmetal/carbide";
+        const GITHUB_REPO: &str = "https://github.com/NVIDIA/ncx-infra-controller-core";
 
         // TODO: carbide_version::v!(git_sha) should work here - however it returns an
         // outdated commit ID.
@@ -245,8 +346,8 @@ pub fn controller_state_reason_fmt(
 
         write!(
             &mut result,
-            "<br><b>Source:</b> <a href=\"{}/-/blob/{}/{}#L{}\">{}:{}</a>",
-            GITLAB_REPO,
+            "<br><b>Source:</b> <a href=\"{}/blob/{}/{}#L{}\">{}:{}</a>",
+            GITHUB_REPO,
             commit_hash,
             source_ref.file,
             source_ref.line,

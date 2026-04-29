@@ -37,15 +37,26 @@ use nv_redfish::resource::PowerState;
 use nv_redfish::{Bmc, Resource, ResourceProvidesStatus};
 use regex::Regex;
 
-use crate::{Error, ExploredChassisCollection, compare_boot_options, hw};
+use crate::{
+    Config as ExploreConfig, Error, ErrorClass, ExploredChassisCollection, compare_boot_options, hw,
+};
 
 const UEFI_MAC_PATTERN_CAPTURE: &str = "mac";
 lazy_static::lazy_static! {
     static ref UEFI_MAC_PATTERN: Regex = Regex::new(&format!(r"MAC\((?<{UEFI_MAC_PATTERN_CAPTURE}>[[:alnum:]]+)\,")).unwrap();
 }
 
-pub struct Config {
+pub struct Config<'a, B: Bmc> {
     pub need_oem_nvidia_bluefield: bool,
+    // Temporary workaround for BlueField DPU BMCs that intermittently return
+    // HTTP 500 for the BIOS resource while the DPU is in NIC mode.
+    pub ignore_500_on_bios_fetch: bool,
+    // Temporary workaround for BlueField DPU BMCs that intermittently return
+    // HTTP 404 for the OOB interface or the full EthernetInterfaces collection.
+    // This is expected to be fixed in BMC firmware 24.10-39, which adds
+    // internal retries.
+    pub retry_404_on_eth_interfaces: bool,
+    pub explore: &'a ExploreConfig<'a, B>,
 }
 
 pub struct ExploredComputerSystem<B: Bmc> {
@@ -58,7 +69,10 @@ pub struct ExploredComputerSystem<B: Bmc> {
 }
 
 impl<B: Bmc> ExploredComputerSystem<B> {
-    pub async fn explore(system: ComputerSystem<B>, config: &Config) -> Result<Self, Error<B>> {
+    pub async fn explore(
+        system: ComputerSystem<B>,
+        config: &Config<'_, B>,
+    ) -> Result<Self, Error<B>> {
         let boot_options = if let Some(collection) = system
             .boot_options()
             .await
@@ -72,19 +86,11 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             vec![]
         };
 
-        let bios = system.bios().await.map_err(Error::nv_redfish("bios"))?;
+        let bios = Self::fetch_bios(&system, config).await?;
 
-        let ethernet_interfaces = match system.ethernet_interfaces().await {
-            Ok(Some(ifaces)) => ifaces
-                .members()
-                .await
-                .map_err(Error::nv_redfish("system ethernet interfaces members"))?,
-            Ok(None) => vec![],
-            Err(err) => Err(Error::NvRedfish {
-                context: "system ethernet interfaces",
-                err,
-            })?,
-        };
+        let ethernet_interfaces = Self::fetch_eth_interfaces(&system, config)
+            .await
+            .map_err(Error::nv_redfish("system ethernet interfaces"))?;
 
         let oem_nvidia_bluefield = if config.need_oem_nvidia_bluefield {
             system
@@ -110,6 +116,60 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         })
     }
 
+    async fn fetch_bios(
+        system: &ComputerSystem<B>,
+        config: &Config<'_, B>,
+    ) -> Result<Option<Bios<B>>, Error<B>> {
+        match system.bios().await {
+            Ok(bios) => Ok(bios),
+            Err(err) if config.ignore_500_on_bios_fetch => {
+                if let nv_redfish::Error::Bmc(bmc_error) = &err
+                    && (config.explore.error_classifier)(bmc_error)
+                        == Some(ErrorClass::InternalServerError)
+                {
+                    // Ignore BlueField DPU BIOS HTTP 500 because it may fail in NIC mode.
+                    tracing::warn!("ignoring HTTP 500 while fetching BlueField DPU BIOS");
+                    Ok(None)
+                } else {
+                    Err(Error::nv_redfish("bios")(err))
+                }
+            }
+            Err(err) => Err(Error::nv_redfish("bios")(err)),
+        }
+    }
+
+    async fn fetch_eth_interfaces(
+        system: &ComputerSystem<B>,
+        config: &Config<'_, B>,
+    ) -> Result<Vec<EthernetInterface<B>>, nv_redfish::Error<B>> {
+        // Total tries: 3 (initial + 2 retries).
+        let mut retries_remaining = 2;
+        loop {
+            let result = match system.ethernet_interfaces().await {
+                Ok(Some(ifaces)) => ifaces.members().await,
+                Ok(None) => Ok(vec![]),
+                Err(err) => Err(err),
+            };
+            match result {
+                Ok(v) => break Ok(v),
+                Err(err) if config.retry_404_on_eth_interfaces && retries_remaining != 0 => {
+                    if let nv_redfish::Error::Bmc(bmc_error) = &err
+                        && (config.explore.error_classifier)(bmc_error)
+                            == Some(ErrorClass::NotFound)
+                    {
+                        tracing::warn!(
+                            "received 404 on system's ethernet collection fetch. Retrying. {retries_remaining} tries left"
+                        );
+                        retries_remaining -= 1;
+                        tokio::time::sleep(config.explore.retry_timeout).await;
+                    } else {
+                        break Err(err);
+                    }
+                }
+                Err(err) => break Err(err),
+            }
+        }
+    }
     pub fn to_model(
         &self,
         hw_type: Option<hw::HwType>,
@@ -173,6 +233,23 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             .filter_map(|dev| pcie_device_to_model(hw_type, dev))
             .collect();
 
+        let power_state = chassis
+            .liteon_power_state()
+            .map(|v| v.to_model())
+            .unwrap_or_else(|| {
+                self.system
+                    .power_state()
+                    .and_then(|v| match v {
+                        PowerState::On => Some(ModelPowerState::On),
+                        PowerState::Off => Some(ModelPowerState::Off),
+                        PowerState::PoweringOn => Some(ModelPowerState::PoweringOn),
+                        PowerState::PoweringOff => Some(ModelPowerState::PoweringOff),
+                        PowerState::Paused => Some(ModelPowerState::Paused),
+                        PowerState::UnsupportedValue => None,
+                    })
+                    .unwrap_or_default()
+            });
+
         Ok(ModelComputerSystem {
             ethernet_interfaces,
             id: self.system.id().to_string(),
@@ -185,17 +262,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             },
             pcie_devices,
             base_mac,
-            power_state: self
-                .system
-                .power_state()
-                .map(|v| match v {
-                    PowerState::On => ModelPowerState::On,
-                    PowerState::Off => ModelPowerState::Off,
-                    PowerState::PoweringOn => ModelPowerState::PoweringOn,
-                    PowerState::PoweringOff => ModelPowerState::PoweringOff,
-                    PowerState::Paused => ModelPowerState::Paused,
-                })
-                .unwrap_or_default(),
+            power_state,
             sku: self.system.sku().map(|v| v.to_string()),
             boot_order,
         })
@@ -311,6 +378,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     id: Some(iface.id().to_string()),
                     interface_enabled: iface.interface_enabled(),
                     mac_address,
+                    link_status: iface.link_status().map(|s| format!("{s:?}")),
                     uefi_device_path,
                 })
             }).collect::<Result<Vec<_>, _>>()?;
@@ -365,6 +433,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                         id: Some("oob_net0".to_string()),
                         interface_enabled: None,
                         mac_address: Some(mac_addr),
+                        link_status: None,
                         uefi_device_path: None,
                     })
             })
@@ -388,9 +457,10 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     | Some("BlueField-3 SmartNIC Main Card")
                     | Some("Bluefield 3 SmartNIC Main Card") => {
                         use nv_redfish::oem::nvidia::bluefield::nvidia_computer_system::Mode;
-                        bf_ncs.mode().map(|v| match v {
-                            Mode::DpuMode => NicMode::Dpu,
-                            Mode::NicMode => NicMode::Nic,
+                        bf_ncs.mode().and_then(|v| match v {
+                            Mode::DpuMode => Some(NicMode::Dpu),
+                            Mode::NicMode => Some(NicMode::Nic),
+                            Mode::UnsupportedValue => None,
                         })
                     }
                     Some("Bluefield 2 SmartNIC Main Card") | Some("Bluefield SoC") => {
@@ -516,22 +586,24 @@ fn pcie_device_to_model<B: Bmc>(
         }),
         // TODO: Should not be converted to string....
         status: status.map(|status| model::site_explorer::SystemStatus {
-            health: status.health.map(|v| {
-                match v {
-                    nv_redfish::resource::Health::Ok => "OK",
-                    nv_redfish::resource::Health::Warning => "Warning",
-                    nv_redfish::resource::Health::Critical => "Critical",
-                }
-                .into()
-            }),
-            health_rollup: status.health_rollup.map(|v| {
-                match v {
-                    nv_redfish::resource::Health::Ok => "OK",
-                    nv_redfish::resource::Health::Warning => "Warning",
-                    nv_redfish::resource::Health::Critical => "Critical",
-                }
-                .into()
-            }),
+            health: status
+                .health
+                .and_then(|v| match v {
+                    nv_redfish::resource::Health::Ok => Some("OK"),
+                    nv_redfish::resource::Health::Warning => Some("Warning"),
+                    nv_redfish::resource::Health::Critical => Some("Critical"),
+                    nv_redfish::resource::Health::UnsupportedValue => None,
+                })
+                .map(ToString::to_string),
+            health_rollup: status
+                .health_rollup
+                .and_then(|v| match v {
+                    nv_redfish::resource::Health::Ok => Some("OK"),
+                    nv_redfish::resource::Health::Warning => Some("Warning"),
+                    nv_redfish::resource::Health::Critical => Some("Critical"),
+                    nv_redfish::resource::Health::UnsupportedValue => None,
+                })
+                .map(ToString::to_string),
             // Not enabled devices are filtered by code above.
             state: status
                 .state

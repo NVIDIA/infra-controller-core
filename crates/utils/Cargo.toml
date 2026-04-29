@@ -21,20 +21,23 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-# TODO: rename to carbide_utils in source
-[lib]
-name = "utils"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 sqlx = ["carbide-network/sqlx", "dep:sqlx"]
+test-support = [
+  "dep:opentelemetry_sdk",
+  "dep:prometheus",
+  "dep:opentelemetry-prometheus"
+]
 
 [dependencies]
 byte-unit = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 eyre = { workspace = true }
+itertools = { workspace = true }
 prettytable-rs = { default-features = false, features = [
   "csv",
 ], workspace = true }
@@ -58,6 +61,10 @@ sqlx = { workspace = true, features = [
 ], optional = true }
 tonic = { workspace = true }
 humantime = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-prometheus = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
 
 # [local-dependencies]
 config-version = { path = "../config-version" }

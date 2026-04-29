@@ -31,8 +31,7 @@ spec:
           {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: ClusterFirst
       {{- if not (empty .Values.serviceDaemonSet.nodeSelector) }}
       affinity:
         nodeAffinity:
@@ -49,7 +48,7 @@ spec:
         - name: wait-for-certs
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           command:
-            - /bin/sh
+            - /busybox/sh
             - -c
             - |
               echo "Waiting for forge certificates in /opt/forge ..."
@@ -66,6 +65,8 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            - "--grpc-address=$(POD_IP):50052"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:
@@ -81,6 +82,10 @@ spec:
               value: "0"
             - name: RUST_LOG
               value: "info"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: NODE_NAME
               valueFrom:
                 fieldRef:

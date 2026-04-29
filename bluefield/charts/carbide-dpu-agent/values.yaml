@@ -15,7 +15,9 @@ image:
   pullPolicy: IfNotPresent
   tag: ""
 imagePullSecrets: []
-podSecurityContext: {}
+podSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
 securityContext:
   capabilities:
     add:
@@ -24,3 +26,18 @@ securityContext:
       - DAC_OVERRIDE
       - NET_RAW
 tolerations: []
+
+### Values for agent operation
+hbn:
+  nvue_https_address: "nvue"
+  nvue_credentials_secret_name: ""
+  nvue_password_key: "password"
+dhcp_server:
+  # If interface_prepend is set to a non-empty string, it will
+  # be turned into a --dhcp-server-interface-prepend argument.
+  interface_prepend: ""
+  # Will be updated in dpf_services.rs
+  service_name: ""
+fmds:
+  # Will be updated in dpf_services.rs
+  service_name: ""

@@ -19,14 +19,15 @@ use rpc::admin_cli::OutputFormat;
 
 use crate::cfg::measurement;
 use crate::{
-    bmc_machine, boot_override, compute_allocation, credential, devenv, domain, dpa, dpu,
-    dpu_remediation, expected_machines, expected_power_shelf, expected_rack, expected_switch,
-    extension_service, firmware, generate_shell_complete, host, ib_partition, instance,
-    instance_type, inventory, ip, jump, machine, machine_interfaces, machine_validation,
-    managed_host, mlx, network_devices, network_security_group, network_segment,
-    nvl_logical_partition, nvl_partition, os_image, ping, power_shelf, rack, rack_firmware,
-    redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer, sku, ssh, switch,
-    tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
+    bmc_machine, boot_override, component_manager, compute_allocation, credential, devenv, domain,
+    dpa, dpu, dpu_remediation, expected_machines, expected_power_shelf, expected_rack,
+    expected_switch, extension_service, firmware, generate_shell_complete, host, ib_partition,
+    instance, instance_type, inventory, ip, ipxe_template, jump, machine, machine_interfaces,
+    machine_validation, managed_host, managed_switch, mlx, network_devices, network_security_group,
+    network_segment, nvl_logical_partition, nvl_partition, operating_system, os_image, ping,
+    power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
+    site_explorer, sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
+    vpc_peering, vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
@@ -155,6 +156,12 @@ pub enum CliCommand {
     )]
     ManagedHost(managed_host::Cmd),
     #[clap(
+        about = "Managed switch related handling",
+        subcommand,
+        visible_alias = "ms"
+    )]
+    ManagedSwitch(managed_switch::Cmd),
+    #[clap(
         subcommand,
         about = "Work with measured boot data.",
         visible_alias = "mb"
@@ -189,7 +196,7 @@ pub enum CliCommand {
     #[clap(about = "Site explorer functions", subcommand)]
     SiteExplorer(site_explorer::Cmd),
     #[clap(
-        about = "List of all Machine interfaces",
+        about = "Machine interfaces and address management",
         subcommand,
         visible_alias = "mi"
     )]
@@ -244,8 +251,22 @@ pub enum CliCommand {
     #[clap(about = "Machine Validation", subcommand, visible_alias = "mv")]
     MachineValidation(machine_validation::Cmd),
 
+    #[clap(
+        about = "iPXE template management",
+        visible_alias = "ipxe-tmpl",
+        subcommand
+    )]
+    IpxeTemplate(ipxe_template::Cmd),
+
     #[clap(about = "OS catalog management", visible_alias = "os", subcommand)]
     OsImage(os_image::Cmd),
+
+    #[clap(
+        about = "Operating system definition management",
+        visible_alias = "osd",
+        subcommand
+    )]
+    OperatingSystem(operating_system::Cmd),
 
     #[clap(about = "Manage TPM CA certificates", subcommand)]
     TpmCa(tpm_ca::Cmd),
@@ -272,6 +293,9 @@ pub enum CliCommand {
         subcommand
     )]
     ComputeAllocation(compute_allocation::Cmd),
+
+    #[clap(about = "Component manager actions", visible_alias = "cm", subcommand)]
+    ComponentManager(component_manager::Cmd),
 
     #[clap(about = "SSH Util functions", subcommand)]
     Ssh(ssh::Cmd),

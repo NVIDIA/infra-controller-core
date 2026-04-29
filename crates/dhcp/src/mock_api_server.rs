@@ -40,6 +40,7 @@ use tokio::task::JoinHandle;
 use crate::machine::Machine;
 
 pub const ENDPOINT_DISCOVER_DHCP: &str = "/forge.Forge/DiscoverDhcp";
+pub const ENDPOINT_EXPIRE_DHCP_LEASE: &str = "/forge.Forge/ExpireDhcpLease";
 
 // Contents of the response
 const DHCP_RESPONSE_FQDN: &str = "december-nitrogen.forge.local";
@@ -210,6 +211,14 @@ impl MockAPIServer {
                         MockAPIServer::discover_dhcp(req).await.into(),
                     ))
                 }
+            }
+            ENDPOINT_EXPIRE_DHCP_LEASE => {
+                let input_bytes = req.into_body().collect().await.unwrap().to_bytes();
+                let request = rpc::ExpireDhcpLeaseRequest::decode(input_bytes.slice(5..)).unwrap();
+                respond(rpc::ExpireDhcpLeaseResponse {
+                    ip_address: request.ip_address,
+                    status: rpc::ExpireDhcpLeaseStatus::Released.into(),
+                })
             }
             "/forge.Forge/Echo" => respond(rpc::EchoResponse {
                 message: "dhcp_echo".into(),

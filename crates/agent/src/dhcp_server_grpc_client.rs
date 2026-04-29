@@ -19,12 +19,12 @@ pub mod proto {
     tonic::include_proto!("dhcp_server_control");
 }
 
-use carbide_uuid::machine::MachineInterfaceId;
-use proto::dhcp_server_control_client::DhcpServerControlClient;
-use utils::models::dhcp::{
+use carbide_utils::models::dhcp::{
     DhcpConfig as ModelDhcpConfig, HostConfig as ModelHostConfig,
     InterfaceInfo as ModelInterfaceInfo,
 };
+use carbide_uuid::machine::MachineInterfaceId;
+use proto::dhcp_server_control_client::DhcpServerControlClient;
 
 // ── Model → proto conversions ─────────────────────────────────────────────────
 
@@ -89,9 +89,11 @@ impl From<ModelHostConfig> for proto::HostConfig {
 pub async fn get_dhcp_timestamps(
     grpc_addr: &str,
 ) -> eyre::Result<Vec<::rpc::forge::LastDhcpRequest>> {
-    let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())?
+    let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())
+        .map_err(|e| eyre::eyre!("invalid dhcp-server gRPC endpoint {grpc_addr}: {e}"))?
         .connect()
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!("connect to dhcp-server gRPC at {grpc_addr}: {e}"))?;
     let mut client = DhcpServerControlClient::new(channel);
 
     let entries = client
@@ -119,6 +121,26 @@ pub async fn get_dhcp_timestamps(
     Ok(requests)
 }
 
+/// Sends a stop request to the dhcp-server control service.
+///
+/// The gRPC control server remains running after this call so that a future
+/// [`update_and_reload`] call can restart the DHCP process.
+pub async fn stop_server(grpc_addr: &str) -> eyre::Result<()> {
+    let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())
+        .map_err(|e| eyre::eyre!("invalid dhcp-server gRPC endpoint {grpc_addr}: {e}"))?
+        .connect()
+        .await
+        .map_err(|e| eyre::eyre!("connect to dhcp-server gRPC at {grpc_addr}: {e}"))?;
+    let mut client = DhcpServerControlClient::new(channel);
+
+    client
+        .stop_server(proto::StopServerRequest {})
+        .await
+        .map_err(|s| eyre::eyre!("StopServer gRPC failed: {s}"))?;
+
+    Ok(())
+}
+
 /// Pushes new DHCP config to the dhcp-server control service and triggers an
 /// immediate reload in a single RPC.
 ///
@@ -131,9 +153,11 @@ pub async fn update_and_reload(
     host_config: Option<ModelHostConfig>,
     interfaces: Vec<String>,
 ) -> eyre::Result<()> {
-    let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())?
+    let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())
+        .map_err(|e| eyre::eyre!("invalid dhcp-server gRPC endpoint {grpc_addr}: {e}"))?
         .connect()
-        .await?;
+        .await
+        .map_err(|e| eyre::eyre!("connect to dhcp-server gRPC at {grpc_addr}: {e}"))?;
     let mut client = DhcpServerControlClient::new(channel);
 
     client

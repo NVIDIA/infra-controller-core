@@ -114,6 +114,7 @@ pub async fn find_ids(
         sqlx::QueryBuilder::new("SELECT id FROM instance_types WHERE deleted is NULL");
 
     if for_update {
+        builder.push(" ORDER BY id ");
         builder.push(" FOR UPDATE ");
     }
 
@@ -143,6 +144,7 @@ pub async fn find_by_ids(
     builder.push(") ");
 
     if for_update {
+        builder.push(" ORDER BY id ");
         builder.push(" FOR UPDATE ");
     }
 

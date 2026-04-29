@@ -27,6 +27,7 @@ name = "forge-hw-health"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
 dashmap = { workspace = true }
@@ -52,7 +53,24 @@ tracing-subscriber = { features = [
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-nv-redfish = { workspace = true }
+tonic-prost = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+nv-redfish = { workspace = true, features = [
+  "bmc-http",
+  "chassis",
+  "computer-systems",
+  "event-service",
+  "log-services",
+  "managers",
+  "memory",
+  "power-supplies",
+  "processors",
+  "sensors",
+  "storages",
+  "update-service",
+  "resource-status",
+] }
 rand = { workspace = true }
 url = { workspace = true }
 
@@ -67,12 +85,14 @@ logfmt = { path = "../logfmt" }
 
 [build-dependencies]
 carbide-version = { path = "../version" }
+tonic-prost-build = { workspace = true }
 
 [features]
 bench-hooks = []
 
 [dev-dependencies]
 criterion = { workspace = true }
+tempfile = { workspace = true }
 
 [[bench]]
 name = "sink_pipeline"

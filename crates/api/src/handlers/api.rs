@@ -20,8 +20,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use ::rpc::forge as rpc;
+use carbide_utils::HostPortPair;
 use tonic::{Request, Response, Status};
-use utils::HostPortPair;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
@@ -122,6 +122,18 @@ pub(crate) fn set_dynamic_config(
                 .create_machines
                 .store(is_enabled, Ordering::Relaxed);
             tracing::info!("site-explorer create_machines updated to '{}'", req.value);
+        }
+        rpc::ConfigSetting::SiteExplorerEnabled => {
+            let is_enabled = req.value.parse::<bool>().map_err(|err| {
+                CarbideError::InvalidArgument(format!(
+                    "Invalid site_explorer_enabled string '{}'. {err}",
+                    req.value
+                ))
+            })?;
+            api.dynamic_settings
+                .site_explorer_enabled
+                .store(is_enabled, Ordering::Relaxed);
+            tracing::info!("site-explorer enabled updated to '{}'", req.value);
         }
         rpc::ConfigSetting::BmcProxy => {
             let Some(true) = api.runtime_config.site_explorer.allow_changing_bmc_proxy else {

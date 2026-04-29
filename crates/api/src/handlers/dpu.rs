@@ -22,11 +22,13 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_utils::models::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
+use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
@@ -39,13 +41,12 @@ use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
 use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use model::network_segment::NetworkSegmentSearchConfig;
 use tonic::{Request, Response, Status};
-use utils::models::arch::CpuArchitecture;
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::handlers::extension_service;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, ethernet_virtualization};
+use crate::{CarbideError, cfg, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
@@ -153,11 +154,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     // prevent the host from using the DPU at all.
     let use_admin_network = dpu_snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
 
-    let mut network_virtualization_type = if api.runtime_config.nvue_enabled {
-        VpcVirtualizationType::EthernetVirtualizerWithNvue
-    } else {
-        VpcVirtualizationType::EthernetVirtualizer
-    };
+    let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
 
     let mut use_fnn_over_admin_nw = false;
 
@@ -250,7 +247,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     .fnn
                     .as_ref()
                     .map(|f| {
-                        let Some(profile_type) = vpc.routing_profile_type.map(|t| t.to_string()) else {
+                        let Some(profile_type) = vpc.routing_profile_type else {
                             return Err(CarbideError::Internal{ message: "tenant routing profile type not found in tenant record".to_string()});
                         };
 
@@ -267,24 +264,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 None
             };
 
-            // So the network_virtualization_type historically didn't come from the VPC table,
-            // even though the value was being set there, and we're in the process of changing
-            // that. If it's Fnn*, then set it accordingly. If it is EXPLICITLY ETV w/ NVUE,
-            // then set it accordingly. If it's ETV, then check the runtime config to see if
-            // nvue_enabled is true.
-            network_virtualization_type = match vpc.network_virtualization_type {
-                VpcVirtualizationType::Fnn => VpcVirtualizationType::Fnn,
-                VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                    VpcVirtualizationType::EthernetVirtualizerWithNvue
-                }
-                VpcVirtualizationType::EthernetVirtualizer => {
-                    if api.runtime_config.nvue_enabled {
-                        VpcVirtualizationType::EthernetVirtualizerWithNvue
-                    } else {
-                        VpcVirtualizationType::EthernetVirtualizer
-                    }
-                }
-            };
+            network_virtualization_type = vpc.network_virtualization_type;
 
             vpc_vni = vpc.status.as_ref().and_then(|v| v.vni.map(|x|x as u32));
 
@@ -440,7 +420,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
                         // DPU agent reads loopback ip only from 0th interface.
                         // function build in nvue.rs
                         tenant_loopback_ip.clone(),
-                        api.runtime_config.nvue_enabled,
                         network_virtualization_type,
                         suppress_tenant_security_groups,
                         network_security_group_details.clone(),
@@ -658,9 +637,17 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 .version_string()
         },
         remote_id: dpu_machine_id.remote_id(),
-        network_virtualization_type: Some(
-            rpc::VpcVirtualizationType::from(network_virtualization_type).into(),
-        ),
+        // TODO(chet): Once all agents are upgraded past the ETV cleanup PRs, this can
+        // use rpc::VpcVirtualizationType::from(network_virtualization_type).into() instead.
+        // For now, force ETV to proto value 2 (ETHERNET_VIRTUALIZER_WITH_NVUE) so that
+        // older agents that reject proto value 0 (ETHERNET_VIRTUALIZER) continue to work.
+        network_virtualization_type: Some(match network_virtualization_type {
+            VpcVirtualizationType::EthernetVirtualizer
+            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into()
+            }
+            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn.into(),
+        }),
         vpc_vni,
         // Deprecated: this field is always true now.
         // This should be removed in future version.
@@ -679,6 +666,9 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 })
         }),
         routing_profile: routing_profile.map(|p| rpc::RoutingProfile {
+            tenant_leak_communities_accepted: p.tenant_leak_communities_accepted,
+            leak_default_route_from_underlay: p.leak_default_route_from_underlay,
+            leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
             route_target_imports: p
                 .route_target_imports
                 .iter()
@@ -730,6 +720,20 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .unwrap_or_default(),
         instance: maybe_instance,
         dpu_extension_services: extension_services,
+        bgp_leaf_session_password: match api.runtime_config.bgp_leaf_session_password.as_ref() {
+            Some(p) => match p {
+                cfg::file::BgpLeafSessionPassword::SiteWide => Some(
+                    get_bgp_password(
+                        &api.credential_manager,
+                        CredentialKey::Bgp {
+                            credential_type: BgpCredentialType::SiteWideLeafPassword,
+                        },
+                    )
+                    .await?,
+                ),
+            },
+            None => None,
+        },
     };
 
     // If this all worked, we shouldn't emit a log line
@@ -833,7 +837,7 @@ pub(crate) async fn record_dpu_network_status(
         obs
     };
 
-    let any_observed_version_changed = match dpu_machine.network_status_observation {
+    let any_observed_version_changed = match dpu_machine.network_status_observation.as_ref() {
         None => true,
         Some(old_observation) => old_observation.any_observed_version_changed(&machine_obs),
     };
@@ -860,10 +864,10 @@ pub(crate) async fn record_dpu_network_status(
     .map_err(|e| CarbideError::internal(e.to_string()))?;
     // We ignore what dpu-agent sends as timestamp and time, and replace
     // it with more accurate information
-    health_report.source = "forge-dpu-agent".to_string();
+    health_report.source = health_report::HealthReport::DPU_AGENT_SOURCE.to_string();
     health_report.observed_at = Some(chrono::Utc::now());
     // Fix the in_alert times based on the previously stored report
-    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report.as_ref());
+    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report());
 
     db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report).await?;
 
@@ -1172,7 +1176,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
             }
 
-            if snapshot.dpu_snapshots.is_empty() {
+            if snapshot.is_zero_dpu() {
                 return Err(CarbideError::InvalidArgument(
                     "Machine has no DPUs, cannot trigger DPU reprovisioning.".to_string(),
                 )
@@ -1250,4 +1254,26 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
         .collect_vec();
 
     Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
+}
+
+/// Get the configured BGP password.
+pub(crate) async fn get_bgp_password(
+    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
+    credential_key: forge_secrets::credentials::CredentialKey,
+) -> Result<String, CarbideError> {
+    let credential = credential_reader
+        .get_credentials(&credential_key)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Could not find the credential: {}", e),
+        })?;
+
+    Ok(match credential {
+        Some(Credentials::UsernamePassword { password, .. }) => password,
+        _ => {
+            return Err(CarbideError::Internal {
+                message: "Could not find BGP credential".to_string(),
+            });
+        }
+    })
 }

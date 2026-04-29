@@ -27,32 +27,13 @@ use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
 use super::filters;
+use super::state_history::StateHistoryTable;
 use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "dpa_show.html")]
 struct DpaShow {
-    dpas: Vec<DpaRowDisplay>,
-}
-
-struct DpaRowDisplay {
-    id: String,
-    machine_id: String,
-    state: String,
-    created: String,
-    macaddr: String,
-}
-
-impl From<forgerpc::DpaInterface> for DpaRowDisplay {
-    fn from(dpa: forgerpc::DpaInterface) -> Self {
-        Self {
-            id: dpa.id.map(|i| i.to_string()).unwrap_or_default(),
-            machine_id: dpa.machine_id.map(|i| i.to_string()).unwrap_or_default(),
-            created: dpa.created.map(|c| c.to_string()).unwrap_or_default(),
-            macaddr: dpa.mac_addr,
-            state: dpa.controller_state,
-        }
-    }
+    dpas: Vec<forgerpc::DpaInterface>,
 }
 
 /// List DPAs
@@ -65,9 +46,7 @@ pub async fn show_dpas_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let tmpl = DpaShow {
-        dpas: dpas.into_iter().map(Into::into).collect(),
-    };
+    let tmpl = DpaShow { dpas };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
@@ -116,66 +95,19 @@ async fn fetch_dpas(api: Arc<Api>) -> Result<Vec<forgerpc::DpaInterface>, tonic:
 }
 
 #[derive(Template)]
-#[template(path = "dpa_state_history_table.html")]
-pub(super) struct DpaStateHistoryTable {
-    pub records: Vec<DpaStateHistoryRecord>,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub(super) struct DpaStateHistoryRecord {
-    pub state: String,
-    pub version: String,
-}
-#[derive(Template)]
 #[template(path = "dpa_detail.html")]
 struct DpaDetail {
-    id: String,
-    machine_id: String,
-    macaddr: String,
-    created: String,
-    updated: String,
-    deleted: String,
-    underlay_ip: String,
-    overlay_ip: String,
-    state: String,
-    state_version: String,
-    network_config: String,
-    network_config_version: String,
-    network_status_observation: String,
-    history: DpaStateHistoryTable,
+    dpa: forgerpc::DpaInterface,
+    history: StateHistoryTable,
 }
 
 impl From<forgerpc::DpaInterface> for DpaDetail {
     fn from(dpa: forgerpc::DpaInterface) -> Self {
-        let mut history_records = Vec::new();
-
-        for e in dpa.history.into_iter().rev() {
-            history_records.push(DpaStateHistoryRecord {
-                state: e.state,
-                version: e.version,
-            });
-        }
-
-        let history = DpaStateHistoryTable {
-            records: history_records,
+        let history = StateHistoryTable {
+            records: dpa.history.iter().rev().cloned().map(Into::into).collect(),
         };
 
-        Self {
-            id: dpa.id.map(|i| i.to_string()).unwrap_or_default(),
-            machine_id: dpa.machine_id.map(|i| i.to_string()).unwrap_or_default(),
-            macaddr: dpa.mac_addr,
-            created: dpa.created.map(|c| c.to_string()).unwrap_or_default(),
-            updated: dpa.updated.map(|c| c.to_string()).unwrap_or_default(),
-            deleted: dpa.deleted.map(|c| c.to_string()).unwrap_or_default(),
-            underlay_ip: dpa.underlay_ip,
-            overlay_ip: dpa.overlay_ip,
-            state: dpa.controller_state,
-            state_version: dpa.controller_state_version,
-            network_config: dpa.network_config,
-            network_config_version: dpa.network_config_version,
-            network_status_observation: dpa.network_status_observation,
-            history,
-        }
+        Self { dpa, history }
     }
 }
 

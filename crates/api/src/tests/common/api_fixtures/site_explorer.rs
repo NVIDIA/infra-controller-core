@@ -21,14 +21,18 @@ use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
+use carbide_uuid::rack::{RackId, RackProfileId};
+use carbide_uuid::switch::SwitchId;
 use db::machine_interface::find_by_mac_address;
-use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch};
+use db::{
+    DatabaseError, expected_machine as db_expected_machine, power_shelf as db_power_shelf,
+    rack as db_rack, switch as db_switch,
+};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
-use mac_address::MacAddress;
+use model::address_selection_strategy::AddressSelectionStrategy;
+use model::expected_machine::ExpectedMachine;
 use model::hardware_info::HardwareInfo;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
@@ -40,10 +44,9 @@ use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::rack::RackConfig;
 use model::site_explorer::EndpointExplorationReport;
-use model::switch::switch_id::from_hardware_info as switch_from_hardware_info;
 use model::switch::{NewSwitch, SwitchConfig};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self, HealthReportOverride, InsertHealthReportOverrideRequest};
+use rpc::forge::{self, HealthReportEntry, InsertHealthReportOverrideRequest};
 use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
@@ -66,6 +69,7 @@ use crate::tests::common::api_fixtures::{
     machine_validation_completed, persist_machine_validation_result, reboot_completed,
     update_machine_validation_run,
 };
+use crate::tests::common::mac_address_pool::EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 /// MockExploredHost presents a fluent interface for declaring a mock host and running it through
@@ -406,9 +410,16 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                10,
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::EnableIpmiOverLan,
+                35,
+                ManagedHostState::DPUInit {
+                    dpu_states: model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| (machine_id, DpuInitState::WaitingForNetworkConfig))
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
                 },
             )
             .await;
@@ -644,7 +655,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                10,
+                20,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 },
@@ -654,7 +665,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .api
             .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
-                r#override: Some(HealthReportOverride {
+                health_report_entry: Some(HealthReportEntry {
                     report: Some(
                         HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"))
                             .into(),
@@ -674,7 +685,7 @@ impl<'a> MockExploredHost<'a> {
             .test_env
             .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
-                10,
+                15,
                 |machine| {
                     machine.current_state() == &expected_state
                         || matches!(
@@ -877,7 +888,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .api
             .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
-                r#override: Some(HealthReportOverride {
+                health_report_entry: Some(HealthReportEntry {
                     report: Some(
                         HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"))
                             .into(),
@@ -1166,6 +1177,51 @@ impl<'a> MockExploredHost<'a> {
     }
 }
 
+pub async fn register_expected_machine(
+    env: &'_ TestEnv,
+    config: &ManagedHostConfig,
+    default_dpf_enabled: Option<bool>,
+) {
+    // Tests may intentionally pre-create an expected-machine row; avoid inserting duplicates.
+    if db_expected_machine::find_by_bmc_mac_address(&env.pool, config.bmc_mac_address)
+        .await
+        .expect("Expect expected machine lookup by BMC MAC to succeed")
+        .is_some()
+    {
+        return;
+    }
+
+    // Always register an expected_machines entry so fixture-created hosts can flow
+    // through site-explorer ingestion. Site-explorer now enforces that only hosts listed
+    // in `expected_machines` are turned into Managed Hosts.
+    let mut data = config.expected_machine_data.clone().unwrap_or_default();
+    // Fill data from ManagedHostConfig
+    // TODO: Disambiguate chassis and product serial number
+    // We seem to set the product serial number here
+    data.serial_number = config.serial.clone();
+    if data.dpf_enabled.is_none() {
+        data.dpf_enabled = default_dpf_enabled;
+    }
+
+    let em = ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: config.bmc_mac_address,
+        data,
+    };
+
+    env.api
+        .create_expected_machines(tonic::Request::new(
+            rpc::forge::BatchExpectedMachineOperationRequest {
+                expected_machines: Some(rpc::forge::ExpectedMachineList {
+                    expected_machines: vec![em.into()],
+                }),
+                accept_partial_results: false,
+            },
+        ))
+        .await
+        .expect("Expect expected machine to get registered");
+}
+
 /// Use this function to make a new managed host with a given number of DPUs, using site-explorer
 /// to ingest it into the database. Returns a MockExploredHost that you can call more methods on
 /// before finishing.
@@ -1178,6 +1234,9 @@ pub async fn new_mock_host(
     for ib_guid in config.ib_guids.iter() {
         mock_ib_fabric.register_port(ib_guid.clone());
     }
+
+    // Create an expected-machine record for the new machine
+    register_expected_machine(env, &config, None).await;
 
     // Set BMC credentials in vault
     for bmc_mac_address in vec![config.bmc_mac_address]
@@ -1282,6 +1341,7 @@ pub async fn new_host_with_machine_validation(
 ) -> eyre::Result<ManagedHostStateSnapshot> {
     let managed_host =
         ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
+    register_expected_machine(env, &managed_host, None).await;
     let mut mock_explored_host = MockExploredHost::new(env, managed_host);
 
     // Run BMC DHCP. DPUs first...
@@ -1347,6 +1407,7 @@ pub async fn new_host_with_machine_validation(
 }
 
 pub async fn new_dpu(env: &TestEnv, config: ManagedHostConfig) -> eyre::Result<MachineId> {
+    register_expected_machine(env, &config, None).await;
     let mut mock_explored_host = MockExploredHost::new(env, config);
 
     mock_explored_host = mock_explored_host
@@ -1381,6 +1442,7 @@ pub async fn new_dpu_in_network_install(
     env: &TestEnv,
     config: ManagedHostConfig,
 ) -> eyre::Result<TestManagedHost> {
+    register_expected_machine(env, &config, None).await;
     let mut mock_explored_host = MockExploredHost::new(env, config);
 
     mock_explored_host = mock_explored_host
@@ -1429,7 +1491,7 @@ pub async fn new_power_shelf(
     name: Option<String>,
     capacity: Option<u32>,
     voltage: Option<u32>,
-    location: Option<String>,
+    _location: Option<String>,
 ) -> eyre::Result<PowerShelfId> {
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -1460,13 +1522,14 @@ pub async fn new_power_shelf(
         name: power_shelf_name,
         capacity: capacity.or(Some(100)),
         voltage: voltage.or(Some(240)),
-        location: location.or(Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string())),
     };
 
     // Create the power shelf
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config,
+        metadata: None,
+        rack_id: None,
     };
 
     let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf)
@@ -1509,21 +1572,15 @@ do it without regard to the underlying impl and in a way that makes it
 clear looking at the test what the intent of the configuration is.
 */
 pub struct TestRackDbBuilder {
-    expected_compute_trays: Vec<MacAddress>,
-    expected_power_shelves: Vec<MacAddress>,
-    expected_switches: Vec<MacAddress>,
     rack_id: RackId,
-    rack_type: Option<String>,
+    rack_profile_id: Option<RackProfileId>,
 }
 
 impl Default for TestRackDbBuilder {
     fn default() -> Self {
         TestRackDbBuilder {
-            expected_compute_trays: vec![],
-            expected_power_shelves: vec![],
-            expected_switches: vec![],
             rack_id: RackId::new(uuid::Uuid::new_v4().to_string()),
-            rack_type: None,
+            rack_profile_id: Some(RackProfileId::new("rack")),
         }
     }
 }
@@ -1540,98 +1597,71 @@ impl TestRackDbBuilder {
         self
     }
 
-    pub fn with_expected_compute_trays(mut self, expected_compute_trays: Vec<[u8; 6]>) -> Self {
-        self.expected_compute_trays = expected_compute_trays
-            .into_iter()
-            .map(MacAddress::new)
-            .collect();
-        self
-    }
-
-    pub fn with_expected_power_shelves(mut self, expected_power_shelves: Vec<[u8; 6]>) -> Self {
-        self.expected_power_shelves = expected_power_shelves
-            .into_iter()
-            .map(MacAddress::new)
-            .collect();
-        self
-    }
-
-    pub fn with_expected_switches(mut self, expected_switches: Vec<[u8; 6]>) -> Self {
-        self.expected_switches = expected_switches.into_iter().map(MacAddress::new).collect();
-        self
-    }
-
-    pub fn with_rack_type(mut self, rack_type: impl Into<String>) -> Self {
-        self.rack_type = Some(rack_type.into());
+    pub fn with_rack_profile_id(mut self, rack_profile_id: impl Into<String>) -> Self {
+        self.rack_profile_id = Some(RackProfileId::new(rack_profile_id));
         self
     }
 
     pub async fn persist(&self, txn: &mut PgConnection) -> Result<RackId, DatabaseError> {
+        let rack_config = RackConfig::default();
         db_rack::create(
             txn,
             &self.rack_id,
-            self.expected_compute_trays.clone(),
-            self.expected_switches.clone(),
-            self.expected_power_shelves.clone(),
+            self.rack_profile_id.as_ref(),
+            &rack_config,
+            None,
         )
         .await?;
-
-        let cfg = RackConfig {
-            // TODO: represent compute_trays and power_shelves in builder.
-            compute_trays: vec![],
-            power_shelves: vec![],
-            expected_compute_trays: self.expected_compute_trays.clone(),
-            expected_switches: self.expected_switches.clone(),
-            expected_power_shelves: self.expected_power_shelves.clone(),
-            rack_type: self.rack_type.clone(),
-            validation_run_id: None,
-        };
-
-        db_rack::update(txn, &self.rack_id, &cfg).await?;
 
         Ok(self.rack_id.clone())
     }
 }
 
-/// Creates a new switch for testing purposes
+/// Creates a new switch for testing purposes.
+///
+/// When `bmc_mac_address` is provided, an `ExpectedSwitch` record is also
+/// created so the switch state controller can look it up during initialisation.
 #[cfg(test)]
 pub async fn new_switch(
     env: &TestEnv,
     name: Option<String>,
-    location: Option<String>,
+    _location: Option<String>,
 ) -> eyre::Result<SwitchId> {
     let mut txn = env.pool.begin().await.unwrap();
 
-    // Generate a unique name if not provided
-    let switch_name =
-        name.unwrap_or_else(|| format!("Test Switch {}", &uuid::Uuid::new_v4().to_string()[..8]));
-
-    // Generate switch ID using hardware info
-    let switch_serial = &switch_name;
-    let switch_vendor = "NVIDIA";
-    let switch_model = "Switch";
-
-    let switch_id = switch_from_hardware_info(
-        switch_serial,
-        switch_vendor,
-        switch_model,
-        SwitchIdSource::ProductBoardChassisSerial,
-        SwitchType::NvLink,
-    )
-    .map_err(|e| eyre::eyre!("Failed to create switch ID: {:?}", e))?;
-
-    // Create switch configuration.
-    let config = SwitchConfig {
-        name: switch_name,
-        enable_nmxc: false,
-        fabric_manager_config: None,
-        location: location.or(Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string())),
+    let expected_switches = create_expected_switches(&mut txn).await;
+    let expected_switch = match name {
+        Some(n) => expected_switches
+            .iter()
+            .find(|s| s.metadata.name == n)
+            .ok_or(eyre::eyre!("No expected switch found"))?,
+        None => expected_switches.first().unwrap(),
     };
 
-    // Create the switch
+    let switch_id = model::switch::switch_id::from_hardware_info(
+        &expected_switch.serial_number,
+        "NVIDIA",
+        "Switch",
+        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        carbide_uuid::switch::SwitchType::NvLink,
+    )
+    .map_err(|e| eyre::eyre!("Failed to create switch ID: {:?}", e))
+    .unwrap();
+
+    let config = SwitchConfig {
+        name: expected_switch.metadata.name.clone(),
+        enable_nmxc: false,
+        fabric_manager_config: None,
+    };
+
     let new_switch = NewSwitch {
         id: switch_id,
         config,
+        bmc_mac_address: Some(expected_switch.bmc_mac_address),
+        metadata: None,
+        rack_id: None,
+        slot_number: Some(0),
+        tray_index: Some(0),
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch)
@@ -1653,6 +1683,9 @@ pub async fn new_mock_host_with_dpf(
     for ib_guid in config.ib_guids.iter() {
         mock_ib_fabric.register_port(ib_guid.clone());
     }
+
+    // Create an expected-machine record for the new machine
+    register_expected_machine(env, &config, Some(true)).await;
 
     // Set BMC credentials in vault
     for bmc_mac_address in vec![config.bmc_mac_address]
@@ -1695,7 +1728,7 @@ pub async fn new_mock_host_with_dpf(
     // these futures. Prior to this we were hitting stack space limits (going over 2MB in stack) in
     // unit tests. This buys us some savings so that we don't have to fiddle with adjusting the
     // default stack size.
-    mock_explored_host
+    mock_explored_host = mock_explored_host
         // ...Then run host BMC's DHCP
         .discover_dhcp_host_bmc(|_, _| Ok(()))
         .boxed()
@@ -1715,7 +1748,16 @@ pub async fn new_mock_host_with_dpf(
         .await?
         .dpu_state_controller_iterations_with_dpf()
         .boxed()
-        .await
+        .await;
+
+    let dpu_ids: Vec<MachineId> = mock_explored_host
+        .dpu_machine_ids
+        .values()
+        .copied()
+        .collect();
+    network_configured(env, &dpu_ids).await;
+
+    mock_explored_host
         .discover_machine(|_, _| Ok(()))
         .boxed()
         .await?
@@ -1756,6 +1798,7 @@ pub async fn create_expected_switches(
         let switch = ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL.allocate(),
+            nvos_mac_addresses: vec![EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL.allocate()],
             serial_number: format!("SW-SN-{:03}", i + 1),
             bmc_username: "ADMIN".into(),
             bmc_password: "Pwd2023x0x0x0x7".into(),
@@ -1769,12 +1812,53 @@ pub async fn create_expected_switches(
             } else {
                 None
             },
-            metadata: Metadata::default(),
+            bmc_ip_address: None,
+            metadata: Metadata {
+                name: format!("Switch{}", i + 1),
+                description: format!("Test Switch {}", i + 1),
+                labels: HashMap::new(),
+            },
             rack_id: None,
+            bmc_retain_credentials: None,
         };
         let result = db::expected_switch::create(txn, switch)
             .await
             .expect("unable to create expected switch");
+
+        let network_segment = db::network_segment::admin(txn)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
+            .unwrap();
+
+        for nvos_mac in &result.nvos_mac_addresses.clone() {
+            db::machine_interface::create(
+                txn,
+                &network_segment,
+                nvos_mac,
+                network_segment.subdomain_id,
+                false,
+                AddressSelectionStrategy::NextAvailableIp,
+            )
+            .await
+            .map_err(|e| eyre::eyre!("Failed to create NVOS machine interface: {:?}", e))
+            .unwrap();
+        }
+        let overlay_network_segment = db::network_segment::find_by_name(txn, "UNDERLAY")
+            .await
+            .map_err(|e| eyre::eyre!("Failed to get overlay network segment: {:?}", e))
+            .unwrap();
+
+        db::machine_interface::create(
+            txn,
+            &overlay_network_segment,
+            &result.bmc_mac_address.clone(),
+            overlay_network_segment.subdomain_id,
+            false,
+            AddressSelectionStrategy::NextAvailableIp,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("Failed to create BMC machine interface: {:?}", e))
+        .unwrap();
         created.push(result);
     }
     created
@@ -1798,13 +1882,14 @@ pub async fn create_expected_power_shelves(
             serial_number: format!("PS-SN-{:03}", i + 1),
             bmc_username: "ADMIN".into(),
             bmc_password: "Pwd2023x0x0x0x0x7".into(),
-            ip_address: if (3..=4).contains(&i) {
+            bmc_ip_address: if (3..=4).contains(&i) {
                 Some(format!("192.168.1.{}", 100 + i - 3).parse().unwrap())
             } else {
                 None
             },
             metadata: Metadata::default(),
             rack_id: None,
+            bmc_retain_credentials: None,
         };
         let result = db::expected_power_shelf::create(txn, power_shelf)
             .await

@@ -15,19 +15,22 @@
  * limitations under the License.
  */
 
-use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
-use std::time::SystemTime;
-use std::{fmt, fs};
+use std::sync::atomic::AtomicBool;
 
-use arc_swap::ArcSwap;
 use bmc_vendor::BMCVendor;
+use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
+use carbide_firmware::FirmwareConfig;
+use carbide_nvlink_manager::config::NvLinkConfig;
+use carbide_preingestion_manager::PreingestionManagerConfig;
+use carbide_site_explorer::config::SiteExplorerConfig;
+use carbide_utils::config::{
+    as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
+};
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -37,7 +40,6 @@ use libmlx::profile::profile::MlxConfigProfile;
 use libmlx::profile::serialization::{
     deserialize_option_profile_map, serialize_option_profile_map,
 };
-use model::DpuModel;
 use model::firmware::{
     AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
 };
@@ -46,84 +48,93 @@ use model::machine::HostHealthConfig;
 use model::network_security_group::NetworkSecurityGroupRule;
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
-use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use model::tenant::identity_config::SigningAlgorithm;
 use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use utils::HostPortPair;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::state_controller::config::IterationConfig;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 
-static BF2_NIC: &str = "24.47.1026";
-static BF2_BMC: &str = "BF-25.10-9";
+static BF2_NIC: &str = "24.47.2682";
+static BF2_BMC: &str = "BF-25.10-20";
 static BF2_CEC: &str = "4-15";
-static BF2_UEFI: &str = "4.13.0-26-g337fea6bfd";
-static BF3_NIC: &str = "32.47.1026";
-static BF3_BMC: &str = "BF-25.10-9";
+static BF2_UEFI: &str = "4.13.2-12-g943a91640d";
+static BF3_NIC: &str = "32.47.2682";
+static BF3_BMC: &str = "BF-25.10-20";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
-static BF3_UEFI: &str = "4.13.0-26-g337fea6bfd";
+static BF3_UEFI: &str = "4.13.2-12-g943a91640d";
 
-/// carbide-api configuration file content
+/// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CarbideConfig {
-    /// The socket address that is used for the gRPC API server
+    /// Socket address for the gRPC API server, used by
+    /// clients and nico-admin-cli to connect.
+    /// Default is `[::]:1079`.
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
 
-    /// Set to true to run this instance "passively", ie. don't start any background services and
-    /// just listen for rpc/web connections. This is used in development mode when you want to run
-    /// an additional carbide instance, against a cluster that is already running a "full" carbide
-    /// instance.
+    /// Run this instance passively: no background services,
+    /// just listen for RPC/web connections. Used in dev mode
+    /// when running a second nico instance against a
+    /// cluster that already has a "full" instance.
     #[serde(default)]
     pub listen_only: bool,
 
-    /// The socket address that is used for the HTTP server which serves
-    /// prometheus metrics under /metrics
+    /// Socket address for the HTTP server that serves
+    /// Prometheus metrics under `/metrics`.
     pub metrics_endpoint: Option<SocketAddr>,
 
-    /// An alternative prefix under which metrics will be emitted besides `carbide_`.
-    /// Setting this flag will allow to dual emit metrics to migrate dashboards and alerts.
-    /// Note that seting the flag will load to increased load on the observability system.
+    /// Alternative metric prefix emitted alongside `carbide_`,
+    /// used for dual-emitting while migrating dashboards and
+    /// alerts. Increases observability system load.
     pub alt_metric_prefix: Option<String>,
 
-    /// A connection string for the utilized postgres database
+    /// Postgres connection string used by the API server
+    /// for all persistent state.
     pub database_url: String,
 
-    /// The maximum size of the database connection pool
+    /// Maximum size of the database connection pool.
+    /// Default is 1000.
     #[serde(default = "default_max_database_connections")]
     pub max_database_connections: u32,
 
-    /// IB fabric related configuration
+    /// InfiniBand fabric configuration, used by the IB
+    /// fabric manager for partition and UFM management.
     pub ib_config: Option<IBFabricConfig>,
 
-    /// ASN: Autonomous System Number
-    /// Fixed per environment. Used by forge-dpu-agent to write frr.conf (routing).
+    /// Autonomous System Number, fixed per environment.
+    /// Used by nico-dpu-agent to write `frr.conf` for
+    /// BGP routing.
     pub asn: u32,
 
-    /// List of DHCP servers that should be announced
+    /// DHCP server addresses announced to DPUs during
+    /// network provisioning.
     #[serde(default)]
     pub dhcp_servers: Vec<String>,
 
-    /// Comma-separated list of route server IP addresses. Optional, only for L2VPN (Eth Virt).
+    /// Route server IP addresses for L2VPN (Ethernet
+    /// Virtual) network support on DPUs.
     #[serde(default)]
     pub route_servers: Vec<String>,
 
+    /// Enables route server injection into DPU FRR
+    /// configs for L2VPN Ethernet Virtual networks.
     #[serde(default)]
     pub enable_route_servers: bool,
 
     /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
-    ///
-    /// TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
-    /// that process deny prefixes are IPv4-only (and I'll do it in another PR):
-    /// - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
-    ///   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
-    /// - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
-    ///   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
-    ///
-    /// Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
-    /// rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
-    /// handle the `ipv6: bool` split.
+    //
+    // TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
+    // that process deny prefixes are IPv4-only (and I'll do it in another PR):
+    // - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
+    //   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
+    // - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
+    //   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
+    //
+    // Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
+    // rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
+    // handle the `ipv6: bool` split.
     #[serde(default)]
     pub deny_prefixes: Vec<Ipv4Network>,
 
@@ -145,33 +156,46 @@ pub struct CarbideConfig {
     /// any ASN.
     pub common_tenant_host_asn: Option<u32>,
 
+    /// VPC isolation policy enforced on tenant traffic.
+    /// Controls whether VPCs are mutually isolated or open.
     #[serde(default)]
     pub vpc_isolation_behavior: VpcIsolationBehaviorType,
 
+    /// Pinger implementation type (e.g., "OobNetBind") used
+    /// by the DPU network monitor to health-check DPU links.
     #[serde(default)]
     pub dpu_network_monitor_pinger_type: Option<String>,
 
-    /// TLS related configuration
+    /// TLS certificate and key paths for securing gRPC and
+    /// HTTP connections.
     pub tls: Option<TlsConfig>,
 
+    /// Transport mode for the gRPC API server.
+    /// Default is `Tls`.
     #[serde(default)]
     pub listen_mode: ListenMode,
 
-    /// Authentication related configuration
+    /// Authentication and authorization configuration
+    /// including Casbin policies and client certificate
+    /// trust settings.
     pub auth: Option<AuthConfig>,
 
-    // Resource pools to allocate IPs, VNIs, etc.
-    // Required.
-    // Option so that we can de-serialize partial configs (and then merge them).
+    /// Resource pools that allocate IPs, VNIs, etc.
+    /// Required, but wrapped in `Option` so partial configs
+    /// can be deserialized and merged.
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
 
-    // Networks to create. Otherwise use grpcurl CreateNetworkSegment to create them later.
+    /// Networks to create at startup. Use the
+    /// `CreateNetworkSegment` gRPC to create them later
+    /// instead.
     pub networks: Option<HashMap<String, NetworkDefinition>>,
 
-    // The type of ipmitool to user (prod or fake)
+    /// IPMI tool implementation for DPU power control
+    /// (e.g., "prod" or "fake").
     pub dpu_ipmi_tool_impl: Option<String>,
 
-    // The number of retries to perform if ipmi returns an error
+    /// Number of retries when IPMI returns an error during
+    /// DPU reboot.
     pub dpu_ipmi_reboot_attempts: Option<u32>,
 
     /// Infiniband fabrics managed by the site
@@ -185,8 +209,10 @@ pub struct CarbideConfig {
     /// The alternative is to create it via `CreateDomain` grpc endpoint.
     pub initial_domain_name: Option<String>,
 
-    /// The policy we use to decide whether a specific forge-dpu-agent should be upgraded
-    /// Also settable via a `forge-admin-cli` command.
+    /// The policy we use to decide whether a specific nico-dpu-agent
+    /// should be upgraded.
+    ///
+    /// Also settable via a `nico-admin-cli` command.
     pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 
     /// Deprecated, use machine_updater
@@ -198,11 +224,6 @@ pub struct CarbideConfig {
     /// SiteExplorer related configuration
     #[serde(default)]
     pub site_explorer: SiteExplorerConfig,
-
-    /// DPU agent to use NVUE instead of writing files directly.
-    /// Once we are comfortable with this and all DPUs are HBN 2+ it will become the only option.
-    #[serde(default = "default_to_true")]
-    pub nvue_enabled: bool,
 
     /// The policy to decide whether two VPCs are allowed to peer with each other based on their
     /// network virtualization type during creation
@@ -260,107 +281,186 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub spdm_state_controller: SpdmStateControllerConfig,
 
+    /// Maps host model identifiers to firmware definitions,
+    /// used by the firmware manager to determine BMC, UEFI,
+    /// and NIC upgrade targets for each host type.
     #[serde(default)]
     pub host_models: HashMap<String, Firmware>,
 
+    /// Global firmware update settings: upload concurrency,
+    /// retry intervals, autoupdate policies, and firmware
+    /// binary storage paths.
     #[serde(default)]
     pub firmware_global: FirmwareGlobal,
 
+    /// Machine update policies: auto-reboot windows and
+    /// concurrent update limits used by the machine update
+    /// manager.
     #[serde(default)]
     pub machine_updater: MachineUpdater,
 
-    /// The maximum number of IDs allowed for find_(something)_by_ids APIs
+    /// Maximum number of IDs accepted by
+    /// `find_*_by_ids` APIs to prevent oversized queries.
+    /// Default is 100.
     #[serde(default = "default_max_find_by_ids")]
     pub max_find_by_ids: u32,
 
+    /// Network security group settings: max expanded rule
+    /// count, stateful ACL enforcement, and policy overrides
+    /// injected before user-defined rules.
     #[serde(default)]
     pub network_security_group: NetworkSecurityGroupConfig,
 
-    /// The minimum number of functioning links on a dpu for it to be considered healthy
-    /// if not present, all links must be functional.
+    /// Minimum functioning DPU links required for the DPU
+    /// to be considered healthy. If unset, all links must
+    /// be functional.
     #[serde(default)]
     pub min_dpu_functioning_links: Option<u32>,
 
+    /// Host health monitoring thresholds, used by the
+    /// machine state controller to determine hardware health
+    /// and DPU agent version compliance.
     #[serde(default)]
     pub host_health: HostHealthConfig,
 
-    // internet_l3_vni is a GNI-provided L3VNI to use for
-    // FNN VPCs to have Internet connectivity. If it's
-    // not set, VPCs in this site will not have the ability
-    // to get out to the Internet.
+    /// Network infrastructure-provided L3 VNI for FNN VPC Internet
+    /// connectivity. Combined with `datacenter_asn` to form
+    /// a route-target. If unset, VPCs cannot reach the
+    /// Internet.
+    /// Default is 100001.
     //
-    // TODO(chet): This might be interesting to be able
-    // to toggle on a per-VPC basis (e.g. if a customer
-    // wants to create a VPC that is guaranteed not to
-    // be able to access the Internet).
+    // TODO(chet): This might be interesting to toggle on
+    // a per-VPC basis (e.g. a VPC guaranteed not to access
+    // the Internet).
     #[serde(default = "default_internet_l3_vni")]
     pub internet_l3_vni: u32,
 
-    /// MeasuredBootMetricsCollector related configuration
+    /// Measured boot metrics collector configuration.
+    /// Exports TPM-based boot measurement data as
+    /// Prometheus metrics for attestation monitoring.
     #[serde(default)]
     pub measured_boot_collector: MeasuredBootMetricsCollectorConfig,
 
-    /// Machine Validation config to api server
+    /// Machine validation test configuration. Runs
+    /// hardware tests (memory latency, SSD I/O, etc.)
+    /// after ingestion to verify machine health.
     #[serde(default)]
     pub machine_validation_config: MachineValidationConfig,
 
-    /// Machine identity (SPIFFE JWT-SVID) config. Section `[machine_identity]`.
+    /// Rack-level validation configuration. Runs
+    /// multi-node partition tests after firmware upgrade
+    /// and maintenance to verify rack health.
+    #[serde(default)]
+    pub rack_validation_config: RackValidationConfig,
+
+    /// Machine identity (SPIFFE JWT-SVID) settings,
+    /// used by `SignMachineIdentity` to issue short-lived
+    /// identity tokens to tenant workloads.
+    /// Section `[machine_identity]`.
     #[serde(default)]
     pub machine_identity: MachineIdentityConfig,
 
+    /// Disables role-based access control enforcement.
+    /// Intended for testing and development only.
     #[serde(default)]
     pub bypass_rbac: bool,
 
-    /// DPU specific configs including DPU orand DPU BMC firmware
+    /// DPU-specific firmware and provisioning config,
+    /// including DPU model definitions, NIC firmware
+    /// versions, and secure boot settings.
     #[serde(default)]
     pub dpu_config: DpuConfig,
 
+    /// Fabric Nearest Neighbor (FNN) configuration for
+    /// L3 VNI-based overlay networking, including routing
+    /// profiles and route target import/export policies.
     #[serde(default)]
     pub fnn: Option<FnnConfig>,
 
+    /// Bill-of-materials (BOM) validation settings.
+    /// Ensures machines match expected SKU configurations
+    /// before being marked as Ready.
     #[serde(default)]
     pub bom_validation: BomValidationConfig,
 
+    /// BIOS profile definitions organized by vendor and
+    /// model, used by SiteExplorer to apply Redfish BIOS
+    /// settings during ingestion.
     #[serde(default)]
     pub bios_profiles: libredfish::BiosProfileVendor,
 
+    /// Default BIOS profile type (e.g., Performance,
+    /// PowerEfficiency) applied to machines when no
+    /// per-model override exists.
     #[serde(default)]
     pub selected_profile: libredfish::BiosProfileType,
+
+    /// Vendor-specific iDRAC/BMC manager attributes applied during machine_setup,
+    /// before BMC lockdown. Keyed by vendor → model → profile → attribute name.
+    ///
+    /// These target the manager OEM attributes endpoint (e.g.
+    /// `Managers/{id}/Oem/Dell/DellAttributes/{id}` on Dell), as opposed to
+    /// `bios_profiles` which targets BIOS settings.
+    ///
+    /// Model names are normalized to lowercase with spaces replaced by underscores
+    /// (e.g. `"PowerEdge R760"` → `"poweredge_r760"`).
+    ///
+    /// Example (carbide.toml):
+    /// ```toml
+    /// # Disable PSU Hot Spare on Dell R760 to prevent fan spin-up (nvbugs-5834644)
+    /// [oem_manager_profiles.Dell.poweredge_r760.performance]
+    /// "ServerPwr.1.PSRapidOn" = "Disabled"
+    /// ```
+    #[serde(default)]
+    pub oem_manager_profiles: libredfish::BiosProfileVendor,
 
     /// DpaConfig refers to East West Ethernet (aka
     /// Cluster Interconnect Network) configuration
     #[serde(default)]
     pub dpa_config: Option<DpaConfig>,
 
-    /// DSX Exchange Event Bus configuration for publishing state change events via MQTT.
+    /// DSX Exchange Event Bus configuration. Publishes
+    /// `ManagedHostState` transitions, BMS rack leak/isolation
+    /// values, and heartbeat timestamps over MQTT, and subscribes
+    /// to BMS metadata topics used to route those values.
     #[serde(default)]
     pub dsx_exchange_event_bus: Option<DsxExchangeEventBusConfig>,
 
-    /// FNN depends on various route-targets that
-    /// are DC-specific.  This value is used to
-    /// build those targets for import and,
-    ///  eventually, export
+    /// Datacenter ASN used by FNN to build DC-specific
+    /// route targets for VRF import and export.
+    /// Default is 11414.
     #[serde(default = "default_datacenter_asn")]
     pub datacenter_asn: u32,
 
-    /// NvLink related configuration
+    /// NvLink partitioning configuration, used by the
+    /// NvLink monitor to manage GPU mesh partitions
+    /// via NMX-M.
     #[serde(default)]
     pub nvlink_config: Option<NvLinkConfig>,
 
+    /// Power management settings: retry intervals after
+    /// success/failure and host reboot wait time.
     #[serde(default = "default_power_options")]
     pub power_manager_options: PowerManagerOptions,
 
-    /// sitename is made visible to customers running
-    /// tenant OS via an FMDS endpoint.
+    /// Human-readable site name, exposed to customers
+    /// running tenant OS via the FMDS endpoint.
     pub sitename: Option<String>,
 
-    /// Auto machine repair plugin configuration
+    /// Auto machine repair plugin. When enabled,
+    /// automatically transitions failed machines into
+    /// repair workflows.
     #[serde(default)]
     pub auto_machine_repair_plugin: AutoMachineRepairPluginConfig,
 
-    /// configuration for using forge with a VM system
+    /// VMaaS (VM-as-a-Service) configuration for using
+    /// NICo with a VM system, including VF settings and
+    /// traffic-intercept bridging.
     pub vmaas_config: Option<VmaasConfig>,
 
+    /// Named Mellanox NIC firmware configuration profiles,
+    /// used by superNIC firmware flashing to apply
+    /// device-specific register settings.
     #[serde(
         default,
         rename = "mlx-config-profiles",
@@ -370,9 +470,9 @@ pub struct CarbideConfig {
     )]
     pub mlxconfig_profiles: Option<HashMap<String, MlxConfigProfile>>,
 
-    /// The intent of this config option is to use the forge site controller as a standalone
+    /// The intent of this config option is to use the NICo site controller as a standalone
     /// (disconnected / air-gapped) infrastructure manager for racks of GB200/GB300/VR144.
-    /// Only set this if using Forge site controller with Rack Manager to manage GB200/300/VR144.
+    /// Only set this if using NICo site controller with Rack Manager to manage GB200/300/VR144.
     /// It will change site controller behavior significantly in the following ways, etc.:
     /// 1. skip dpu management and use dpus in nic mode (optional, can set force_dpu_nic_mode=false)
     ///    a. no dpu bfb upgrade and host power cycle
@@ -404,33 +504,30 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub rack_management_enabled: bool,
 
+    /// Rack Manager Service configuration for rack-level firmware upgrades,
+    /// power sequencing, and mTLS connectivity.
     #[serde(default)]
-    /// Treat any dpu found as a regular NIC and skip configuring it as a managed dpu.
-    /// This is specifically for dev labs to allow using GB200/300 and VR compute
-    /// trays with bluefield dpus as NICs.
-    pub force_dpu_nic_mode: bool,
+    pub rms: RmsConfig,
 
-    // rms_api_url is the URL to the Rack Manager Service API.
-    pub rms_api_url: Option<String>,
-
-    /// rack_types contains the rack type definitions. When expected racks
-    /// are created, they are given a rack_type name to reference. This maps
-    /// those names to the actual RackTypeConfig. This may eventually change,
+    /// rack_profiles contains the rack profile definitions. When expected racks
+    /// are created, they are given a rack_profile_id to reference. This maps
+    /// those names to the actual RackProfileConfig. This may eventually change,
     /// and/or co-exist with a DCIM providing us an entire config as part of
     /// the ingestion call.
     #[serde(default)]
-    pub rack_types: model::rack_type::RackTypeConfig,
+    pub rack_profiles: model::rack_type::RackProfileConfig,
 
-    /// Whether to use the host NIC instead of the DPUs on the compute trays.
-    /// This is used to test the host NIC functionality.
+    /// Treat any dpu found as a regular NIC and skip configuring it as a managed dpu.
+    /// This is specifically for dev labs to allow using GB200/300 and VR compute
+    /// trays with bluefield dpus as NICs.
     #[serde(
-        default = "SiteExplorerConfig::default_use_onboard_nic",
+        default = "SiteExplorerConfig::default_force_dpu_nic_mode",
         deserialize_with = "deserialize_arc_atomic_bool",
         serialize_with = "serialize_arc_atomic_bool"
     )]
-    pub use_onboard_nic: Arc<AtomicBool>,
+    pub force_dpu_nic_mode: Arc<AtomicBool>,
 
-    // SPDM Config
+    /// SPDM (Security Protocol and Data Model) configuration for hardware attestation.
     #[serde(default)]
     pub spdm: SpdmConfig,
 
@@ -443,7 +540,7 @@ pub struct CarbideConfig {
     /// DPU to a single VRF.
     pub site_global_vpc_vni: Option<u32>,
 
-    // DPF Config
+    /// DPF (DPU Platform Framework) configuration for DPU fabric deployment as a Kubernetes service.
     #[serde(default)]
     pub dpf: DpfConfig,
 
@@ -455,6 +552,30 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub arm_pxe_boot_url_override: Option<String>,
 
+    /// Alternate API URL for external hosts that cannot resolve
+    /// https://carbide-pxe.forge. This be an IP (e.g., "https://10.0.0.1:1079"),
+    /// or an externally resolvable hostname (e.g.,
+    /// "https://carbide-stack-api.corp.example.com"). This is the URL
+    /// that gets handed back to interfaces assigned ot the static-assignments
+    /// subnet. If not set, external hosts will just get the "internal"
+    /// variant of api_url.
+    #[serde(default)]
+    pub external_api_url: Option<String>,
+
+    /// Alternate PXE URL for external hosts (e.g., "http://10.0.0.1:8080"
+    /// or "http://carbide-stack-pxe.corp.example.com"). Used for cloud-init and
+    /// root CA retrieval for interfaces on the static-assignments segment,
+    /// and follows the same rules as external_api_url above.
+    #[serde(default)]
+    pub external_pxe_url: Option<String>,
+
+    /// Alternate static PXE URL for external hosts (e.g.,
+    /// "http://10.0.0.1:8081" or "http://carbide-stack-static.corp.example.com").
+    /// Used for kernel/blob downloads on the static-assignments segment.
+    /// If not set, falls back to `external_pxe_url`.
+    #[serde(default)]
+    pub external_static_pxe_url: Option<String>,
+
     /// Controls enforcement of compute allocations when a new instance is
     /// requested.
     #[serde(default)]
@@ -464,7 +585,7 @@ pub struct CarbideConfig {
     /// keyed by part_number and PSID. Each profile specifies the firmware to
     /// flash and optional lifecycle flags (reset, verify_image, verify_version).
     ///
-    /// Configured in `carbide-api-config.toml`:
+    /// Configured in `nico-api-config.toml`:
     ///
     /// ```toml
     /// [supernic_firmware_profiles.900-9D3B4-00CV-TA0.MT_0000000884]
@@ -483,8 +604,29 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub supernic_firmware_profiles: HashMap<String, HashMap<String, FirmwareFlasherProfile>>,
 
+    /// Component manager configuration for managing
+    /// NvLink switches and power shelves via rack
+    /// manager integration.
     #[serde(default)]
     pub component_manager: Option<component_manager::config::ComponentManagerConfig>,
+
+    /// The password source to use for sites where the LEAF TOR
+    /// requires session passwords.
+    #[serde(default)]
+    pub bgp_leaf_session_password: Option<BgpLeafSessionPassword>,
+
+    /// The default routing-profile to use when a tenant is created.
+    #[serde(default = "default_tenant_routing_profile")]
+    pub default_tenant_routing_profile_type: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub enum BgpLeafSessionPassword {
+    /// Use a defined site-wide password.
+    /// The password should already exist in the credentials
+    /// store.
+    #[default]
+    SiteWide,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -500,36 +642,129 @@ pub enum ComputeAllocationEnforcement {
     Always,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+/// DPF (DPU Platform Framework) configuration for
+/// deploying DPU fabric as a Kubernetes service.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DpfConfig {
+    /// Enables DPF deployment.
     #[serde(default)]
     pub enabled: bool,
+    /// Kubernetes deployment name for the DPF service.
+    #[serde(default = "default_dpf_deployment_name")]
+    pub deployment_name: String,
+    /// Kubernetes DPUFlavor CR name.
+    #[serde(default = "default_dpf_flavor_name")]
+    pub flavor_name: String,
+    /// Label key applied to DPUNode CRs for deployment matching.
+    #[serde(default = "default_dpf_node_label_key")]
+    pub node_label_key: String,
+    /// URL to the BlueField firmware bundle (BFB) for
+    /// DPU provisioning.
     #[serde(default)]
     pub bfb_url: String,
+    /// Additional Helm services to deploy alongside DPF.
     #[serde(default)]
-    pub deployment_name: Option<String>,
+    pub services: Box<DpfMandatoryServicesConfig>,
+    /// Whether to create the bf.cfg ConfigMap during initialization.
+    #[serde(default = "default_to_true")]
+    pub bfcfg_enabled: bool,
+    /// Are we testing v2 version??
+    /// This is just temporary flag and will be removed once v2 becomes only option.
     #[serde(default)]
-    pub services: Option<Vec<DpfServiceConfig>>,
+    pub v2: bool,
 }
 
+impl Default for DpfConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            deployment_name: default_dpf_deployment_name(),
+            flavor_name: default_dpf_flavor_name(),
+            node_label_key: default_dpf_node_label_key(),
+            bfb_url: String::new(),
+            services: Box::default(),
+            bfcfg_enabled: true,
+            v2: false,
+        }
+    }
+}
+
+// TODO change to -v2 when we're ready to enable v2 by default
+fn default_dpf_deployment_name() -> String {
+    "carbide-deployment".to_string()
+}
+
+// TODO change to -v2 when we're ready to enable v2 by default
+fn default_dpf_flavor_name() -> String {
+    "carbide-dpu-flavor".to_string()
+}
+
+// TODO change to .v2 when we're ready to enable v2 by default
+fn default_dpf_node_label_key() -> String {
+    "carbide.nvidia.com/controlled.node.v1".to_string()
+}
+
+/// Configuration for a mandatory Helm-based DPF service.
+/// Making it configurable means, a user can provide the link for his version of the service (for
+/// testing/dev purpose).
+/// There are following mandatory services:
+/// dpu-agent, fmds, dhcp-server, doca-hbn, dts and otel.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfMandatoryServicesConfig {
+    #[serde(default = "crate::dpf_services::default_dts_service")]
+    pub dts: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_doca_hbn_service")]
+    pub doca_hbn: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_dpu_agent_service")]
+    pub dpu_agent: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_dhcp_server_service")]
+    pub dhcp_server: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_fmds_service")]
+    pub fmds: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_otel_service")]
+    pub otel: DpfServiceConfig,
+}
+
+impl Default for DpfMandatoryServicesConfig {
+    fn default() -> Self {
+        Self {
+            dts: crate::dpf_services::default_dts_service(),
+            doca_hbn: crate::dpf_services::default_doca_hbn_service(),
+            dpu_agent: crate::dpf_services::default_dpu_agent_service(),
+            dhcp_server: crate::dpf_services::default_dhcp_server_service(),
+            fmds: crate::dpf_services::default_fmds_service(),
+            otel: crate::dpf_services::default_otel_service(),
+        }
+    }
+}
+
+/// Configuration for a single Helm-based DPF service.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DpfServiceConfig {
+    /// Name of the Helm service.
     pub name: String,
+    /// URL of the Helm chart repository.
     pub helm_repo_url: String,
+    /// Name of the Helm chart.
     pub helm_chart: String,
+    /// Version of the Helm chart.
     pub helm_version: String,
+    /// Url for docker image
+    pub docker_repo_url: String,
+    /// Version of docker image
+    pub docker_image_tag: String,
 }
 
 /// Machine identity (SPIFFE JWT-SVID) configuration.
 /// Loaded from `[machine_identity]` section in config.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MachineIdentityConfig {
-    /// Master switch. If false, SetIdentityConfiguration and SignMachineIdentity return 503.
+    /// Master switch. If false, SetTenantIdentityConfiguration and SignMachineIdentity return 503.
     #[serde(default = "machine_identity_default_enabled")]
     pub enabled: bool,
     /// Signing algorithm for per-org keys (e.g. ES256).
     #[serde(default = "machine_identity_default_algorithm")]
-    pub algorithm: String,
+    pub algorithm: SigningAlgorithm,
     /// Min token TTL permitted in seconds.
     #[serde(default = "machine_identity_default_token_ttl_min_sec")]
     pub token_ttl_min_sec: u32,
@@ -539,13 +774,24 @@ pub struct MachineIdentityConfig {
     /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
     #[serde(default)]
     pub token_endpoint_http_proxy: Option<String>,
+    /// Key-id for encryption/decryption of signing keys (selects from secrets `machine_identity.encryption_keys`).
+    #[serde(default)]
+    pub current_encryption_key_id: Option<String>,
+    /// Trust domains allowed for tenant JWT `iss` (normalized host). Empty = allow any.
+    /// Patterns: exact hostname, `*.suffix` (one label under suffix), `**.suffix` (suffix or any subdomain).
+    #[serde(default)]
+    pub trust_domain_allowlist: Vec<String>,
+    /// Allowed DNS names for the `token_endpoint` URL host (`http://` / `https://` only). Empty = allow any.
+    /// Same pattern syntax as [`Self::trust_domain_allowlist`].
+    #[serde(default)]
+    pub token_endpoint_domain_allowlist: Vec<String>,
 }
 
 fn machine_identity_default_enabled() -> bool {
-    true
+    false
 }
-fn machine_identity_default_algorithm() -> String {
-    "ES256".to_string()
+fn machine_identity_default_algorithm() -> SigningAlgorithm {
+    SigningAlgorithm::Es256
 }
 fn machine_identity_default_token_ttl_min_sec() -> u32 {
     60
@@ -562,6 +808,9 @@ impl Default for MachineIdentityConfig {
             token_ttl_min_sec: machine_identity_default_token_ttl_min_sec(),
             token_ttl_max_sec: machine_identity_default_token_ttl_max_sec(),
             token_endpoint_http_proxy: None,
+            current_encryption_key_id: None,
+            trust_domain_allowlist: Vec::new(),
+            token_endpoint_domain_allowlist: Vec::new(),
         }
     }
 }
@@ -572,36 +821,72 @@ impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBoun
             token_ttl_min_sec: mi.token_ttl_min_sec,
             token_ttl_max_sec: mi.token_ttl_max_sec,
             algorithm: mi.algorithm,
-            encryption_key_id: "placeholder-encryption-key".to_string(),
+            encryption_key_id: mi
+                .current_encryption_key_id
+                .expect(
+                    "current_encryption_key_id is required when machine identity is enabled; \
+                     startup validation in parse_carbide_config failed",
+                )
+                .try_into()
+                .expect(
+                    "current_encryption_key_id must be non-empty when machine identity is enabled",
+                ),
+            trust_domain_allowlist: mi.trust_domain_allowlist,
         }
     }
 }
 
+impl From<MachineIdentityConfig> for model::tenant::TokenDelegationValidationBounds {
+    fn from(mi: MachineIdentityConfig) -> Self {
+        Self {
+            token_endpoint_domain_allowlist: mi.token_endpoint_domain_allowlist,
+        }
+    }
+}
+
+/// SPDM (Security Protocol and Data Model) configuration
+/// for hardware attestation of DPU components.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SpdmConfig {
+    /// Enables SPDM-based hardware attestation.
     #[serde(default)]
     pub enabled: bool,
+    /// NRAS (Network Root of trust for Attestation
+    /// Service) configuration for secure boot
+    /// verification.
     #[serde(default)]
     pub nras_config: Option<nras::Config>,
 }
 
-/// Parameters used by the Power config.
+/// Power management configuration controlling retry
+/// intervals and reboot timing.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PowerManagerOptions {
+    /// Master switch to enable or disable power
+    /// management.
     #[serde(default)]
     pub enabled: bool,
+    /// Interval before retrying power operations after
+    /// a successful attempt.
+    /// Default is 5 minutes.
     #[serde(
         default = "default_next_duration_success",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub next_try_duration_on_success: chrono::TimeDelta,
+    /// Interval before retrying power operations after
+    /// a failed attempt.
+    /// Default is 2 minutes.
     #[serde(
         default = "default_next_duration_failure",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub next_try_duration_on_failure: chrono::TimeDelta,
+    /// Time to wait after power-down before powering on
+    /// the host.
+    /// Default is 15 minutes.
     #[serde(
         default = "default_wait_duration_next_reboot",
         deserialize_with = "deserialize_duration_chrono",
@@ -610,29 +895,36 @@ pub struct PowerManagerOptions {
     pub wait_duration_until_host_reboot: chrono::TimeDelta,
 }
 
+/// A BGP route target used in FNN VRF import/export policies.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct RouteTargetConfig {
+    /// Autonomous System Number component of the route target.
     #[serde(default)]
     pub asn: u32,
+    /// Virtual Network Identifier component of the route target.
     #[serde(default)]
     pub vni: u32,
 }
 
+/// Fabric Nearest Neighbor (FNN) configuration for L3 VNI-based overlay networking.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct FnnConfig {
+    /// Optional FNN configuration for the admin network VPC.
     #[serde(default)]
     pub admin_vpc: Option<AdminFnnConfig>,
 
     /// We'll double-tag our internal tenant routes with this tag.
-    /// Original consumer is GNI, who will import a common
-    /// route-target for internal tenant routes, reducing
-    /// the coordination needed between forge and GNI,
-    /// but who knows what the future holds.
+    /// Original consumer is a Network Infrastructure team, who will
+    /// import a common route-target for internal tenant routes,
+    /// reducing the coordination needed between NICo and the Network
+    /// Infrastructure, but who knows what the future holds.
     #[serde(default)]
     pub common_internal_route_target: Option<RouteTargetConfig>,
+    /// Additional route targets to import on DPU VRFs beyond the per-VPC defaults.
     #[serde(default)]
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
 
+    /// Named routing profiles that define per-VPC route target import/export policies.
     #[serde(default)]
     pub routing_profiles: HashMap<String, FnnRoutingProfileConfig>,
 }
@@ -651,19 +943,44 @@ pub struct FnnRoutingProfileConfig {
     /// Is this an internal or external tenant/VPC profile
     #[serde(default)]
     pub internal: bool,
+
+    /// Should DPUs leak the default route from the
+    /// underlay into the tenant VRF?
+    #[serde(default)]
+    pub leak_default_route_from_underlay: bool,
+
+    /// Should DPUs leak the routes for the host IPs into
+    /// into the underlay?
+    #[serde(default)]
+    pub leak_tenant_host_routes_to_underlay: bool,
+
+    /// Are route-leak communities sent by the host OS honored by the DPU for allowing
+    /// routes advertised by the host OS to be leaked into the underlay?
+    #[serde(default)]
+    pub tenant_leak_communities_accepted: bool,
+
+    /// Currently controls which profiles a tenant can use
+    /// when creating VPCs.  Lower value means broader access.
+    /// A tenant can create a VPC with a routing profile of the same or broader access.
+    ///
+    /// Example:
+    /// - ADMIN is access tier 0.
+    /// - INTERNAL is access tier 1.
+    /// - A tenant with ADMIN could create ADMIN VPCs and INTERNAL VPCs.
+    /// - A tenant with INTERNAL could only create INTERNAL VPCs.
+    #[serde(default)]
+    pub access_tier: u32,
 }
 
+/// FNN configuration specific to the admin network.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct AdminFnnConfig {
-    // if FNN should be applicable on admin network as well.
+    /// Whether FNN should be applied to the admin network as well.
     pub enabled: bool,
 
+    /// VNI for the admin network VPC. When enabled, will create a VPC with this VNI
+    /// and attach it to the admin network segment. Panics if a conflicting VPC/segment exists.
     #[serde(default)]
-    // if enabled_on_admin_network is true, carbide will try to
-    //   1. Create a VPC with the given vni.
-    //   2. Attach this VPC to network_segment table with segment type `admin`.
-    // if a vpc with exiting vni exists and network_segment table has this vpc attached to admin
-    // segment, do nothing else throw a error and panic.
     pub vpc_vni: Option<u32>,
 
     /// The inline definition for the routing config to use for the admin network.
@@ -682,25 +999,11 @@ impl CarbideConfig {
         config
     }
     pub fn get_firmware_config(&self) -> FirmwareConfig {
-        let mut base_map: HashMap<String, Firmware> = Default::default();
-        for (_, host) in self.host_models.iter() {
-            base_map.insert(vendor_model_to_key(host.vendor, &host.model), host.clone());
-        }
-        for (_, dpu) in self.dpu_config.dpu_models.iter() {
-            base_map.insert(
-                vendor_model_to_key(
-                    dpu.vendor,
-                    &DpuModel::from(dpu.model.to_owned()).to_string(),
-                ),
-                dpu.clone(),
-            );
-        }
-        FirmwareConfig {
-            base_map,
-            firmware_directory: self.firmware_global.firmware_directory.clone(),
-            #[cfg(test)]
-            test_overrides: vec![],
-        }
+        FirmwareConfig::new(
+            self.firmware_global.firmware_directory.clone(),
+            &self.host_models,
+            &self.dpu_config.dpu_models,
+        )
     }
 
     /// validate_supernic_firmware_profiles checks that each profile's inner
@@ -821,6 +1124,27 @@ impl CarbideConfig {
             .filter(|conf| conf.enabled)
             .map(|conf| conf.mqtt_broker_port)
     }
+
+    /// Returns preingestion manager config.
+    pub fn preingestion_manager(&self) -> PreingestionManagerConfig {
+        PreingestionManagerConfig {
+            run_interval: self
+                .firmware_global
+                .run_interval
+                .to_std()
+                .unwrap_or(std::time::Duration::from_secs(30)),
+            concurrency_limit: self.firmware_global.concurrency_limit,
+            hgx_bmc_gpu_reboot_delay: self
+                .firmware_global
+                .hgx_bmc_gpu_reboot_delay
+                .to_std()
+                .unwrap_or(std::time::Duration::from_secs(30)),
+            max_concurrent_bfb_copies: self.firmware_global.max_concurrent_bfb_copies,
+            autoupdate: self.firmware_global.autoupdate,
+            no_reset_retries: self.firmware_global.no_reset_retries,
+            firmware: self.get_firmware_config(),
+        }
+    }
 }
 
 pub struct MaxConcurrentUpdates {
@@ -847,25 +1171,6 @@ impl MaxConcurrentUpdates {
             Some(count as i32)
         }
     }
-}
-
-fn vendor_model_to_key(vendor: bmc_vendor::BMCVendor, model: &str) -> String {
-    format!("{vendor}:{}", model.to_lowercase())
-}
-
-/// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
-fn as_duration<S>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&format!("{}s", d.num_seconds()))
-}
-
-fn as_std_duration<S>(d: &std::time::Duration, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&format!("{}s", d.as_secs()))
 }
 
 /// MachineStateController related config.
@@ -1178,36 +1483,44 @@ impl From<&StateControllerConfig> for IterationConfig {
     }
 }
 
-/// IBFabricManager related configuration
+/// InfiniBand fabric manager configuration.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct IBFabricConfig {
+    /// Maximum InfiniBand partitions per tenant (1-31).
     #[serde(
         default = "IBFabricConfig::default_max_partition_per_tenant",
         deserialize_with = "IBFabricConfig::deserialize_max_partition"
     )]
     pub max_partition_per_tenant: i32,
 
+    /// Enables InfiniBand fabric management.
     #[serde(default)]
-    /// Enable IB fabric
     pub enabled: bool,
 
-    /// Whether a fabric configuration that does not adhere to security requirements
-    /// for tenant isolation and infrastructure protection is allowed
+    /// Whether a fabric configuration that does not
+    /// adhere to security requirements for tenant
+    /// isolation and infrastructure protection is
+    /// allowed.
     #[serde(default)]
     pub allow_insecure: bool,
 
+    /// Maximum transmission unit for InfiniBand fabric
+    /// traffic.
     #[serde(
         default = "IBMtu::default",
         deserialize_with = "IBFabricConfig::deserialize_mtu"
     )]
     pub mtu: IBMtu,
 
+    /// Rate limit for InfiniBand fabric traffic.
     #[serde(
         default = "IBRateLimit::default",
         deserialize_with = "IBFabricConfig::deserialize_rate_limit"
     )]
     pub rate_limit: IBRateLimit,
 
+    /// Quality of service level for InfiniBand
+    /// packets.
     #[serde(
         default = "IBServiceLevel::default",
         deserialize_with = "IBFabricConfig::deserialize_service_level"
@@ -1287,337 +1600,6 @@ impl IBFabricConfig {
     }
 }
 
-/// NvLink related configuration
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct NvLinkConfig {
-    #[serde(default)]
-    /// Enable NvLink Partitioning
-    pub enabled: bool,
-
-    /// Defaults to 1 Minute if not specified.
-    #[serde(
-        default = "NvLinkConfig::default_monitor_run_interval",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub monitor_run_interval: std::time::Duration,
-
-    /// Timeout for pending NMX-M operations. Defaults to 10 seconds if not specified.
-    #[serde(
-        default = "NvLinkConfig::default_nmx_m_operation_timeout",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub nmx_m_operation_timeout: std::time::Duration,
-
-    /// NMX-M endpoint (name or IP address) used to create client connections,
-    /// include port number as well if required eg. https://127.0.0.1:4010
-    #[serde(default = "default_nmx_m_endpoint")]
-    pub nmx_m_endpoint: String,
-    /// Set to true if NMX-M doesn't adhere to security requirements. Defaults to false
-    pub allow_insecure: bool,
-}
-
-fn default_nmx_m_endpoint() -> String {
-    "localhost".to_string()
-}
-
-impl Default for NvLinkConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            monitor_run_interval: Self::default_monitor_run_interval(),
-            nmx_m_operation_timeout: Self::default_nmx_m_operation_timeout(),
-            nmx_m_endpoint: "localhost".to_string(),
-            allow_insecure: false,
-        }
-    }
-}
-
-impl NvLinkConfig {
-    pub const fn default_monitor_run_interval() -> std::time::Duration {
-        std::time::Duration::from_secs(60)
-    }
-    pub const fn default_nmx_m_operation_timeout() -> std::time::Duration {
-        std::time::Duration::from_secs(10)
-    }
-}
-
-/// SiteExplorer related configuration
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SiteExplorerConfig {
-    #[serde(default = "default_to_true")]
-    /// Whether SiteExplorer is enabled
-    pub enabled: bool,
-    /// The interval at which site explorer runs.
-    /// Defaults to 5 Minutes if not specified.
-    #[serde(
-        default = "SiteExplorerConfig::default_run_interval",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub run_interval: std::time::Duration,
-    /// The maximum amount of nodes that are explored concurrently.
-    /// Default is 5.
-    #[serde(default = "SiteExplorerConfig::default_concurrent_explorations")]
-    pub concurrent_explorations: u64,
-    /// How many nodes should be explored in a single run.
-    /// Default is 10.
-    /// This number divided by `concurrent_explorations` will determine how many
-    /// exploration batches are needed inside a run.
-    /// If the value is set too high the site exploration will take a lot of time
-    /// and the exploration report will be updated less frequent. Therefore it
-    /// is recommended to reduce `run_interval` instead of increasing
-    /// `explorations_per_run`.
-    #[serde(default = "SiteExplorerConfig::default_explorations_per_run")]
-    pub explorations_per_run: u64,
-
-    /// Whether SiteExplorer should create Managed Host state machine
-    #[serde(
-        default = "SiteExplorerConfig::default_create_machines",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub create_machines: Arc<AtomicBool>,
-
-    #[serde(default = "SiteExplorerConfig::default_machines_created_per_run")]
-    /// How many ManagedHosts should be created in a single run.
-    /// Default is 1.
-    pub machines_created_per_run: u64,
-
-    /// Whether SiteExplorer should rotate/update Switch NVOS admin credentials
-    #[serde(
-        default = "SiteExplorerConfig::default_rotate_switch_nvos_credentials",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub rotate_switch_nvos_credentials: Arc<AtomicBool>,
-
-    /// DEPRECATED: Use `bmc_proxy` instead.
-    /// The IP address to connect to instead of the BMC that made the dhcp request.
-    /// This is a debug override and should not be used in production.
-    pub override_target_ip: Option<String>,
-
-    /// DEPRECATED: Use `bmc_proxy` instead.
-    /// The port to connect to for redfish requests.
-    /// This is a debug override and should not be used in production.
-    pub override_target_port: Option<u16>,
-
-    #[serde(default)]
-    /// Whether to allow hosts with zero DPUs in site-explorer. This should typically be set to
-    /// false in production environments where we expect all hosts to have DPUs. When false, if we
-    /// encounter a host with no DPUs, site-explorer will throw an error for that host (because it
-    /// should be assumed that there's a bug in detecting the DPUs.)
-    pub allow_zero_dpu_hosts: bool,
-
-    #[serde(
-        default,
-        deserialize_with = "deserialize_bmc_proxy",
-        serialize_with = "serialize_bmc_proxy"
-    )]
-    /// The host:port to use as a proxy when making BMC calls to all hosts in carbide. This is used
-    /// for integration testing, and for local development with machine-a-tron/bmc-mock. Should not
-    /// be used in production.
-    pub bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
-
-    #[serde(default)]
-    /// If set to `true`, the server will allow changes to the `bmc_proxy` setting at runtime. This
-    /// will be default to true if the server is launched with bmc_proxy set:
-    /// - If the value is not set, but the server is launched with bmc_proxy, override_target_ip, or
-    ///   override_target_port set, it will be assumed true (ie. if bmc_proxy can be reconfigured if
-    ///   it was initially configured)
-    /// - If the value is not set, and the server is launched without bmc_proxy, override_target_ip,
-    ///   or override_target_port set, it will be assumed false (ie. changes to bmc_proxy will not
-    ///   be allowed if the config has not opted in)
-    /// - If the value is set to true or false, it will be respected through the lifetime of the
-    ///   process.
-    pub allow_changing_bmc_proxy: Option<bool>,
-
-    #[serde(
-        default = "SiteExplorerConfig::default_reset_rate_limit",
-        deserialize_with = "deserialize_duration_chrono",
-        serialize_with = "as_duration"
-    )]
-    /// Represents the minimum amount of time in between consecutive force-restarts or bmc-resets
-    /// initiated by SiteExplorer.
-    /// Default is 1 hour.
-    pub reset_rate_limit: Duration,
-
-    #[serde(
-        default = "SiteExplorerConfig::default_admin_segment_type_non_dpu",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub admin_segment_type_non_dpu: Arc<AtomicBool>,
-
-    /// Whether site-controller should allocate a secondary
-    /// VTEP IP or leave that to discovery.
-    /// Current secondary VTEP use-case is additional
-    /// VTEP IPs for GENEVE VTEPS (GTEPS) used by traffic-intercept users.
-    ///  Only sites expected to support
-    /// additional VTEPS would turn this on.
-    #[serde(default)]
-    pub allocate_secondary_vtep_ip: bool,
-
-    /// Whether SiteExplorer should create Power Shelf state machine
-    #[serde(
-        default = "SiteExplorerConfig::default_create_power_shelves",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub create_power_shelves: Arc<AtomicBool>,
-
-    /// Whether SiteExplorer should create Power Shelf state machine from static IP
-    #[serde(
-        default = "SiteExplorerConfig::default_explore_power_shelves_from_static_ip",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub explore_power_shelves_from_static_ip: Arc<AtomicBool>,
-
-    #[serde(default = "SiteExplorerConfig::default_power_shelves_created_per_run")]
-    /// How many Power Shelves should be created in a single run.
-    /// Default is 1.
-    pub power_shelves_created_per_run: u64,
-
-    /// Whether SiteExplorer should create Switch state machine
-    #[serde(
-        default = "SiteExplorerConfig::default_create_switches",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub create_switches: Arc<AtomicBool>,
-
-    #[serde(default = "SiteExplorerConfig::default_switches_created_per_run")]
-    /// How many Switches should be created in a single run.
-    /// Default is 9.
-    pub switches_created_per_run: u64,
-
-    #[serde(
-        default = "SiteExplorerConfig::default_use_onboard_nic",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub use_onboard_nic: Arc<AtomicBool>,
-    #[serde(default = "SiteExplorerConfig::default_explore_mode")]
-    /// What type of exploration to be used.
-    pub explore_mode: SiteExplorerExploreMode,
-}
-
-impl Default for SiteExplorerConfig {
-    fn default() -> Self {
-        SiteExplorerConfig {
-            enabled: true,
-            run_interval: Self::default_run_interval(),
-            concurrent_explorations: Self::default_concurrent_explorations(),
-            explorations_per_run: Self::default_explorations_per_run(),
-            create_machines: Arc::new(true.into()),
-            machines_created_per_run: Self::default_machines_created_per_run(),
-            override_target_ip: None,
-            override_target_port: None,
-            allow_zero_dpu_hosts: false,
-            bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
-            allow_changing_bmc_proxy: None,
-            reset_rate_limit: Self::default_reset_rate_limit(),
-            admin_segment_type_non_dpu: Self::default_admin_segment_type_non_dpu(),
-            allocate_secondary_vtep_ip: false,
-            create_power_shelves: Arc::new(true.into()),
-            explore_power_shelves_from_static_ip: Arc::new(true.into()),
-            power_shelves_created_per_run: Self::default_power_shelves_created_per_run(),
-            create_switches: Arc::new(true.into()),
-            switches_created_per_run: Self::default_switches_created_per_run(),
-            rotate_switch_nvos_credentials: Self::default_rotate_switch_nvos_credentials(),
-            use_onboard_nic: Arc::new(false.into()),
-            explore_mode: Self::default_explore_mode(),
-        }
-    }
-}
-
-impl PartialEq for SiteExplorerConfig {
-    fn eq(&self, other: &SiteExplorerConfig) -> bool {
-        self.enabled == other.enabled
-            && self.run_interval == other.run_interval
-            && self.concurrent_explorations == other.concurrent_explorations
-            && self.explorations_per_run == other.explorations_per_run
-            && self.create_machines.load(AtomicOrdering::Relaxed)
-                == other.create_machines.load(AtomicOrdering::Relaxed)
-            && self.override_target_ip == other.override_target_ip
-            && self.override_target_port == other.override_target_port
-    }
-}
-
-impl SiteExplorerConfig {
-    pub const fn default_run_interval() -> std::time::Duration {
-        std::time::Duration::from_secs(120)
-    }
-
-    pub fn default_create_machines() -> Arc<AtomicBool> {
-        Arc::new(true.into())
-    }
-
-    pub const fn default_concurrent_explorations() -> u64 {
-        30
-    }
-
-    pub const fn default_explorations_per_run() -> u64 {
-        90
-    }
-
-    pub const fn default_machines_created_per_run() -> u64 {
-        4
-    }
-
-    pub fn default_rotate_switch_nvos_credentials() -> Arc<AtomicBool> {
-        Arc::new(false.into())
-    }
-
-    pub const fn default_reset_rate_limit() -> Duration {
-        Duration::hours(1)
-    }
-
-    pub fn default_admin_segment_type_non_dpu() -> Arc<AtomicBool> {
-        Arc::new(false.into())
-    }
-
-    pub fn default_create_power_shelves() -> Arc<AtomicBool> {
-        Arc::new(false.into())
-    }
-
-    pub fn default_explore_power_shelves_from_static_ip() -> Arc<AtomicBool> {
-        Arc::new(false.into())
-    }
-
-    pub const fn default_power_shelves_created_per_run() -> u64 {
-        1
-    }
-
-    pub fn default_create_switches() -> Arc<AtomicBool> {
-        Arc::new(false.into())
-    }
-
-    pub const fn default_switches_created_per_run() -> u64 {
-        9
-    }
-
-    pub fn default_use_onboard_nic() -> Arc<AtomicBool> {
-        Arc::new(false.into())
-    }
-
-    pub const fn default_explore_mode() -> SiteExplorerExploreMode {
-        SiteExplorerExploreMode::LibRedfish
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub enum SiteExplorerExploreMode {
-    #[serde(rename = "libredfish")]
-    LibRedfish,
-    #[serde(rename = "nv-redfish")]
-    NvRedfish,
-    #[serde(rename = "compare-result")]
-    CompareResult,
-}
-
 impl DpaConfig {
     pub const fn default_hb_interval() -> chrono::Duration {
         Duration::minutes(2)
@@ -1642,66 +1624,39 @@ impl Default for DpaConfig {
     }
 }
 
-pub fn deserialize_arc_atomic_bool<'de, D>(deserializer: D) -> Result<Arc<AtomicBool>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let b = bool::deserialize(deserializer)?;
-    Ok(Arc::new(b.into()))
-}
-
-pub fn serialize_arc_atomic_bool<S>(cm: &Arc<AtomicBool>, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    s.serialize_bool(cm.load(AtomicOrdering::Relaxed))
-}
-
-pub fn deserialize_bmc_proxy<'de, D>(
-    deserializer: D,
-) -> Result<Arc<ArcSwap<Option<HostPortPair>>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let p = Option::deserialize(deserializer)?;
-    Ok(Arc::new(ArcSwap::new(Arc::new(p))))
-}
-
-pub fn serialize_bmc_proxy<S>(
-    val: &Arc<ArcSwap<Option<HostPortPair>>>,
-    s: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    if let Some(val) = val.load().deref().deref() {
-        s.serialize_str(val.to_string().as_str())
-    } else {
-        s.serialize_none()
-    }
-}
-
-/// TLS related configuration
+/// TLS certificate and key configuration for securing
+/// gRPC and HTTP connections.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TlsConfig {
+    /// Path to the root CA certificate file for
+    /// validating client certificates.
     #[serde(default)]
     pub root_cafile_path: String,
 
+    /// Path to the server identity certificate PEM
+    /// file.
     #[serde(default)]
     pub identity_pemfile_path: String,
 
+    /// Path to the server identity private key file.
     #[serde(default)]
     pub identity_keyfile_path: String,
 
+    /// Path to the admin root CA certificate file for
+    /// admin client validation.
     #[serde(default)]
     pub admin_root_cafile_path: String,
 }
 
+/// The transport protocol mode for the gRPC API server.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ListenMode {
+    /// Plaintext HTTP/1.1 (no TLS).
     PlaintextHttp1,
+    /// Plaintext HTTP/2 (no TLS).
     PlaintextHttp2,
+    /// TLS-encrypted connections (default).
     #[serde(other)]
     #[default]
     Tls,
@@ -1716,45 +1671,11 @@ pub struct AuthConfig {
     /// The Casbin policy file (in CSV format).
     pub casbin_policy_file: Option<PathBuf>,
 
-    /// Additional forge-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
+    /// Additional nico-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
     pub cli_certs: Option<AllowedCertCriteria>,
 
     /// Configuration for the root of trust for client cert auth
     pub trust: Option<TrustConfig>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TrustConfig {
-    /// The SPIFFE trust domain which client certs must adhere to
-    pub spiffe_trust_domain: String,
-    /// Allowed base paths for valid client cert spiffe:// URIs for services
-    pub spiffe_service_base_paths: Vec<String>,
-    /// Allowed base path for client cert spiffe:// URIs for machines
-    pub spiffe_machine_base_path: String,
-    /// Additional issuer CN's to trust other than the SPIFFE issuer, useful for external user certs.
-    pub additional_issuer_cns: Vec<String>,
-}
-
-#[derive(Eq, PartialEq, Hash, Clone, Debug, Deserialize, Serialize)]
-pub enum CertComponent {
-    IssuerO,
-    IssuerOU,
-    IssuerCN,
-    SubjectO,
-    SubjectOU,
-    SubjectCN,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct AllowedCertCriteria {
-    /// These components of the cert must equal the given values to be approved
-    pub required_equals: HashMap<CertComponent, String>,
-    /// Use this cert component to specify the group it should be reported as
-    pub group_from: Option<CertComponent>,
-    /// Use this cert component to pick the username
-    pub username_from: Option<CertComponent>,
-    /// If not using username_from, specify the username used for all certs of this type
-    pub username: Option<String>,
 }
 
 fn default_listen() -> SocketAddr {
@@ -1763,6 +1684,30 @@ fn default_listen() -> SocketAddr {
 
 fn default_max_database_connections() -> u32 {
     1000
+}
+
+fn default_rms_enforce_tls() -> bool {
+    true
+}
+
+/// Rack Manager Service (RMS) configuration for API connectivity and mTLS.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct RmsConfig {
+    /// URL of the RMS API for rack-level firmware upgrades and power sequencing.
+    pub api_url: Option<String>,
+
+    /// Path to the root CA certificate for TLS verification when connecting to RMS.
+    pub root_ca_path: Option<String>,
+
+    /// Path to the client certificate PEM for mTLS with RMS.
+    pub client_cert: Option<String>,
+
+    /// Path to the client private key PEM for mTLS with RMS.
+    pub client_key: Option<String>,
+
+    /// Enforce TLS when connecting to RMS. Defaults to true.
+    #[serde(default = "default_rms_enforce_tls")]
+    pub enforce_tls: bool,
 }
 
 /// DpuConfig related internal configuration
@@ -1998,44 +1943,76 @@ impl Default for NetworkSecurityGroupConfig {
     }
 }
 
+/// Global firmware management settings controlling
+/// update policies, concurrency, and retry behavior.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct FirmwareGlobal {
+    /// Enables automatic host firmware updates via the
+    /// background firmware manager.
     #[serde(default)]
     pub autoupdate: bool,
+    /// Host model names to force-enable autoupdate on,
+    /// regardless of the global `autoupdate` setting.
     #[serde(default)]
     pub host_enable_autoupdate: Vec<String>,
+    /// Host model names to force-disable autoupdate on,
+    /// regardless of the global `autoupdate` setting.
     #[serde(default)]
     pub host_disable_autoupdate: Vec<String>,
+    /// Frequency at which the firmware manager checks for
+    /// and applies updates.
+    /// Default is 30 seconds.
     #[serde(
         default = "FirmwareGlobal::run_interval_default",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub run_interval: Duration,
+    /// Maximum concurrent firmware uploads allowed.
+    /// Default is 4.
     #[serde(default = "FirmwareGlobal::max_uploads_default")]
     pub max_uploads: usize,
+    /// Maximum concurrent firmware flashing operations
+    /// across all machines.
+    /// Default is 16.
     #[serde(default = "FirmwareGlobal::concurrency_limit_default")]
     pub concurrency_limit: usize,
+    /// Local directory where firmware binaries are stored.
+    /// Default is `/opt/carbide/firmware`.
     #[serde(default = "FirmwareGlobal::firmware_directory_default")]
     pub firmware_directory: PathBuf,
+    /// Delay before retrying a failed host firmware
+    /// upgrade.
+    /// Default is 60 minutes.
     #[serde(
         default = "FirmwareGlobal::host_firmware_upgrade_retry_interval_default",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub host_firmware_upgrade_retry_interval: Duration,
+    /// Requires manual tagging of instances before
+    /// firmware updates are applied.
     #[serde(default = "FirmwareGlobal::instance_updates_manual_tagging_default")]
     pub instance_updates_manual_tagging: bool,
+    /// Disables retry logic after BMC resets during
+    /// firmware operations.
     #[serde(default)]
     pub no_reset_retries: bool,
+    /// Delay after GPU reboot before the HGX BMC can be
+    /// accessed again.
+    /// Default is 30 seconds.
     #[serde(
         default = "FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub hgx_bmc_gpu_reboot_delay: Duration,
+    /// Forces all firmware upgrades to require explicit
+    /// administrator approval.
     #[serde(default)]
     pub requires_manual_upgrade: bool,
+    #[serde(default = "FirmwareGlobal::max_concurrent_bfb_copies_default")]
+    pub max_concurrent_bfb_copies: usize,
 }
 
 impl FirmwareGlobal {
@@ -2054,6 +2031,7 @@ impl FirmwareGlobal {
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
             requires_manual_upgrade: false,
+            max_concurrent_bfb_copies: FirmwareGlobal::max_concurrent_bfb_copies_default(),
         }
     }
 
@@ -2063,8 +2041,12 @@ impl FirmwareGlobal {
     }
 }
 
+/// Configuration for rolling machine updates and
+/// maintenance windows.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct MachineUpdater {
+    /// Time window during which machines may automatically
+    /// reboot for updates.
     #[serde(default)]
     pub instance_autoreboot_period: Option<TimePeriod>,
     /// The maximum number of machines that have in-progress updates running.  This prevents
@@ -2075,9 +2057,12 @@ pub struct MachineUpdater {
     pub max_concurrent_machine_updates_percent: Option<i32>,
 }
 
+/// A UTC time window defined by a start and end timestamp.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct TimePeriod {
+    /// Start of the time window (UTC).
     pub start: chrono::DateTime<chrono::Utc>,
+    /// End of the time window (UTC).
     pub end: chrono::DateTime<chrono::Utc>,
 }
 
@@ -2103,6 +2088,9 @@ impl FirmwareGlobal {
     pub fn hgx_bmc_gpu_reboot_delay_default() -> Duration {
         Duration::seconds(30)
     }
+    pub fn max_concurrent_bfb_copies_default() -> usize {
+        10
+    }
 }
 
 impl Default for FirmwareGlobal {
@@ -2121,179 +2109,8 @@ impl Default for FirmwareGlobal {
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
             requires_manual_upgrade: false,
+            max_concurrent_bfb_copies: FirmwareGlobal::max_concurrent_bfb_copies_default(),
         }
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct FirmwareConfig {
-    base_map: HashMap<String, Firmware>,
-    firmware_directory: PathBuf,
-    #[cfg(test)]
-    test_overrides: Vec<String>,
-}
-
-impl FirmwareConfig {
-    pub fn find(&self, vendor: bmc_vendor::BMCVendor, model: &str) -> Option<Firmware> {
-        let dpu_model = DpuModel::from(model);
-        let key = if dpu_model != DpuModel::Unknown {
-            vendor_model_to_key(vendor, &dpu_model.to_string())
-        } else {
-            vendor_model_to_key(vendor, model)
-        };
-        let ret = self.map().get(&key).map(|x| x.to_owned());
-        tracing::debug!("FirmwareConfig::find: key {key} found {ret:?}");
-        ret
-    }
-
-    /// find_fw_info_for_host looks up the firmware config for the given endpoint
-    pub fn find_fw_info_for_host(&self, endpoint: &ExploredEndpoint) -> Option<Firmware> {
-        self.find_fw_info_for_host_report(&endpoint.report)
-    }
-
-    /// find_fw_info_for_host_report looks up the firmware config for the given endpoint report
-    pub fn find_fw_info_for_host_report(
-        &self,
-        report: &EndpointExplorationReport,
-    ) -> Option<Firmware> {
-        report.vendor.and_then(|vendor| {
-            // Use report.model if it is already filled or use model()
-            // function to extract model from the report.
-            report
-                .model
-                .as_ref()
-                .and_then(|model| self.find(vendor, model))
-                .or_else(|| report.model().and_then(|model| self.find(vendor, &model)))
-        })
-    }
-
-    pub fn map(&self) -> HashMap<String, Firmware> {
-        let mut map = self.base_map.clone();
-        if self.firmware_directory.to_string_lossy() != "" {
-            self.merge_firmware_configs(&mut map, &self.firmware_directory);
-        }
-
-        #[cfg(test)]
-        {
-            // Fake configs to merge for unit tests
-            for ovrd in &self.test_overrides {
-                if let Err(err) = self.merge_from_string(&mut map, ovrd.clone()) {
-                    tracing::error!("Bad override {ovrd}: {err}");
-                }
-            }
-        }
-
-        map
-    }
-
-    pub fn config_update_time(&self) -> Option<std::time::SystemTime> {
-        if self.firmware_directory.to_string_lossy() == "" {
-            return None;
-        }
-
-        let metadata = std::fs::metadata(self.firmware_directory.clone()).ok()?;
-
-        metadata.modified().ok()
-    }
-
-    fn merge_firmware_configs(
-        &self,
-        map: &mut HashMap<String, Firmware>,
-        firmware_directory: &PathBuf,
-    ) {
-        if !firmware_directory.is_dir() {
-            tracing::error!("Missing firmware directory {:?}", firmware_directory);
-            return;
-        }
-
-        for dir in subdirectories_sorted_by_modification_date(firmware_directory) {
-            if dir
-                .path()
-                .file_name()
-                .unwrap_or(OsStr::new("."))
-                .to_string_lossy()
-                .starts_with(".")
-            {
-                continue;
-            }
-            let metadata_path = dir.path().join("metadata.toml");
-            let metadata = match fs::read_to_string(metadata_path.clone()) {
-                Ok(str) => str,
-                Err(e) => {
-                    tracing::error!("Could not read {metadata_path:?}: {e}");
-                    continue;
-                }
-            };
-            if let Err(e) = self.merge_from_string(map, metadata) {
-                tracing::error!("Failed to merge in metadata from {:?}: {e}", dir.path());
-            }
-        }
-    }
-
-    /// merge_from_string adds the given TOML based config to this Firmware.  Figment based merging won't work for this,
-    /// as we want to append new FirmwareEntry instances instead of overwriting.  It is expected that this will be called
-    /// on the metadata in order of oldest creation time to newest.
-    fn merge_from_string(
-        &self,
-        map: &mut HashMap<String, Firmware>,
-        config_str: String,
-    ) -> eyre::Result<()> {
-        let cfg: Firmware = toml::from_str(config_str.as_str())?;
-        let key = vendor_model_to_key(cfg.vendor, &cfg.model);
-
-        let Some(cur_model) = map.get_mut(&key) else {
-            // We haven't seen this model before, so use this as given.
-            map.insert(key, cfg);
-            return Ok(());
-        };
-
-        if !cfg.ordering.is_empty() {
-            // Newer ordering definitions take precedence.  For now we don't consider this at a specific version level.
-            cur_model.ordering = cfg.ordering
-        }
-
-        // if explicit_start_needed is true, it should take precedence. We shouldn't be doing automatic upgrades.
-        if cfg.explicit_start_needed {
-            cur_model.explicit_start_needed = true;
-        }
-
-        for (new_type, new_component) in cfg.components {
-            if let Some(cur_component) = cur_model.components.get_mut(&new_type) {
-                // The simple fields from the newer version should be used if specified
-                if new_component.current_version_reported_as.is_some() {
-                    cur_component.current_version_reported_as =
-                        new_component.current_version_reported_as;
-                }
-                if new_component.preingest_upgrade_when_below.is_some() {
-                    cur_component.preingest_upgrade_when_below =
-                        new_component.preingest_upgrade_when_below;
-                }
-                if new_component.known_firmware.iter().any(|x| x.default) {
-                    // The newer one lists a default, remove default from the old.
-                    cur_component.known_firmware = cur_component
-                        .known_firmware
-                        .iter()
-                        .map(|x| {
-                            let mut x = x.clone();
-                            x.default = false;
-                            x
-                        })
-                        .collect();
-                }
-                cur_component
-                    .known_firmware
-                    .extend(new_component.known_firmware.iter().cloned());
-            } else {
-                // Nothing for this component
-                cur_model.components.insert(new_type, new_component);
-            }
-        }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn add_test_override(&mut self, ovrd: String) {
-        self.test_overrides.push(ovrd);
     }
 }
 
@@ -2306,15 +2123,19 @@ pub fn default_max_network_security_group_size() -> u32 {
 }
 
 pub fn default_internet_l3_vni() -> u32 {
-    // This is a number agreed upon between GNI and Forge
-    // that they will use to tag the default route.
+    // This is a number agreed upon between the Network
+    // Infrastructure team and NICo that they will use to
+    // tag the default route.
+    //
     // It will be combined with datacenter_asn to form
     // a route-target of <DC_ASN>:<INTERNET_VNI>.
     100001
 }
 
 pub fn default_datacenter_asn() -> u32 {
-    // This is a number previously provided by GNI.
+    // This is a number previously provided by the Network
+    // Infrastructure team.
+    //
     // It represents a "global" (i.e., non-DC-specific)
     // identifier.  It's used in pre-FNN sites and in FNN
     // on DPU routes, but we'll transition away from that.
@@ -2346,17 +2167,22 @@ pub fn default_to_true() -> bool {
     true
 }
 
-/// MeasuredBootMetricsCollectorConfig related configuration
+fn default_tenant_routing_profile() -> String {
+    "EXTERNAL".to_string()
+}
+
+/// Configuration for the measured boot metrics collector,
+/// which exports TPM-based boot measurement data as
+/// Prometheus metrics.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct MeasuredBootMetricsCollectorConfig {
+    /// Enables the measured boot metrics monitor. When
+    /// disabled, measured boot metrics are not exported.
     #[serde(default)]
-    /// enabled controls whether the measured boot metrics
-    /// monitor is enabled. When disabled, measured boot metrics
-    /// won't be exported.
     pub enabled: bool,
-    /// run_interval is the interval at which the monitor polls
-    /// for the latest data, in seconds.
-    /// Defaults to 60 if not specified.
+    /// Interval at which the monitor polls for the latest
+    /// measured boot data.
+    /// Default is 60 seconds.
     #[serde(
         default = "MeasuredBootMetricsCollectorConfig::default_run_interval",
         deserialize_with = "deserialize_duration",
@@ -2395,22 +2221,33 @@ pub struct IbFabricDefinition {
     pub pkeys: Vec<model::resource_pool::define::Range>,
 }
 
+/// Controls which machine validation tests are active.
 #[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum MachineValidationTestSelectionMode {
+    /// Only update tests in DB that are specified in the
+    /// `tests` config list.
     #[default]
-    Default, // only update tests in DB that are specified in tests config
-    EnableAll, // Enables all tests in DB, but allows config overrides specified in tests config
-    DisableAll, // Disables all tests in DB, but allows config overrides specified in tests config
+    Default,
+    /// Enable all tests in DB, but allow per-test overrides
+    /// from the `tests` config list.
+    EnableAll,
+    /// Disable all tests in DB, but allow per-test overrides
+    /// from the `tests` config list.
+    DisableAll,
 }
 
+/// Configuration for machine validation tests (memory
+/// latency, SSD I/O, etc.) run after ingestion to verify
+/// hardware health.
 #[derive(Default, Clone, Debug, Deserialize, Serialize)]
 pub struct MachineValidationConfig {
+    /// Enables machine validation testing.
     #[serde(default)]
-    /// Whether MachineValidation is enabled
     pub enabled: bool,
 
+    /// Controls whether to run all tests, no tests, or use
+    /// per-test configuration.
     #[serde(default)]
-    /// Controls whether to run all tests, no tests, or use per-test configuration
     pub test_selection_mode: MachineValidationTestSelectionMode,
 
     #[serde(
@@ -2420,24 +2257,58 @@ pub struct MachineValidationConfig {
     )]
     pub run_interval: std::time::Duration,
 
+    /// Per-test enable/disable overrides.
     #[serde(default)]
-    /// Test specific config
     pub tests: Vec<MachineValidationTestConfig>,
 }
 
-/// Test specific config.
+/// Per-test override for machine validation.
+///
 /// Example:
+/// ```toml
 /// tests = [
-///    { id = "forge_MmMemLatency", enable = true },
-///    { id = "forge_FioSSD", enable = true }
+///    { id = "MmMemLatency", enable = true },
+///    { id = "FioSSD", enable = true }
 /// ]
+/// ```
 #[derive(Default, Clone, Debug, Deserialize, Serialize)]
 pub struct MachineValidationTestConfig {
+    /// Unique test identifier (e.g., "MmMemLatency").
     pub id: String,
+    /// Whether this test is enabled.
     pub enable: bool,
 }
 
 impl MachineValidationConfig {
+    const fn default_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+}
+
+/// Configuration for rack-level validation (partition-based
+/// multi-node tests run after firmware upgrade / maintenance).
+///
+/// Example:
+/// ```toml
+/// [rack_validation_config]
+/// enabled = true
+/// run_interval = "60s"
+/// ```
+#[derive(Default, Clone, Debug, Deserialize, Serialize)]
+pub struct RackValidationConfig {
+    /// Enables rack validation testing.
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(
+        default = "RackValidationConfig::default_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval: std::time::Duration,
+}
+
+impl RackValidationConfig {
     const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
     }
@@ -2484,6 +2355,7 @@ impl From<VpcIsolationBehaviorType> for rpc::forge::VpcIsolationBehaviorType {
     }
 }
 
+#[allow(deprecated)] // nvue_enabled proto field is deprecated but still set for backwards compat
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -2534,7 +2406,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .max_concurrent_machine_updates_absolute
                 .unwrap_or_default(),
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
-            nvue_enabled: value.nvue_enabled,
+            nvue_enabled: true,
             attestation_enabled: value.attestation_enabled,
             auto_host_firmware_update: value.firmware_global.autoupdate,
             host_enable_autoupdate: value.firmware_global.host_enable_autoupdate,
@@ -2542,6 +2414,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             max_find_by_ids: value.max_find_by_ids,
             dpu_network_pinger_type: value.dpu_network_monitor_pinger_type,
             machine_validation_enabled: value.machine_validation_config.enabled,
+            rack_validation_enabled: value.rack_validation_config.enabled,
             bom_validation_enabled: value.bom_validation.enabled,
             bom_validation_ignore_unassigned_machines: value
                 .bom_validation
@@ -2583,34 +2456,6 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     }
 }
 
-fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEntry> {
-    let Ok(dirs) = topdir.read_dir() else {
-        tracing::error!("Unreadable firmware directory {:?}", topdir);
-        return vec![];
-    };
-
-    // We sort in ascending modification time so that we will use the newest made firmware metadata
-    let mut dirs: Vec<fs::DirEntry> = dirs.filter_map(|x| x.ok()).collect();
-    dirs.sort_unstable_by(|x, y| {
-        let x_time = match x.metadata() {
-            Err(_) => SystemTime::now(),
-            Ok(x) => match x.modified() {
-                Err(_) => SystemTime::now(),
-                Ok(x) => x,
-            },
-        };
-        let y_time = match y.metadata() {
-            Err(_) => SystemTime::now(),
-            Ok(y) => match y.modified() {
-                Err(_) => SystemTime::now(),
-                Ok(y) => y,
-            },
-        };
-        x_time.partial_cmp(&y_time).unwrap_or(Ordering::Equal)
-    });
-    dirs
-}
-
 fn default_mqtt_endpoint() -> String {
     "mqtt.forge".to_string()
 }
@@ -2619,22 +2464,31 @@ fn default_mqtt_broker_port() -> u16 {
     1884
 }
 
+/// MQTT authentication mode.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum MqttAuthMode {
+    /// No authentication.
     #[default]
     None,
+    /// Username/password basic authentication.
     BasicAuth,
+    /// OAuth2 token-based authentication.
     Oauth2,
 }
 
+/// OAuth2 configuration for MQTT broker authentication.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct MqttOAuth2Config {
+    /// OAuth2 token endpoint URL.
     pub token_url: String,
 
+    /// OAuth2 scopes to request when obtaining a token.
     #[serde(default)]
     pub scopes: Vec<String>,
 
+    /// HTTP timeout for token endpoint requests.
+    /// Default is 30 seconds.
     #[serde(
         default = "MqttOAuth2Config::default_http_timeout",
         deserialize_with = "deserialize_duration",
@@ -2642,6 +2496,9 @@ pub struct MqttOAuth2Config {
     )]
     pub http_timeout: std::time::Duration,
 
+    /// Username sent with the MQTT CONNECT packet when using
+    /// OAuth2.
+    /// Default is "oauth2token".
     #[serde(default = "MqttOAuth2Config::default_username")]
     pub username: String,
 }
@@ -2656,11 +2513,17 @@ impl MqttOAuth2Config {
     }
 }
 
+/// MQTT authentication configuration shared by DPA and
+/// DSX event bus.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct MqttAuthConfig {
+    /// Authentication mechanism to use for MQTT
+    /// connections.
     #[serde(default)]
     pub auth_mode: MqttAuthMode,
 
+    /// OAuth2 settings, required when `auth_mode` is
+    /// `Oauth2`.
     pub oauth2: Option<MqttOAuth2Config>,
 }
 
@@ -2681,9 +2544,12 @@ pub struct DpaConfig {
     #[serde(default = "default_mqtt_broker_port")]
     pub mqtt_broker_port: u16,
 
+    /// Base IPv4 address of the DPA/Cluster Interconnect
+    /// subnet.
     #[serde(default = "DpaConfig::default_subnet_ip")]
     pub subnet_ip: Ipv4Addr,
 
+    /// CIDR prefix length for the DPA subnet.
     #[serde(default)]
     pub subnet_mask: i32,
 
@@ -2703,8 +2569,10 @@ pub struct DpaConfig {
 
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
-/// When configured, Carbide will publish `ManagedHostState` transitions to the
-/// topic `carbide/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
+/// When configured, Carbide will publish `ManagedHostState` transitions to
+/// `nico/v1/machine/{machineId}/state`, publish BMS rack leak/isolation values
+/// and heartbeat timestamps to metadata-defined DSX topics, and subscribe to
+/// `BMS/v1/PUB/Metadata/#` to learn those routing targets.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
@@ -2727,7 +2595,7 @@ pub struct DsxExchangeEventBusConfig {
     )]
     pub publish_timeout: std::time::Duration,
 
-    /// Queue capacity for buffering state change events while publishing.
+    /// Queue capacity for buffering DSX publish events while publishing.
     /// Events are dropped if the queue is full. Defaults to 1024.
     #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
     pub queue_capacity: usize,
@@ -2895,6 +2763,10 @@ pub fn default_host_intercept_bridge_port() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering as AtomicOrdering;
+
+    use carbide_authn::config::CertComponent;
+    use carbide_site_explorer::config::SiteExplorerExploreMode;
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
@@ -3093,9 +2965,8 @@ mod tests {
         assert!(config.pools.is_none());
         assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
-        assert!(config.nvue_enabled);
         assert!(config.vpc_peering_policy.is_none());
-        assert!(config.site_explorer.enabled);
+        assert!(config.site_explorer.enabled.load(AtomicOrdering::Relaxed));
         assert!(
             config
                 .site_explorer
@@ -3141,7 +3012,6 @@ mod tests {
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
-        assert!(!config.nvue_enabled);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(config.vpc_peering_policy_on_existing, None);
         assert_eq!(
@@ -3190,7 +3060,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: false,
+                enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
@@ -3199,7 +3069,7 @@ mod tests {
                 override_target_ip: None,
                 override_target_port: None,
                 allow_zero_dpu_hosts: false,
-                bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
+                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(1),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
@@ -3210,7 +3080,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                use_onboard_nic: Arc::new(false.into()),
+                force_dpu_nic_mode: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3285,7 +3155,6 @@ mod tests {
             config.dhcp_servers,
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
         );
-        assert!(config.nvue_enabled);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,
@@ -3364,7 +3233,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: true,
+                enabled: Arc::new(true.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 30,
                 explorations_per_run: 11,
@@ -3373,7 +3242,7 @@ mod tests {
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
                 allow_zero_dpu_hosts: false,
-                bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
+                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
@@ -3384,7 +3253,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                use_onboard_nic: Arc::new(false.into()),
+                force_dpu_nic_mode: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3458,6 +3327,7 @@ mod tests {
         }
         assert_eq!(config.firmware_global.max_uploads, 3);
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
+        assert_eq!(config.firmware_global.max_concurrent_bfb_copies, 7);
         assert_eq!(config.max_find_by_ids, 75);
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
         assert_eq!(
@@ -3562,6 +3432,24 @@ mod tests {
             MlxValueType::Integer(4)
         );
         assert!(mlxconfig_profile.get_variable("NONEXISTENT_GOO").is_none());
+
+        assert_eq!(config.rack_profiles.rack_profiles.len(), 2);
+        let nvl72 = config.rack_profiles.get("NVL72").unwrap();
+        assert_eq!(nvl72.rack_capabilities.compute.count, 18);
+        assert_eq!(
+            nvl72.rack_capabilities.compute.name.as_deref(),
+            Some("GB200")
+        );
+        assert_eq!(
+            nvl72.rack_capabilities.compute.vendor.as_deref(),
+            Some("NVIDIA")
+        );
+        assert_eq!(nvl72.rack_capabilities.switch.count, 9);
+        assert_eq!(nvl72.rack_capabilities.power_shelf.count, 8);
+        let nvl36 = config.rack_profiles.get("NVL36").unwrap();
+        assert_eq!(nvl36.rack_capabilities.compute.count, 9);
+        assert_eq!(nvl36.rack_capabilities.switch.count, 9);
+        assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
     }
 
     #[test]
@@ -3654,7 +3542,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: false,
+                enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
@@ -3663,7 +3551,7 @@ mod tests {
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
                 allow_zero_dpu_hosts: false,
-                bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
+                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
@@ -3674,7 +3562,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                use_onboard_nic: Arc::new(false.into()),
+                force_dpu_nic_mode: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3813,94 +3701,6 @@ mod tests {
 
             Ok(())
         })
-    }
-
-    #[test]
-    fn merging_config() -> eyre::Result<()> {
-        let cfg1 = r#"
-    vendor = "Dell"
-    model = "PowerEdge R750"
-    ordering = ["uefi", "bmc"]
-
-
-    [components.uefi]
-    current_version_reported_as = "^Installed-.*__BIOS.Setup."
-    preingest_upgrade_when_below = "1.13.2"
-
-    [[components.uefi.known_firmware]]
-    version = "1.13.2"
-    url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
-    default = true
-"#;
-        let cfg2 = r#"
-model = "PowerEdge R750"
-vendor = "Dell"
-
-[components.uefi]
-current_version_reported_as = "^Installed-.*__BIOS.Setup."
-preingest_upgrade_when_below = "1.13.3"
-
-[[components.uefi.known_firmware]]
-version = "1.13.3"
-url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
-default = true
-
-[components.bmc]
-current_version_reported_as = "^Installed-.*__iDRAC."
-
-[[components.bmc.known_firmware]]
-version = "7.10.30.00"
-filenames = ["/opt/carbide/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE", "/opt/carbide/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A01.EXE"]
-default = true
-    "#;
-        let mut config: FirmwareConfig = Default::default();
-        config.add_test_override(cfg1.to_string());
-        config.add_test_override(cfg2.to_string());
-
-        println!("{config:#?}");
-        let map = config.map();
-        let server = map.get("dell:poweredge r750").unwrap();
-        assert_eq!(
-            server
-                .components
-                .get(&FirmwareComponentType::Uefi)
-                .unwrap()
-                .known_firmware
-                .len(),
-            2
-        );
-        assert_eq!(
-            server
-                .components
-                .get(&FirmwareComponentType::Bmc)
-                .unwrap()
-                .known_firmware
-                .len(),
-            1
-        );
-        assert_eq!(
-            server
-                .components
-                .get(&FirmwareComponentType::Bmc)
-                .unwrap()
-                .known_firmware
-                .first()
-                .unwrap()
-                .filenames
-                .len(),
-            2
-        );
-        assert_eq!(
-            *server
-                .components
-                .get(&FirmwareComponentType::Uefi)
-                .unwrap()
-                .preingest_upgrade_when_below
-                .as_ref()
-                .unwrap(),
-            "1.13.3".to_string()
-        );
-        Ok(())
     }
 
     #[test]
@@ -4045,23 +3845,6 @@ mqtt_endpoint = "mqtt.forge"
                 subnet_ip: Ipv4Addr::UNSPECIFIED,
                 subnet_mask: 0_i32,
                 auth: MqttAuthConfig::default(),
-            }
-        );
-    }
-
-    #[test]
-    fn deserialize_serialize_nvlink_config() {
-        let value_json = r#"{"enabled": true, "allow_insecure": true, "monitor_run_interval": "33", "nmx_m_operation_timeout": "21", "nmx_m_endpoint": "localhost"}"#;
-
-        let nvlink_config: NvLinkConfig = serde_json::from_str(value_json).unwrap();
-        assert_eq!(
-            nvlink_config,
-            NvLinkConfig {
-                enabled: true,
-                monitor_run_interval: std::time::Duration::from_secs(33),
-                nmx_m_operation_timeout: std::time::Duration::from_secs(21),
-                nmx_m_endpoint: "localhost".to_string(),
-                allow_insecure: true,
             }
         );
     }

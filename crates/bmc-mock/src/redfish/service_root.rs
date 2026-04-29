@@ -44,7 +44,11 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
 pub fn builder(resource: &redfish::Resource) -> ServiceRootBuilder {
     ServiceRootBuilder {
         value: resource.json_patch().patch(json!({
-            "Links": {},
+            "Links": {
+                "Sessions": {
+                    "@odata.id": "/redfish/v1/SessionService/Sessions"
+                }
+            },
         })),
     }
 }

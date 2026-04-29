@@ -22,16 +22,15 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use carbide_utils::managed_host_display::get_memory_details;
+use carbide_utils::{ManagedHostMetadata, reason_to_user_string};
 use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
-use model;
-use model::machine;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use model::{self, machine};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
-use utils::managed_host_display::get_memory_details;
-use utils::{ManagedHostMetadata, reason_to_user_string};
 
 use super::filters;
 use crate::api::Api;
@@ -82,7 +81,7 @@ pub struct ManagedHostRowDisplay {
     pub time_in_state_above_sla: bool,
     pub state_reason: String,
     pub health_probe_alerts: Vec<health_report::HealthProbeAlert>,
-    pub health_overrides: Vec<String>,
+    pub health_sources: Vec<String>,
     pub host_admin_ip: String,
     pub host_admin_mac: String,
     pub host_bmc_ip: String,
@@ -108,7 +107,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
         } = item;
 
         let (maintenance_reference, maintenance_start_time) = host_snapshot
-            .health_report_overrides
+            .health_reports
             .maintenance_override()
             .map(|o| {
                 (
@@ -176,6 +175,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
                 &host_snapshot.state.value,
                 &host_snapshot.state.version,
                 &aggregate_health,
+                &machine::slas::MachineSlaConfig::default(),
             )
             .time_in_state_above_sla,
             state_reason: host_snapshot
@@ -183,8 +183,8 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
                 .and_then(|o| reason_to_user_string(&o.into()))
                 .unwrap_or_default(),
             health_probe_alerts: aggregate_health.alerts,
-            health_overrides: host_snapshot
-                .health_report_overrides
+            health_sources: host_snapshot
+                .health_reports
                 .into_iter()
                 .map(|(r, _)| r.source)
                 .collect(),
@@ -649,19 +649,12 @@ pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
 async fn fetch_managed_hosts_with_metadata(
     AxumState(api): AxumState<Arc<Api>>,
     include_history: bool,
-) -> eyre::Result<Vec<utils::ManagedHostOutput>> {
+) -> eyre::Result<Vec<carbide_utils::ManagedHostOutput>> {
     let machine_ids = api
         .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
             include_dpus: true,
-            include_history: false,
             include_predicted_host: true,
-            only_maintenance: false,
-            exclude_hosts: false,
-            only_quarantine: false,
-            instance_type_id: None,
-            mnnvl_only: false,
-            only_with_health_alert: None,
-            only_with_power_state: None,
+            ..Default::default()
         }))
         .await?
         .into_inner()
@@ -684,7 +677,7 @@ async fn fetch_managed_hosts_with_metadata(
     }
 
     let managed_host_metadata = ManagedHostMetadata::lookup_from_api(all_machines, api).await;
-    let managed_hosts = utils::get_managed_host_output(managed_host_metadata);
+    let managed_hosts = carbide_utils::get_managed_host_output(managed_host_metadata);
     Ok(managed_hosts)
 }
 

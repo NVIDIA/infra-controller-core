@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use std::io::Write;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::SkuList;
@@ -120,7 +119,7 @@ fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
     for m in memory {
         table.add_row(Row::from(vec![
             m.memory_type,
-            ::utils::sku::capacity_string(m.capacity_mb as u64),
+            ::carbide_utils::sku::capacity_string(m.capacity_mb as u64),
             m.count.to_string(),
         ]));
     }
@@ -156,7 +155,7 @@ fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
 }
 
 pub async fn show_skus_table(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     skus: Vec<::rpc::forge::Sku>,
 ) -> CarbideCliResult<()> {
@@ -190,7 +189,7 @@ pub async fn show_skus_table(
 }
 
 pub async fn show_sku_details(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     extended: bool,
     sku: ::rpc::forge::Sku,
@@ -274,7 +273,7 @@ pub async fn show_sku_details(
                     writeln!(
                         output,
                         "Memory ({}): ",
-                        ::utils::sku::capacity_string(
+                        ::carbide_utils::sku::capacity_string(
                             components
                                 .memory
                                 .iter()
@@ -316,7 +315,7 @@ pub async fn show_sku_details(
 pub async fn show(
     args: Args,
     api_client: &ApiClient,
-    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     extended: bool,
 ) -> CarbideCliResult<()> {

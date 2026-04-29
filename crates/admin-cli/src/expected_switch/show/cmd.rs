@@ -100,6 +100,7 @@ fn convert_and_print_into_nice_table(
     table.set_titles(row![
         "Serial Number",
         "BMC Mac",
+        "MAC addresses",
         "Interface IP",
         "Associated Machine",
         "Name",
@@ -123,24 +124,12 @@ fn convert_and_print_into_nice_table(
             )
             .map(String::as_str);
 
-        let labels = expected_switch
-            .metadata
-            .as_ref()
-            .map(|m| {
-                m.labels
-                    .iter()
-                    .map(|label| {
-                        let key = &label.key;
-                        let value = label.value.as_deref().unwrap_or_default();
-                        format!("\"{}:{}\"", key, value)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(expected_switch.metadata.as_ref());
 
         table.add_row(row![
             expected_switch.switch_serial_number,
             expected_switch.bmc_mac_address,
+            expected_switch.nvos_mac_addresses.join(", "),
             machine_interface
                 .map(|x| x.address.join("\n"))
                 .unwrap_or("Undiscovered".to_string()),

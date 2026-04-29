@@ -16,7 +16,6 @@
  */
 use std::borrow::Cow;
 use std::fmt::Write;
-use std::pin::Pin;
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -127,12 +126,17 @@ async fn convert_instance_to_nice_format(
             "IPXE SCRIPT",
             instance_os
                 .and_then(|os| match os.variant.as_ref() {
-                    Some(::rpc::forge::operating_system::Variant::Ipxe(ipxe_os)) => {
-                        Some(Cow::Borrowed(ipxe_os.ipxe_script.as_str()))
-                    }
-                    Some(::rpc::forge::operating_system::Variant::OsImageId(image)) => {
-                        Some(Cow::Owned(format!("OS Image ID: {}", image.value)))
-                    }
+                    Some(::rpc::forge::instance_operating_system_config::Variant::Ipxe(
+                        ipxe_os,
+                    )) => Some(Cow::Borrowed(ipxe_os.ipxe_script.as_str())),
+                    Some(::rpc::forge::instance_operating_system_config::Variant::OsImageId(
+                        image,
+                    )) => Some(Cow::Owned(format!("OS Image ID: {}", image.value))),
+                    Some(
+                        ::rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(
+                            id,
+                        ),
+                    ) => Some(Cow::Owned(format!("Operating System ID: {}", id))),
                     None => None,
                 })
                 .unwrap_or_default(),
@@ -355,18 +359,7 @@ async fn convert_instance_to_nice_format(
         writeln!(&mut lines, "NETWORK SECURITY GROUP ID: {nsg_id}")?;
     }
 
-    if let Some(metadata) = instance.metadata.as_ref() {
-        writeln!(
-            &mut lines,
-            "LABELS: {}",
-            metadata
-                .labels
-                .iter()
-                .map(|x| format!("{}: {}", x.key, x.value.as_deref().unwrap_or_default()))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )?;
-    }
+    crate::metadata::write_metadata_in_nice_format(&mut lines, width, instance.metadata.as_ref())?;
 
     Ok(lines)
 }
@@ -393,7 +386,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .map(|tenant| tenant.tenant_organization_id.as_str())
             .unwrap_or_default();
 
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(instance.metadata.as_ref());
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(instance.metadata.as_ref());
 
         let tenant_state = instance
             .status
@@ -441,7 +434,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 
 async fn show_instance_details(
     id: String,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
     extrainfo: bool,
@@ -491,7 +484,7 @@ async fn show_instance_details(
 
 pub async fn handle_show(
     args: Args,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
     page_size: usize,

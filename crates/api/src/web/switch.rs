@@ -15,20 +15,23 @@
  * limitations under the License.
  */
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
 use axum::Json;
-use axum::extract::State as AxumState;
+use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use carbide_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
+use super::filters;
 use crate::api::Api;
 
 #[derive(Template)]
-#[template(path = "switch.html")]
-struct Switch {
+#[template(path = "switch_show.html")]
+struct SwitchShow {
     switches: Vec<SwitchRecord>,
 }
 
@@ -37,17 +40,53 @@ struct SwitchRecord {
     id: String,
     name: String,
     state: String,
-    location: String,
+    slot_number: String,
+    tray_index: String,
 }
 
 /// Show all switches
 pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let switches = match fetch_switches(&state).await {
         Ok(switches) => switches,
-        Err((code, msg)) => return (code, msg).into_response(),
+        Err(err) => {
+            tracing::error!(%err, "fetch_switches");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading switches").into_response();
+        }
     };
 
-    let display = Switch { switches };
+    let switches = switches
+        .switches
+        .into_iter()
+        .map(|switch| {
+            let state = switch
+                .status
+                .as_ref()
+                .and_then(|status| status.lifecycle.as_ref())
+                .map(|lifecycle| super::filters::normalize_state_label(&lifecycle.state))
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            let config = switch.config.unwrap_or_default();
+            SwitchRecord {
+                id: switch.id.map(|id| id.to_string()).unwrap_or_default(),
+                name: config.name,
+                state,
+                slot_number: switch
+                    .placement_in_rack
+                    .as_ref()
+                    .and_then(|p| p.slot_number)
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+                tray_index: switch
+                    .placement_in_rack
+                    .as_ref()
+                    .and_then(|p| p.tray_index)
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+            }
+        })
+        .collect();
+
+    let display = SwitchShow { switches };
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -55,58 +94,156 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
 pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let switches = match fetch_switches(&state).await {
         Ok(switches) => switches,
-        Err((code, msg)) => return (code, msg).into_response(),
+        Err(err) => {
+            tracing::error!(%err, "fetch_switches");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading switches").into_response();
+        }
     };
     (StatusCode::OK, Json(switches)).into_response()
 }
 
-async fn fetch_switches(api: &Api) -> Result<Vec<SwitchRecord>, (http::StatusCode, String)> {
+async fn fetch_switches(api: &Api) -> Result<rpc::forge::SwitchList, tonic::Status> {
+    // Use find_switch_ids (which respects DeletedFilter::Exclude by default)
+    // followed by find_switches_by_ids.
+    let switch_ids = api
+        .find_switch_ids(tonic::Request::new(
+            rpc::forge::SwitchSearchFilter::default(),
+        ))
+        .await?
+        .into_inner()
+        .ids;
+
+    if switch_ids.is_empty() {
+        return Ok(Default::default());
+    }
+
+    let mut switches = Vec::new();
+    let mut offset = 0;
+    while offset < switch_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(switch_ids.len() - offset);
+        let next_ids = &switch_ids[offset..offset + page_size];
+        let page = api
+            .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+                switch_ids: next_ids.to_vec(),
+            }))
+            .await?
+            .into_inner();
+
+        switches.extend(page.switches);
+        offset += page_size;
+    }
+
+    Ok(rpc::forge::SwitchList { switches })
+}
+
+#[derive(Template)]
+#[template(path = "switch_detail.html")]
+struct SwitchDetail {
+    id: String,
+    rack_id: String,
+    name: String,
+    slot_number: String,
+    tray_index: String,
+    enable_nmxc: bool,
+    lifecycle_detail: super::LifecycleDetail,
+    power_state: Option<String>,
+    health_status: Option<String>,
+    bmc_info: Option<rpc::forge::BmcInfo>,
+    metadata_detail: super::MetadataDetail,
+}
+
+impl SwitchDetail {
+    fn new(switch: rpc::forge::Switch) -> Self {
+        let id = switch
+            .id
+            .as_ref()
+            .map(|id| id.to_string())
+            .unwrap_or_default();
+        let config = switch.config.unwrap_or_default();
+        let lifecycle = switch
+            .status
+            .as_ref()
+            .and_then(|s| s.lifecycle.clone())
+            .unwrap_or_default();
+        let power_state = switch.status.as_ref().and_then(|s| s.power_state.clone());
+        let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
+        let metadata_detail = super::MetadataDetail {
+            metadata: switch.metadata.unwrap_or_default(),
+            metadata_version: switch.version,
+        };
+        Self {
+            id,
+            rack_id: switch.rack_id.map(|id| id.to_string()).unwrap_or_default(),
+            name: config.name,
+            slot_number: switch
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.slot_number)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+            tray_index: switch
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.tray_index)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+            enable_nmxc: config.enable_nmxc,
+            lifecycle_detail: lifecycle.into(),
+            power_state,
+            health_status,
+            bmc_info: switch.bmc_info,
+            metadata_detail,
+        }
+    }
+}
+
+/// View details about a Switch.
+pub async fn detail(
+    AxumState(api): AxumState<Arc<Api>>,
+    AxumPath(switch_id): AxumPath<String>,
+) -> Response {
+    let (show_json, switch_id) = match switch_id.strip_suffix(".json") {
+        Some(id) => (true, id.to_string()),
+        None => (false, switch_id),
+    };
+
+    let switch = match fetch_switch(&api, &switch_id).await {
+        Ok(Some(switch)) => switch,
+        Ok(None) => {
+            return super::not_found_response(switch_id);
+        }
+        Err(response) => return response,
+    };
+
+    if show_json {
+        return (StatusCode::OK, Json(switch)).into_response();
+    }
+
+    let detail = SwitchDetail::new(switch);
+    (StatusCode::OK, Html(detail.render().unwrap())).into_response()
+}
+
+async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<rpc::forge::Switch>, Response> {
+    let switch_id_parsed = match SwitchId::from_str(switch_id) {
+        Ok(id) => id,
+        Err(_) => return Err((StatusCode::BAD_REQUEST, "Invalid switch ID").into_response()),
+    };
+
     let response = match api
         .find_switches(tonic::Request::new(rpc::forge::SwitchQuery {
             name: None,
-            switch_id: None,
+            switch_id: Some(switch_id_parsed),
         }))
         .await
     {
         Ok(response) => response.into_inner(),
+        Err(err) if err.code() == tonic::Code::NotFound => return Ok(None),
         Err(err) => {
-            tracing::error!(%err, "list_switches");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to list switches".to_string(),
-            ));
+            tracing::error!(%err, %switch_id, "fetch_switch");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response());
         }
     };
 
-    let switches = response
-        .switches
-        .into_iter()
-        .map(|switch| {
-            let state = if let Some(status) = &switch.status {
-                if let Some(state_reason) = &status.state_reason {
-                    match rpc::forge::ControllerStateOutcome::try_from(state_reason.outcome) {
-                        Ok(outcome) => outcome.as_str_name().to_string(),
-                        Err(_) => "Unknown".to_string(),
-                    }
-                } else {
-                    status
-                        .power_state
-                        .clone()
-                        .unwrap_or_else(|| "Unknown".to_string())
-                }
-            } else {
-                "Unknown".to_string()
-            };
-
-            let config = switch.config.unwrap();
-            SwitchRecord {
-                id: switch.id.unwrap().to_string(),
-                name: config.name,
-                state,
-                location: config.location.unwrap_or_else(|| "N/A".to_string()),
-            }
-        })
-        .collect();
-
-    Ok(switches)
+    Ok(response.switches.into_iter().next())
 }

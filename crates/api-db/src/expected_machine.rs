@@ -15,12 +15,17 @@
  * limitations under the License.
  */
 use std::collections::{BTreeMap, HashMap};
+use std::net::IpAddr;
 
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineRequest, LinkedExpectedMachine};
-use sqlx::PgConnection;
+use model::expected_machine::{
+    ExpectedMachine, ExpectedMachineRequest, LinkedExpectedMachine, UnexpectedMachine,
+};
+use model::site_explorer::EndpointExplorationReport;
+use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
 use crate::db_read::DbReader;
@@ -90,12 +95,13 @@ pub async fn find_by_host_mac_address(
     txn: &mut PgConnection,
     host_mac_address: MacAddress,
 ) -> DatabaseResult<Option<ExpectedMachine>> {
-    let sql = "SELECT * FROM expected_machines WHERE host_nics->>'mac_address'=$1";
-    sqlx::query_as(sql)
-        .bind(host_mac_address.to_string().to_ascii_lowercase())
+    let query = "SELECT * FROM expected_machines WHERE host_nics @> $1::jsonb";
+    let mac_address = serde_json::json!([{ "mac_address": host_mac_address.to_string() }]);
+    sqlx::query_as(query)
+        .bind(sqlx::types::Json(mac_address))
         .fetch_optional(txn)
         .await
-        .map_err(|err| DatabaseError::query(sql, err))
+        .map_err(|err| DatabaseError::query(query, err))
 }
 
 pub async fn find_one_linked(
@@ -168,6 +174,59 @@ FROM expected_machines em
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
+/// Returns host BMC endpoints that Site Explorer has explored but whose MAC is
+/// not listed in any of `expected_machines`, `expected_power_shelves`, or
+/// `expected_switches`. DPUs, power shelves, and switches are filtered out so
+/// the result only contains actual host BMCs. Rows with `machine_id = Some`
+/// are orphans (already ingested before the `expected_machines` entry was
+/// removed).
+pub async fn find_all_unexpected(txn: impl DbReader<'_>) -> DatabaseResult<Vec<UnexpectedMachine>> {
+    #[derive(FromRow)]
+    struct UnexpectedRow {
+        address: IpAddr,
+        bmc_mac_address: MacAddress,
+        exploration_report: sqlx::types::Json<EndpointExplorationReport>,
+        machine_id: Option<MachineId>,
+    }
+
+    let sql = r#"
+SELECT
+    ee.address,
+    mi.mac_address AS bmc_mac_address,
+    ee.exploration_report,
+    mt.machine_id
+FROM explored_endpoints ee
+    LEFT JOIN machine_interface_addresses mia ON ee.address = mia.address
+    LEFT JOIN machine_interfaces mi ON mia.interface_id = mi.id
+    LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
+WHERE mi.mac_address IS NOT NULL
+  AND ee.exploration_report->>'EndpointType' = 'Bmc'
+  AND mi.mac_address NOT IN (SELECT bmc_mac_address FROM expected_machines)
+  AND mi.mac_address NOT IN (SELECT bmc_mac_address FROM expected_power_shelves)
+  AND mi.mac_address NOT IN (SELECT bmc_mac_address FROM expected_switches)
+ORDER BY ee.address
+    "#;
+
+    let rows: Vec<UnexpectedRow> = sqlx::query_as(sql)
+        .fetch_all(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))?;
+
+    Ok(rows
+        .into_iter()
+        .filter(|row| {
+            !row.exploration_report.0.is_dpu()
+                && !row.exploration_report.0.is_power_shelf()
+                && !row.exploration_report.0.is_switch()
+        })
+        .map(|row| UnexpectedMachine {
+            address: row.address,
+            bmc_mac_address: row.bmc_mac_address,
+            machine_id: row.machine_id,
+        })
+        .collect())
+}
+
 pub async fn update_bmc_credentials<'a>(
     value: &'a mut ExpectedMachine,
     txn: &mut PgConnection,
@@ -196,17 +255,20 @@ pub async fn update_bmc_credentials<'a>(
     Ok(value)
 }
 
-/// create inserts a new expected machine record. If the id field is None,
-/// a new UUID is generated.
+/// Inserts a new expected machine row. If the id field is None, a new UUID is generated.
+///
+/// Persisted `bmc_ip_address` is the configured static BMC IP; the API layer is responsible for
+/// creating/updating the matching `machine_interface` rows before calling this (see
+/// `preallocate_machine_interface` / `update_preallocated_machine_interface`).
 pub async fn create(
     txn: &mut PgConnection,
     machine: ExpectedMachine,
 ) -> DatabaseResult<ExpectedMachine> {
     let id = machine.id.unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_machines
-            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled)
+            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled, bmc_ip_address, bmc_retain_credentials, dpu_mode)
             VALUES
-            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14) RETURNING *";
+            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14, $15::inet, $16, $17) RETURNING *";
 
     sqlx::query_as(query)
         .bind(id)
@@ -228,6 +290,9 @@ pub async fn create(
                 .unwrap_or(false),
         )
         .bind(machine.data.dpf_enabled.unwrap_or_default())
+        .bind(machine.data.bmc_ip_address)
+        .bind(machine.data.bmc_retain_credentials.unwrap_or(false))
+        .bind(machine.data.dpu_mode)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
@@ -319,13 +384,13 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-/// update updates an existing expected machine. If id is set, matches by ID;
-/// otherwise matches by bmc_mac_address.
+/// Updates an existing expected machine. If id is set, matches by ID; otherwise matches by
+/// `bmc_mac_address`. Includes `bmc_ip_address` when the operator configures a static BMC IP.
 pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> DatabaseResult<()> {
     let (where_clause, target_id) = match machine.id {
-        Some(id) => ("id=$13::uuid", id.to_string()),
+        Some(id) => ("id=$16::uuid", id.to_string()),
         None => (
-            "bmc_mac_address=$13::macaddr",
+            "bmc_mac_address=$16::macaddr",
             machine.bmc_mac_address.to_string(),
         ),
     };
@@ -336,7 +401,10 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
              fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, \
              metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, \
              default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), \
-             dpf_enabled=COALESCE($12, dpf_enabled) \
+             dpf_enabled=COALESCE($12, dpf_enabled), \
+             bmc_ip_address=$13, \
+             bmc_retain_credentials=COALESCE($14, bmc_retain_credentials), \
+             dpu_mode=$15 \
          WHERE {where_clause}"
     );
 
@@ -353,6 +421,9 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
         .bind(&machine.data.rack_id)
         .bind(machine.data.default_pause_ingestion_and_poweron)
         .bind(machine.data.dpf_enabled)
+        .bind(machine.data.bmc_ip_address)
+        .bind(machine.data.bmc_retain_credentials)
+        .bind(machine.data.dpu_mode)
         .bind(&target_id)
         .execute(&mut *txn)
         .await

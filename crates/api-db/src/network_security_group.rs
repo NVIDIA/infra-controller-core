@@ -113,6 +113,7 @@ pub async fn find_ids(
     }
 
     if for_update {
+        builder.push(" ORDER BY id ");
         builder.push(" FOR UPDATE ");
     }
 
@@ -151,6 +152,7 @@ pub async fn find_by_ids(
     }
 
     if for_update {
+        builder.push(" ORDER BY id ");
         builder.push(" FOR UPDATE ");
     }
 

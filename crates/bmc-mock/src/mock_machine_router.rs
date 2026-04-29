@@ -27,7 +27,7 @@ use crate::bmc_state::BmcState;
 use crate::bug::InjectedBugs;
 use crate::json::JsonExt;
 use crate::redfish::manager::ManagerState;
-use crate::{MachineInfo, PowerControl, SystemPowerControl, middleware_router, redfish};
+use crate::{Callbacks, MachineInfo, SystemPowerControl, middleware_router, redfish};
 
 #[derive(Debug)]
 pub enum BmcCommand {
@@ -35,6 +35,7 @@ pub enum BmcCommand {
         request: SystemPowerControl,
         reply: Option<oneshot::Sender<SetSystemPowerResult>>,
     },
+    StateRefreshIndication,
 }
 
 pub type SetSystemPowerResult = Result<(), SetSystemPowerError>;
@@ -63,10 +64,10 @@ impl AddRoutes for Router<BmcState> {
 /// the provided MachineInfo.
 pub fn machine_router(
     machine_info: MachineInfo,
-    power_control: Arc<dyn PowerControl>,
+    callbacks: Arc<dyn Callbacks>,
     mat_host_id: String,
-) -> Router {
-    let system_config = machine_info.system_config(power_control);
+) -> (Router, BmcState) {
+    let system_config = machine_info.system_config(callbacks.clone());
     let chassis_config = machine_info.chassis_config();
     let update_service_config = machine_info.update_service_config();
     let bmc_vendor = machine_info.bmc_vendor();
@@ -85,7 +86,8 @@ pub fn machine_router(
         .add_routes(crate::redfish::update_service::add_routes)
         .add_routes(crate::redfish::task_service::add_routes)
         .add_routes(crate::redfish::account_service::add_routes)
-        .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor));
+        .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor))
+        .add_routes(crate::ipmi::add_routes);
     let router = match &machine_info {
         MachineInfo::Dpu(_) => {
             router.add_routes(crate::redfish::oem::nvidia::bluefield::add_routes)
@@ -103,7 +105,7 @@ pub fn machine_router(
         crate::redfish::update_service::UpdateServiceState::from_config(update_service_config),
     );
     let injected_bugs = Arc::new(InjectedBugs::default());
-    let router = router.with_state(BmcState {
+    let state = BmcState {
         bmc_vendor,
         bmc_product,
         bmc_redfish_version,
@@ -113,9 +115,14 @@ pub fn machine_router(
         chassis_state,
         update_service_state,
         injected_bugs: injected_bugs.clone(),
-    });
+        callbacks: Some(callbacks.clone()),
+    };
+    let router = router.with_state(state.clone());
     let router_with_expansion = redfish::expander_router::append(router);
-    middleware_router::append(mat_host_id, router_with_expansion, injected_bugs)
+    (
+        middleware_router::append(mat_host_id, router_with_expansion, injected_bugs, callbacks),
+        state,
+    )
 }
 
 async fn get_injected_bugs(State(state): State<BmcState>) -> Response {

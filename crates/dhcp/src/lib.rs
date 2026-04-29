@@ -32,6 +32,7 @@ mod cache;
 mod discovery;
 mod kea;
 mod kea_logger;
+mod lease_expiration;
 mod machine;
 mod vendor_class;
 

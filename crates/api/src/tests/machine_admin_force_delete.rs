@@ -80,10 +80,14 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     .unwrap()
     .unwrap();
     assert!(
-        !db::machine_state_history::find_by_machine_ids(&mut txn, &[dpu_machine_id])
-            .await
-            .unwrap()
-            .is_empty()
+        !db::state_history::find_by_object_ids(
+            &mut txn,
+            db::state_history::StateHistoryTableId::Machine,
+            &[dpu_machine_id],
+        )
+        .await
+        .unwrap()
+        .is_empty()
     );
     assert!(
         !db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine_id])
@@ -363,10 +367,14 @@ async fn validate_machine_deletion(
 
     // The history should remain in table.
     assert!(
-        !db::machine_state_history::find_by_machine_ids(&mut txn, &[*machine_id])
-            .await
-            .unwrap()
-            .is_empty()
+        !db::state_history::find_by_object_ids(
+            &mut txn,
+            db::state_history::StateHistoryTableId::Machine,
+            &[*machine_id],
+        )
+        .await
+        .unwrap()
+        .is_empty()
     );
 
     if let Some(bmc_addrs) = bmc_addrs {
@@ -740,6 +748,7 @@ async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
+    mock.expect_verify_node_labels().returning(|_| Ok(true));
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(carbide_dpf::DpuPhase::Ready));
 
@@ -757,8 +766,8 @@ async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
     config.dpf = crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: None,
-        services: None,
+        v2: true,
+        ..Default::default()
     };
 
     let env = create_test_env_with_overrides(

@@ -521,4 +521,46 @@ int pkt4_send(CalloutHandle &handle) {
 
   return 0;
 }
+
+int lease4_expire(CalloutHandle &handle) {
+  Lease4Ptr lease4;
+  handle.getArgument("lease4", lease4);
+
+  if (!lease4) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR)
+        .arg("missing lease4 argument");
+    return 0;
+  }
+
+  std::string ip_str = lease4->addr_.toText();
+  LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
+
+  auto result = carbide_expire_lease(ip_str.c_str());
+  if (result != LeaseExpirationResult::Success) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
+  }
+
+  return 0;
+}
+
+int lease6_expire(CalloutHandle &handle) {
+  Lease6Ptr lease6;
+  handle.getArgument("lease6", lease6);
+
+  if (!lease6) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR)
+        .arg("missing lease6 argument");
+    return 0;
+  }
+
+  std::string ip_str = lease6->addr_.toText();
+  LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
+
+  auto result = carbide_expire_lease(ip_str.c_str());
+  if (result != LeaseExpirationResult::Success) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
+  }
+
+  return 0;
+}
 }

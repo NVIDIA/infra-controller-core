@@ -26,6 +26,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, ObjectFilter, Transaction};
@@ -43,7 +44,6 @@ use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
-use crate::periodic_timer::PeriodicTimer;
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:
@@ -289,7 +289,7 @@ impl MachineUpdateManager {
         db::machine::remove_health_report_override(
             txn,
             &machine_update.host_machine_id,
-            health_report::OverrideMode::Merge,
+            health_report::HealthReportApplyMode::Merge,
             HOST_UPDATE_HEALTH_REPORT_SOURCE,
         )
         .await?;

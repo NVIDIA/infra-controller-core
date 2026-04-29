@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::hint::black_box;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -23,8 +24,8 @@ use std::sync::Arc;
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
-    Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthOverrideSink,
-    HealthReport, PrometheusSink, ReportSource, SensorHealthData,
+    Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthReport,
+    HealthReportSink, LogRecord, PrometheusSink, ReportSource, SensorHealthData,
 };
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use health_report::HealthReport as CarbideHealthReport;
@@ -40,6 +41,10 @@ const MACHINE_IDS: [&str; 3] = [
 struct CountingSink;
 
 impl DataSink for CountingSink {
+    fn sink_type(&self) -> &'static str {
+        "counting_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         std::hint::black_box(context);
         std::hint::black_box(event);
@@ -63,6 +68,7 @@ fn event_context_for_machine(machine_id: &str) -> EventContext {
             machine_id: machine_id.parse().expect("valid machine id"),
             machine_serial: None,
         })),
+        rack_id: None,
     }
 }
 
@@ -106,7 +112,8 @@ fn bench_prometheus_sink(c: &mut Criterion) {
     group.throughput(Throughput::Elements(batch_size as u64));
 
     for (scenario, unique_keys) in [("low_cardinality", 32usize), ("high_cardinality", 2_000)] {
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager =
+            Arc::new(MetricsManager::new("bench_sink").expect("metrics manager should initialize"));
         let sink = PrometheusSink::new(metrics_manager, "bench_sink")
             .expect("prometheus sink should initialize");
         let context = event_context();
@@ -137,7 +144,9 @@ impl CompositeBenchState {
             sinks.push(Arc::new(CountingSink));
         }
 
-        let sink = CompositeDataSink::new(sinks);
+        let metrics_manager =
+            Arc::new(MetricsManager::new("bench_sink").expect("metrics manager should initialize"));
+        let sink = CompositeDataSink::new(sinks, metrics_manager);
 
         Self {
             sink,
@@ -185,17 +194,17 @@ fn health_report_with_alerts(alert_count: usize) -> HealthReport {
     report
 }
 
-struct HealthOverrideBenchState {
-    sink: HealthOverrideSink,
+struct HealthReportBenchState {
+    sink: HealthReportSink,
     context: EventContext,
     distinct_contexts: Vec<EventContext>,
     sensor_event: CollectorEvent,
     leak_event: CollectorEvent,
 }
 
-impl HealthOverrideBenchState {
+impl HealthReportBenchState {
     fn new() -> Self {
-        let sink = HealthOverrideSink::new_for_bench().expect("bench sink should initialize");
+        let sink = HealthReportSink::new_for_bench().expect("bench sink should initialize");
         let context = event_context();
         let distinct_contexts = MACHINE_IDS
             .into_iter()
@@ -224,12 +233,12 @@ impl HealthOverrideBenchState {
     }
 }
 
-fn filled_health_override_sink(
+fn filled_health_report_sink(
     contexts: &[EventContext],
     event: &CollectorEvent,
     leak_event: &CollectorEvent,
-) -> HealthOverrideSink {
-    let sink = HealthOverrideSink::new_for_bench().expect("bench sink should initialize");
+) -> HealthReportSink {
+    let sink = HealthReportSink::new_for_bench().expect("bench sink should initialize");
     for context in contexts {
         sink.handle_event(context, event);
         sink.handle_event(context, leak_event);
@@ -237,7 +246,7 @@ fn filled_health_override_sink(
     sink
 }
 
-fn drain_pending(sink: &HealthOverrideSink) -> usize {
+fn drain_pending(sink: &HealthReportSink) -> usize {
     let mut drained = 0;
     while sink.pop_pending_for_bench().is_some() {
         drained += 1;
@@ -245,7 +254,7 @@ fn drain_pending(sink: &HealthOverrideSink) -> usize {
     drained
 }
 
-fn drain_and_convert_pending(sink: &HealthOverrideSink) -> usize {
+fn drain_and_convert_pending(sink: &HealthReportSink) -> usize {
     let mut drained = 0;
     while let Some((_machine_id, report)) = sink.pop_pending_for_bench() {
         let converted: CarbideHealthReport = report
@@ -258,12 +267,12 @@ fn drain_and_convert_pending(sink: &HealthOverrideSink) -> usize {
     drained
 }
 
-fn bench_health_override_sink(c: &mut Criterion) {
-    let mut group = c.benchmark_group("sink_health_override");
+fn bench_health_report_sink(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sink_health_report");
     let batch_size = 20_000usize;
     group.throughput(Throughput::Elements(batch_size as u64));
 
-    let state = HealthOverrideBenchState::new();
+    let state = HealthReportBenchState::new();
 
     group.bench_with_input(BenchmarkId::new("enqueue", "report"), &state, |b, state| {
         b.iter(|| {
@@ -278,7 +287,7 @@ fn bench_health_override_sink(c: &mut Criterion) {
     group.bench_with_input(BenchmarkId::new("drain", "report"), &state, |b, state| {
         b.iter_batched(
             || {
-                filled_health_override_sink(
+                filled_health_report_sink(
                     &state.distinct_contexts,
                     &state.sensor_event,
                     &state.leak_event,
@@ -297,7 +306,7 @@ fn bench_health_override_sink(c: &mut Criterion) {
         |b, state| {
             b.iter_batched(
                 || {
-                    filled_health_override_sink(
+                    filled_health_report_sink(
                         &state.distinct_contexts,
                         &state.sensor_event,
                         &state.leak_event,
@@ -314,10 +323,130 @@ fn bench_health_override_sink(c: &mut Criterion) {
     group.finish();
 }
 
+fn log_events_with_attrs(count: usize, unique_sensors: usize) -> Vec<CollectorEvent> {
+    (0..count)
+        .map(|idx| {
+            let sensor = format!("HGX_GPU_{}_Temp_1", idx % unique_sensors);
+            CollectorEvent::Log(Box::new(LogRecord {
+                body: format!("{sensor} sensor crossed threshold"),
+                severity: "Warning".to_string(),
+                attributes: vec![
+                    (
+                        Cow::Borrowed("message_id"),
+                        "OpenBMC.0.1.SensorThresholdWarningLowGoingHigh".to_string(),
+                    ),
+                    (
+                        Cow::Borrowed("message_args"),
+                        format!(r#"["{sensor}","3.96","-0.05"]"#),
+                    ),
+                ],
+            }))
+        })
+        .collect()
+}
+
+fn bench_otlp_sink(c: &mut Criterion) {
+    use carbide_health::sink::OtlpSink;
+    use carbide_health::sink::event_mapper::{OpenBmcEventMapper, RedfishEventMapper};
+
+    let mut group = c.benchmark_group("sink_otlp");
+    let mapper: Arc<dyn RedfishEventMapper> = Arc::new(OpenBmcEventMapper);
+    let context = event_context();
+
+    for (scenario, event_count, unique_sensors) in [
+        ("low_contention", 2_000usize, 64usize),
+        ("high_contention_dedup", 2_000, 4),
+    ] {
+        let events = log_events_with_attrs(event_count, unique_sensors);
+        group.throughput(Throughput::Elements(event_count as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("enqueue", scenario),
+            &events,
+            |b, events| {
+                b.iter_batched(
+                    || OtlpSink::new_for_bench(mapper.clone()),
+                    |sink| {
+                        for event in events {
+                            sink.handle_event(&context, event);
+                        }
+                    },
+                    BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.throughput(Throughput::Elements(500));
+    group.bench_function("drain_500", |b| {
+        b.iter_batched(
+            || {
+                let sink = OtlpSink::new_for_bench(mapper.clone());
+                let events = log_events_with_attrs(500, 500);
+                for event in &events {
+                    sink.handle_event(&context, event);
+                }
+                sink
+            },
+            |sink| {
+                let mut drained = 0;
+                while sink.pop_for_bench().is_some() {
+                    drained += 1;
+                }
+                black_box(drained);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.finish();
+}
+
+fn bench_queue_key_construction(c: &mut Criterion) {
+    use carbide_health::sink::event_mapper::{OpenBmcEventMapper, RedfishEventMapper};
+
+    let mut group = c.benchmark_group("queue_key");
+    let mapper = OpenBmcEventMapper;
+
+    let sensor_attrs: Vec<(Cow<'static, str>, String)> = vec![
+        (
+            Cow::Borrowed("message_id"),
+            "OpenBMC.0.1.SensorThresholdWarningLowGoingHigh".to_string(),
+        ),
+        (
+            Cow::Borrowed("message_args"),
+            r#"["HGX_GPU_0_Temp_1","3.96","-0.05"]"#.to_string(),
+        ),
+    ];
+
+    let resource_attrs: Vec<(Cow<'static, str>, String)> = vec![
+        (
+            Cow::Borrowed("message_id"),
+            "ResourceEvent.1.0.ResourceErrorsDetected".to_string(),
+        ),
+        (
+            Cow::Borrowed("message_args"),
+            r#"["GPU_1 NVLink_9","NVLink Training Error"]"#.to_string(),
+        ),
+    ];
+
+    group.bench_function("sensor_threshold", |b| {
+        b.iter(|| black_box(mapper.queue_key("10.85.14.144", &sensor_attrs)));
+    });
+
+    group.bench_function("resource_event", |b| {
+        b.iter(|| black_box(mapper.queue_key("10.85.14.144", &resource_attrs)));
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_prometheus_sink,
     bench_composite_sink,
-    bench_health_override_sink
+    bench_health_report_sink,
+    bench_otlp_sink,
+    bench_queue_key_construction,
 );
 criterion_main!(benches);

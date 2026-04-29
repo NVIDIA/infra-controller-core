@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#![recursion_limit = "256"]
+mod common;
 
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::test_support;
@@ -23,8 +23,10 @@ use tokio::test;
 
 #[test]
 async fn explore_wiwynn_gb200() {
-    let bmc = test_support::wiwynn_gb200_bmc();
-    let report = nv_generate_exploration_report(bmc, None).await.unwrap();
+    let h = test_support::wiwynn_gb200_bmc().await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .unwrap();
 
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));

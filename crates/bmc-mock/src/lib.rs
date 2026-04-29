@@ -20,9 +20,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
+pub mod ipmi;
 
 mod bmc_state;
-mod bug;
+pub mod bug;
 mod combined_server;
 mod combined_service;
 mod http;
@@ -35,6 +36,7 @@ mod redfish;
 pub mod test_support;
 pub mod tls;
 
+pub use bmc_state::{BmcEvent, BmcState};
 pub use combined_server::{CombinedServer, ListenerOrAddress};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
@@ -50,6 +52,8 @@ pub enum HostHardwareType {
     DellPowerEdgeR750,
     #[serde(rename = "wiwynn_gb200_nvl")]
     WiwynnGB200Nvl,
+    #[serde(rename = "lenovo_gb300_nvl")]
+    LenovoGB300Nvl,
     #[serde(rename = "liteon_power_shelf")]
     LiteOnPowerShelf,
     #[serde(rename = "nvidia_switch_nd5200_ld")]
@@ -63,6 +67,7 @@ impl fmt::Display for HostHardwareType {
         match self {
             Self::DellPowerEdgeR750 => "Dell PowerEdge R750".fmt(f),
             Self::WiwynnGB200Nvl => "WIWYNN GB200 NVL".fmt(f),
+            Self::LenovoGB300Nvl => "Lenovo GB300 NVL".fmt(f),
             Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
@@ -78,6 +83,7 @@ impl HostHardwareType {
         match self {
             Self::DellPowerEdgeR750 => None,
             Self::WiwynnGB200Nvl => Some(2),
+            Self::LenovoGB300Nvl => Some(1),
             Self::LiteOnPowerShelf => Some(0),
             Self::NvidiaSwitchNd5200Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),
@@ -108,7 +114,7 @@ impl fmt::Display for MockPowerState {
 // Simulate a 5-second power cycle
 pub const POWER_CYCLE_DELAY: Duration = Duration::from_secs(5);
 
-pub trait PowerControl: std::fmt::Debug + Send + Sync {
+pub trait Callbacks: std::fmt::Debug + Send + Sync {
     fn get_power_state(&self) -> MockPowerState;
     fn send_power_command(&self, reset_type: SystemPowerControl)
     -> Result<(), SetSystemPowerError>;
@@ -134,6 +140,8 @@ pub trait PowerControl: std::fmt::Debug + Send + Sync {
         }?;
         self.send_power_command(reset_type)
     }
+
+    fn state_refresh_indication(&self);
 }
 
 pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {
@@ -198,4 +206,10 @@ pub trait LogService: Send + Sync {
     fn id(&self) -> &str;
 
     fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BootOptionKind {
+    Disk,
+    Network,
 }

@@ -46,7 +46,7 @@ pub struct VpcCreationRequest {
     pub metadata: ::core::option::Option<rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
     pub vni: ::core::option::Option<u32>,
-    pub routing_profile_type: ::core::option::Option<i32>,
+    pub routing_profile_type: ::core::option::Option<::prost::alloc::string::String>,
     pub default_nvlink_logical_partition_id:
         ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
 }
@@ -103,7 +103,7 @@ pub struct InstanceConfigUpdateRequest {
 #[derive(carbide_prost_builder::Builder)]
 pub struct InstanceConfig {
     pub tenant: ::core::option::Option<::rpc::forge::TenantConfig>,
-    pub os: ::core::option::Option<::rpc::forge::OperatingSystem>,
+    pub os: ::core::option::Option<::rpc::forge::InstanceOperatingSystemConfig>,
     pub network: ::core::option::Option<rpc::forge::InstanceNetworkConfig>,
     pub infiniband: ::core::option::Option<::rpc::forge::InstanceInfinibandConfig>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,

@@ -62,37 +62,6 @@ struct TestOut {
     hbn_root_dir: Option<tempfile::TempDir>,
 }
 
-// test_etv is different than the other tests (which all leverage
-// test_nvue_generic), because it writes out a bunch of additional
-// files (vs. the nvue-based mechanism, which just provides us with
-// a single nvue_startup.yaml config).
-#[tokio::test(flavor = "multi_thread")]
-pub async fn test_etv() -> eyre::Result<()> {
-    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer, false).await?;
-    if out.is_skip {
-        return Ok(());
-    }
-
-    // Make sure all of the files that we expect (in the non-nvue
-    // world) are being written out.
-    let td = out.hbn_root_dir.unwrap();
-    let hbn_root = td.path();
-    assert!(hbn_root.join("etc/frr/frr.conf").exists());
-    assert!(hbn_root.join("etc/network/interfaces").exists());
-    assert!(
-        hbn_root
-            .join("etc/supervisor/conf.d/default-isc-dhcp-relay.conf")
-            .exists()
-    );
-    assert!(
-        hbn_root
-            .join("etc/cumulus/acl/policy.d/60-forge.rules")
-            .exists()
-    );
-
-    Ok(())
-}
-
 // test_etv_nvue tests that config is being generated successfully
 // for the OG networking config, but using nvue templating mechanism.
 // NOTE: This is currently a _very_ light test because it takes the
@@ -102,7 +71,7 @@ pub async fn test_etv() -> eyre::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_etv_nvue() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/full_nvue_startup_etv.yaml.expected");
-    test_nvue_generic(VpcVirtualizationType::EthernetVirtualizerWithNvue, expected).await
+    test_nvue_generic(VpcVirtualizationType::EthernetVirtualizer, expected).await
 }
 
 // test_fnn_l3 tests that config is being generated successfully
@@ -443,24 +412,24 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
 
     let vpc_peer_prefixes = match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizer
-        | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+        VpcVirtualizationType::EthernetVirtualizer => {
             vec!["10.217.6.176/29".to_string()]
         }
         VpcVirtualizationType::Fnn => {
             vec![]
         }
+        _ => vec![],
     };
 
     let vpc_peer_vnis = match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizer
-        | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+        VpcVirtualizationType::EthernetVirtualizer => {
             vec![]
         }
         VpcVirtualizationType::Fnn => {
             println!("Setting vpc_peer_vnis to fnn");
             vec![1025186, 1025197]
         }
+        _ => vec![],
     };
 
     let admin_interface_prefix: IpNetwork = "192.168.0.12/32".parse().unwrap();
@@ -489,6 +458,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         network_security_group: None,
         internal_uuid: None,
         mtu: None,
+        ipv6_interface_config: None,
     };
     assert_eq!(admin_interface.svi_ip, None);
 
@@ -657,6 +627,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         }),
         internal_uuid: None,
         mtu: None,
+        ipv6_interface_config: None,
     };
 
     let network_security_policy_overrides = vec![
@@ -781,11 +752,11 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 hostname: None,
                 tenant_keyset_ids: vec![],
             }),
-            os: Some(rpc::forge::OperatingSystem {
+            os: Some(rpc::forge::InstanceOperatingSystemConfig {
                 phone_home_enabled: false,
                 run_provisioning_instructions_on_every_boot: false,
                 user_data: Some("".to_string()),
-                variant: Some(rpc::forge::operating_system::Variant::Ipxe(rpc::forge::InlineIpxe {
+                variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(rpc::forge::InlineIpxe {
                     ipxe_script: " chain http://10.217.126.4/public/blobs/internal/x86_64/qcow-imager.efi loglevel=7 console=ttyS0,115200 console=tty0 pci=realloc=off image_url=https://pbss.s8k.io/v1/AUTH_team-forge/images.qcow2/carbide-dev-environment/carbide-dev-environment-latest.qcow2".to_string(),
                     user_data: Some("".to_string()),
                 })),
@@ -801,6 +772,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     device_instance: 0,
                     virtual_function_id: None,
                     ip_address: None,
+                    ipv6_interface_config: None,
                 }],
             }),
             infiniband: None,
@@ -850,6 +822,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     };
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
+        bgp_leaf_session_password: Some("this_is_not_a_real_password".to_string()),
         site_global_vpc_vni: None,
         asn: 65535,
         datacenter_asn: 11414,
@@ -862,6 +835,9 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             vni: 22222,
         }],
         routing_profile: Some(rpc::forge::RoutingProfile {
+            tenant_leak_communities_accepted: false,
+            leak_default_route_from_underlay: false,
+            leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![rpc_common::RouteTarget {
                 asn: 44444,
                 vni: 55555,
