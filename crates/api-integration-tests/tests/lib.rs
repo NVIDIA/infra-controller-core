@@ -21,8 +21,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{self, Duration};
 
+use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
-use ::utils::HostPortPair;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,
@@ -259,7 +259,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
 
 pub(crate) const METRIC_DOC_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../book/src/manuals/metrics/core_metrics.md"
+    "/../../docs/manuals/metrics/core_metrics.md"
 );
 
 /// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own
@@ -502,7 +502,7 @@ async fn test_machine_a_tron_multidpu(
                 .await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
                     .await?;
 
                 let instance_json = instance::get_instance_json_by_machine_id(
@@ -537,7 +537,7 @@ async fn test_machine_a_tron_multidpu(
                 instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
@@ -562,17 +562,43 @@ async fn test_machine_a_tron_zerodpu(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_handle| {
+            let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 let machine_id = machine_handle
                     .observed_machine_id()
-                    .expect("Machine ID should be set if host is ready")
-                    .to_string();
-                tracing::info!("Machine {machine_id} has made it to Ready.");
-                // TODO: ZERO DPU's instance handling is not yet clear. Removing this code until
-                // carbide starts supporting ZERO DPUs instance creation.
+                    .expect("Machine ID should be set if host is ready");
+                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+
+                // Zero-DPU tenants don't pass any network config; the allocator instead
+                // auto-picks a HostInband segment for them (which is covered as part of
+                // the test_zero_dpu_instance_allocation_no_network_config test).
+                let instance_id = instance::create(
+                    carbide_api_addrs,
+                    &machine_id,
+                    None,
+                    None,
+                    false,
+                    false,
+                    &[],
+                )
+                .await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
+                    .await?;
+                tracing::info!(
+                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                );
+
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
+                    .await?;
+                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
             }
         },
@@ -595,17 +621,43 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_handle| {
+            let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 let machine_id = machine_handle
                     .observed_machine_id()
-                    .expect("Machine ID should be set if host is ready")
-                    .to_string();
+                    .expect("Machine ID should be set if host is ready");
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
-                // TODO: ZERO DPU/DPU in NIC mode's instance handling is not yet clear. Removing this code until
-                // carbide starts supporting ZERO DPUs instance creation.
+
+                // For a DPU in NIC-mode, the DPU is treated as a plain NIC, meaning
+                // allocation goes through HostInband the same way the zero-DPU path
+                // allocation does; no network config, and the allocator auto-picks.
+                let instance_id = instance::create(
+                    carbide_api_addrs,
+                    &machine_id,
+                    None,
+                    None,
+                    false,
+                    false,
+                    &[],
+                )
+                .await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
+                    .await?;
+                tracing::info!(
+                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                );
+
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
+                    .await?;
+                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
             }
         },
@@ -653,7 +705,7 @@ async fn test_machine_a_tron_dual_stack(
                 machine_handle
                     .wait_until_machine_up_with_api_state(
                         "Assigned/Ready",
-                        Duration::from_secs(60),
+                        Duration::from_secs(90),
                     )
                     .await?;
 
@@ -706,7 +758,7 @@ async fn test_machine_a_tron_dual_stack(
                     .await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!(
                     "Machine {machine_id} back to Ready after dual-stack release"
@@ -775,7 +827,7 @@ async fn test_machine_a_tron_dual_stack_l2(
                     .await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!(
                     "Machine {machine_id} back to Ready after dual-stack L2 release"
@@ -818,7 +870,6 @@ where
                 hw_type,
                 host_count,
                 dpu_per_host_count,
-                boot_delay: 1,
                 dpu_reboot_delay: 1,
                 host_reboot_delay: 1,
                 template_dir: test_env
@@ -847,11 +898,8 @@ where
         pxe_server_host: None,
         pxe_server_port: None,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
-        dhcp_server_address: None,
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
-        sudo_command: None,
-        use_dhcp_api: true,
         use_single_bmc_mock: false, // unused, we're constructing machines ourselves
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,

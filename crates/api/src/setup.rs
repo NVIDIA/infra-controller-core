@@ -21,9 +21,15 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use carbide_firmware::FirmwareDownloader;
 use carbide_ipmi::IPMITool;
+use carbide_nvlink_manager::NvlPartitionMonitor;
+use carbide_nvlink_manager::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
+use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::SiteExplorer;
+use carbide_utils::HostPortPair;
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
@@ -43,12 +49,12 @@ use model::route_server::RouteServerSourceType;
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, PgPool};
+use sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use tokio::sync::Semaphore;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_log::AsLog as _;
-use utils::HostPortPair;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
@@ -56,7 +62,6 @@ use crate::cfg::file::{CarbideConfig, ListenMode};
 use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
-use crate::firmware_downloader::FirmwareDownloader;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::ib::{self, IBFabricManager};
 use crate::ib_fabric_monitor::IbFabricMonitor;
@@ -65,15 +70,11 @@ use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
     ServiceHealthContext, start_export_service_health_metrics,
 };
-use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
-use crate::nvl_partition_monitor::NvlPartitionMonitor;
-use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
-use crate::preingestion_manager::PreingestionManager;
+use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
-use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
@@ -376,7 +377,7 @@ pub async fn start_api(
         ListenMode::PlaintextHttp2 => ApiListenMode::PlaintextHttp2,
     };
 
-    let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
+    let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
         shared_redfish_pool.clone(),
         shared_nv_redfish_pool,
         ipmi_tool.clone(),
@@ -386,7 +387,7 @@ pub async fn start_api(
             .rotate_switch_nvos_credentials
             .clone(),
         carbide_config.site_explorer.explore_mode,
-    ));
+    );
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
 
@@ -406,17 +407,15 @@ pub async fn start_api(
 
         let provider = crate::dpf::CarbideBmcPasswordProvider::new(credential_manager.clone());
 
-        let services = vec![carbide_dpf::services::dts_service(
-            &carbide_dpf::services::ServiceRegistryConfig::default(),
-        )];
-        let reg = crate::dpf_services::CarbideServiceRegistryConfig::default();
+        let mandatory_services = carbide_config.dpf.services.clone();
+        let services = vec![crate::dpf_services::dts_service(&mandatory_services.dts)];
         let v2_services = vec![
-            carbide_dpf::services::dts_service(
-                &carbide_dpf::services::ServiceRegistryConfig::default(),
-            ),
-            crate::dpf_services::dhcp_server_service(&reg),
-            crate::dpf_services::doca_hbn_service(&reg),
-            crate::dpf_services::dpu_agent_service(&reg),
+            crate::dpf_services::dts_service(&mandatory_services.dts),
+            crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
+            crate::dpf_services::dhcp_server_service(&mandatory_services.dhcp_server),
+            crate::dpf_services::dpu_agent_service(&mandatory_services.dpu_agent),
+            crate::dpf_services::fmds_service(&mandatory_services.fmds),
+            // crate::dpf_services::otel_service(&mandatory_services.otel),
         ];
 
         let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
@@ -532,6 +531,7 @@ pub async fn start_api(
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
         component_manager,
+        bms_client: std::sync::OnceLock::new(),
     });
 
     if carbide_config.listen_only {
@@ -784,6 +784,23 @@ pub async fn initialize_and_start_controllers(
                 config.mqtt_endpoint,
                 config.mqtt_broker_port
             );
+
+            let bms_client = BmsDsxExchangeHandle::new(
+                client.clone(),
+                db_pool,
+                join_set,
+                config.publish_timeout,
+                config.queue_capacity,
+                &meter,
+                cancel_token.clone(),
+            )
+            .await?;
+
+            api_service
+                .bms_client
+                .set(bms_client)
+                .map_err(|_| eyre::eyre!("BMS DSX Exchange handle already initialized"))?;
+
             emitter_builder = emitter_builder.hook(Box::new(MqttStateChangeHook::new(
                 client,
                 join_set,
@@ -807,6 +824,22 @@ pub async fn initialize_and_start_controllers(
         site_config: carbide_config.clone(),
         dpa_info,
         rms_client: rms_client.clone(),
+        switch_system_image_rms_client: carbide_config
+            .rms
+            .api_url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .map(|url| {
+                let rms_client_config = librms::client_config::RmsClientConfig::new(
+                    carbide_config.rms.root_ca_path.clone(),
+                    carbide_config.rms.client_cert.clone(),
+                    carbide_config.rms.client_key.clone(),
+                    carbide_config.rms.enforce_tls,
+                );
+                let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+                Arc::new(librms::RackManagerApi::new(&rms_api_config))
+                    as Arc<dyn crate::rack::rms_client::SwitchSystemImageRmsClient>
+            }),
         credential_manager: credential_manager.clone(),
     });
 
@@ -880,6 +913,9 @@ pub async fn initialize_and_start_controllers(
                     .host_health
                     .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
+            sla_config: model::machine::slas::MachineSlaConfig::new(
+                carbide_config.machine_state_controller.failure_retry_time,
+            ),
         }))
         .state_change_emitter(state_change_emitter)
         .build_and_spawn(join_set, cancel_token.clone())
@@ -1027,7 +1063,7 @@ pub async fn initialize_and_start_controllers(
 
     PreingestionManager::new(
         db_pool.clone(),
-        carbide_config.clone(),
+        carbide_config.preingestion_manager(),
         shared_redfish_pool.clone(),
         meter.clone(),
         Some(downloader.clone()),

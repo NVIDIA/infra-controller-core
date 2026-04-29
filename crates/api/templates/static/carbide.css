@@ -896,10 +896,22 @@ td.cell-error {
   font-weight: 500;
 }
 
+td.cell-error a,
+td.cell-error a:hover {
+  color: inherit;
+  text-decoration: underline;
+}
+
 td.cell-warning {
   background-color: rgba(237, 137, 54, 0.1);
   color: var(--warning);
   font-weight: 500;
+}
+
+td.cell-warning a,
+td.cell-warning a:hover {
+  color: inherit;
+  text-decoration: underline;
 }
 
 /* ------------------------------------------------------------------------
@@ -1101,8 +1113,8 @@ details > *:not(summary) {
   color: var(--text-muted);
 }
 
-/* Health override actions - JSON details and remove button layout */
-.health-override-actions {
+/* Health report actions - JSON details and remove button layout */
+.health-report-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1111,18 +1123,18 @@ details > *:not(summary) {
   min-height: 1.5rem;
 }
 
-.health-override-actions details {
+.health-report-actions details {
   flex: 1;
   min-width: 120px;
   align-self: center;
 }
 
-.health-override-actions summary {
+.health-report-actions summary {
   margin: 0;
   line-height: 1.5rem;
 }
 
-.health-override-actions button {
+.health-report-actions button {
   flex-shrink: 0;
 }
 

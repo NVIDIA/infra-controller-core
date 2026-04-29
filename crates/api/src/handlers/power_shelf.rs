@@ -275,9 +275,13 @@ pub async fn admin_force_delete_power_shelf(
     }
 
     // Delete state history.
-    db::power_shelf_state_history::delete_by_power_shelf_id(&mut txn, &power_shelf_id)
-        .await
-        .map_err(CarbideError::from)?;
+    db::state_history::delete_by_object_id(
+        &mut txn,
+        db::state_history::StateHistoryTableId::PowerShelf,
+        &power_shelf_id,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     // Hard-delete the power shelf.
     db_power_shelf::final_delete(power_shelf_id, &mut txn)
@@ -314,15 +318,18 @@ pub async fn find_power_shelf_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results =
-        db::power_shelf_state_history::find_by_power_shelf_ids(&mut txn, &power_shelf_ids)
-            .await
-            .map_err(CarbideError::from)?;
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::PowerShelf,
+        &power_shelf_ids,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     let mut response = rpc::StateHistories::default();
     for (power_shelf_id, records) in results {
         response.histories.insert(
-            power_shelf_id.to_string(),
+            power_shelf_id,
             ::rpc::forge::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },

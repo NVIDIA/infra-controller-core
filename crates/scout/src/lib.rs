@@ -17,7 +17,7 @@
 
 use std::num::ParseIntError;
 
-use utils::cmd::CmdError;
+use carbide_utils::cmd::CmdError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideClientError {

@@ -21,38 +21,6 @@
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
 #![cfg_attr(test, allow(txn_held_across_await))]
 #![cfg_attr(test, allow(txn_without_commit))]
-// Needed for nv-redfish that requires deep recursion for Redfish
-// object type tree.
-#![recursion_limit = "256"]
-
-#[cfg(test)]
-/// test_assert will run an assertion if we are compiled to run tests, or will print an error otherwise.
-macro_rules! test_assert {
-    ($cond:expr $(,)?) => {
-        assert!($cond);
-    };
-    ($cond:expr, $($arg:tt)+) => {
-        assert!($cond, $($arg)+);
-    };
-}
-
-#[cfg(not(test))]
-/// test_assert will run an assertion if we are compiled to run tests, or will print an error otherwise.
-macro_rules! test_assert {
-    ($cond:expr $(,)?) => {
-        if !$cond {
-            tracing::error!(
-                assertion = stringify!($cond),
-                "test-only assertion failed"
-            );
-        }
-    };
-    ($cond:expr, $($arg:tt)+) => {
-        if !$cond {
-            tracing::error!($($arg)+);
-        }
-    };
-}
 
 // NOTE on pub vs non-pub mods:
 //
@@ -77,7 +45,6 @@ mod dpf_services;
 mod dynamic_settings;
 mod errors;
 mod ethernet_virtualization;
-mod firmware_downloader;
 mod handlers;
 mod ib;
 mod ib_fabric_monitor;
@@ -91,15 +58,11 @@ mod machine_validation;
 mod measured_boot;
 mod mqtt_state_change_hook;
 mod network_segment;
-mod nvl_partition_monitor;
-mod nvlink;
-mod preingestion_manager;
 mod rack;
 mod redfish;
 mod run;
 mod scout_stream;
 mod setup;
-mod site_explorer;
 mod state_controller;
 mod storage;
 #[cfg(test)]
@@ -113,8 +76,6 @@ pub(crate) use carbide_macros::sqlx_test;
 pub use db::{DatabaseError, DatabaseResult};
 // Save typing
 pub(crate) use errors::{CarbideError, CarbideResult};
-pub use site_explorer::BmcEndpointExplorer;
-pub use site_explorer::config::SiteExplorerExploreMode;
 
 // Stuff needed by main.rs and api-test
 pub use crate::{cfg::command_line::Command, cfg::command_line::Options, run::run};

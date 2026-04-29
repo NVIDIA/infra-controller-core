@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_utils::HostPortPair;
 use eyre::WrapErr;
 use forge_secrets::credentials::{CredentialReader, CredentialWriter};
 use forge_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
@@ -25,7 +25,6 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
-use utils::HostPortPair;
 
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
@@ -234,9 +233,8 @@ pub async fn run(
         )
     };
 
-    let nv_redfish_pool = Arc::new(NvRedfishClientPool::new(
-        carbide_config.site_explorer.bmc_proxy.clone(),
-    ));
+    let nv_redfish_pool =
+        carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
 
     setup::start_api(
         &mut join_set,

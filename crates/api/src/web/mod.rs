@@ -80,6 +80,74 @@ pub(crate) struct StateSlaDetail {
     pub state_reason: Option<rpc::forge::ControllerStateReason>,
 }
 
+/// Reusable template for rendering lifecycle fields.
+/// Render with `{{ lifecycle_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "lifecycle_detail.html")]
+pub(crate) struct LifecycleDetail {
+    pub state_display: StateDisplay,
+    pub json_state: Option<String>,
+    pub version: String,
+    pub time_in_state: String,
+    pub state_sla: String,
+    pub time_in_state_above_sla: bool,
+    pub state_reason: Option<rpc::forge::ControllerStateReason>,
+}
+
+impl LifecycleDetail {
+    pub fn new(
+        state: String,
+        version: String,
+        state_reason: Option<forgerpc::ControllerStateReason>,
+        sla: Option<forgerpc::StateSla>,
+    ) -> Self {
+        let time_in_state_above_sla = sla
+            .as_ref()
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or_default();
+        let json_state = verify_json(&state);
+        Self {
+            state_display: StateDisplay {
+                state,
+                time_in_state_above_sla,
+            },
+            json_state,
+            time_in_state: config_version::since_state_change_humanized(&version),
+            version,
+            state_sla: format_state_sla(sla.as_ref()),
+            time_in_state_above_sla,
+            state_reason,
+        }
+    }
+}
+
+impl From<forgerpc::LifecycleStatus> for LifecycleDetail {
+    fn from(lifecycle: forgerpc::LifecycleStatus) -> Self {
+        LifecycleDetail::new(
+            lifecycle.state,
+            lifecycle.version,
+            lifecycle.state_reason,
+            lifecycle.sla,
+        )
+    }
+}
+
+fn verify_json(state: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(state)
+        .ok()
+        .map(|_| state.to_string())
+}
+
+fn format_state_sla(sla: Option<&forgerpc::StateSla>) -> String {
+    sla.and_then(|sla| sla.sla)
+        .map(|sla| {
+            config_version::format_duration(
+                chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
+            )
+        })
+        .unwrap_or_default()
+}
+
 mod action_status;
 mod attestation;
 mod auth;
@@ -147,6 +215,7 @@ const ALLOWED_ACCESS_GROUPS_ID_LIST_ENV: &str = "CARBIDE_WEB_ALLOWED_ACCESS_GROU
 const SORTABLE_JS: &str = include_str!("../../templates/static/sortable.min.js");
 const SORTABLE_CSS: &str = include_str!("../../templates/static/sortable.min.css");
 const CARBIDE_CSS: &str = include_str!("../../templates/static/carbide.css");
+const TABS_JS: &str = include_str!("../../templates/static/tabs.js");
 
 // It would appear the oauth2 author read about the typestate pattern and decided making
 // everyone declare 10 type parameters when storing a Client sounds like a great idea.
@@ -462,12 +531,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(state_history::show_switch_state_history_json),
             )
             .route(
-                "/machine/{machine_id}/health/override/add",
-                post(health::add_override),
+                "/machine/{machine_id}/health-report/add",
+                post(health::add_health_report),
             )
             .route(
-                "/machine/{machine_id}/health/override/remove",
-                post(health::remove_override),
+                "/machine/{machine_id}/health-report/remove",
+                post(health::remove_health_report),
             )
             .route(
                 "/machine/{machine_id}/attestation-results",
@@ -813,6 +882,7 @@ pub async fn static_data(
         "carbide.css" => {
             (StatusCode::OK, [(CONTENT_TYPE, "text/css")], CARBIDE_CSS).into_response()
         }
+        "tabs.js" => (StatusCode::OK, [(CONTENT_TYPE, "text/javascript")], TABS_JS).into_response(),
         _ => (StatusCode::NOT_FOUND, "No such file").into_response(),
     }
 }

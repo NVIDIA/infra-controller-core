@@ -24,8 +24,6 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 use tracing::Instrument;
 
-use crate::logging::sqlx_query_tracing;
-
 /// A tower Layer which creates a `LogService` for every request
 #[derive(Debug, Clone)]
 pub struct LogLayer {

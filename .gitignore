@@ -36,7 +36,6 @@ dev/shell/*
 pxe/mkosi.profiles/*/mkosi.extra/build-output
 ssh-console/legacy/ssh-console
 
-book/src/mdbook-plantuml-img/**
 dev/mac-local-dev/carbide-api-config-*.toml
 crates/dpf/doca-platform
 

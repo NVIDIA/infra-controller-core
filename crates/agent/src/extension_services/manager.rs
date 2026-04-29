@@ -40,7 +40,7 @@ impl ExtensionServiceManager {
                         as Box<dyn ExtensionServiceHandler>,
                 );
             }
-            AgentPlatformType::Containerized | AgentPlatformType::ContainerInitializer => {
+            AgentPlatformType::Containerized => {
                 // We can't support the KubernetesPod or
                 // KubernetesPodServicesHandler handlers as currently
                 // implemented (they do a lot of raw crictl operations), so

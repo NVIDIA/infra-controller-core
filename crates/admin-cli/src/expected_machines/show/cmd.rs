@@ -151,20 +151,7 @@ async fn convert_and_print_into_nice_table(
             )
             .map(String::as_str);
 
-        let labels = expected_machine
-            .metadata
-            .as_ref()
-            .map(|m| {
-                m.labels
-                    .iter()
-                    .map(|label| {
-                        let key = label.key.as_str();
-                        let value = label.value.as_deref().unwrap_or_default();
-                        format!("\"{key}:{value}\"")
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(expected_machine.metadata.as_ref());
 
         table.add_row(row![
             expected_machine.chassis_serial_number,

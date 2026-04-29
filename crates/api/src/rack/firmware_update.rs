@@ -44,6 +44,12 @@ pub struct RackFirmwareInventory {
 }
 
 #[derive(Debug, Clone)]
+pub struct RackSwitchFirmwareInventory {
+    pub switch_ids: Vec<SwitchId>,
+    pub switches: Vec<FirmwareUpgradeDeviceInfo>,
+}
+
+#[derive(Debug, Clone)]
 pub struct FirmwareUpdateBatchRequest {
     pub display_name: &'static str,
     pub devices: Vec<FirmwareUpgradeDeviceInfo>,
@@ -84,7 +90,7 @@ pub async fn load_rack_firmware_inventory(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
 ) -> Result<RackFirmwareInventory> {
-    let (machine_ids, machine_topologies, switch_ids, switch_endpoints) = {
+    let (machine_ids, machine_topologies) = {
         let mut txn = db_pool.begin().await?;
 
         let machine_ids = db_machine::find_machine_ids(
@@ -98,24 +104,8 @@ pub async fn load_rack_firmware_inventory(
         let machine_topologies =
             db_machine_topology::find_latest_by_machine_ids(txn.as_mut(), &machine_ids).await?;
 
-        let switch_ids = db_switch::find_ids(
-            txn.as_mut(),
-            model::switch::SwitchSearchFilter {
-                rack_id: Some(rack_id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let switch_endpoints =
-            db_switch::find_switch_endpoints_by_ids(txn.as_mut(), &switch_ids).await?;
-
         txn.commit().await?;
-        (
-            machine_ids,
-            machine_topologies,
-            switch_ids,
-            switch_endpoints,
-        )
+        (machine_ids, machine_topologies)
     };
 
     let mut machines = Vec::with_capacity(machine_ids.len());
@@ -149,6 +139,42 @@ pub async fn load_rack_firmware_inventory(
         });
     }
 
+    let RackSwitchFirmwareInventory {
+        switch_ids,
+        switches,
+    } = load_rack_switch_firmware_inventory(db_pool, credential_manager, rack_id).await?;
+
+    Ok(RackFirmwareInventory {
+        machine_ids,
+        switch_ids,
+        machines,
+        switches,
+    })
+}
+
+pub async fn load_rack_switch_firmware_inventory(
+    db_pool: &PgPool,
+    credential_manager: &dyn CredentialManager,
+    rack_id: &RackId,
+) -> Result<RackSwitchFirmwareInventory> {
+    let (switch_ids, switch_endpoints) = {
+        let mut txn = db_pool.begin().await?;
+
+        let switch_ids = db_switch::find_ids(
+            txn.as_mut(),
+            model::switch::SwitchSearchFilter {
+                rack_id: Some(rack_id.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+        let switch_endpoints =
+            db_switch::find_switch_endpoints_by_ids(txn.as_mut(), &switch_ids).await?;
+
+        txn.commit().await?;
+        (switch_ids, switch_endpoints)
+    };
+
     let mut switches = Vec::with_capacity(switch_endpoints.len());
     for switch in &switch_endpoints {
         let (bmc_username, bmc_password) =
@@ -167,10 +193,8 @@ pub async fn load_rack_firmware_inventory(
         });
     }
 
-    Ok(RackFirmwareInventory {
-        machine_ids,
+    Ok(RackSwitchFirmwareInventory {
         switch_ids,
-        machines,
         switches,
     })
 }
@@ -180,6 +204,7 @@ pub fn build_firmware_update_batches(
     firmware: &RackFirmware,
     firmware_type: &str,
     inventory: &RackFirmwareInventory,
+    components: &[String],
 ) -> Result<Vec<FirmwareUpdateBatchRequest>> {
     let parsed_components = firmware
         .parsed_components
@@ -210,8 +235,13 @@ pub fn build_firmware_update_batches(
             continue;
         }
 
-        let firmware_targets =
-            build_firmware_targets(&parsed_components, lookup_key, firmware_type, &firmware.id)?;
+        let firmware_targets = build_firmware_targets(
+            &parsed_components,
+            lookup_key,
+            firmware_type,
+            &firmware.id,
+            components,
+        )?;
         let node_infos = devices
             .iter()
             .map(|device| build_new_node_info(rack_id, device, node_type))
@@ -233,7 +263,7 @@ pub fn build_firmware_update_batches(
                 }),
                 firmware_targets: target_map,
                 activate,
-                force_update: true,
+                force_update: false,
                 ..Default::default()
             },
         });
@@ -309,9 +339,14 @@ fn build_firmware_targets(
     lookup_key: &str,
     firmware_type: &str,
     firmware_id: &str,
+    components: &[String],
 ) -> Result<Vec<rms::FirmwareTarget>> {
-    let mut firmware_components =
-        find_firmware_components_for_device(parsed_components, lookup_key, firmware_type)?;
+    let mut firmware_components = find_firmware_components_for_device(
+        parsed_components,
+        lookup_key,
+        firmware_type,
+        components,
+    )?;
     let flash_order = get_firmware_flash_order(lookup_key);
     firmware_components.sort_by_key(|(_, _, target)| {
         flash_order
@@ -340,7 +375,7 @@ fn build_firmware_targets(
         .collect())
 }
 
-fn build_new_node_info(
+pub(crate) fn build_new_node_info(
     rack_id: &RackId,
     device: &FirmwareUpgradeDeviceInfo,
     node_type: rms::NodeType,
@@ -416,6 +451,7 @@ fn find_firmware_components_for_device(
     parsed_components: &Value,
     hardware_type: &str,
     firmware_type: &str,
+    components: &[String],
 ) -> Result<Vec<(String, String, String)>> {
     let lookup_table: FirmwareLookupTable = serde_json::from_value(parsed_components.clone())
         .map_err(|err| {
@@ -427,10 +463,16 @@ fn find_firmware_components_for_device(
         })?;
 
     let wanted_type = firmware_type.to_lowercase();
+    let wanted_components: Vec<String> = components.iter().map(|c| c.to_lowercase()).collect();
     let mut results = Vec::new();
     if let Some(device_components) = lookup_table.devices.get(hardware_type) {
         for (component_key, entry) in device_components {
             if entry.firmware_type.to_lowercase() != wanted_type {
+                continue;
+            }
+            if !wanted_components.is_empty()
+                && !wanted_components.contains(&entry.component.to_lowercase())
+            {
                 continue;
             }
             results.push((

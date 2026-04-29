@@ -18,9 +18,9 @@ use ::rpc::forge as rpc;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, InstanceState,
-    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
-    get_action_for_dpu_state,
+    BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, HostReprovisionState,
+    InstanceState, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
+    ValidationState, get_action_for_dpu_state,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use tonic::{Request, Response, Status};
@@ -295,6 +295,33 @@ pub(crate) async fn forge_agent_control(
                         (Action::Noop, None, None)
                     }
                 }
+            }
+
+            ManagedHostState::HostReprovision {
+                reprovision_state:
+                    HostReprovisionState::WaitingForScoutUpgrade {
+                        task_json,
+                        result: None,
+                        ..
+                    },
+                ..
+            } => {
+                tracing::info!(
+                    machine_id = %machine.id,
+                    "Sending firmware upgrade task to scout",
+                );
+                (
+                    Action::FirmwareUpgrade,
+                    Some(
+                        rpc::forge_agent_control_response::ForgeAgentControlExtraInfo {
+                            pair: vec![KeyValuePair {
+                                key: "firmware_upgrade_task".to_string(),
+                                value: task_json.clone(),
+                            }],
+                        },
+                    ),
+                    Some(txn),
+                )
             }
 
             _ => {

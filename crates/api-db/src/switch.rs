@@ -25,7 +25,9 @@ use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
-use model::switch::{NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest};
+use model::switch::{
+    FabricManagerStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
+};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -111,8 +113,11 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         controller_state_outcome: None,
         switch_reprovisioning_requested: None,
         firmware_upgrade_status: None,
+        nvos_update_status: None,
+        fabric_manager_status: None,
         metadata,
         version,
+        is_primary: false,
         rack_id: new_switch.rack_id.clone(),
         slot_number: new_switch.slot_number,
         tray_index: new_switch.tray_index,
@@ -164,6 +169,10 @@ pub async fn find_ids(
         qb.push(" JOIN machine_interfaces mi ON mi.switch_id = s.id");
     }
 
+    if filter.nvos_mac.is_some() {
+        qb.push(" JOIN expected_switches es_nvos ON es_nvos.bmc_mac_address = s.bmc_mac_address");
+    }
+
     qb.push(" WHERE TRUE");
 
     if filter.rack_id.is_some() {
@@ -185,6 +194,12 @@ pub async fn find_ids(
     if let Some(mac) = filter.bmc_mac {
         qb.push(" AND mi.mac_address = ");
         qb.push_bind(mac);
+    }
+
+    if let Some(mac) = filter.nvos_mac {
+        qb.push(" AND ");
+        qb.push_bind(mac);
+        qb.push(" = ANY(es_nvos.nvos_mac_addresses)");
     }
 
     qb.build_query_as()
@@ -298,6 +313,36 @@ pub async fn update_firmware_upgrade_status(
     Ok(())
 }
 
+pub async fn update_nvos_update_status(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    status: Option<&model::switch::SwitchNvosUpdateStatus>,
+) -> DatabaseResult<()> {
+    let query = "UPDATE switches SET nvos_update_status = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(status.map(|s| sqlx::types::Json(s.clone())))
+        .bind(switch_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_nvos_update_status", e))?;
+    Ok(())
+}
+
+pub async fn update_fabric_manager_status(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    status: Option<&FabricManagerStatus>,
+) -> DatabaseResult<()> {
+    let query = "UPDATE switches SET fabric_manager_status = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(status.cloned().map(sqlx::types::Json))
+        .bind(switch_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_fabric_manager_status", e))?;
+    Ok(())
+}
+
 pub async fn update_slot_and_tray(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
@@ -311,6 +356,20 @@ pub async fn update_slot_and_tray(
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::new("update_slot_and_tray", e))?;
+    Ok(())
+}
+
+pub async fn set_primary_switch_for_rack(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    primary_switch_id: &SwitchId,
+) -> DatabaseResult<()> {
+    sqlx::query("UPDATE switches SET is_primary = (id = $1) WHERE rack_id = $2")
+        .bind(primary_switch_id)
+        .bind(rack_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("set_primary_switch_for_rack", e))?;
     Ok(())
 }
 

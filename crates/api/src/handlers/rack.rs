@@ -14,11 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::HashSet;
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportEntry};
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::switch::SwitchId;
 use db::{
     ObjectColumnFilter, WithTransaction, expected_machine as db_expected_machine,
     expected_power_shelf as db_expected_power_shelf, expected_switch as db_expected_switch,
@@ -28,6 +32,7 @@ use futures_util::FutureExt;
 use health_report::HealthReportApplyMode;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::metadata::Metadata;
+use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -220,14 +225,18 @@ pub async fn find_rack_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::rack_state_history::find_by_rack_ids(&mut txn, &rack_ids)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Rack,
+        &rack_ids,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     let mut response = rpc::StateHistories::default();
     for (rack_id, records) in results {
         response.histories.insert(
-            rack_id.to_string(),
+            rack_id,
             ::rpc::forge::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
@@ -369,6 +378,10 @@ pub async fn insert_rack_health_report_override(
     db_rack::insert_health_report_override(&mut txn, &rack.id, mode, &report).await?;
 
     txn.commit().await?;
+
+    if let Some(handle) = api.bms_client.get() {
+        handle.update_rack_leak_state(&rack.id, &report).await;
+    }
 
     Ok(Response::new(()))
 }
@@ -516,4 +529,216 @@ pub(crate) async fn update_rack_metadata(
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+pub(crate) async fn on_demand_rack_maintenance(
+    api: &Api,
+    request: Request<rpc::RackMaintenanceOnDemandRequest>,
+) -> Result<Response<rpc::RackMaintenanceOnDemandResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    let rack_id = req
+        .rack_id
+        .ok_or_else(|| CarbideError::InvalidArgument("rack_id is required".into()))?;
+
+    let rack = db_rack::find_by(
+        api.db_reader().as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
+
+    if !matches!(
+        *rack.controller_state,
+        RackState::Ready | RackState::Error { .. }
+    ) {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Rack {} is not in Ready or Error state (current: {:?}). Maintenance can only be requested when the rack is Ready or in Error.",
+            rack_id, *rack.controller_state
+        ))
+        .into());
+    }
+
+    if rack.config.maintenance_requested.is_some() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "On-demand maintenance for rack {} is already scheduled.",
+            rack_id,
+        ))
+        .into());
+    }
+
+    use rpc::maintenance_activity_config::Activity as ProtoActivity;
+
+    let proto_scope = req.scope.unwrap_or_default();
+
+    let activities: Vec<MaintenanceActivity> = proto_scope
+        .activities
+        .iter()
+        .map(|entry| match &entry.activity {
+            Some(ProtoActivity::FirmwareUpgrade(fw)) => Ok(MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: if fw.firmware_version.is_empty() {
+                    None
+                } else {
+                    Some(fw.firmware_version.clone())
+                },
+                components: fw.components.clone(),
+            }),
+            Some(ProtoActivity::ConfigureNmxCluster(_)) => {
+                Ok(MaintenanceActivity::ConfigureNmxCluster)
+            }
+            Some(ProtoActivity::PowerSequence(_)) => Ok(MaintenanceActivity::PowerSequence),
+            None => Err(CarbideError::InvalidArgument(
+                "Maintenance activity entry has no activity set".into(),
+            )),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let scope = MaintenanceScope {
+        machine_ids: proto_scope
+            .machine_ids
+            .iter()
+            .map(|s| MachineId::from_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine_id: {e}")))?,
+        switch_ids: proto_scope
+            .switch_ids
+            .iter()
+            .map(|s| SwitchId::from_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid switch_id: {e}")))?,
+        power_shelf_ids: proto_scope
+            .power_shelf_ids
+            .iter()
+            .map(|s| PowerShelfId::from_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid power_shelf_id: {e}")))?,
+        activities,
+    };
+
+    if !scope.is_full_rack() {
+        let mut reader = api.db_reader();
+
+        if !scope.machine_ids.is_empty() {
+            let rack_machines: HashSet<MachineId> = db_machine::find_machine_ids(
+                reader.as_mut(),
+                MachineSearchConfig {
+                    rack_id: Some(rack_id.clone()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .into_iter()
+            .collect();
+
+            let foreign: Vec<_> = scope
+                .machine_ids
+                .iter()
+                .filter(|id| !rack_machines.contains(id))
+                .collect();
+            if !foreign.is_empty() {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "machine(s) [{}] do not belong to rack {rack_id}",
+                    foreign
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ))
+                .into());
+            }
+        }
+
+        if !scope.switch_ids.is_empty() {
+            let rack_switches: HashSet<SwitchId> = db_switch::find_ids(
+                reader.as_mut(),
+                model::switch::SwitchSearchFilter {
+                    rack_id: Some(rack_id.clone()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .into_iter()
+            .collect();
+
+            let foreign: Vec<_> = scope
+                .switch_ids
+                .iter()
+                .filter(|id| !rack_switches.contains(id))
+                .collect();
+            if !foreign.is_empty() {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "switch(es) [{}] do not belong to rack {rack_id}",
+                    foreign
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ))
+                .into());
+            }
+        }
+
+        if !scope.power_shelf_ids.is_empty() {
+            let rack_power_shelves: HashSet<PowerShelfId> = db_power_shelf::find_ids(
+                reader.as_mut(),
+                model::power_shelf::PowerShelfSearchFilter {
+                    rack_id: Some(rack_id.clone()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .into_iter()
+            .collect();
+
+            let foreign: Vec<_> = scope
+                .power_shelf_ids
+                .iter()
+                .filter(|id| !rack_power_shelves.contains(id))
+                .collect();
+            if !foreign.is_empty() {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "power shelf/shelves [{}] do not belong to rack {rack_id}",
+                    foreign
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ))
+                .into());
+            }
+        }
+    }
+
+    let mut updated_config = rack.config.clone();
+    updated_config.maintenance_requested = Some(scope);
+
+    let mut txn = api.txn_begin().await?;
+    db_rack::update(&mut txn, &rack_id, &updated_config).await?;
+    if updated_config
+        .maintenance_requested
+        .as_ref()
+        .is_some_and(|scope| {
+            scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            })
+        })
+    {
+        db_rack::update_firmware_upgrade_job(txn.as_mut(), &rack_id, None).await?;
+    }
+    txn.commit().await?;
+
+    tracing::info!("On-demand maintenance scheduled for rack {}", rack_id,);
+
+    Ok(Response::new(rpc::RackMaintenanceOnDemandResponse {}))
 }

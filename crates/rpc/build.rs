@@ -101,6 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FabricManagerConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.FabricManagerStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceIpv6Config", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceInterfaceIpv6Config", "#[derive(serde::Serialize, serde::Deserialize)]")
@@ -207,6 +208,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             "forge.Label",
             "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.LifecycleStatus",
+            "#[derive(serde::Serialize)]",
         )
         .type_attribute(
             "forge.InstancePhoneHomeLastContactRequest",
@@ -736,24 +741,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
-            "forge.GetRackRequest",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.GetRackResponse",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.DeleteRackRequest",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
             "forge.Rack",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RackConfig",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
             "forge.RackList",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RackStatus",
+            "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.PowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("forge.PowerShelfConfig", "#[derive(serde::Serialize)]")

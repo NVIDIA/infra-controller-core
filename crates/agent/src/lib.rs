@@ -1,4 +1,3 @@
-use std::path::Path;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
@@ -15,6 +14,9 @@ use std::path::Path;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::fs::File;
+use std::io::Cursor;
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,15 +26,16 @@ use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_host_support::hardware_enumeration::{
-    HW_CACHE_PATH, enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
+    enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
 };
 use carbide_host_support::registration::register_machine;
+use carbide_utils::models::arch::CpuArchitecture;
 pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
-use utils::models::arch::CpuArchitecture;
+use tokio::fs;
 use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
@@ -84,6 +87,22 @@ pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
+// Downloads cert (pem) file in case of dpu-agent is running as initcontainer.
+async fn download_cert() -> eyre::Result<()> {
+    let url = "http://carbide-pxe.forge/api/v0/tls/root_ca";
+    let output_file = "/opt/forge/forge_root.pem";
+    let permissions = std::fs::Permissions::from_mode(0o644);
+
+    let response = reqwest::get(url).await?;
+
+    let mut file = File::create(output_file)?;
+    let mut content = Cursor::new(response.bytes().await?);
+    std::io::copy(&mut content, &mut file)?;
+    fs::set_permissions(output_file, permissions).await?;
+
+    Ok(())
+}
+
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     if cmdline.version {
         println!("{}", carbide_version::version!());
@@ -130,25 +149,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 tracing::warn!("Upgrades disabled. Dev only");
             }
 
-            // For Containerized mode, fall back to the hardware cache written by the init
-            // container if no explicit discovery file was provided.
-            let hw_cache_path = Path::new(HW_CACHE_PATH);
-            let discovery_info_file = match &options.agent_platform_type {
-                AgentPlatformType::Containerized => Some(
-                    options
-                        .discovery_info_file
-                        .as_deref()
-                        .unwrap_or(hw_cache_path),
-                ),
-                _ => options.discovery_info_file.as_deref(),
-            };
-
             let Registration {
                 machine_id,
                 factory_mac_address,
             } = match options.override_machine_id {
                 // Normal case
-                None => register(&agent, discovery_info_file)
+                None => register(&agent, &options.agent_platform_type)
                     .await
                     .wrap_err("registration error")?,
                 // Dev / test override
@@ -172,8 +178,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // enumerate hardware and exit
         Some(AgentCommand::Hardware(options)) => {
             let info = match options.agent_platform_type {
-                // Init: enumerate from host and persist to the shared volume for the containerized agent
-                AgentPlatformType::ContainerInitializer => enumerate_and_save_hardware()?,
                 // Containerized: read the snapshot written by the init container
                 AgentPlatformType::Containerized => load_hardware_from_cache()?,
                 // No container mode, just plain old dpu-agent running as a service on DPU OS.
@@ -187,6 +191,14 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     eprintln!("{string_result}");
                 }
             }
+        }
+
+        // Init-container entry point: download cert + snapshot hardware to the shared volume.
+        // Output path is fixed (HW_CACHE_PATH) so the main container can always find it.
+        Some(AgentCommand::InitContainer) => {
+            download_cert().await?;
+            enumerate_and_save_hardware()?;
+            util::save_host_nameservers()?;
         }
 
         // One-off health check.
@@ -213,7 +225,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // One-off network monitor check.
         // dumps JSON-formatted peer DPU network reachability and latency status
         Some(AgentCommand::Network(options)) => {
-            let machine_id = register(&agent, None)
+            let machine_id = register(&agent, &AgentPlatformType::DpuOs)
                 .await
                 .wrap_err("network check machine registration error")?
                 .machine_id;
@@ -252,7 +264,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             // host_machine_id files, we need to make a registration call to
             // get the machine_id, and a carbide api request to get the
             // host_machine_id.
-            let Registration { machine_id, .. } = register(&agent, None)
+            let Registration { machine_id, .. } = register(&agent, &AgentPlatformType::DpuOs)
                 .await
                 .wrap_err("registration error")?;
 
@@ -360,6 +372,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     vpc_virtualization_type: opts.virtualization_type,
                     hbn_version: opts.hbn_version,
                     use_admin_network: true,
+                    tenancy_enabled: true,
                     loopback_ip: opts.loopback_ip.to_string(),
                     secondary_overlay_vtep_ip: opts.secondary_overlay_vtep_ip,
                     internal_bridge_routing_prefix: opts.internal_bridge_routing_prefix,
@@ -467,15 +480,15 @@ impl HBNDeviceNames {
 }
 
 /// Discover hardware, register DPU with carbide-api, and return machine id.
-/// If discovery_info_file is set, we'll load the rpc::DiscoveryInfo message
-/// from that instead of trying to probe hardware ourselves.
 async fn register(
     agent: &AgentConfig,
-    discovery_info_file: Option<&Path>,
+    platform_type: &AgentPlatformType,
 ) -> Result<Registration, eyre::Report> {
-    let mut hardware_info = match discovery_info_file {
-        Some(discovery_info_file) => load_discovery_info_file(discovery_info_file).await,
-        None => enumerate_hardware().wrap_err("enumerate_hardware failed"),
+    let mut hardware_info = match platform_type {
+        AgentPlatformType::Containerized => {
+            load_hardware_from_cache().wrap_err("load_hardware_from_cache failed")
+        }
+        _ => enumerate_hardware().wrap_err("enumerate_hardware failed"),
     }?;
 
     // Pretend to be a bluefield DPU for local dev.
@@ -518,12 +531,6 @@ async fn register(
         machine_id,
         factory_mac_address,
     })
-}
-
-async fn load_discovery_info_file(discovery_info_file: &Path) -> eyre::Result<DiscoveryInfo> {
-    let contents = tokio::fs::read_to_string(discovery_info_file).await?;
-    let discovery_info = serde_json::from_str(&contents)?;
-    Ok(discovery_info)
 }
 
 pub fn pretty_cmd(c: &Command) -> String {

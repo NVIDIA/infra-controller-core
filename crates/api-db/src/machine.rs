@@ -194,7 +194,14 @@ pub async fn advance(
     let version = version.unwrap_or_else(|| machine.state.version.increment());
 
     // Store history of machine state changes.
-    crate::machine_state_history::persist(txn, &machine.id, state, version).await?;
+    crate::state_history::persist(
+        txn,
+        crate::state_history::StateHistoryTableId::Machine,
+        &machine.id,
+        state,
+        version,
+    )
+    .await?;
 
     let _id: (String,) = sqlx::query_as(
             "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
@@ -264,10 +271,6 @@ pub async fn find(
         builder.push(" AND m.network_config->>'quarantine_state' IS NOT NULL ");
     }
 
-    if search_config.for_update {
-        builder.push(" FOR UPDATE OF machines");
-    };
-
     if let Some(id) = search_config.instance_type_id {
         builder.push(" AND m.instance_type_id = ");
         builder.push_bind(id);
@@ -277,6 +280,11 @@ pub async fn find(
         builder.push(" AND m.rack_id = ");
         builder.push_bind(rack_id);
     }
+
+    if search_config.for_update {
+        builder.push(" ORDER BY m.id ");
+        builder.push(" FOR UPDATE OF machines ");
+    };
 
     let all_machines: Vec<Machine> = builder
         .build_query_as()
@@ -332,6 +340,7 @@ pub async fn find_ids_by_instance_type_id(
     builder.push_bind(instance_type_id);
 
     if for_update {
+        builder.push(" ORDER BY id ");
         builder.push(" FOR UPDATE ");
     }
 
@@ -819,42 +828,6 @@ pub async fn update_nvlink_status_observation(
     Ok(())
 }
 
-async fn update_health_report(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    column_name: &str,
-    health_report: &HealthReport,
-) -> Result<(), DatabaseError> {
-    let query = format!(
-        "UPDATE machines SET {column_name} = $1::json WHERE id = $2 AND
-            (
-                ({column_name}->>'observed_at' IS NULL)
-                OR (({column_name}->>'observed_at')::timestamp <= $3::timestamp)
-            ) RETURNING id"
-    );
-    let observed_at = health_report.observed_at.unwrap_or_else(chrono::Utc::now);
-    let _id: (MachineId,) = match sqlx::query_as(&query)
-        .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id)
-        .bind(observed_at)
-        .fetch_one(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::new("update health report", e))
-    {
-        Ok(result) => result,
-        Err(e) if e.is_not_found() => {
-            // This function is intended to be able to capture why the update sometimes fails in unit-test
-            // even though all prerequisite data is present.
-            // It compiles to a no-op in production environments.
-            debug_failed_machine_status_update(txn, machine_id, column_name, health_report).await;
-            return Err(e);
-        }
-        Err(e) => return Err(e),
-    };
-
-    Ok(())
-}
-
 #[cfg(test)]
 async fn debug_failed_machine_status_update(
     txn: &mut PgConnection,
@@ -899,15 +872,16 @@ pub async fn update_dpu_agent_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(txn, machine_id, "dpu_agent_health_report", health_report).await
-}
-
-pub async fn update_hardware_health_report(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    health_report: &HealthReport,
-) -> Result<(), DatabaseError> {
-    update_health_report(txn, machine_id, "hardware_health_report", health_report).await
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::DPU_AGENT_SOURCE.to_string();
+    crate::health_report::insert_health_report(
+        txn,
+        "machines",
+        machine_id,
+        HealthReportApplyMode::Merge,
+        &health_report,
+    )
+    .await
 }
 
 pub async fn update_machine_validation_health_report(
@@ -915,11 +889,25 @@ pub async fn update_machine_validation_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::MACHINE_VALIDATION_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::MACHINE_VALIDATION_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "machine_validation_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }
@@ -929,11 +917,25 @@ pub async fn update_site_explorer_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::SITE_EXPLORER_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::SITE_EXPLORER_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "site_explorer_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }
@@ -943,11 +945,25 @@ pub async fn update_sku_validation_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::SKU_VALIDATION_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::SKU_VALIDATION_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "sku_validation_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }
@@ -1125,8 +1141,13 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     }
 
     // Update the machine state and health history to account for the rename
-    crate::machine_state_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
-        .await?;
+    crate::state_history::update_object_ids(
+        txn,
+        crate::state_history::StateHistoryTableId::Machine,
+        current_machine_id,
+        stable_machine_id,
+    )
+    .await?;
     crate::health_history::update_object_ids(
         txn,
         crate::health_history::HealthHistoryTableId::Machine,
@@ -1742,6 +1763,7 @@ pub async fn find_machine_ids(
     }
 
     if search_config.for_update {
+        qb.push(" ORDER BY id ");
         qb.push(" FOR UPDATE");
     }
 

@@ -23,6 +23,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
@@ -43,7 +44,6 @@ use sqlx::{PgConnection, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use utils::periodic_timer::PeriodicTimer;
 
 use crate::cfg::file::{CarbideConfig, IbFabricDefinition};
 use crate::ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType};

@@ -216,6 +216,10 @@ pub async fn update_nvue(
     let (has_stateful_nsg, network_security_groups) =
         build_network_security_group_rules(&nc.tenant_interfaces)?;
 
+    // If we aren't on the admin network _or_ if we are the primary DPU
+    // then we should be enabled for tenancy (i.e. VRFs and related config)
+    let tenancy_enabled = !nc.use_admin_network || nc.is_primary_dpu;
+
     let physical_name = hbn_device_names.reps[0].to_string();
     let networks = if nc.use_admin_network {
         if nc.is_primary_dpu {
@@ -309,6 +313,14 @@ pub async fn update_nvue(
         ifs
     };
 
+    // We should explicitly guard against the absence of interfaces.
+    // A follow-up should probably do some work to split out tenant enabled vs. disabled DPUs more clearly.
+    if tenancy_enabled && networks.is_empty() {
+        return Err(eyre::eyre!(
+            "BUG: network config provided without interfaces"
+        ));
+    }
+
     // Currently there's only one quarantine mode, BlockAllTraffic, so we block everything if it's set at all.
     let is_quarantined = nc
         .managed_host_config
@@ -332,6 +344,7 @@ pub async fn update_nvue(
         vpc_virtualization_type,
         site_global_vpc_vni: nc.site_global_vpc_vni,
         use_admin_network: nc.use_admin_network,
+        tenancy_enabled,
         loopback_ip,
         vf_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
             vc.bridging
@@ -523,10 +536,11 @@ pub async fn update_nvue(
         NvueUpdateFlavor::RestApi { nvue_client } => {
             let config = NvueConfig::from_yaml(&next_contents)
                 .map_err(|e| eyre::eyre!("Couldn't parse NVUE config as YAML: {e}"))?;
-            let _result = nvue_client
+            let revision_id = nvue_client
                 .push_config(&config)
                 .await
-                .map_err(|e| eyre::eyre!("Couldn't push new config to NVUE server: {e}"));
+                .map_err(|e| eyre::eyre!("Couldn't push new config to NVUE server: {e}"))?;
+            tracing::debug!(revision_id, "Applied NVUE config via REST API");
             Ok(true)
         }
     }
@@ -786,7 +800,9 @@ pub async fn update_interface_state(nc: &ManagedHostNetworkConfigResponse) -> ey
 /// Returns `Ok(false)` (matching the file-write path convention) to signal
 /// that no active DHCP service reload occurred.
 async fn stop_dhcp_via_grpc(grpc_addr: &str) -> eyre::Result<bool> {
-    crate::dhcp_server_grpc_client::stop_server(grpc_addr).await?;
+    crate::dhcp_server_grpc_client::stop_server(grpc_addr)
+        .await
+        .wrap_err_with(|| format!("stop_dhcp_via_grpc({grpc_addr})"))?;
     Ok(false)
 }
 
@@ -844,25 +860,30 @@ async fn update_dhcp_via_grpc(
             )
         })?;
 
-    let dhcp_config = utils::models::dhcp::DhcpConfig::from_forge_dhcp_config(
+    let dhcp_config = carbide_utils::models::dhcp::DhcpConfig::from_forge_dhcp_config(
         pxe_ip_v4,
         ntpservers_v4,
         nameservers_v4,
         loopback_ip,
     )?;
-    let host_config = utils::models::dhcp::HostConfig::try_from(
+    let mut host_config = carbide_utils::models::dhcp::HostConfig::try_from(
         network_config.clone(),
         hbn_device_names.reps[0],
         hbn_device_names.virt_rep_begin,
         hbn_device_names.sf_id,
+        false,
     )?;
-    let interfaces: Vec<String> = host_config.host_ip_addresses.keys().cloned().collect();
 
-    let interfaces = if let Some(translation_mode) = interface_translation_mode {
-        translation_mode.translate_list(&interfaces)
-    } else {
-        interfaces
-    };
+    // Update the interface names if translation is needed.
+    if let Some(translation_mode) = interface_translation_mode {
+        host_config.host_ip_addresses = host_config
+            .host_ip_addresses
+            .into_iter()
+            .map(|(name, info)| (translation_mode.translate(&name), info))
+            .collect();
+    }
+
+    let interfaces: Vec<String> = host_config.host_ip_addresses.keys().cloned().collect();
 
     crate::dhcp_server_grpc_client::update_and_reload(
         grpc_addr,
@@ -870,7 +891,8 @@ async fn update_dhcp_via_grpc(
         Some(host_config),
         interfaces,
     )
-    .await?;
+    .await
+    .wrap_err_with(|| format!("update_dhcp_via_grpc({grpc_addr})"))?;
     Ok(true)
 }
 
@@ -900,14 +922,24 @@ pub async fn update_dhcp(
         if stop_server {
             return stop_dhcp_via_grpc(addr).await;
         }
-        return update_dhcp_via_grpc(
-            addr,
-            network_config,
-            service_addrs,
-            hbn_device_names,
-            interface_translation_mode,
-        )
-        .await;
+
+        let needed_state = needed_interface_state(
+            network_config.is_primary_dpu,
+            network_config.use_admin_network,
+        );
+
+        if needed_state == InterfaceState::Up {
+            return update_dhcp_via_grpc(
+                addr,
+                network_config,
+                service_addrs,
+                hbn_device_names,
+                interface_translation_mode,
+            )
+            .await;
+        }
+
+        return Ok(false);
     }
 
     let path_dhcp_relay = FPath(hbn_root.join(dhcp::RELAY_PATH));
@@ -1658,20 +1690,6 @@ impl InterfaceTranslationMode {
             }
         }
     }
-
-    pub fn translate_list<S, I>(&self, input_interface_names: I) -> Vec<String>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        input_interface_names
-            .into_iter()
-            .map(|name| {
-                let name = name.as_ref();
-                self.translate(name)
-            })
-            .collect()
-    }
 }
 
 #[cfg(test)]
@@ -1684,9 +1702,9 @@ mod tests {
 
     use ::rpc::{common as rpc_common, forge as rpc};
     use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+    use carbide_utils::models::dhcp::{DhcpConfig, HostConfig};
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
-    use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use super::*;
     use crate::ethernet_virtualization::{
@@ -1921,6 +1939,41 @@ mod tests {
         // check startup.yaml
         let expected = include_str!("../templates/tests/nvue_startup_fnn_with_leaks.yaml.expected");
         compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_with_tenant_fnn_with_missing_vpcs() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::Fnn;
+
+        let mut network_config = netconf(virtualization_type, 32, 24, false, None, false, false);
+
+        // Empty out the interfaces so we complain if we don't see VPCs.
+        network_config.tenant_interfaces = vec![];
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
+
+        assert!(
+            super::update_nvue(
+                virtualization_type,
+                update_flavor,
+                &network_config,
+                HBNDeviceNames::hbn_23(),
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("BUG: network config provided without interfaces")
+        );
 
         Ok(())
     }
@@ -2718,6 +2771,7 @@ mod tests {
             is_fnn,
             vpc_virtualization_type,
             use_admin_network: true,
+            tenancy_enabled: true,
             site_global_vpc_vni: None,
             loopback_ip: "10.217.5.39".to_string(),
             secondary_overlay_vtep_ip: Some("10.255.254.253".to_string()),
@@ -3110,7 +3164,7 @@ mod tests {
         let dhcp_host_config: HostConfig = serde_yaml::from_str(&super::read_limited(i.path())?)?;
         validate_host_config(
             dhcp_host_config,
-            HostConfig::try_from(network_config.clone(), "pf0hpf_sf", "pf0vf", "_sf")?,
+            HostConfig::try_from(network_config.clone(), "pf0hpf_sf", "pf0vf", "_sf", true)?,
         );
 
         // tenant host config.
@@ -3174,7 +3228,7 @@ mod tests {
         let dhcp_host_config: HostConfig = serde_yaml::from_str(&super::read_limited(i.path())?)?;
         validate_host_config(
             dhcp_host_config,
-            HostConfig::try_from(network_config, "pf0hpf_sf", "pf0vf", "_sf")?,
+            HostConfig::try_from(network_config, "pf0hpf_sf", "pf0vf", "_sf", true)?,
         );
 
         Ok(())
@@ -3296,6 +3350,27 @@ mod tests {
         let interface_name = "i0";
         let translated_interface_name = translation.translate(interface_name);
         assert_eq!(translated_interface_name.as_str(), "pre_i0");
+    }
+
+    #[test]
+    fn test_stop_server_matches_needed_state_down() {
+        // `update_dhcp` short-circuits to `stop_dhcp_via_grpc` when
+        // `use_admin_network && !is_primary_dpu`. That condition must remain
+        // identical to "needed_interface_state == Down". If either condition
+        // changes independently, the new `if needed_state == Up { ... } else
+        // { Ok(false) }` branch in update_dhcp becomes reachable and the
+        // invariant in this test pins the divergence.
+        for &is_primary in &[true, false] {
+            for &use_admin in &[true, false] {
+                let stop_server = use_admin && !is_primary;
+                let needed_down =
+                    needed_interface_state(is_primary, use_admin) == InterfaceState::Down;
+                assert_eq!(
+                    stop_server, needed_down,
+                    "stop_server flag must match needed_state==Down (is_primary_dpu={is_primary}, use_admin_network={use_admin})"
+                );
+            }
+        }
     }
 
     #[test]

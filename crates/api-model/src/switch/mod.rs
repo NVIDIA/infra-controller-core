@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, LifecycleStatus};
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
@@ -115,7 +115,46 @@ pub struct SwitchReprovisionRequest {
     pub initiator: String,
 }
 
-pub use crate::rack::{RackFirmwareUpgradeState, RackFirmwareUpgradeStatus};
+pub use crate::rack::{
+    RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, SwitchNvosUpdateState,
+    SwitchNvosUpdateStatus,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FabricManagerState {
+    Ok,
+    NotOk,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricManagerStatus {
+    pub fabric_manager_state: FabricManagerState,
+    pub addition_info: Option<String>,
+    pub reason: Option<String>,
+    pub error_message: Option<String>,
+}
+
+impl FabricManagerStatus {
+    pub fn display_status(&self) -> &'static str {
+        if self.fabric_manager_state == FabricManagerState::Ok
+            && self.addition_info.as_deref() == Some("CONTROL_PLANE_STATE_CONFIGURED")
+        {
+            "running"
+        } else {
+            "not_running"
+        }
+    }
+}
+
+fn to_rpc_fabric_manager_state(state: FabricManagerState) -> i32 {
+    match state {
+        FabricManagerState::Ok => rpc::FabricManagerState::Ok as i32,
+        FabricManagerState::NotOk => rpc::FabricManagerState::NotOk as i32,
+        FabricManagerState::Unknown => rpc::FabricManagerState::Unknown as i32,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Switch {
@@ -139,6 +178,12 @@ pub struct Switch {
     /// Firmware upgrade status during ReProvisioning, set by the rack state machine.
     pub firmware_upgrade_status: Option<RackFirmwareUpgradeStatus>,
 
+    /// NVOS update status set by the rack state machine.
+    pub nvos_update_status: Option<SwitchNvosUpdateStatus>,
+
+    /// FabricManager / NMX-C status set by the rack state machine.
+    pub fabric_manager_status: Option<FabricManagerStatus>,
+
     /// The rack that this switch is associated with.
     pub rack_id: Option<RackId>,
     // Columns for these exist, but are unused in rust code
@@ -146,6 +191,7 @@ pub struct Switch {
     // pub updated: DateTime<Utc>,
     pub metadata: Metadata,
     pub version: ConfigVersion,
+    pub is_primary: bool,
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
     pub health_reports: HealthReportSources,
@@ -163,6 +209,10 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             row.try_get("switch_reprovisioning_requested").ok();
         let firmware_upgrade_status: Option<sqlx::types::Json<RackFirmwareUpgradeStatus>> =
             row.try_get("firmware_upgrade_status").ok();
+        let nvos_update_status: Option<sqlx::types::Json<SwitchNvosUpdateStatus>> =
+            row.try_get("nvos_update_status").ok();
+        let fabric_manager_status: Option<sqlx::types::Json<FabricManagerStatus>> =
+            row.try_get("fabric_manager_status").ok().flatten();
 
         // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
@@ -188,8 +238,11 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
             switch_reprovisioning_requested: switch_reprovisioning_requested.map(|j| j.0),
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
+            nvos_update_status: nvos_update_status.map(|j| j.0),
+            fabric_manager_status: fabric_manager_status.map(|j| j.0),
             metadata,
             version: row.try_get("version")?,
+            is_primary: row.try_get("is_primary").unwrap_or(false),
             rack_id: row.try_get("rack_id").ok().flatten(),
             slot_number: row.try_get("slot_number").ok().flatten(),
             tray_index: row.try_get("tray_index").ok().flatten(),
@@ -228,27 +281,75 @@ impl TryFrom<Switch> for rpc::Switch {
     type Error = RpcDataConversionError;
 
     fn try_from(src: Switch) -> Result<Self, Self::Error> {
-        let state_reason = src.controller_state_outcome.map(|r| r.into());
-        let sla = state_sla(&src.controller_state.value, &src.controller_state.version).into();
-        let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
-        let status = Some(match src.status {
-            Some(s) => rpc::SwitchStatus {
-                state_reason,
-                state_sla: Some(sla),
-                switch_name: Some(s.switch_name),
-                power_state: Some(s.power_state),
-                health_status: Some(s.health_status),
-                controller_state: Some(controller_state.clone()),
+        let health = derive_switch_aggregate_health(&src.health_reports);
+        let fabric_manager_status = src
+            .fabric_manager_status
+            .as_ref()
+            .map(|status| status.display_status().to_string());
+        let fabric_manager_status_details =
+            src.fabric_manager_status
+                .as_ref()
+                .map(|status| rpc::FabricManagerStatus {
+                    fabric_manager_state: to_rpc_fabric_manager_state(
+                        status.fabric_manager_state.clone(),
+                    ),
+                    addition_info: status.addition_info.clone(),
+                    reason: status.reason.clone(),
+                    error_message: status.error_message.clone(),
+                });
+        let health_sources = src
+            .health_reports
+            .iter()
+            .map(|(hr, m)| rpc::HealthSourceOrigin {
+                mode: m as i32,
+                source: hr.source.clone(),
+            })
+            .collect();
+
+        let sla = state_sla(&src.controller_state.value, &src.controller_state.version);
+        let lifecycle = LifecycleStatus {
+            state: serde_json::to_string(&src.controller_state.value).unwrap_or_default(),
+            version: src.controller_state.version.version_string(),
+            state_reason: src.controller_state_outcome.map(Into::into),
+            sla: Some(sla.clone().into()),
+        };
+        let controller_state = lifecycle.state.clone();
+        let status = Some(
+            match (
+                src.status,
+                fabric_manager_status,
+                fabric_manager_status_details,
+            ) {
+                (Some(s), fabric_manager_status, fabric_manager_status_details) => {
+                    rpc::SwitchStatus {
+                        state_reason: lifecycle.state_reason.clone(),
+                        state_sla: Some(sla.into()),
+                        switch_name: Some(s.switch_name),
+                        power_state: Some(s.power_state),
+                        health_status: Some(s.health_status),
+                        controller_state: Some(lifecycle.state.clone()),
+                        health: Some(health.into()),
+                        health_sources,
+                        lifecycle: Some(lifecycle),
+                        fabric_manager_status,
+                        fabric_manager_status_details,
+                    }
+                }
+                (None, fabric_manager_status, fabric_manager_status_details) => rpc::SwitchStatus {
+                    state_reason: lifecycle.state_reason.clone(),
+                    state_sla: Some(sla.into()),
+                    switch_name: None,
+                    power_state: None,
+                    health_status: None,
+                    controller_state: Some(lifecycle.state.clone()),
+                    health: Some(health.into()),
+                    health_sources,
+                    lifecycle: Some(lifecycle),
+                    fabric_manager_status,
+                    fabric_manager_status_details,
+                },
             },
-            None => rpc::SwitchStatus {
-                state_reason,
-                state_sla: Some(sla),
-                switch_name: None,
-                power_state: None,
-                health_status: None,
-                controller_state: Some(controller_state.clone()),
-            },
-        });
+        );
 
         let placement_in_rack = Some(rpc::PlacementInRack {
             slot_number: src.slot_number,
@@ -266,16 +367,6 @@ impl TryFrom<Switch> for rpc::Switch {
             enable_nmxc: src.config.enable_nmxc,
         };
 
-        let health = derive_switch_aggregate_health(&src.health_reports);
-        let health_sources = src
-            .health_reports
-            .clone()
-            .into_iter()
-            .map(|(hr, m)| rpc::HealthSourceOrigin {
-                mode: m as i32,
-                source: hr.source,
-            })
-            .collect();
         let deleted = if src.deleted.is_some() {
             Some(src.deleted.unwrap().into())
         } else {
@@ -294,8 +385,7 @@ impl TryFrom<Switch> for rpc::Switch {
             version: src.version.version_string(),
             rack_id: src.rack_id,
             placement_in_rack,
-            health: Some(health.into()),
-            health_sources,
+            is_primary: src.is_primary,
         })
     }
 }
@@ -327,10 +417,15 @@ pub enum BomValidatingState {
 
 /// Sub-state for SwitchControllerState::ReProvisioning
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::enum_variant_names)]
 pub enum ReProvisioningState {
     /// Rack-level firmware upgrade in progress; the rack state machine manages the
     /// upgrade and clears `switch_reprovisioning_requested` when done.
     WaitingForRackFirmwareUpgrade,
+    /// Rack-level NVOS upgrade in progress.
+    WaitingForNVOSUpgrade,
+    /// Rack-level NMX-C configuration in progress.
+    WaitingForNMXCConfigure,
 }
 
 /// State of a Switch as tracked by the controller
@@ -416,6 +511,7 @@ pub struct SwitchSearchFilter {
     pub deleted: crate::DeletedFilter,
     pub controller_state: Option<String>,
     pub bmc_mac: Option<MacAddress>,
+    pub nvos_mac: Option<MacAddress>,
 }
 
 impl From<rpc::SwitchSearchFilter> for SwitchSearchFilter {
@@ -425,6 +521,7 @@ impl From<rpc::SwitchSearchFilter> for SwitchSearchFilter {
             deleted: crate::DeletedFilter::from(filter.deleted),
             controller_state: filter.controller_state,
             bmc_mac: filter.bmc_mac.and_then(|m| m.parse::<MacAddress>().ok()),
+            nvos_mac: filter.nvos_mac.and_then(|m| m.parse::<MacAddress>().ok()),
         }
     }
 }
@@ -459,8 +556,16 @@ mod tests {
             }),
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
+            nvos_update_status: None,
+            fabric_manager_status: Some(FabricManagerStatus {
+                fabric_manager_state: FabricManagerState::Ok,
+                addition_info: Some("CONTROL_PLANE_STATE_CONFIGURED".to_string()),
+                reason: Some(String::new()),
+                error_message: None,
+            }),
             metadata: Metadata::default(),
             version: ConfigVersion::initial(),
+            is_primary: true,
             rack_id: None,
             slot_number: Some(1),
             tray_index: Some(2),
@@ -476,6 +581,19 @@ mod tests {
         assert!(status.state_sla.is_some(), "state_sla should be populated");
         assert_eq!(status.power_state, Some("on".to_string()));
         assert_eq!(status.health_status, Some("ok".to_string()));
+        assert_eq!(status.fabric_manager_status, Some("running".to_string()));
+        let details = status
+            .fabric_manager_status_details
+            .expect("fabric_manager_status_details should be populated");
+        assert_eq!(
+            details.fabric_manager_state,
+            rpc::FabricManagerState::Ok as i32
+        );
+        assert_eq!(
+            details.addition_info,
+            Some("CONTROL_PLANE_STATE_CONFIGURED".to_string())
+        );
+        assert!(rpc_switch.is_primary);
     }
 
     #[test]
@@ -500,8 +618,11 @@ mod tests {
             }),
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
+            nvos_update_status: None,
+            fabric_manager_status: None,
             metadata: Metadata::default(),
             version: ConfigVersion::initial(),
+            is_primary: false,
             rack_id: None,
             slot_number: None,
             tray_index: None,
@@ -518,6 +639,9 @@ mod tests {
         );
         assert_eq!(status.power_state, None);
         assert_eq!(status.health_status, None);
+        assert_eq!(status.fabric_manager_status, None);
+        assert_eq!(status.fabric_manager_status_details, None);
+        assert!(!rpc_switch.is_primary);
     }
 
     #[test]

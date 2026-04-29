@@ -3,10 +3,10 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
+use carbide_utils::HostPortPair;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
 use serde::{Deserialize, Serialize};
-use utils::HostPortPair;
 
 use crate::acl::AclConfig;
 

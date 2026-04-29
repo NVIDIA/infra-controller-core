@@ -47,10 +47,8 @@ spec:
       initContainers:
         - name: wait-for-certs
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          args:
-            - "--grpc-address=$(POD_IP):50052"
           command:
-            - /bin/sh
+            - /busybox/sh
             - -c
             - |
               echo "Waiting for forge certificates in /opt/forge ..."
@@ -67,6 +65,8 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            - "--grpc-address=$(POD_IP):50052"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:

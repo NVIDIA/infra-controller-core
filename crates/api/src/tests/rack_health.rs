@@ -30,7 +30,7 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_managed_host_with_config,
-    create_test_env_with_overrides, get_config, send_health_report_override,
+    create_test_env_with_overrides, get_config, send_health_report_entry,
 };
 
 fn leak_alert_report(source: &str) -> HealthReport {
@@ -355,7 +355,7 @@ async fn test_host_replace_overrides_rack_alerts(
     let host_machine_id = mh.id;
 
     let host_replace = empty_healthy_report("sre-override");
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (host_replace, HealthReportApplyMode::Replace),
@@ -424,7 +424,7 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
     let host_machine_id = mh.id;
 
     let host_replace = empty_healthy_report("sre-override");
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (host_replace, HealthReportApplyMode::Replace),
@@ -583,18 +583,24 @@ async fn test_rack_health_visible_in_find_racks_by_ids(
 
     assert_eq!(rack_resp.racks.len(), 1);
     let rack = &rack_resp.racks[0];
-
-    assert!(rack.health.is_some(), "Rack should have health field");
-    let health: HealthReport = rack.health.clone().unwrap().try_into().unwrap();
+    let rack_status = rack.status.as_ref().unwrap();
+    assert!(
+        rack_status.health.is_some(),
+        "Rack should have health field"
+    );
+    let health: HealthReport = rack_status.health.clone().unwrap().try_into().unwrap();
     assert!(
         !health.alerts.is_empty(),
         "Rack health should contain alerts"
     );
 
-    assert_eq!(rack.health_sources.len(), 1);
-    assert_eq!(rack.health_sources[0].source, "dsx-exchange-consumer");
+    assert_eq!(rack_status.health_sources.len(), 1);
     assert_eq!(
-        rack.health_sources[0].mode,
+        rack_status.health_sources[0].source,
+        "dsx-exchange-consumer"
+    );
+    assert_eq!(
+        rack_status.health_sources[0].mode,
         rpc_forge::HealthReportApplyMode::Merge as i32
     );
 

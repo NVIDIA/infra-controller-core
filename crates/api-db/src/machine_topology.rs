@@ -345,12 +345,12 @@ pub async fn set_topology_update_needed(
 
 // TODO: Remove when there's no longer a need to handle the old topology format
 pub mod test_helpers {
+    use carbide_utils::models::arch::CpuArchitecture;
     use model::hardware_info::{
         BlockDevice, Cpu, DmiData, DpuData, Gpu, InfinibandInterface, MemoryDevice,
         NetworkInterface, NvmeDevice, TpmEkCertificate,
     };
     use serde::{Deserialize, Serialize};
-    use utils::models::arch::CpuArchitecture;
 
     use super::*;
 

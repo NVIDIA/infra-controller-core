@@ -113,7 +113,15 @@ pub(crate) async fn find_machines_by_ids(
 
     txn.commit().await?;
 
-    Ok(Response::new(snapshot_map_to_rpc_machines(snapshots)))
+    let sla_config = model::machine::slas::MachineSlaConfig::new(
+        api.runtime_config
+            .machine_state_controller
+            .failure_retry_time,
+    );
+    Ok(Response::new(snapshot_map_to_rpc_machines(
+        snapshots,
+        &sla_config,
+    )))
 }
 
 pub(crate) async fn find_machine_state_histories(
@@ -139,12 +147,17 @@ pub(crate) async fn find_machine_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::machine_state_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Machine,
+        &machine_ids,
+    )
+    .await?;
 
     let mut response = rpc::MachineStateHistories::default();
     for (machine_id, records) in results {
         response.histories.insert(
-            machine_id.to_string(),
+            machine_id,
             ::rpc::forge::MachineStateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
@@ -708,18 +721,20 @@ pub(crate) async fn get_dpu_info_list(
 
 fn snapshot_map_to_rpc_machines(
     snapshots: HashMap<MachineId, ManagedHostStateSnapshot>,
+    sla_config: &model::machine::slas::MachineSlaConfig,
 ) -> rpc::MachineList {
     let mut result = rpc::MachineList {
         machines: Vec::with_capacity(snapshots.len()),
     };
 
     for (machine_id, snapshot) in snapshots.into_iter() {
-        if let Some(rpc_machine) =
-            snapshot.rpc_machine_state(match machine_id.machine_type().is_dpu() {
+        if let Some(rpc_machine) = snapshot.rpc_machine_state(
+            match machine_id.machine_type().is_dpu() {
                 true => Some(&machine_id),
                 false => None,
-            })
-        {
+            },
+            sla_config,
+        ) {
             result.machines.push(rpc_machine);
         }
         // A log message for the None case is already emitted inside

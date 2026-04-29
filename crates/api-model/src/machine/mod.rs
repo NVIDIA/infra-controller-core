@@ -66,8 +66,9 @@ use crate::machine::health_override::HealthReportSources;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
+use crate::state_history::StateHistoryRecord;
 
-mod slas;
+pub mod slas;
 
 pub mod capabilities;
 pub mod health_override;
@@ -441,8 +442,6 @@ impl ManagedHostStateSnapshot {
     /// Derives the aggregate health of the Managed Host based on individual
     /// health reports
     pub fn derive_aggregate_health(&mut self, host_health_config: HostHealthConfig) {
-        // TODO: In the future we will also take machine-validation results into consideration
-
         let source = "aggregate-host-health".to_string();
         let observed_at = Some(chrono::Utc::now());
 
@@ -457,17 +456,6 @@ impl ManagedHostStateSnapshot {
         }
 
         let mut output = health_report::HealthReport::empty("".to_string());
-        output.merge(&self.host_snapshot.machine_validation_health_report);
-
-        if let Some(sku_validation_health_report) =
-            self.host_snapshot.sku_validation_health_report.as_ref()
-        {
-            output.merge(sku_validation_health_report);
-        }
-
-        if let Some(report) = self.host_snapshot.site_explorer_health_report.as_ref() {
-            output.merge(report);
-        }
 
         let merge_or_timeout =
             |output: &mut HealthReport, input: &Option<HealthReport>, target: String| {
@@ -491,7 +479,7 @@ impl ManagedHostStateSnapshot {
         let suppress_dpu_alerts = self.managed_state.suppress_dpu_alerts();
         for snapshot in self.dpu_snapshots.iter_mut() {
             let health_report = if suppress_dpu_alerts {
-                let mut health_report = snapshot.dpu_agent_health_report.clone();
+                let mut health_report = snapshot.dpu_agent_health_report().cloned();
 
                 if let Some(health_report) = &mut health_report {
                     for alert in &mut health_report.alerts {
@@ -500,7 +488,7 @@ impl ManagedHostStateSnapshot {
                 }
                 health_report
             } else {
-                snapshot.dpu_agent_health_report.clone()
+                snapshot.dpu_agent_health_report().cloned()
             };
 
             if let Some(network_status_observation) = snapshot.network_status_observation.as_ref()
@@ -515,11 +503,12 @@ impl ManagedHostStateSnapshot {
 
             merge_or_timeout(&mut output, &health_report, "forge-dpu-agent".to_string());
 
-            if let Some(report) = snapshot.site_explorer_health_report.as_ref() {
-                output.merge(report);
-            }
-
-            for (source, over) in snapshot.health_reports.merges.iter_mut() {
+            for (source, over) in snapshot
+                .health_reports
+                .merges
+                .iter_mut()
+                .filter(|(source, _)| source.as_str() != HealthReport::DPU_AGENT_SOURCE)
+            {
                 let merged_hardware = Self::merge_override_report_with_hw_health(
                     &mut output,
                     source,
@@ -564,6 +553,7 @@ impl ManagedHostStateSnapshot {
     pub fn rpc_machine_state(
         &self,
         dpu_machine_id: Option<&MachineId>,
+        sla_config: &slas::MachineSlaConfig,
     ) -> Option<rpc::forge::Machine> {
         match dpu_machine_id {
             None => {
@@ -577,6 +567,7 @@ impl ManagedHostStateSnapshot {
                         state,
                         version,
                         &self.aggregate_health,
+                        sla_config,
                     )
                     .into(),
                 );
@@ -590,6 +581,16 @@ impl ManagedHostStateSnapshot {
                 let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
                 // In case the DPU does not know the associated Host - we can backfill the data here
                 rpc_machine.associated_host_machine_id = Some(self.host_snapshot.id);
+                rpc_machine.state_sla = Some(
+                    state_sla(
+                        &dpu_snapshot.id,
+                        &dpu_snapshot.state.value,
+                        &dpu_snapshot.state.version,
+                        &self.aggregate_health,
+                        sla_config,
+                    )
+                    .into(),
+                );
                 Some(rpc_machine)
             }
         }
@@ -826,8 +827,8 @@ pub struct Machine {
     // The most recent status of the nvlink GPUs.
     pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
 
-    /// A list of [MachineStateHistory] that this machine has experienced
-    pub history: Vec<MachineStateHistory>,
+    /// A list of [StateHistoryRecord]s that this machine has experienced
+    pub history: Vec<StateHistoryRecord>,
 
     /// A list of [MachineInterfaceSnapshot]s that this machine owns
     pub interfaces: Vec<MachineInterfaceSnapshot>,
@@ -861,15 +862,6 @@ pub struct Machine {
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
-
-    /// Latest health report received by forge-dpu-agent
-    pub dpu_agent_health_report: Option<HealthReport>,
-
-    /// Latest health report generated by validation tests
-    pub machine_validation_health_report: HealthReport,
-
-    /// Latest health report submitted by site-explorer
-    pub site_explorer_health_report: Option<HealthReport>,
 
     /// All health report sources
     pub health_reports: HealthReportSources,
@@ -925,7 +917,6 @@ pub struct Machine {
     // pub deployed: Option<DateTime<Utc>>,
     pub hw_sku: Option<String>,
     pub hw_sku_status: Option<SkuStatus>,
-    pub sku_validation_health_report: Option<HealthReport>,
 
     /// Host's power options.
     pub power_options: Option<PowerOptions>,
@@ -1021,6 +1012,41 @@ impl Machine {
     /// Return the current version of state of the machine.
     pub fn current_version(&self) -> ConfigVersion {
         self.state.version
+    }
+
+    /// Latest health report received from forge-dpu-agent.
+    pub fn dpu_agent_health_report(&self) -> Option<&HealthReport> {
+        self.health_reports
+            .merges
+            .get(HealthReport::DPU_AGENT_SOURCE)
+    }
+
+    /// Latest health report generated by validation tests.
+    ///
+    /// Machine validation is stored as a regular merge health report source in
+    /// `health_reports`, but callsites that update it need a convenient default.
+    pub fn machine_validation_health_report(&self) -> HealthReport {
+        self.health_reports
+            .merges
+            .get(HealthReport::MACHINE_VALIDATION_SOURCE)
+            .cloned()
+            .unwrap_or_else(|| {
+                HealthReport::empty(HealthReport::MACHINE_VALIDATION_SOURCE.to_string())
+            })
+    }
+
+    /// Latest SKU validation health report, if validation found alerts.
+    pub fn sku_validation_health_report(&self) -> Option<&HealthReport> {
+        self.health_reports
+            .merges
+            .get(HealthReport::SKU_VALIDATION_SOURCE)
+    }
+
+    /// Latest site-explorer health report, if exploration found alerts.
+    pub fn site_explorer_health_report(&self) -> Option<&HealthReport> {
+        self.health_reports
+            .merges
+            .get(HealthReport::SITE_EXPLORER_SOURCE)
     }
 
     /// K8s-safe identifier derived from the BMC MAC address, used as both the
@@ -1214,22 +1240,28 @@ impl From<Machine> for rpc::forge::Machine {
     fn from(mut machine: Machine) -> Self {
         let health = match machine.is_dpu() {
             true => {
-                let mut health = machine.dpu_agent_health_report.clone().unwrap_or_else(|| {
-                    HealthReport::heartbeat_timeout(
-                        "forge-dpu-agent".to_string(),
-                        "forge-dpu-agent".to_string(),
-                        "No health data was received from DPU".to_string(),
-                        true,
-                        false,
-                    )
-                });
-                if let Some(hr) = machine.site_explorer_health_report.as_ref() {
-                    health.merge(hr);
-                }
+                let mut health = machine
+                    .dpu_agent_health_report()
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        HealthReport::heartbeat_timeout(
+                            HealthReport::DPU_AGENT_SOURCE.to_string(),
+                            HealthReport::DPU_AGENT_SOURCE.to_string(),
+                            "No health data was received from DPU".to_string(),
+                            true,
+                            false,
+                        )
+                    });
                 match machine.health_reports.replace.as_ref() {
                     Some(over) => over.clone(),
                     None => {
-                        for over in machine.health_reports.merges.values() {
+                        for over in machine
+                            .health_reports
+                            .merges
+                            .iter()
+                            .filter(|(source, _)| source.as_str() != HealthReport::DPU_AGENT_SOURCE)
+                            .map(|(_, over)| over)
+                        {
                             health.merge(over);
                         }
                         health
@@ -1266,15 +1298,8 @@ impl From<Machine> for rpc::forge::Machine {
             }),
             instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
             state_version: machine.state.version.version_string(),
-            state_sla: Some(
-                state_sla(
-                    &machine.id,
-                    &machine.state.value,
-                    &machine.state.version,
-                    &health,
-                )
-                .into(),
-            ),
+            // calculated at RPC handler, see ManagedHostStateSnapshot::rpc_machine_state
+            state_sla: None,
             machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
             metadata: Some(machine.metadata.into()),
             version: machine.version.version_string(),
@@ -1712,9 +1737,15 @@ pub enum HostReprovisionState {
     },
     WaitingForRackFirmwareUpgrade,
     WaitingForScoutUpgrade {
+        upgrade_task_id: String,
         component_type: FirmwareComponentType,
         target_version: String,
         started_at: DateTime<Utc>,
+        /// Absolute deadline; the API declares failure past this time.
+        /// Derived from scout's execution/download timeouts plus slack.
+        deadline: DateTime<Utc>,
+        /// Serialized FirmwareUpgradeTask JSON for the scout
+        task_json: String,
         #[serde(default)]
         result: Option<ScoutUpgradeResult>,
     },
@@ -1926,7 +1957,15 @@ pub enum PerformPowerOperation {
 pub enum MachineState {
     Init,
     EnableIpmiOverLan,
-    WaitingForPlatformConfiguration,
+    WaitingForPlatformConfiguration {
+        /// Retries after BIOS job failure remediation; re-run machine_setup from this state.
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Wait for BIOS config job (Dell) to complete before PollingBiosSetup / SetBootOrder.
+    WaitingForBiosJob {
+        bios_config_info: BiosConfigInfo,
+    },
     PollingBiosSetup,
     SetBootOrder {
         set_boot_order_info: Option<SetBootOrderInfo>,
@@ -1976,6 +2015,32 @@ pub enum UefiSetupState {
     // Deprecated: no-op state, transitions directly to WaitingForLockdown::SetLockdown
     // Kept for backwards compatibility with hosts that may be in this state
     LockdownHost,
+}
+
+/// Tracks progress waiting for the Dell BIOS config job (from machine_setup PATCH) to complete
+/// before configuring boot order. Same pattern as SetBootOrderInfo / SetBootOrderState.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct BiosConfigInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bios_job_id: Option<String>,
+    pub bios_config_state: BiosConfigState,
+    /// Full configure_host_bios retry count across HandleBiosJobFailure recovery cycles.
+    #[serde(default)]
+    pub retry_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum BiosConfigState {
+    WaitForBiosJobScheduled,
+    RebootHost,
+    WaitForBiosJobCompletion,
+    /// Power off → BMC reset → power on when job fails or is scheduled with errors (same as boot order).
+    HandleBiosJobFailure {
+        failure: String,
+        power_state: PowerState,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -2147,7 +2212,18 @@ pub enum HostPlatformConfigurationState {
         unlock_host_state: UnlockHostState,
     },
     CheckHostConfig,
-    ConfigureBios,
+    /// Run `machine_setup` / BIOS PATCH; on job ID, transition to [`WaitingForBiosJob`].
+    ConfigureBios {
+        /// Legacy only: persisted `Some` is migrated to `WaitingForBiosJob` on next handle. New flows use [`WaitingForBiosJob`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bios_config_info: Option<BiosConfigInfo>,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Wait for Dell (etc.) BIOS config Redfish job to complete before `PollingBiosSetup` (mirrors HostInit `WaitingForBiosJob`).
+    WaitingForBiosJob {
+        bios_config_info: BiosConfigInfo,
+    },
     PollingBiosSetup,
     SetBootOrder {
         set_boot_order_info: SetBootOrderInfo,
@@ -2592,25 +2668,6 @@ pub fn get_action_for_dpu_state(
     })
 }
 
-/// History of Machine states for a single Machine
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MachineStateHistory {
-    /// The state that was entered
-    pub state: String,
-    // The version number associated with the state change
-    pub state_version: ConfigVersion,
-}
-
-impl From<MachineStateHistory> for rpc::MachineEvent {
-    fn from(value: MachineStateHistory) -> rpc::MachineEvent {
-        rpc::MachineEvent {
-            event: value.state,
-            version: value.state_version.version_string(),
-            time: Some(value.state_version.timestamp().into()),
-        }
-    }
-}
-
 /// Returns the SLA for the current state.
 ///
 /// If any alert in `aggregate_health` carries the `ExcludeFromStateMachineSla` classification,
@@ -2621,6 +2678,7 @@ pub fn state_sla(
     state: &ManagedHostState,
     state_version: &ConfigVersion,
     aggregate_health: &health_report::HealthReport,
+    sla_config: &slas::MachineSlaConfig,
 ) -> StateSla {
     let exclude = health_report::HealthAlertClassification::exclude_from_state_machine_sla();
     if aggregate_health
@@ -2682,9 +2740,15 @@ pub fn state_sla(
         ManagedHostState::Ready => StateSla::no_sla(),
         ManagedHostState::Assigned { instance_state } => match instance_state {
             InstanceState::Ready => StateSla::no_sla(),
-            InstanceState::BootingWithDiscoveryImage { retry } if retry.count > 0 => {
-                // Since retries happen after 30min, the occurence of any retry means we exhausted the SLA
-                StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
+            InstanceState::BootingWithDiscoveryImage { retry } => {
+                if retry.count > 1 {
+                    StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
+                } else {
+                    StateSla::with_sla(
+                        sla_config.assigned_booting_with_discovery_image,
+                        time_in_state,
+                    )
+                }
             }
             InstanceState::HostPlatformConfiguration { .. } => {
                 StateSla::with_sla(slas::ASSIGNED_HOST_PLATFORM_CONFIGURATION, time_in_state)
@@ -3093,7 +3157,13 @@ mod tests {
             health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
         ])]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(sla.sla.is_none(), "SLA should be absent when excluded");
         assert!(
@@ -3122,7 +3192,13 @@ mod tests {
             ]),
         ]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(
             sla.sla.is_none(),
@@ -3144,7 +3220,13 @@ mod tests {
             health_report::HealthAlertClassification::prevent_allocations(),
         ])]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(
             sla.sla.is_some(),
@@ -3163,7 +3245,13 @@ mod tests {
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(
             sla.sla.is_some(),
@@ -3192,7 +3280,13 @@ mod tests {
             health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
         ])]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(
             sla.sla.is_none(),
@@ -3220,7 +3314,13 @@ mod tests {
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert_eq!(
             sla.sla,

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
-use reqwest::{Client, ClientBuilder, Method, Response};
+use reqwest::{Client, ClientBuilder, Method, Response, Url};
 pub use serde_json::Value as JsonValue;
 
 use crate::NvueConfig;
@@ -60,11 +60,24 @@ impl NvueClient {
     }
 
     async fn execute(&self, request: reqwest::Request) -> Result<Response, NvueClientError> {
+        let method = request.method().clone();
+        let url = request.url().clone();
+        let body = request
+            .body()
+            .and_then(|b| b.as_bytes())
+            .map(|b| String::from_utf8_lossy(b).into_owned());
         self.client
             .execute(request)
             .await
             .and_then(|response| response.error_for_status())
-            .map_err(NvueClientError::from)
+            .map_err(|source| {
+                NvueClientError::RequestFailed(Box::new(RequestFailed {
+                    method,
+                    url,
+                    body,
+                    source,
+                }))
+            })
     }
 
     pub async fn get_api(&self) -> Result<Response, NvueClientError> {
@@ -116,6 +129,18 @@ impl NvueClient {
         // Just in case the config we got was derived from an older one,
         // let's clear the rev-id from the header.
         config.remove_rev_id();
+        // The startup templates wrap the payload in a [{header:...},{set:...}] list.
+        // The REST API expects only the inner config object, so strip the wrapper.
+        // If the config is a top-level array but has no "set" entry that is a
+        // schema error — surface it now rather than letting the API reject it
+        // with a cryptic response.
+        let mut config = match config.extract_set_payload()? {
+            Some(inner) => inner,
+            None => config,
+        };
+        // pf0dpu* interfaces lack a `type` field and are rejected by the REST API;
+        // skip them for now.
+        config.remove_pf0dpu_interfaces();
         let builder = builder.json(&config);
         let request = builder.build()?;
         let _response = self.execute(request).await?;
@@ -297,12 +322,26 @@ impl std::fmt::Debug for NvueAuth {
 
 #[derive(thiserror::Error, Debug)]
 pub enum NvueClientError {
-    #[error("Reqwest client error")]
+    #[error("Reqwest client error: {0}")]
     ReqwestError(#[from] reqwest::Error),
+
+    #[error(transparent)]
+    RequestFailed(Box<RequestFailed>),
 
     #[error("Environment variable error ({0}): {1}")]
     EnvVarError(&'static str, std::env::VarError),
 
     #[error("Schema mismatch between NVUE client and server: {0}")]
     SchemaMismatch(&'static str),
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("NVUE request failed ({method} {url}{}): {source}",
+    body.as_deref().map(|b| format!(" body={b}")).unwrap_or_default())]
+pub struct RequestFailed {
+    pub method: Method,
+    pub url: Url,
+    pub body: Option<String>,
+    #[source]
+    pub source: reqwest::Error,
 }

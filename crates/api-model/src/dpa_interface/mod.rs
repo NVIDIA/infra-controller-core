@@ -35,6 +35,7 @@ use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::state_history::StateHistoryRecord;
 
 mod slas;
 
@@ -329,7 +330,7 @@ pub struct DpaInterface {
     // card is back to stock before the next tenancy.
     pub mlxconfig_profile: Option<String>,
 
-    pub history: Vec<DpaInterfaceStateHistoryRecord>,
+    pub history: Vec<StateHistoryRecord>,
 }
 
 #[derive(Clone, Debug)]
@@ -455,12 +456,9 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
         let history: Vec<rpc::forge::StateHistoryRecord> = src
             .history
             .into_iter()
-            .sorted_by(
-                |s1: &crate::dpa_interface::DpaInterfaceStateHistoryRecord,
-                 s2: &crate::dpa_interface::DpaInterfaceStateHistoryRecord| {
-                    Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
-                },
-            )
+            .sorted_by(|s1: &StateHistoryRecord, s2: &StateHistoryRecord| {
+                Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
+            })
             .map(Into::into)
             .collect();
 
@@ -484,30 +482,6 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             underlay_ip: underlay,
             overlay_ip: overlay,
             mlxconfig_profile: src.mlxconfig_profile,
-        }
-    }
-}
-
-/// A record of a past state of a DpaInterface
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DpaInterfaceStateHistoryRecord {
-    /// The UUID of the dpa interface that experienced the state change
-    interface_id: DpaInterfaceId,
-
-    /// The state that was entered
-    pub state: String,
-    pub state_version: ConfigVersion,
-
-    /// The timestamp of the state change
-    timestamp: DateTime<Utc>,
-}
-
-impl From<DpaInterfaceStateHistoryRecord> for rpc::forge::StateHistoryRecord {
-    fn from(value: DpaInterfaceStateHistoryRecord) -> Self {
-        rpc::forge::StateHistoryRecord {
-            state: value.state,
-            version: value.state_version.version_string(),
-            time: Some(value.timestamp.into()),
         }
     }
 }
@@ -538,7 +512,7 @@ pub struct DpaInterfaceSnapshotPgJson {
     #[serde(default)]
     pub mlxconfig_profile: Option<String>,
     #[serde(default)]
-    pub history: Vec<DpaInterfaceStateHistoryRecord>,
+    pub history: Vec<StateHistoryRecord>,
 }
 
 impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {

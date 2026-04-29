@@ -29,7 +29,6 @@ pub mod dhcp_entry;
 pub mod dhcp_record;
 pub mod dns;
 pub mod dpa_interface;
-pub mod dpa_interface_state_history;
 pub mod dpu_agent_upgrade_policy;
 pub mod dpu_machine_update;
 pub mod dpu_remediation;
@@ -53,7 +52,6 @@ pub mod machine;
 pub mod machine_boot_override;
 pub mod machine_interface;
 pub mod machine_interface_address;
-pub mod machine_state_history;
 pub mod machine_topology;
 pub mod machine_validation;
 pub mod machine_validation_config;
@@ -66,26 +64,23 @@ pub mod network_devices;
 pub mod network_prefix;
 pub mod network_security_group;
 pub mod network_segment;
-pub mod network_segment_state_history;
 pub mod nvl_logical_partition;
 pub mod nvl_partition;
 pub mod operating_system;
 pub mod os_image;
 pub mod power_options;
 pub mod power_shelf;
-pub mod power_shelf_state_history;
 pub mod predicted_machine_interface;
 pub mod queries;
 pub mod rack;
 pub mod rack_firmware;
-pub mod rack_state_history;
 pub mod redfish_actions;
 pub mod resource_pool;
 pub mod route_servers;
 pub mod site_exploration_report;
 pub mod sku;
+pub mod state_history;
 pub mod switch;
-pub mod switch_state_history;
 pub mod tenant;
 pub mod tenant_identity_config;
 pub mod tenant_keyset;
@@ -736,6 +731,19 @@ impl WithTransaction for PgPool {
                 }
             }
         }
+    }
+}
+
+pub trait TransactionVending {
+    fn txn_begin(&self) -> impl Future<Output = Result<Transaction<'_>, DatabaseError>>;
+}
+
+impl TransactionVending for PgPool {
+    #[track_caller]
+    // This returns an `impl Future` instead of being async, so that we can use #[track_caller],
+    // which is unsupported with async fn's.
+    fn txn_begin(&self) -> impl Future<Output = Result<Transaction<'_>, DatabaseError>> {
+        Transaction::begin(self)
     }
 }
 

@@ -78,7 +78,7 @@ pub async fn find_switch(
         rows.into_iter()
             .map(|row| {
                 (
-                    row.serial_number,
+                    row.bmc_mac_address.to_string(),
                     rpc::BmcInfo {
                         ip: Some(row.ip_address.to_string()),
                         mac: Some(row.bmc_mac_address.to_string()),
@@ -98,8 +98,10 @@ pub async fn find_switch(
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
         .map(|s| {
-            let serial = s.config.name.clone();
-            let bmc_info = bmc_info_map.get(&serial).cloned();
+            let bmc_info = s
+                .bmc_mac_address
+                .as_ref()
+                .and_then(|mac| bmc_info_map.get(&mac.to_string()).cloned());
 
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
                 rpc_switch.bmc_info = bmc_info;
@@ -221,14 +223,18 @@ pub async fn find_switch_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::switch_state_history::find_by_switch_ids(&mut txn, &switch_ids)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Switch,
+        &switch_ids,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     let mut response = rpc::StateHistories::default();
     for (switch_id, records) in results {
         response.histories.insert(
-            switch_id.to_string(),
+            switch_id,
             ::rpc::forge::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
@@ -340,9 +346,13 @@ pub async fn admin_force_delete_switch(
     }
 
     // Delete state history.
-    db::switch_state_history::delete_by_switch_id(&mut txn, &switch_id)
-        .await
-        .map_err(CarbideError::from)?;
+    db::state_history::delete_by_object_id(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Switch,
+        &switch_id,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     // Hard-delete the switch.
     db_switch::final_delete(switch_id, &mut txn)

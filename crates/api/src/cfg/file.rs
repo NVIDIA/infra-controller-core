@@ -15,18 +15,22 @@
  * limitations under the License.
  */
 
-use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::time::SystemTime;
-use std::{fmt, fs};
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
+use carbide_firmware::FirmwareConfig;
+use carbide_nvlink_manager::config::NvLinkConfig;
+use carbide_preingestion_manager::PreingestionManagerConfig;
+use carbide_site_explorer::config::SiteExplorerConfig;
+use carbide_utils::config::{
+    as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
+};
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -36,7 +40,6 @@ use libmlx::profile::profile::MlxConfigProfile;
 use libmlx::profile::serialization::{
     deserialize_option_profile_map, serialize_option_profile_map,
 };
-use model::DpuModel;
 use model::firmware::{
     AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
 };
@@ -45,27 +48,22 @@ use model::machine::HostHealthConfig;
 use model::network_security_group::NetworkSecurityGroupRule;
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
-use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use model::tenant::identity_config::SigningAlgorithm;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
-use utils::config::{
-    as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
-};
 
-use crate::site_explorer::config::SiteExplorerConfig;
 use crate::state_controller::config::IterationConfig;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 
-static BF2_NIC: &str = "24.47.1026";
-static BF2_BMC: &str = "BF-25.10-9";
+static BF2_NIC: &str = "24.47.2682";
+static BF2_BMC: &str = "BF-25.10-20";
 static BF2_CEC: &str = "4-15";
-static BF2_UEFI: &str = "4.13.0-26-g337fea6bfd";
-static BF3_NIC: &str = "32.47.1026";
-static BF3_BMC: &str = "BF-25.10-9";
+static BF2_UEFI: &str = "4.13.2-12-g943a91640d";
+static BF3_NIC: &str = "32.47.2682";
+static BF3_BMC: &str = "BF-25.10-20";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
-static BF3_UEFI: &str = "4.13.0-26-g337fea6bfd";
+static BF3_UEFI: &str = "4.13.2-12-g943a91640d";
 
 /// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -422,8 +420,9 @@ pub struct CarbideConfig {
     pub dpa_config: Option<DpaConfig>,
 
     /// DSX Exchange Event Bus configuration. Publishes
-    /// `ManagedHostState` transitions to MQTT topics for
-    /// external consumers.
+    /// `ManagedHostState` transitions, BMS rack leak/isolation
+    /// values, and heartbeat timestamps over MQTT, and subscribes
+    /// to BMS metadata topics used to route those values.
     #[serde(default)]
     pub dsx_exchange_event_bus: Option<DsxExchangeEventBusConfig>,
 
@@ -615,6 +614,10 @@ pub struct CarbideConfig {
     /// requires session passwords.
     #[serde(default)]
     pub bgp_leaf_session_password: Option<BgpLeafSessionPassword>,
+
+    /// The default routing-profile to use when a tenant is created.
+    #[serde(default = "default_tenant_routing_profile")]
+    pub default_tenant_routing_profile_type: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -661,7 +664,7 @@ pub struct DpfConfig {
     pub bfb_url: String,
     /// Additional Helm services to deploy alongside DPF.
     #[serde(default)]
-    pub services: Option<Vec<DpfServiceConfig>>,
+    pub services: Box<DpfMandatoryServicesConfig>,
     /// Whether to create the bf.cfg ConfigMap during initialization.
     #[serde(default = "default_to_true")]
     pub bfcfg_enabled: bool,
@@ -679,7 +682,7 @@ impl Default for DpfConfig {
             flavor_name: default_dpf_flavor_name(),
             node_label_key: default_dpf_node_label_key(),
             bfb_url: String::new(),
-            services: None,
+            services: Box::default(),
             bfcfg_enabled: true,
             v2: false,
         }
@@ -701,6 +704,40 @@ fn default_dpf_node_label_key() -> String {
     "carbide.nvidia.com/controlled.node.v1".to_string()
 }
 
+/// Configuration for a mandatory Helm-based DPF service.
+/// Making it configurable means, a user can provide the link for his version of the service (for
+/// testing/dev purpose).
+/// There are following mandatory services:
+/// dpu-agent, fmds, dhcp-server, doca-hbn, dts and otel.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfMandatoryServicesConfig {
+    #[serde(default = "crate::dpf_services::default_dts_service")]
+    pub dts: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_doca_hbn_service")]
+    pub doca_hbn: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_dpu_agent_service")]
+    pub dpu_agent: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_dhcp_server_service")]
+    pub dhcp_server: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_fmds_service")]
+    pub fmds: DpfServiceConfig,
+    #[serde(default = "crate::dpf_services::default_otel_service")]
+    pub otel: DpfServiceConfig,
+}
+
+impl Default for DpfMandatoryServicesConfig {
+    fn default() -> Self {
+        Self {
+            dts: crate::dpf_services::default_dts_service(),
+            doca_hbn: crate::dpf_services::default_doca_hbn_service(),
+            dpu_agent: crate::dpf_services::default_dpu_agent_service(),
+            dhcp_server: crate::dpf_services::default_dhcp_server_service(),
+            fmds: crate::dpf_services::default_fmds_service(),
+            otel: crate::dpf_services::default_otel_service(),
+        }
+    }
+}
+
 /// Configuration for a single Helm-based DPF service.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DpfServiceConfig {
@@ -712,6 +749,10 @@ pub struct DpfServiceConfig {
     pub helm_chart: String,
     /// Version of the Helm chart.
     pub helm_version: String,
+    /// Url for docker image
+    pub docker_repo_url: String,
+    /// Version of docker image
+    pub docker_image_tag: String,
 }
 
 /// Machine identity (SPIFFE JWT-SVID) configuration.
@@ -917,6 +958,18 @@ pub struct FnnRoutingProfileConfig {
     /// routes advertised by the host OS to be leaked into the underlay?
     #[serde(default)]
     pub tenant_leak_communities_accepted: bool,
+
+    /// Currently controls which profiles a tenant can use
+    /// when creating VPCs.  Lower value means broader access.
+    /// A tenant can create a VPC with a routing profile of the same or broader access.
+    ///
+    /// Example:
+    /// - ADMIN is access tier 0.
+    /// - INTERNAL is access tier 1.
+    /// - A tenant with ADMIN could create ADMIN VPCs and INTERNAL VPCs.
+    /// - A tenant with INTERNAL could only create INTERNAL VPCs.
+    #[serde(default)]
+    pub access_tier: u32,
 }
 
 /// FNN configuration specific to the admin network.
@@ -946,25 +999,11 @@ impl CarbideConfig {
         config
     }
     pub fn get_firmware_config(&self) -> FirmwareConfig {
-        let mut base_map: HashMap<String, Firmware> = Default::default();
-        for (_, host) in self.host_models.iter() {
-            base_map.insert(vendor_model_to_key(host.vendor, &host.model), host.clone());
-        }
-        for (_, dpu) in self.dpu_config.dpu_models.iter() {
-            base_map.insert(
-                vendor_model_to_key(
-                    dpu.vendor,
-                    &DpuModel::from(dpu.model.to_owned()).to_string(),
-                ),
-                dpu.clone(),
-            );
-        }
-        FirmwareConfig {
-            base_map,
-            firmware_directory: self.firmware_global.firmware_directory.clone(),
-            #[cfg(test)]
-            test_overrides: vec![],
-        }
+        FirmwareConfig::new(
+            self.firmware_global.firmware_directory.clone(),
+            &self.host_models,
+            &self.dpu_config.dpu_models,
+        )
     }
 
     /// validate_supernic_firmware_profiles checks that each profile's inner
@@ -1085,6 +1124,27 @@ impl CarbideConfig {
             .filter(|conf| conf.enabled)
             .map(|conf| conf.mqtt_broker_port)
     }
+
+    /// Returns preingestion manager config.
+    pub fn preingestion_manager(&self) -> PreingestionManagerConfig {
+        PreingestionManagerConfig {
+            run_interval: self
+                .firmware_global
+                .run_interval
+                .to_std()
+                .unwrap_or(std::time::Duration::from_secs(30)),
+            concurrency_limit: self.firmware_global.concurrency_limit,
+            hgx_bmc_gpu_reboot_delay: self
+                .firmware_global
+                .hgx_bmc_gpu_reboot_delay
+                .to_std()
+                .unwrap_or(std::time::Duration::from_secs(30)),
+            max_concurrent_bfb_copies: self.firmware_global.max_concurrent_bfb_copies,
+            autoupdate: self.firmware_global.autoupdate,
+            no_reset_retries: self.firmware_global.no_reset_retries,
+            firmware: self.get_firmware_config(),
+        }
+    }
 }
 
 pub struct MaxConcurrentUpdates {
@@ -1111,10 +1171,6 @@ impl MaxConcurrentUpdates {
             Some(count as i32)
         }
     }
-}
-
-fn vendor_model_to_key(vendor: bmc_vendor::BMCVendor, model: &str) -> String {
-    format!("{vendor}:{}", model.to_lowercase())
 }
 
 /// MachineStateController related config.
@@ -1541,62 +1597,6 @@ impl IBFabricConfig {
         let service_level = i32::deserialize(deserializer)?;
 
         IBServiceLevel::try_from(service_level).map_err(|e| serde::de::Error::custom(e.to_string()))
-    }
-}
-
-/// NvLink related configuration.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct NvLinkConfig {
-    /// Enables NvLink partitioning.
-    #[serde(default)]
-    pub enabled: bool,
-
-    /// Defaults to 1 Minute if not specified.
-    #[serde(
-        default = "NvLinkConfig::default_monitor_run_interval",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub monitor_run_interval: std::time::Duration,
-
-    /// Timeout for pending NMX-M operations. Defaults to 10 seconds if not specified.
-    #[serde(
-        default = "NvLinkConfig::default_nmx_m_operation_timeout",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub nmx_m_operation_timeout: std::time::Duration,
-
-    /// NMX-M endpoint (name or IP address) used to create client connections,
-    /// include port number as well if required eg. https://127.0.0.1:4010
-    #[serde(default = "default_nmx_m_endpoint")]
-    pub nmx_m_endpoint: String,
-    /// Set to true if NMX-M doesn't adhere to security requirements. Defaults to false
-    pub allow_insecure: bool,
-}
-
-fn default_nmx_m_endpoint() -> String {
-    "localhost".to_string()
-}
-
-impl Default for NvLinkConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            monitor_run_interval: Self::default_monitor_run_interval(),
-            nmx_m_operation_timeout: Self::default_nmx_m_operation_timeout(),
-            nmx_m_endpoint: "localhost".to_string(),
-            allow_insecure: false,
-        }
-    }
-}
-
-impl NvLinkConfig {
-    pub const fn default_monitor_run_interval() -> std::time::Duration {
-        std::time::Duration::from_secs(60)
-    }
-    pub const fn default_nmx_m_operation_timeout() -> std::time::Duration {
-        std::time::Duration::from_secs(10)
     }
 }
 
@@ -2114,178 +2114,6 @@ impl Default for FirmwareGlobal {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct FirmwareConfig {
-    base_map: HashMap<String, Firmware>,
-    firmware_directory: PathBuf,
-    #[cfg(test)]
-    test_overrides: Vec<String>,
-}
-
-impl FirmwareConfig {
-    pub fn find(&self, vendor: bmc_vendor::BMCVendor, model: &str) -> Option<Firmware> {
-        let dpu_model = DpuModel::from(model);
-        let key = if dpu_model != DpuModel::Unknown {
-            vendor_model_to_key(vendor, &dpu_model.to_string())
-        } else {
-            vendor_model_to_key(vendor, model)
-        };
-        let ret = self.map().get(&key).map(|x| x.to_owned());
-        tracing::debug!("FirmwareConfig::find: key {key} found {ret:?}");
-        ret
-    }
-
-    /// find_fw_info_for_host looks up the firmware config for the given endpoint
-    pub fn find_fw_info_for_host(&self, endpoint: &ExploredEndpoint) -> Option<Firmware> {
-        self.find_fw_info_for_host_report(&endpoint.report)
-    }
-
-    /// find_fw_info_for_host_report looks up the firmware config for the given endpoint report
-    pub fn find_fw_info_for_host_report(
-        &self,
-        report: &EndpointExplorationReport,
-    ) -> Option<Firmware> {
-        report.vendor.and_then(|vendor| {
-            // Use report.model if it is already filled or use model()
-            // function to extract model from the report.
-            report
-                .model
-                .as_ref()
-                .and_then(|model| self.find(vendor, model))
-                .or_else(|| report.model().and_then(|model| self.find(vendor, &model)))
-        })
-    }
-
-    pub fn map(&self) -> HashMap<String, Firmware> {
-        let mut map = self.base_map.clone();
-        if self.firmware_directory.to_string_lossy() != "" {
-            self.merge_firmware_configs(&mut map, &self.firmware_directory);
-        }
-
-        #[cfg(test)]
-        {
-            // Fake configs to merge for unit tests
-            for ovrd in &self.test_overrides {
-                if let Err(err) = self.merge_from_string(&mut map, ovrd.clone()) {
-                    tracing::error!("Bad override {ovrd}: {err}");
-                }
-            }
-        }
-
-        map
-    }
-
-    pub fn config_update_time(&self) -> Option<std::time::SystemTime> {
-        if self.firmware_directory.to_string_lossy() == "" {
-            return None;
-        }
-
-        let metadata = std::fs::metadata(self.firmware_directory.clone()).ok()?;
-
-        metadata.modified().ok()
-    }
-
-    fn merge_firmware_configs(
-        &self,
-        map: &mut HashMap<String, Firmware>,
-        firmware_directory: &PathBuf,
-    ) {
-        if !firmware_directory.is_dir() {
-            tracing::error!("Missing firmware directory {:?}", firmware_directory);
-            return;
-        }
-
-        for dir in subdirectories_sorted_by_modification_date(firmware_directory) {
-            if dir
-                .path()
-                .file_name()
-                .unwrap_or(OsStr::new("."))
-                .to_string_lossy()
-                .starts_with(".")
-            {
-                continue;
-            }
-            let metadata_path = dir.path().join("metadata.toml");
-            let metadata = match fs::read_to_string(metadata_path.clone()) {
-                Ok(str) => str,
-                Err(e) => {
-                    tracing::error!("Could not read {metadata_path:?}: {e}");
-                    continue;
-                }
-            };
-            if let Err(e) = self.merge_from_string(map, metadata) {
-                tracing::error!("Failed to merge in metadata from {:?}: {e}", dir.path());
-            }
-        }
-    }
-
-    /// merge_from_string adds the given TOML based config to this Firmware.  Figment based merging won't work for this,
-    /// as we want to append new FirmwareEntry instances instead of overwriting.  It is expected that this will be called
-    /// on the metadata in order of oldest creation time to newest.
-    fn merge_from_string(
-        &self,
-        map: &mut HashMap<String, Firmware>,
-        config_str: String,
-    ) -> eyre::Result<()> {
-        let cfg: Firmware = toml::from_str(config_str.as_str())?;
-        let key = vendor_model_to_key(cfg.vendor, &cfg.model);
-
-        let Some(cur_model) = map.get_mut(&key) else {
-            // We haven't seen this model before, so use this as given.
-            map.insert(key, cfg);
-            return Ok(());
-        };
-
-        if !cfg.ordering.is_empty() {
-            // Newer ordering definitions take precedence.  For now we don't consider this at a specific version level.
-            cur_model.ordering = cfg.ordering
-        }
-
-        // if explicit_start_needed is true, it should take precedence. We shouldn't be doing automatic upgrades.
-        if cfg.explicit_start_needed {
-            cur_model.explicit_start_needed = true;
-        }
-
-        for (new_type, new_component) in cfg.components {
-            if let Some(cur_component) = cur_model.components.get_mut(&new_type) {
-                // The simple fields from the newer version should be used if specified
-                if new_component.current_version_reported_as.is_some() {
-                    cur_component.current_version_reported_as =
-                        new_component.current_version_reported_as;
-                }
-                if new_component.preingest_upgrade_when_below.is_some() {
-                    cur_component.preingest_upgrade_when_below =
-                        new_component.preingest_upgrade_when_below;
-                }
-                if new_component.known_firmware.iter().any(|x| x.default) {
-                    // The newer one lists a default, remove default from the old.
-                    cur_component.known_firmware = cur_component
-                        .known_firmware
-                        .iter()
-                        .map(|x| {
-                            let mut x = x.clone();
-                            x.default = false;
-                            x
-                        })
-                        .collect();
-                }
-                cur_component
-                    .known_firmware
-                    .extend(new_component.known_firmware.iter().cloned());
-            } else {
-                // Nothing for this component
-                cur_model.components.insert(new_type, new_component);
-            }
-        }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn add_test_override(&mut self, ovrd: String) {
-        self.test_overrides.push(ovrd);
-    }
-}
-
 pub fn default_max_find_by_ids() -> u32 {
     100
 }
@@ -2337,6 +2165,10 @@ pub fn default_power_options() -> PowerManagerOptions {
 
 pub fn default_to_true() -> bool {
     true
+}
+
+fn default_tenant_routing_profile() -> String {
+    "EXTERNAL".to_string()
 }
 
 /// Configuration for the measured boot metrics collector,
@@ -2624,34 +2456,6 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     }
 }
 
-fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEntry> {
-    let Ok(dirs) = topdir.read_dir() else {
-        tracing::error!("Unreadable firmware directory {:?}", topdir);
-        return vec![];
-    };
-
-    // We sort in ascending modification time so that we will use the newest made firmware metadata
-    let mut dirs: Vec<fs::DirEntry> = dirs.filter_map(|x| x.ok()).collect();
-    dirs.sort_unstable_by(|x, y| {
-        let x_time = match x.metadata() {
-            Err(_) => SystemTime::now(),
-            Ok(x) => match x.modified() {
-                Err(_) => SystemTime::now(),
-                Ok(x) => x,
-            },
-        };
-        let y_time = match y.metadata() {
-            Err(_) => SystemTime::now(),
-            Ok(y) => match y.modified() {
-                Err(_) => SystemTime::now(),
-                Ok(y) => y,
-            },
-        };
-        x_time.partial_cmp(&y_time).unwrap_or(Ordering::Equal)
-    });
-    dirs
-}
-
 fn default_mqtt_endpoint() -> String {
     "mqtt.forge".to_string()
 }
@@ -2765,8 +2569,10 @@ pub struct DpaConfig {
 
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
-/// When configured, Carbide will publish `ManagedHostState` transitions to the
-/// topic `nico/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
+/// When configured, Carbide will publish `ManagedHostState` transitions to
+/// `nico/v1/machine/{machineId}/state`, publish BMS rack leak/isolation values
+/// and heartbeat timestamps to metadata-defined DSX topics, and subscribe to
+/// `BMS/v1/PUB/Metadata/#` to learn those routing targets.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
@@ -2789,7 +2595,7 @@ pub struct DsxExchangeEventBusConfig {
     )]
     pub publish_timeout: std::time::Duration,
 
-    /// Queue capacity for buffering state change events while publishing.
+    /// Queue capacity for buffering DSX publish events while publishing.
     /// Events are dropped if the queue is full. Defaults to 1024.
     #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
     pub queue_capacity: usize,
@@ -2960,6 +2766,7 @@ mod tests {
     use std::sync::atomic::Ordering as AtomicOrdering;
 
     use carbide_authn::config::CertComponent;
+    use carbide_site_explorer::config::SiteExplorerExploreMode;
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
@@ -2968,7 +2775,6 @@ mod tests {
     use model::resource_pool;
 
     use super::*;
-    use crate::site_explorer::config::SiteExplorerExploreMode;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
@@ -3263,7 +3069,7 @@ mod tests {
                 override_target_ip: None,
                 override_target_port: None,
                 allow_zero_dpu_hosts: false,
-                bmc_proxy: crate::site_explorer::config::bmc_proxy(None),
+                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(1),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
@@ -3436,7 +3242,7 @@ mod tests {
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
                 allow_zero_dpu_hosts: false,
-                bmc_proxy: crate::site_explorer::config::bmc_proxy(None),
+                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
@@ -3745,7 +3551,7 @@ mod tests {
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
                 allow_zero_dpu_hosts: false,
-                bmc_proxy: crate::site_explorer::config::bmc_proxy(None),
+                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
@@ -3898,94 +3704,6 @@ mod tests {
     }
 
     #[test]
-    fn merging_config() -> eyre::Result<()> {
-        let cfg1 = r#"
-    vendor = "Dell"
-    model = "PowerEdge R750"
-    ordering = ["uefi", "bmc"]
-
-
-    [components.uefi]
-    current_version_reported_as = "^Installed-.*__BIOS.Setup."
-    preingest_upgrade_when_below = "1.13.2"
-
-    [[components.uefi.known_firmware]]
-    version = "1.13.2"
-    url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
-    default = true
-"#;
-        let cfg2 = r#"
-model = "PowerEdge R750"
-vendor = "Dell"
-
-[components.uefi]
-current_version_reported_as = "^Installed-.*__BIOS.Setup."
-preingest_upgrade_when_below = "1.13.3"
-
-[[components.uefi.known_firmware]]
-version = "1.13.3"
-url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
-default = true
-
-[components.bmc]
-current_version_reported_as = "^Installed-.*__iDRAC."
-
-[[components.bmc.known_firmware]]
-version = "7.10.30.00"
-filenames = ["/opt/carbide/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE", "/opt/carbide/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A01.EXE"]
-default = true
-    "#;
-        let mut config: FirmwareConfig = Default::default();
-        config.add_test_override(cfg1.to_string());
-        config.add_test_override(cfg2.to_string());
-
-        println!("{config:#?}");
-        let map = config.map();
-        let server = map.get("dell:poweredge r750").unwrap();
-        assert_eq!(
-            server
-                .components
-                .get(&FirmwareComponentType::Uefi)
-                .unwrap()
-                .known_firmware
-                .len(),
-            2
-        );
-        assert_eq!(
-            server
-                .components
-                .get(&FirmwareComponentType::Bmc)
-                .unwrap()
-                .known_firmware
-                .len(),
-            1
-        );
-        assert_eq!(
-            server
-                .components
-                .get(&FirmwareComponentType::Bmc)
-                .unwrap()
-                .known_firmware
-                .first()
-                .unwrap()
-                .filenames
-                .len(),
-            2
-        );
-        assert_eq!(
-            *server
-                .components
-                .get(&FirmwareComponentType::Uefi)
-                .unwrap()
-                .preingest_upgrade_when_below
-                .as_ref()
-                .unwrap(),
-            "1.13.3".to_string()
-        );
-        Ok(())
-    }
-
-    #[test]
     fn parse_ib_fabric() {
         let toml = r#"
 rate_limit = 300
@@ -4127,23 +3845,6 @@ mqtt_endpoint = "mqtt.forge"
                 subnet_ip: Ipv4Addr::UNSPECIFIED,
                 subnet_mask: 0_i32,
                 auth: MqttAuthConfig::default(),
-            }
-        );
-    }
-
-    #[test]
-    fn deserialize_serialize_nvlink_config() {
-        let value_json = r#"{"enabled": true, "allow_insecure": true, "monitor_run_interval": "33", "nmx_m_operation_timeout": "21", "nmx_m_endpoint": "localhost"}"#;
-
-        let nvlink_config: NvLinkConfig = serde_json::from_str(value_json).unwrap();
-        assert_eq!(
-            nvlink_config,
-            NvLinkConfig {
-                enabled: true,
-                monitor_run_interval: std::time::Duration::from_secs(33),
-                nmx_m_operation_timeout: std::time::Duration::from_secs(21),
-                nmx_m_endpoint: "localhost".to_string(),
-                allow_insecure: true,
             }
         );
     }

@@ -35,6 +35,16 @@ use rpc::forge::{
 use rpc::forge_tls_client::ForgeClientT;
 use rpc::{Instance, Timestamp, forge_resolver};
 
+use crate::command_line::AgentPlatformType;
+use crate::ethernet_virtualization::ServiceAddresses;
+
+/// Host's `/etc/resolv.conf` is bind-mounted here in the init-container.
+pub const HOST_RESOLV_CONF_PATH: &str = "/host-resolv.conf";
+
+/// File the init-container writes nameservers to on the shared `/data` volume,
+/// for the main container to read at startup.
+pub const NAMESERVERS_FILE_PATH: &str = "/data/nameservers";
+
 pub fn compare_lines(left: &str, right: &str, strip_behavior: Option<StripType>) -> CompareResult {
     let (left, right) = match strip_behavior {
         None => (left, right),
@@ -144,6 +154,103 @@ impl UrlResolver {
 
         Ok(ip)
     }
+}
+
+impl ServiceAddresses {
+    /// Resolve all service addresses (PXE, NTP, DNS) used by the agent.
+    ///
+    /// On `DpuOs` the local resolver is authoritative for nameservers. In
+    /// containerized mode the agent's own `/etc/resolv.conf` points at the
+    /// cluster DNS, so nameservers are read from a file the init-container
+    /// populated from the *host's* `/etc/resolv.conf`.
+    pub async fn build(
+        agent_platform_type: &AgentPlatformType,
+        is_fake_dpu: bool,
+    ) -> Result<Self, eyre::Report> {
+        if is_fake_dpu {
+            return Ok(Self::fake());
+        }
+
+        let mut url_resolver = UrlResolver::try_new()?;
+
+        let pxe_ips = url_resolver
+            .resolve("carbide-pxe.forge")
+            .await
+            .wrap_err("DNS resolver for carbide-pxe")?;
+        // This log should be removed after some time.
+        tracing::info!(?pxe_ips, "Pxe server resolved");
+
+        let ntpservers = match url_resolver.resolve("carbide-ntp.forge").await {
+            Ok(x) => {
+                // This log should be removed after some time.
+                tracing::info!(?x, "NTP servers resolved.");
+                x
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "NTP servers couldn't be resolved. Dhcp-server won't send NTP server IPs in dhcpoffer/ack.");
+                vec![]
+            }
+        };
+
+        let nameservers = if agent_platform_type.is_dpu_os() {
+            url_resolver.nameservers()
+        } else {
+            read_saved_nameservers()?
+        };
+
+        Ok(Self {
+            pxe_ips,
+            ntpservers,
+            nameservers,
+        })
+    }
+
+    fn fake() -> Self {
+        Self {
+            pxe_ips: vec![IpAddr::from([127, 0, 0, 1])],
+            ntpservers: vec![],
+            nameservers: vec![IpAddr::from([127, 0, 0, 1])],
+        }
+    }
+}
+
+/// Read the host's `/etc/resolv.conf` (mounted at [`HOST_RESOLV_CONF_PATH`])
+/// and persist its nameservers, one IP per line, to [`NAMESERVERS_FILE_PATH`]
+/// on the shared `/data` volume. Called from the init-container.
+pub fn save_host_nameservers() -> Result<(), eyre::Report> {
+    let config = forge_resolver::read_resolv_conf(HOST_RESOLV_CONF_PATH)
+        .wrap_err_with(|| format!("failed to read {HOST_RESOLV_CONF_PATH}"))?;
+    let mut text = String::new();
+    for ns in &config.nameservers {
+        let ip: IpAddr = ns.into();
+        writeln!(&mut text, "{ip}").expect("writing to String never fails");
+    }
+    std::fs::write(NAMESERVERS_FILE_PATH, &text)
+        .wrap_err_with(|| format!("failed to write {NAMESERVERS_FILE_PATH}"))?;
+    Ok(())
+}
+
+/// Read the nameservers persisted by the init-container at
+/// [`NAMESERVERS_FILE_PATH`]. Fails hard if the file is missing, unreadable,
+/// contains an invalid IP, or is empty.
+pub fn read_saved_nameservers() -> Result<Vec<IpAddr>, eyre::Report> {
+    let content = std::fs::read_to_string(NAMESERVERS_FILE_PATH)
+        .wrap_err_with(|| format!("failed to read {NAMESERVERS_FILE_PATH}"))?;
+    let nameservers: Vec<IpAddr> = content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            line.parse::<IpAddr>()
+                .wrap_err_with(|| format!("invalid IP in {NAMESERVERS_FILE_PATH}: {line:?}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if nameservers.is_empty() {
+        return Err(eyre::eyre!(
+            "{NAMESERVERS_FILE_PATH} contained no nameservers"
+        ));
+    }
+    Ok(nameservers)
 }
 
 // get_instance finds the instance associated with this dpu

@@ -22,6 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_utils::models::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
@@ -40,7 +41,6 @@ use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
 use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use model::network_segment::NetworkSegmentSearchConfig;
 use tonic::{Request, Response, Status};
-use utils::models::arch::CpuArchitecture;
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
@@ -247,7 +247,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     .fnn
                     .as_ref()
                     .map(|f| {
-                        let Some(profile_type) = vpc.routing_profile_type.map(|t| t.to_string()) else {
+                        let Some(profile_type) = vpc.routing_profile_type else {
                             return Err(CarbideError::Internal{ message: "tenant routing profile type not found in tenant record".to_string()});
                         };
 
@@ -837,7 +837,7 @@ pub(crate) async fn record_dpu_network_status(
         obs
     };
 
-    let any_observed_version_changed = match dpu_machine.network_status_observation {
+    let any_observed_version_changed = match dpu_machine.network_status_observation.as_ref() {
         None => true,
         Some(old_observation) => old_observation.any_observed_version_changed(&machine_obs),
     };
@@ -864,10 +864,10 @@ pub(crate) async fn record_dpu_network_status(
     .map_err(|e| CarbideError::internal(e.to_string()))?;
     // We ignore what dpu-agent sends as timestamp and time, and replace
     // it with more accurate information
-    health_report.source = "forge-dpu-agent".to_string();
+    health_report.source = health_report::HealthReport::DPU_AGENT_SOURCE.to_string();
     health_report.observed_at = Some(chrono::Utc::now());
     // Fix the in_alert times based on the previously stored report
-    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report.as_ref());
+    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report());
 
     db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report).await?;
 

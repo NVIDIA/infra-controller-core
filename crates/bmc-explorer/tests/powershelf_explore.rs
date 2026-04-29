@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#![recursion_limit = "256"]
-
 mod common;
 
 use bmc_explorer::nv_generate_exploration_report;
@@ -25,8 +23,8 @@ use tokio::test;
 
 #[test]
 async fn explore_liteon_power_shelf() {
-    let h = test_support::liteon_powershelf_bmc();
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let h = test_support::liteon_powershelf_bmc().await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
 

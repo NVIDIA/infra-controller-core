@@ -16,8 +16,8 @@
  */
 use std::ffi::OsStr;
 
+use carbide_utils::cmd::TokioCmd;
 use scout::CarbideClientError;
-use utils::cmd::TokioCmd;
 
 pub async fn run_prog<I, S>(command: S, args: I) -> Result<String, CarbideClientError>
 where

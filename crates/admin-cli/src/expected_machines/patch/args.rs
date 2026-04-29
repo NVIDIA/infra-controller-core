@@ -16,11 +16,11 @@
  */
 
 use ::rpc::admin_cli::CarbideCliError;
+use carbide_utils::has_duplicates;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
-use utils::has_duplicates;
 use uuid::Uuid;
 
 /// Patch expected machine (partial update, preserves unprovided fields).

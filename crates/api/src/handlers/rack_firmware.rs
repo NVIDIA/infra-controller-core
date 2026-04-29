@@ -34,6 +34,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::errors::CarbideError;
+use crate::handlers::switch_artifacts::{SwitchSystemImageArtifact, collect_switch_system_images};
 use crate::rack::firmware_update::{
     build_firmware_update_batches, load_rack_firmware_inventory, submit_firmware_update_batches,
 };
@@ -41,7 +42,10 @@ use crate::rack::firmware_update::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ParsedFirmwareComponents {
+    #[serde(default)]
     board_skus: Vec<BoardSkuFirmware>,
+    #[serde(default)]
+    switch_system_images: Vec<SwitchSystemImageArtifact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,8 +87,14 @@ struct FirmwareLocation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct FirmwareLookupTable {
     /// Map of device_type -> component_name -> FirmwareLookupEntry
+    #[serde(default)]
     devices:
         std::collections::HashMap<String, std::collections::HashMap<String, FirmwareLookupEntry>>,
+    #[serde(default)]
+    switch_system_images: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, SwitchSystemImageLookupEntry>,
+    >,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +113,16 @@ struct FirmwareLookupEntry {
     version: Option<String>,
     /// Subcomponents with individual versions
     subcomponents: Vec<FirmwareSubComponent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SwitchSystemImageLookupEntry {
+    component: String,
+    package_name: String,
+    version: String,
+    image_filename: String,
+    location_type: String,
+    firmware_type: String,
 }
 
 /// Parse rack firmware JSON to extract firmware components
@@ -257,6 +277,7 @@ fn parse_rack_firmware_json(config: &Value) -> Result<ParsedFirmwareComponents, 
 
     Ok(ParsedFirmwareComponents {
         board_skus: parsed_board_skus,
+        switch_system_images: Vec::new(),
     })
 }
 
@@ -290,18 +311,14 @@ pub async fn create(
     }
 
     // Parse firmware components from the JSON
-    let parsed_components = match parse_rack_firmware_json(&config) {
+    let mut parsed_components = match parse_rack_firmware_json(&config) {
         Ok(parsed) => {
             tracing::info!(
                 "Parsed {} board SKUs from rack firmware config {}",
                 parsed.board_skus.len(),
                 id
             );
-            Some(
-                serde_json::to_value(parsed).map_err(|e| CarbideError::Internal {
-                    message: format!("Failed to serialize parsed components: {}", e),
-                })?,
-            )
+            parsed
         }
         Err(e) => {
             tracing::warn!(
@@ -309,8 +326,34 @@ pub async fn create(
                 id,
                 e
             );
-            None
+            ParsedFirmwareComponents {
+                board_skus: Vec::new(),
+                switch_system_images: Vec::new(),
+            }
         }
+    };
+
+    let switch_system_images =
+        collect_switch_system_images(&config).map_err(CarbideError::InvalidArgument)?;
+    if !switch_system_images.is_empty() {
+        tracing::info!(
+            "Parsed {} switch system images from rack firmware config {}",
+            switch_system_images.len(),
+            id
+        );
+    }
+    parsed_components.switch_system_images = switch_system_images;
+
+    let parsed_components = if parsed_components.board_skus.is_empty()
+        && parsed_components.switch_system_images.is_empty()
+    {
+        None
+    } else {
+        Some(
+            serde_json::to_value(parsed_components).map_err(|e| CarbideError::Internal {
+                message: format!("Failed to serialize parsed components: {}", e),
+            })?,
+        )
     };
 
     // Store token in Vault
@@ -557,11 +600,40 @@ async fn download_firmware_files(
                 let dest_dir = firmware_cache_dir.clone();
 
                 task_set.spawn(async move {
-                    download_single_file(url, location_type, component, bundle, token, dest_dir)
-                        .await
+                    (
+                        true,
+                        download_single_file(
+                            url,
+                            location_type,
+                            component,
+                            bundle,
+                            token,
+                            dest_dir,
+                        )
+                        .await,
+                    )
                 });
             }
         }
+    }
+
+    for system_image in &parsed_components.switch_system_images {
+        total_locations += 1;
+
+        let url = system_image.location.clone();
+        let location_type = system_image.location_type.clone();
+        let component = system_image.component.clone();
+        let bundle = Some(system_image.package_name.clone());
+        let token = artifactory_token.clone();
+        let dest_dir = firmware_cache_dir.clone();
+        let required = system_image.required;
+
+        task_set.spawn(async move {
+            (
+                required,
+                download_single_file(url, location_type, component, bundle, token, dest_dir).await,
+            )
+        });
     }
 
     tracing::info!(
@@ -573,17 +645,22 @@ async fn download_firmware_files(
     // Wait for all downloads to complete
     let mut successful_downloads = 0;
     let mut failed_downloads = 0;
+    let mut failed_required_downloads = 0;
 
     while let Some(result) = task_set.join_next().await {
         match result {
-            Ok(Ok(_)) => successful_downloads += 1,
-            Ok(Err(e)) => {
+            Ok((_, Ok(_))) => successful_downloads += 1,
+            Ok((required, Err(e))) => {
                 tracing::warn!(error = %e, "Firmware download failed");
                 failed_downloads += 1;
+                if required {
+                    failed_required_downloads += 1;
+                }
             }
             Err(join_error) => {
                 tracing::error!(error = %join_error, "Download task panicked");
                 failed_downloads += 1;
+                failed_required_downloads += 1;
             }
         }
     }
@@ -596,8 +673,8 @@ async fn download_firmware_files(
         "Firmware download completed"
     );
 
-    // Mark firmware as available if all downloads succeeded
-    if failed_downloads == 0 {
+    // Mark firmware as available if all required downloads succeeded
+    if failed_required_downloads == 0 {
         // Build firmware lookup table
         let lookup_table = build_firmware_lookup_table(parsed_components);
         let lookup_json = serde_json::to_value(&lookup_table)
@@ -635,7 +712,8 @@ async fn download_firmware_files(
         tracing::warn!(
             firmware_id = %firmware_id,
             failed = failed_downloads,
-            "Firmware not marked as available due to download failures"
+            failed_required = failed_required_downloads,
+            "Firmware not marked as available due to required download failures"
         );
     }
 
@@ -724,6 +802,7 @@ fn build_firmware_lookup_table(
 ) -> FirmwareLookupTable {
     let mut lookup = FirmwareLookupTable {
         devices: std::collections::HashMap::new(),
+        switch_system_images: std::collections::HashMap::new(),
     };
 
     for board_sku in &parsed_components.board_skus {
@@ -847,6 +926,25 @@ fn build_firmware_lookup_table(
                 .devices
                 .insert("Power Shelf".to_string(), power_shelf_device_components);
         }
+    }
+
+    for system_image in &parsed_components.switch_system_images {
+        let typed_key = format!("{}_{}", system_image.component, system_image.firmware_type);
+        lookup
+            .switch_system_images
+            .entry(system_image.device_type.clone())
+            .or_default()
+            .insert(
+                typed_key,
+                SwitchSystemImageLookupEntry {
+                    component: system_image.component.clone(),
+                    package_name: system_image.package_name.clone(),
+                    version: system_image.version.clone(),
+                    image_filename: system_image.image_filename.clone(),
+                    location_type: system_image.location_type.clone(),
+                    firmware_type: system_image.firmware_type.clone(),
+                },
+            );
     }
 
     lookup
@@ -1075,7 +1173,7 @@ pub async fn apply(
         .as_ref()
         .ok_or_else(|| CarbideError::FailedPrecondition("RMS client not configured".to_string()))?;
     let batches =
-        build_firmware_update_batches(&rack_id, &fw_config, &req.firmware_type, &inventory)
+        build_firmware_update_batches(&rack_id, &fw_config, &req.firmware_type, &inventory, &[])
             .map_err(|e| CarbideError::Internal {
                 message: format!("Failed to build firmware update requests: {}", e),
             })?;
@@ -1285,4 +1383,41 @@ pub async fn set_default(
         .map_err(|e| CarbideError::from(DatabaseError::new("commit set_default", e)))?;
 
     Ok(Response::new(()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_firmware_lookup_table_includes_switch_system_images() {
+        let parsed = ParsedFirmwareComponents {
+            board_skus: Vec::new(),
+            switch_system_images: vec![SwitchSystemImageArtifact {
+                device_type: "Switch Tray".to_string(),
+                component: "NVOS".to_string(),
+                version: "25.02.2553".to_string(),
+                firmware_type: "prod".to_string(),
+                package_name: "GB200NVL72_NVOS".to_string(),
+                location: "https://example.invalid/nvos-amd64-25.02.2553.bin".to_string(),
+                location_type: "HTTPS".to_string(),
+                required: true,
+                image_filename: "nvos-amd64-25.02.2553.bin".to_string(),
+            }],
+        };
+
+        let lookup = build_firmware_lookup_table(&parsed);
+        let entry = lookup
+            .switch_system_images
+            .get("Switch Tray")
+            .and_then(|images| images.get("NVOS_prod"))
+            .expect("expected NVOS_prod lookup entry");
+
+        assert_eq!(entry.component, "NVOS");
+        assert_eq!(entry.package_name, "GB200NVL72_NVOS");
+        assert_eq!(entry.version, "25.02.2553");
+        assert_eq!(entry.image_filename, "nvos-amd64-25.02.2553.bin");
+        assert_eq!(entry.location_type, "HTTPS");
+        assert_eq!(entry.firmware_type, "prod");
+    }
 }
