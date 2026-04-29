@@ -578,7 +578,13 @@ pub(crate) async fn component_power_control(
                     Err(e) => results.push(error_result(&id_str, e.to_string())),
                 }
             }
-            txn.commit().await?;
+
+            if let Err(e) = txn.commit().await {
+                tracing::warn!(
+                    ?e,
+                    "failed to commit read-only endpoint resolution txn; proceeding with already-resolved data"
+                );
+            }
 
             for (machine_id, bmc_endpoint_request) in resolved {
                 let id_str = machine_id.to_string();
@@ -685,6 +691,30 @@ async fn power_control_health_override(
     result.is_ok()
 }
 
+fn desired_power_state(action: PowerAction) -> rpc::PowerState {
+    match action {
+        PowerAction::On
+        | PowerAction::ForceRestart
+        | PowerAction::GracefulRestart
+        | PowerAction::AcPowercycle => rpc::PowerState::On,
+        PowerAction::GracefulShutdown | PowerAction::ForceOff => rpc::PowerState::Off,
+    }
+}
+
+fn redfish_power_action(
+    action: PowerAction,
+) -> rpc::admin_power_control_request::SystemPowerControl {
+    use rpc::admin_power_control_request::SystemPowerControl;
+    match action {
+        PowerAction::On => SystemPowerControl::On,
+        PowerAction::ForceRestart => SystemPowerControl::ForceRestart,
+        PowerAction::GracefulRestart => SystemPowerControl::GracefulRestart,
+        PowerAction::AcPowercycle => SystemPowerControl::AcPowercycle,
+        PowerAction::GracefulShutdown => SystemPowerControl::GracefulShutdown,
+        PowerAction::ForceOff => SystemPowerControl::ForceOff,
+    }
+}
+
 /*
 machine_power_control facilitates power control against compute trays:
     1. Configures the desired power state for the machine in the power-manager
@@ -698,22 +728,8 @@ async fn machine_power_control(
     bmc_endpoint: BmcEndpointRequest,
     action: PowerAction,
 ) -> Result<(), Status> {
-    use rpc::admin_power_control_request::SystemPowerControl;
-
-    let (desired_power_state, redfish_action) = match action {
-        PowerAction::On => (rpc::PowerState::On as i32, SystemPowerControl::On),
-        PowerAction::ForceRestart => (rpc::PowerState::On as i32, SystemPowerControl::ForceRestart),
-        PowerAction::GracefulRestart => (
-            rpc::PowerState::On as i32,
-            SystemPowerControl::GracefulRestart,
-        ),
-        PowerAction::AcPowercycle => (rpc::PowerState::On as i32, SystemPowerControl::AcPowercycle),
-        PowerAction::GracefulShutdown => (
-            rpc::PowerState::Off as i32,
-            SystemPowerControl::GracefulShutdown,
-        ),
-        PowerAction::ForceOff => (rpc::PowerState::Off as i32, SystemPowerControl::ForceOff),
-    };
+    let desired_power_state = desired_power_state(action) as i32;
+    let redfish_action = redfish_power_action(action);
 
     let power_req = rpc::PowerOptionUpdateRequest {
         machine_id: Some(machine_id),
@@ -1847,5 +1863,70 @@ mod tests {
             rpc::ComponentManagerStatusCode::InternalError as i32,
         );
         assert!(r.error.contains("could not resolve endpoint"));
+    }
+
+    #[test]
+    fn desired_power_state_on_variants() {
+        use super::desired_power_state;
+        assert_eq!(
+            desired_power_state(PowerAction::On),
+            self::rpc::PowerState::On
+        );
+        assert_eq!(
+            desired_power_state(PowerAction::ForceRestart),
+            self::rpc::PowerState::On
+        );
+        assert_eq!(
+            desired_power_state(PowerAction::GracefulRestart),
+            self::rpc::PowerState::On
+        );
+        assert_eq!(
+            desired_power_state(PowerAction::AcPowercycle),
+            self::rpc::PowerState::On
+        );
+    }
+
+    #[test]
+    fn desired_power_state_off_variants() {
+        use super::desired_power_state;
+        assert_eq!(
+            desired_power_state(PowerAction::GracefulShutdown),
+            self::rpc::PowerState::Off
+        );
+        assert_eq!(
+            desired_power_state(PowerAction::ForceOff),
+            self::rpc::PowerState::Off
+        );
+    }
+
+    #[test]
+    fn redfish_power_action_mapping() {
+        use self::rpc::admin_power_control_request::SystemPowerControl;
+        use super::redfish_power_action;
+
+        assert_eq!(
+            redfish_power_action(PowerAction::On),
+            SystemPowerControl::On
+        );
+        assert_eq!(
+            redfish_power_action(PowerAction::ForceRestart),
+            SystemPowerControl::ForceRestart
+        );
+        assert_eq!(
+            redfish_power_action(PowerAction::GracefulRestart),
+            SystemPowerControl::GracefulRestart
+        );
+        assert_eq!(
+            redfish_power_action(PowerAction::AcPowercycle),
+            SystemPowerControl::AcPowercycle
+        );
+        assert_eq!(
+            redfish_power_action(PowerAction::GracefulShutdown),
+            SystemPowerControl::GracefulShutdown
+        );
+        assert_eq!(
+            redfish_power_action(PowerAction::ForceOff),
+            SystemPowerControl::ForceOff
+        );
     }
 }
