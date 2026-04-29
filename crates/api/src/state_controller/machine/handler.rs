@@ -3509,12 +3509,15 @@ impl DpuMachineStateHandler {
                     }
                 };
 
-                if let Some(outcome) = check_fw_component_version(
-                    ctx,
-                    dpu_snapshot,
-                    &self.hardware_models.create_snapshot(),
-                )
-                .await?
+                // fixme: in case of DPF ingested machine, the fw version compare should be done
+                // with the image with which the ingestion is done.
+                if !state.host_snapshot.dpf.used_for_ingestion
+                    && let Some(outcome) = check_fw_component_version(
+                        ctx,
+                        dpu_snapshot,
+                        &self.hardware_models.create_snapshot(),
+                    )
+                    .await?
                 {
                     return Ok(outcome);
                 }
