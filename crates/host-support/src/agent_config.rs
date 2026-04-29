@@ -170,7 +170,8 @@ impl Default for MetadataServiceConfig {
     }
 }
 
-/// Rate limit and timeout for `GET /v1/meta-data/identity` on the embedded metadata service.
+/// Rate limit and timeout for `GET …/meta-data/identity` on the embedded metadata service
+/// (paths such as `/latest/meta-data/identity` and `/2009-04-04/meta-data/identity`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct MachineIdentityConfig {
@@ -186,13 +187,13 @@ pub struct MachineIdentityConfig {
     /// Valid range: 1–10.
     #[serde(default = "default_machine_identity_wait_timeout_secs")]
     pub wait_timeout_secs: u8,
-    /// Wall-clock limit for the full Forge signing path on `GET /v1/meta-data/identity`
+    /// Wall-clock limit for the full Forge signing path on `GET …/meta-data/identity`
     /// (client build including connect retries, plus `SignMachineIdentity` RPC).
     /// Valid range: 1–60 seconds. Applies to the Forge gRPC signing path and to the optional
     /// HTTP sign proxy origin (`sign-proxy-url`).
     #[serde(default = "default_machine_identity_sign_timeout_secs")]
     pub sign_timeout_secs: u8,
-    /// When set, `GET /v1/meta-data/identity` is forwarded over HTTP to `{url}/v1/meta-data/identity`
+    /// When set, `GET …/meta-data/identity` is forwarded over HTTP to `{url}/latest/meta-data/identity`
     /// with the same query string; the upstream response (status, body, `Content-Type`) is returned
     /// verbatim. When unset, the agent uses `SignMachineIdentity` gRPC to Forge.
     #[serde(default, rename = "sign-proxy-url")]

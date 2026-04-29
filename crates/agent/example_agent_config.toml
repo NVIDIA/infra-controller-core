@@ -30,7 +30,7 @@ address = "0.0.0.0:7777"
 [telemetry]
 metrics-address = "0.0.0.0:8888"
 
-# Optional [machine-identity]: rate limits and timeouts for GET /v1/meta-data/identity.
+# Optional [machine-identity]: rate limits and timeouts for GET …/meta-data/identity (e.g. /latest/meta-data/identity).
 # If you omit this section, defaults are: requests-per-second=3, burst=8,
 # wait-timeout-secs=2, sign-timeout-secs=5.
 # [machine-identity]

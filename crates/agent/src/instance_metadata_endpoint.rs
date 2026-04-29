@@ -56,6 +56,8 @@ const MACHINE_ID_CATEGORY: &str = "machine-id";
 const INSTANCE_ID_CATEGORY: &str = "instance-id";
 const PHONE_HOME_CATEGORY: &str = "phone_home";
 const ASN_CATEGORY: &str = "asn";
+/// `GET …/meta-data/identity` (under `/latest` or `/2009-04-04`, same as other FMDS keys).
+const IDENTITY_CATEGORY: &str = "identity";
 
 #[automock]
 #[async_trait]
@@ -72,11 +74,15 @@ pub trait InstanceMetadataRouterState: Sync + Send {
     /// in the client certificate must match the managed host machine row used by Carbide for
     /// tenant identity config.
     ///
-    /// [`get_v1_identity`] must acquire a rate-limit permit (governor) before calling this method.
+    /// [`InstanceMetadataRouterStateImpl::serve_meta_data_identity`] must acquire a rate-limit permit
+    /// (governor) before calling this method.
     async fn sign_machine_identity(
         &self,
         audiences: Vec<String>,
     ) -> Result<forge::MachineIdentityResponse, tonic::Status>;
+
+    /// SPIFFE machine-identity over IMDS-style HTTP (`GET …/meta-data/identity`).
+    async fn serve_meta_data_identity(&self, uri: Uri, headers: HeaderMap) -> Response;
 }
 
 pub struct InstanceMetadataRouterStateImpl {
@@ -91,7 +97,7 @@ pub struct InstanceMetadataRouterStateImpl {
         Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
     /// Max wait for `governor::RateLimiter::until_ready` (rate-limit permit), not Forge call duration.
     machine_identity_wait_timeout: Duration,
-    /// Wall-clock limit for `create_forge_client` + `SignMachineIdentity` on `/v1/meta-data/identity`,
+    /// Wall-clock limit for `create_forge_client` + `SignMachineIdentity` on `…/meta-data/identity`,
     /// and for outbound HTTP sign-proxy requests.
     machine_identity_forge_call_timeout: Duration,
     /// Trimmed base URL for HTTP pass-through signing (`None` → gRPC).
@@ -158,10 +164,74 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
             )
         })?
     }
+
+    async fn serve_meta_data_identity(&self, uri: Uri, headers: HeaderMap) -> Response {
+        if !metadata_header_is_true(&headers) {
+            return (
+                StatusCode::BAD_REQUEST,
+                "Metadata: true header is required for meta-data/identity\n",
+            )
+                .into_response();
+        }
+
+        if let Err(e) = self.wait_identity_governor().await {
+            let code = map_grpc_status_to_http(&e);
+            return (code, e.message().to_string()).into_response();
+        }
+
+        if let Some(base) = self.sign_proxy_base.as_deref() {
+            let Some(client) = self.sign_proxy_http_client.as_ref() else {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "sign proxy HTTP client is not configured\n",
+                )
+                    .into_response();
+            };
+            return forward_sign_proxy_http(client, base, &uri, &headers).await;
+        }
+
+        let audiences = parse_identity_audiences(&uri);
+        let resp = match self.sign_machine_identity(audiences).await {
+            Ok(r) => r,
+            Err(e) => {
+                let code = map_grpc_status_to_http(&e);
+                return (code, e.message().to_string()).into_response();
+            }
+        };
+
+        let body = IdentityTokenJsonBody {
+            access_token: resp.access_token,
+            issued_token_type: resp.issued_token_type,
+            token_type: resp.token_type,
+            expires_in: resp.expires_in_sec,
+        };
+        let json = match serde_json::to_string(&body) {
+            Ok(s) => s,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to serialize identity response: {e}"),
+                )
+                    .into_response();
+            }
+        };
+
+        let content_type = if accept_text_plain(&headers) {
+            "text/plain; charset=utf-8"
+        } else {
+            "application/json"
+        };
+        let mut res = (StatusCode::OK, json).into_response();
+        res.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static(content_type),
+        );
+        res
+    }
 }
 
 impl InstanceMetadataRouterStateImpl {
-    /// Wait for an `/v1/meta-data/identity` rate-limit permit (governor).
+    /// Wait for a `meta-data/identity` rate-limit permit (governor).
     pub async fn wait_identity_governor(&self) -> Result<(), tonic::Status> {
         let lim = Arc::clone(&self.machine_identity_governor);
         tokio::time::timeout(self.machine_identity_wait_timeout, lim.until_ready())
@@ -233,20 +303,6 @@ impl InstanceMetadataRouterStateImpl {
     }
 }
 
-/// SPIFFE machine-identity token over IMDS-style HTTP (SDD §3.5.1.1).
-///
-/// Serves `GET /meta-data/identity` (mount under `/v1` so the full path is `/v1/meta-data/identity`).
-pub fn get_v1_identity_router(
-    metadata_router_state: Arc<InstanceMetadataRouterStateImpl>,
-) -> Router {
-    Router::new()
-        .nest(
-            &format!("/{META_DATA_CATEGORY}"),
-            Router::new().route("/identity", get(get_v1_identity)),
-        )
-        .with_state(metadata_router_state)
-}
-
 pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterState>) -> Router {
     let user_data_router =
         Router::new().route(&format!("/{USER_DATA_CATEGORY}"), get(get_userdata));
@@ -274,6 +330,7 @@ pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterStat
         .route(&format!("/{PHONE_HOME_CATEGORY}"), post(post_phone_home))
         .route(&format!("/{INSTANCE_ID_CATEGORY}"), get(get_instance_id))
         .route(&format!("/{MACHINE_ID_CATEGORY}"), get(get_machine_id))
+        .route(&format!("/{IDENTITY_CATEGORY}"), get(get_metadata_identity))
         .route("/{category}", get(get_metadata_parameter));
 
     let metadata_router = Router::new()
@@ -287,6 +344,14 @@ pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterStat
         .merge(metadata_router)
         .merge(user_data_router)
         .with_state(metadata_router_state)
+}
+
+async fn get_metadata_identity(
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    state.serve_meta_data_identity(uri, headers).await
 }
 
 async fn get_metadata_parameter(
@@ -388,6 +453,7 @@ async fn get_metadata_params(
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
+            IDENTITY_CATEGORY,
         ]
         .join("\n"),
     )
@@ -648,7 +714,7 @@ fn build_sign_proxy_request_url(base_url: &str, query: Option<&str>) -> Result<S
         .filter(|q| !q.is_empty())
         .map(|q| format!("?{q}"))
         .unwrap_or_default();
-    Ok(format!("{base}/v1/meta-data/identity{q}"))
+    Ok(format!("{base}/latest/meta-data/identity{q}"))
 }
 
 async fn forward_sign_proxy_http(
@@ -723,76 +789,6 @@ struct IdentityTokenJsonBody {
     expires_in: u32,
 }
 
-async fn get_v1_identity(
-    State(state): State<Arc<InstanceMetadataRouterStateImpl>>,
-    uri: Uri,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    if !metadata_header_is_true(&headers) {
-        return (
-            StatusCode::BAD_REQUEST,
-            "Metadata: true header is required for /v1/meta-data/identity\n",
-        )
-            .into_response();
-    }
-
-    if let Err(e) = state.wait_identity_governor().await {
-        let code = map_grpc_status_to_http(&e);
-        return (code, e.message().to_string()).into_response();
-    }
-
-    if let Some(base) = state.sign_proxy_base.as_deref() {
-        let Some(client) = state.sign_proxy_http_client.as_ref() else {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "sign proxy HTTP client is not configured\n",
-            )
-                .into_response();
-        };
-        return forward_sign_proxy_http(client, base, &uri, &headers).await;
-    }
-
-    let audiences = parse_identity_audiences(&uri);
-    let resp = match state.sign_machine_identity(audiences).await {
-        Ok(r) => r,
-        Err(e) => {
-            let code = map_grpc_status_to_http(&e);
-            return (code, e.message().to_string()).into_response();
-        }
-    };
-
-    let body = IdentityTokenJsonBody {
-        access_token: resp.access_token,
-        issued_token_type: resp.issued_token_type,
-        token_type: resp.token_type,
-        expires_in: resp.expires_in_sec,
-    };
-    let json = match serde_json::to_string(&body) {
-        Ok(s) => s,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to serialize identity response: {e}"),
-            )
-                .into_response();
-        }
-    };
-
-    // Same JSON document for both `Accept: application/json` and `Accept: text/plain` (cloud IMDS
-    // style: alternate content-type for the same payload shape).
-    let content_type = if accept_text_plain(&headers) {
-        "text/plain; charset=utf-8"
-    } else {
-        "application/json"
-    };
-    let mut res = (StatusCode::OK, json).into_response();
-    res.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static(content_type),
-    );
-    res
-}
-
 #[cfg(test)]
 mod tests {
     use axum::http;
@@ -805,7 +801,7 @@ mod tests {
 
     #[test]
     fn parse_identity_audiences_repeated_and_decoded() {
-        let uri: Uri = "http://127.0.0.1/v1/meta-data/identity?aud=spiffe%3A%2F%2Fa&aud=b"
+        let uri: Uri = "http://127.0.0.1/latest/meta-data/identity?aud=spiffe%3A%2F%2Fa&aud=b"
             .parse()
             .unwrap();
         assert_eq!(
@@ -840,11 +836,11 @@ mod tests {
     fn build_sign_proxy_request_url_appends_path_and_query() {
         assert_eq!(
             super::build_sign_proxy_request_url("http://127.0.0.1:9/foo", Some("aud=x")).unwrap(),
-            "http://127.0.0.1:9/foo/v1/meta-data/identity?aud=x"
+            "http://127.0.0.1:9/foo/latest/meta-data/identity?aud=x"
         );
         assert_eq!(
             super::build_sign_proxy_request_url("http://127.0.0.1:9/foo/", None).unwrap(),
-            "http://127.0.0.1:9/foo/v1/meta-data/identity"
+            "http://127.0.0.1:9/foo/latest/meta-data/identity"
         );
     }
 
@@ -853,7 +849,7 @@ mod tests {
         use std::time::Duration;
 
         let app = Router::new().route(
-            "/v1/meta-data/identity",
+            "/latest/meta-data/identity",
             get(|| async {
                 (
                     StatusCode::CREATED,
@@ -868,7 +864,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let base = format!("http://{}", addr);
-        let uri: Uri = "http://client/v1/meta-data/identity?aud=test"
+        let uri: Uri = "http://client/latest/meta-data/identity?aud=test"
             .parse()
             .unwrap();
         let mut headers = HeaderMap::new();
@@ -1042,6 +1038,7 @@ mod tests {
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
+            IDENTITY_CATEGORY,
         ]
         .join("\n");
 

@@ -243,7 +243,7 @@ This is the core part of this SDD – issuing JWT-SVID based node identity token
 ```
 [ Tenant Workload ]
       │
-      │ GET http://169.254.169.254:80/v1/meta-data/identity?aud=openbao
+      │ GET http://169.254.169.254:80/latest/meta-data/identity?aud=openbao
       ▼
 [ DPU NICo IMDS ]
       │
@@ -260,7 +260,7 @@ JWT-SVID issued to workload/tenant
 ```
 [ Tenant Workload ]
       │
-      │ GET http://169.254.169.254:80/v1/meta-data/identity?aud=openbao
+      │ GET http://169.254.169.254:80/latest/meta-data/identity?aud=openbao
       ▼
 [ DPU NICo IMDS ]
       │
@@ -413,7 +413,7 @@ Both json and plaintext responses are supported depending on the Accept header. 
 Request:
 
 ```bash
-GET http://169.254.169.254:80/v1/meta-data/identity?aud=urlencode(spiffe://your.target.service.com)&aud=urlencode(spiffe://extra.audience.com)
+GET http://169.254.169.254:80/latest/meta-data/identity?aud=urlencode(spiffe://your.target.service.com)&aud=urlencode(spiffe://extra.audience.com)
 Accept: application/json (or omitted)
 Metadata: true
 ```
@@ -435,7 +435,7 @@ Content-Length: ...
 Request:
 
 ```bash
-GET http://169.254.169.254:80/v1/meta-data/identity?aud=urlencode(spiffe://your.target.service.com)&aud=urlencode(spiffe://extra.audience.com)
+GET http://169.254.169.254:80/latest/meta-data/identity?aud=urlencode(spiffe://your.target.service.com)&aud=urlencode(spiffe://extra.audience.com)
 Accept: text/plain
 Metadata: true
 ```

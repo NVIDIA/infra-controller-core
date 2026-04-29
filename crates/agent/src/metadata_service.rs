@@ -19,9 +19,7 @@ use std::sync::Arc;
 
 use axum::Router;
 
-use crate::instance_metadata_endpoint::{
-    InstanceMetadataRouterStateImpl, get_fmds_router, get_v1_identity_router,
-};
+use crate::instance_metadata_endpoint::{InstanceMetadataRouterStateImpl, get_fmds_router};
 use crate::instrumentation::{
     AgentMetricsState, WithTracingLayer, get_metrics_router, get_prometheus_registry,
 };
@@ -44,11 +42,6 @@ pub fn spawn_metadata_service(
             .nest(
                 "/latest",
                 get_fmds_router(instance_metadata_state.clone())
-                    .with_tracing_layer(metrics_state.clone()),
-            )
-            .nest(
-                "/v1",
-                get_v1_identity_router(instance_metadata_state.clone())
                     .with_tracing_layer(metrics_state.clone()),
             )
             .nest(
