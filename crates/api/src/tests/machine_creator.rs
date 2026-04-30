@@ -47,7 +47,6 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 #[crate::sqlx_test]
-#[ignore]
 async fn test_site_explorer_reject_zero_dpu_hosts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
