@@ -4,6 +4,30 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 
 ## Infra Controller 0.8.0
 
+### Highlights
+
+- **Documentation refresh + unified REST API docs**: Updated the docs look and feel at [https://docs.nvidia.com/infra-controller/documentation/introduction](https://docs.nvidia.com/infra-controller/documentation/introduction), and consolidated REST API information into the same documentation set.
+- **Simplified deployment**: Added NICo deployment [prerequisite tool](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs) `helm-prereqs` to install required dependencies and enable easy NICo deployment.
+- **Rack Administration (RLA)**: Significantly expanded rack/tray operations via REST APIs (validation, power, firmware, bring-up, task query), gated by a site-config flag.
+
+### Deployment and Operations
+
+- `helm-prereqs` deployment tool (Core):
+  - Helm/Helmfile-driven installation of NICo prerequisites to simplify deployment.
+  - Includes orchestration and automation scripts such as `helmfile.yaml`, `setup.sh`, `preflight.sh`, and `clean.sh`.
+  - Location: [https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs)
+
+### Rack Administration (RLA)
+
+- RLA REST API:
+  - Rack endpoints (RLA-backed):
+    - List racks / get rack by ID
+    - Query rack tasks
+    - Validate racks / validate rack by ID
+    - Power control (single + batch)
+    - Firmware update (single + batch)
+    - Bring-up (single + batch)
+
 ### VPC and Routing
 
 - VPC peering VNI and prefix lists are now sorted deterministically in network config responses.
@@ -35,7 +59,6 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
   - At rack-level: rack bring up, power control, and firmware update
   - At tray-level: compute, NVSwitch, and powershelf tray operations
 
-
 ### Identity and Security
 
 - Credentials APIs have been added—operators can manage BMC/UEFI credentials via API.
@@ -58,6 +81,28 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 - `libredfish` has been updated from v0.39.2 to v0.43.10.
 - The x86 QCOW imager has been updated to Ubuntu 24.04.
 
+## Fixes and Refactors
+
+Fixes & Refactors
+
+### API robustness and Validation
+
+- Fixed Expected Machine OpenAPI issues around BMC default user fields.
+- Standardized error handling and improved error attribution.
+- Improved validation for RLA flows and addressed inventory/component-manager synchronization issues.
+- Enhanced single and batch instance APIs for performance and clarity.
+- Fixed typos/validation in `nvLinkLogicalPartitionId`.
+
+### Networking / data correctness
+
+- Strictly reject reserved IP addresses during interface update workflows.
+- Made power status filterable for instance status queries.
+- Reject unknown query parameters (400) to prevent typos from being silently ignored.
+
+### Security & cleanup
+
+- Required TLS certificates by default for IPAM and related services.
+- Removed deprecated IPAM server code and cleaned up legacy DB relationships.
 
 ## Infra Controller 0.2.0
 
