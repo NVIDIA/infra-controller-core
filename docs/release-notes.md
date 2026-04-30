@@ -92,10 +92,6 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 
 - A hardcoded credential bug has been fixed in the debug UI.
 
-#### DPF/DPU Integration
-
-- NICo now injects an nl2doca restart after an nv config is applied to a DPU agent.
-
 ## Infra Controller v0.2
 
 This release of NICo is open-source software (OSS).
