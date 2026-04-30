@@ -482,6 +482,48 @@ async fn test_on_demand_rack_maintenance_schedules_nvos_only_scope(
 }
 
 #[crate::sqlx_test]
+async fn test_on_demand_rack_maintenance_schedules_configure_nmx_cluster_only_scope(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let (rack_id, switch_id) = create_ready_rack_with_switch(&env, &pool).await?;
+
+    crate::handlers::rack::on_demand_rack_maintenance(
+        env.api.as_ref(),
+        Request::new(rpc::forge::RackMaintenanceOnDemandRequest {
+            rack_id: Some(rack_id.clone()),
+            scope: Some(rpc::forge::RackMaintenanceScope {
+                machine_ids: vec![],
+                switch_ids: vec![switch_id.to_string()],
+                power_shelf_ids: vec![],
+                activities: vec![rpc::forge::MaintenanceActivityConfig {
+                    activity: Some(
+                        rpc::forge::maintenance_activity_config::Activity::ConfigureNmxCluster(
+                            rpc::forge::ConfigureNmxClusterActivity {},
+                        ),
+                    ),
+                }],
+            }),
+        }),
+    )
+    .await?;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let scope = rack
+        .config
+        .maintenance_requested
+        .expect("maintenance should be scheduled");
+    assert_eq!(scope.switch_ids, vec![switch_id]);
+    assert_eq!(scope.activities.len(), 1);
+    assert!(matches!(
+        &scope.activities[0],
+        MaintenanceActivity::ConfigureNmxCluster
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_on_demand_rack_maintenance_schedules_firmware_and_nvos_scope(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

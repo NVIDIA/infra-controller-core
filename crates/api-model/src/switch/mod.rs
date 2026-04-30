@@ -107,12 +107,19 @@ pub struct SwitchStatus {
     pub health_status: String, // "ok", "warning", "critical"
 }
 
+fn default_continue_after_firmware_upgrade() -> bool {
+    true
+}
+
 /// Set by an external entity to request switch reprovisioning. When the switch is in Ready state,
 /// the state controller checks this flag and transitions to ReProvisioning::Start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SwitchReprovisionRequest {
     pub requested_at: DateTime<Utc>,
     pub initiator: String,
+    /// Continue through rack-managed post-firmware phases such as NVOS/NMXC.
+    #[serde(default = "default_continue_after_firmware_upgrade")]
+    pub continue_after_firmware_upgrade: bool,
 }
 
 pub use crate::rack::{
