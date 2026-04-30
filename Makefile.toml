@@ -44,6 +44,11 @@ BUILD_CONTAINER_AARCH64_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/
 # dev/docker/Dockerfile.build-container-x86_64 if you change this.
 RUST_NIGHTLY = "nightly-2025-11-14"
 
+[tasks.check-source-headers]
+workspace = false
+command = "python3"
+args = ["scripts/check_source_headers.py"]
+
 [tasks.book]
 workspace = false
 command = "find"
