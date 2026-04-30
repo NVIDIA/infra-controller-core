@@ -37,9 +37,8 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 
 #### VPC and Routing
 
-- VPC peering VNI and prefix lists are now sorted deterministically in network config responses.
 - BGP session password support has been added for peering sessions initiated by managed host DPUs.
-- Instance creation/update now supports explicit IP selection within a VPC prefix—this resolves issues with DHCP and PXE boot.
+- Instance creation/update now supports explicit IP selection within a VPC prefix.
 
 #### BMC and Site Explorer
 
@@ -69,7 +68,11 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 
 ### Bug Fixes
 
-#### API robustness and Validation
+#### VPC and Routing
+
+- VPC peering VNI and prefix lists are now sorted deterministically in network config responses.
+
+#### API Robustness and Validation
 
 - Fixed Expected Machine OpenAPI issues around BMC default user fields.
 - Standardized error handling and improved error attribution.
@@ -77,7 +80,7 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 - Enhanced single and batch instance APIs for performance and clarity.
 - Fixed typos/validation in `nvLinkLogicalPartitionId`.
 
-#### Networking / data correctness
+#### Networking
 
 - Strictly reject reserved IP addresses during interface update workflows.
 - Made power status filterable for instance status queries.
