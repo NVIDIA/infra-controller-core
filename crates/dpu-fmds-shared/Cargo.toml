@@ -30,6 +30,7 @@ async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
 carbide-rpc = { path = "../rpc" }
+governor = { workspace = true }
 reqwest = { default-features = false, features = [
   "rustls-tls",
 ], workspace = true }

@@ -145,7 +145,6 @@ pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> DatabaseResult<TenantIdentityConfig> {
-    // Keep column list + `::text` casts aligned with [`find`] / `RETURNING` in this module—not `tic.*`.
     const QUERY: &str = r#"
 SELECT tic.organization_id,
     tic.issuer::text AS issuer,

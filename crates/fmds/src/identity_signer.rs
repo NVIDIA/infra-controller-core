@@ -15,12 +15,10 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use forge_dpu_agent_utils::utils::create_forge_client;
-use forge_dpu_fmds_shared::machine_identity::MetaDataIdentitySigner;
-use rpc::forge::{MachineIdentityRequest, MachineIdentityResponse};
+use forge_dpu_fmds_shared::machine_identity::{
+    MetaDataIdentitySigner, sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
+};
 
 use crate::state::FmdsState;
 
@@ -28,16 +26,7 @@ use crate::state::FmdsState;
 impl MetaDataIdentitySigner for FmdsState {
     async fn wait_identity_permit(&self) -> Result<(), tonic::Status> {
         let snap = self.machine_identity.load();
-        let lim = Arc::clone(&snap.governor);
-        let wait = snap.wait_timeout;
-        tokio::time::timeout(wait, lim.until_ready())
-            .await
-            .map_err(|_| {
-                tonic::Status::resource_exhausted(
-                    "timed out waiting for machine-identity rate limit capacity (machine-identity.wait-timeout-secs)",
-                )
-            })?;
-        Ok(())
+        wait_identity_rate_limit_permit(&snap.governor, snap.wait_timeout).await
     }
 
     fn sign_proxy_base(&self) -> Option<String> {
@@ -51,30 +40,19 @@ impl MetaDataIdentitySigner for FmdsState {
     async fn sign_machine_identity(
         &self,
         audiences: Vec<String>,
-    ) -> Result<MachineIdentityResponse, tonic::Status> {
+    ) -> Result<rpc::forge::MachineIdentityResponse, tonic::Status> {
         let forge_client_config = self.forge_client_config.as_ref().ok_or_else(|| {
             tonic::Status::failed_precondition(
                 "Forge client TLS is not configured; cannot sign machine identity",
             )
         })?;
         let snap = self.machine_identity.load();
-        let timeout = snap.forge_call_timeout;
-        tokio::time::timeout(timeout, async {
-            let mut client = create_forge_client(&self.forge_api, forge_client_config)
-                .await
-                .map_err(|e| tonic::Status::internal(e.to_string()))?;
-            client
-                .sign_machine_identity(MachineIdentityRequest {
-                    audience: audiences,
-                })
-                .await
-                .map(|r| r.into_inner())
-        })
+        sign_machine_identity_with_forge(
+            &self.forge_api,
+            forge_client_config.as_ref(),
+            snap.forge_call_timeout,
+            audiences,
+        )
         .await
-        .map_err(|_| {
-            tonic::Status::deadline_exceeded(
-                "timed out calling Forge for machine identity (machine-identity.sign-timeout-secs)",
-            )
-        })?
     }
 }
