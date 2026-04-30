@@ -24,11 +24,27 @@ from pathlib import Path
 
 
 APACHE_LICENSE = "SPDX-License-Identifier: Apache-2.0"
-PROPRIETARY_LICENSE = "SPDX-License-Identifier: LicenseRef-NvidiaProprietary"
+PROPRIETARY_LICENSE = "SPDX-License-Identifier: " + "LicenseRef-NvidiaProprietary"
 DEFAULT_COPYRIGHT = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 HEADER_WINDOW = 4096
 
-BLOCK_COMMENT_EXTENSIONS = {".go", ".rs", ".js", ".jsx", ".ts", ".tsx"}
+BLOCK_COMMENT_EXTENSIONS = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".cu",
+    ".cuh",
+    ".go",
+    ".h",
+    ".hpp",
+    ".java",
+    ".js",
+    ".jsx",
+    ".rs",
+    ".ts",
+    ".tsx",
+}
 HASH_COMMENT_EXTENSIONS = {".py", ".sh", ".bash", ".zsh"}
 EXCLUDED_DIRS = {
     ".git",
@@ -49,13 +65,12 @@ EXCLUDED_FILE_SUFFIXES = (
     ".dockerignore",
     ".expected",
     ".example",
-    ".min.js",
     ".tmpl",
 )
 
 COPYRIGHT_RE = re.compile(r"SPDX-FileCopyrightText:\s*(.+)")
 BLOCK_PROPRIETARY_RE = re.compile(
-    r"\A/\*.*?SPDX-License-Identifier:\s*LicenseRef-NvidiaProprietary.*?\*/\s*",
+    r"\A/\*.*?SPDX-License-Identifier:\s*" + "LicenseRef-NvidiaProprietary" + r".*?\*/\s*",
     re.DOTALL,
 )
 HASH_PROPRIETARY_RE = re.compile(
@@ -91,7 +106,7 @@ def is_candidate(repo: Path, path: Path) -> bool:
     path_text = path.as_posix()
     if any(path_text.startswith(prefix) for prefix in EXCLUDED_PREFIXES):
         return False
-    if path_text.endswith(EXCLUDED_FILE_SUFFIXES) or "/fixtures/" in path_text:
+    if path_text.endswith(EXCLUDED_FILE_SUFFIXES):
         return False
 
     full_path = repo / path
@@ -205,8 +220,6 @@ def scan(repo: Path, *, fix: bool) -> int:
 
         full_path = repo / path
         text = full_path.read_text(errors="ignore")
-        if is_generated(text):
-            continue
 
         header = text[:HEADER_WINDOW]
         if PROPRIETARY_LICENSE in header:
