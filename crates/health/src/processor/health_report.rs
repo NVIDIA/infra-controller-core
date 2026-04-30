@@ -240,6 +240,7 @@ impl EventProcessor for HealthReportProcessor {
                 return vec![CollectorEvent::HealthReport(Arc::new(report))];
             }
             CollectorEvent::Log(_)
+            | CollectorEvent::CollectorRemoved
             | CollectorEvent::Firmware(_)
             | CollectorEvent::HealthReport(_) => {}
         }
