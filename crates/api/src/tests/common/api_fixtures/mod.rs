@@ -1501,6 +1501,18 @@ pub async fn create_test_env_with_overrides(
 
     let rms_sim = Arc::new(RmsSim::default());
 
+    let component_manager = if let Some(cm_config) = &config.component_manager {
+        component_manager::component_manager::build_component_manager(
+            cm_config,
+            rms_sim.as_rms_client(),
+            Some(db_pool.clone()),
+        )
+        .await
+        .ok()
+    } else {
+        None
+    };
+
     let dpf_sdk = overrides.dpf_sdk;
     let api_dpf_sdk = dpf_sdk.clone();
 
@@ -1523,7 +1535,7 @@ pub async fn create_test_env_with_overrides(
         work_lock_manager_handle: work_lock_manager_handle.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
-        component_manager: None,
+        component_manager,
         bms_client: std::sync::OnceLock::new(),
     });
 

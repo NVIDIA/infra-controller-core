@@ -73,7 +73,7 @@ where
             .await
             .expect("failed to connect test pool");
 
-        let res = test_fn(pool.clone()).await;
+        let res = Box::pin(test_fn(pool.clone())).await;
 
         let close_timed_out = sqlx_core::rt::timeout(Duration::from_secs(10), pool.close())
             .await
@@ -100,7 +100,7 @@ where
 
         setup_test_db(&test_context.connect_opts, &args).await;
 
-        let res = test_fn(test_context.pool_opts, test_context.connect_opts).await;
+        let res = Box::pin(test_fn(test_context.pool_opts, test_context.connect_opts)).await;
         if res.is_success()
             && let Err(e) = cleanup_test(&test_context.db_name).await
         {

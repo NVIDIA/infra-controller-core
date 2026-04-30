@@ -5539,6 +5539,12 @@ message FirmwareUpgradeActivity {
   repeated string components = 2;
 }
 
+message NvosUpdateActivity {
+  // Rack firmware entry containing the switch system image to install.
+  // When empty, the default rack firmware for the rack hardware type is used.
+  string rack_firmware_id = 1;
+}
+
 message ConfigureNmxClusterActivity {
   // Per-activity configuration (extend as needed).
 }
@@ -5554,6 +5560,7 @@ message MaintenanceActivityConfig {
     FirmwareUpgradeActivity firmware_upgrade = 1;
     ConfigureNmxClusterActivity configure_nmx_cluster = 2;
     PowerSequenceActivity power_sequence = 3;
+    NvosUpdateActivity nvos_update = 4;
   }
 }
 
