@@ -2,22 +2,24 @@
 
 This document contains release notes for the NVIDIA Infra Controller (NICo) project.
 
-## Infra Controller 0.8.0
+## Infra Controller 0.8
 
 ### Highlights
 
 - **Documentation refresh + unified REST API docs**: Updated the docs look and feel at [https://docs.nvidia.com/infra-controller/documentation/introduction](https://docs.nvidia.com/infra-controller/documentation/introduction), and consolidated REST API information into the same documentation set.
 - **Simplified deployment**: Added NICo deployment [prerequisite tool](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs) `helm-prereqs` to install required dependencies and enable easy NICo deployment.
-- **Rack Administration (RLA)**: Significantly expanded rack/tray operations via REST APIs (validation, power, firmware, bring-up, task query), gated by a site-config flag.
+- **Rack Level Administration (RLA)**: Significantly expanded rack/tray operations via REST APIs (validation, power, firmware, bring-up, task query), gated by a site-config flag.
 
-### Deployment and Operations
+### Improvements
+
+#### Deployment and Operations
 
 - `helm-prereqs` deployment tool (Core):
   - Helm/Helmfile-driven installation of NICo prerequisites to simplify deployment.
   - Includes orchestration and automation scripts such as `helmfile.yaml`, `setup.sh`, `preflight.sh`, and `clean.sh`.
   - Location: [https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs)
 
-### Rack Administration (RLA)
+#### Rack Level Administration (RLA)
 
 - RLA REST API:
   - Rack endpoints (RLA-backed):
@@ -27,65 +29,47 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
     - Power control (single + batch)
     - Firmware update (single + batch)
     - Bring-up (single + batch)
-
-### VPC and Routing
-
-- VPC peering VNI and prefix lists are now sorted deterministically in network config responses.
-- BGP session password support has been added for peering sessions initiated by managed host DPUs.
-- Instance creation/update now supports explicit IP selection within a VPC prefix—this resolves issues with DHCP and PXE boot.
-
-### BMC and Site Explorer
-
-- The BMC now supports static IP address assignment.
-
-### Health and Observability
-
-- Health alerts now carry a severity level.
-- The REST API now supports NVUE health checks.
-- NICo now supports NMX-T metric collection for switches.
-
-### GB200 Rack, NVLink Switch, and Powershelf
-
-- Basic lifecycle management is now available via REST API, including the following:
-  - Expected inventory management (w/ auto discovery and ingestion)
-  - Bring up
-  - Inventory listing
-  - Inventory validation
-  - Power control
-  - Firmware update
 - GB200 NVLink switches are now supported for lifecycle management.
 - GB200 power shelves are now supported for lifecycle management.
 - GB200 racks are now supported for lifecycle management:
   - At rack-level: rack bring up, power control, and firmware update
   - At tray-level: compute, NVSwitch, and powershelf tray operations
 
-### Identity and Security
+#### VPC and Routing
+
+- VPC peering VNI and prefix lists are now sorted deterministically in network config responses.
+- BGP session password support has been added for peering sessions initiated by managed host DPUs.
+- Instance creation/update now supports explicit IP selection within a VPC prefix—this resolves issues with DHCP and PXE boot.
+
+#### BMC and Site Explorer
+
+- The BMC now supports static IP address assignment.
+
+#### Health and Observability
+
+- Health alerts now carry a severity level.
+- The REST API now supports NVUE health checks.
+- NICo now supports NMX-T metric collection for switches.
+
+#### Identity and Security
 
 - Credentials APIs have been added—operators can manage BMC/UEFI credentials via API.
 - The SuperNIC lockdown key management workflow has been implemented.
 - Vault connections now enforce TLS verification.
-- The NICo codebase has been relicensed to Apache 2.0.
 
-### Admin UI/CLI
+#### Debug UI/CLI
 
 - A new IPAM section has been added to the admin UI covering DHCP, DNS, and networks.
 - An expected rack component details panel has been added to the admin UI.
-- (Bug fix) A hardcoded credential bug has been fixed in the admin UI.
 
-### DPF/DPU Integration
-
-- (Bug fix) NICo now injects an nl2doca restart after an nv config is applied to a DPU agent.
-
-### Platform and Infrastructure
+#### Platform and Infrastructure
 
 - `libredfish` has been updated from v0.39.2 to v0.43.10.
 - The x86 QCOW imager has been updated to Ubuntu 24.04.
 
-## Fixes and Refactors
+### Bug Fixes
 
-Fixes & Refactors
-
-### API robustness and Validation
+#### API robustness and Validation
 
 - Fixed Expected Machine OpenAPI issues around BMC default user fields.
 - Standardized error handling and improved error attribution.
@@ -93,18 +77,26 @@ Fixes & Refactors
 - Enhanced single and batch instance APIs for performance and clarity.
 - Fixed typos/validation in `nvLinkLogicalPartitionId`.
 
-### Networking / data correctness
+#### Networking / data correctness
 
 - Strictly reject reserved IP addresses during interface update workflows.
 - Made power status filterable for instance status queries.
 - Reject unknown query parameters (400) to prevent typos from being silently ignored.
 
-### Security & cleanup
+#### Security and Cleanup
 
 - Required TLS certificates by default for IPAM and related services.
 - Removed deprecated IPAM server code and cleaned up legacy DB relationships.
 
-## Infra Controller 0.2.0
+### Debug UI/CLI
+
+- A hardcoded credential bug has been fixed in the debug UI.
+
+#### DPF/DPU Integration
+
+- NICo now injects an nl2doca restart after an nv config is applied to a DPU agent.
+
+## Infra Controller v0.2
 
 This release of NICo is open-source software (OSS).
 
