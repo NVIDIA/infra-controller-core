@@ -15,15 +15,13 @@
  * limitations under the License.
  */
 
-use std::num::NonZeroU32;
 use std::sync::Arc;
-use std::time::Duration;
 
 use arc_swap::{ArcSwap, ArcSwapOption};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
-use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
+use forge_dpu_fmds_shared::machine_identity::{MachineIdentityParams, MachineIdentityServing};
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
@@ -31,57 +29,6 @@ use nonzero_ext::nonzero;
 use rpc::forge_tls_client::ForgeClientConfig;
 
 const PHONE_HOME_RATE_LIMIT: Quota = Quota::per_minute(nonzero!(10u32));
-
-/// Rate limiting, timeouts, and optional HTTP sign-proxy client for `GET …/meta-data/identity`.
-#[derive(Debug)]
-pub struct MachineIdentityServing {
-    pub governor: Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
-    pub wait_timeout: Duration,
-    pub forge_call_timeout: Duration,
-    pub sign_proxy_base: Option<String>,
-    pub sign_proxy_http_client: Option<reqwest::Client>,
-}
-
-impl MachineIdentityServing {
-    /// Defaults match [`MachineIdentityParams::fmds_default`].
-    pub fn try_default() -> Result<Self, String> {
-        Self::try_from_params(MachineIdentityParams::fmds_default())
-    }
-
-    /// Builds serving state from parsed [`MachineIdentityParams`] (via [`MachineIdentityParams::try_from_limits`]
-    /// or `TryFrom<&FmdsMachineIdentityConfig>`). Input must already be normalized (trimmed option strings).
-    pub fn try_from_params(params: MachineIdentityParams) -> Result<Self, String> {
-        let rps = NonZeroU32::new(u32::from(params.requests_per_second())).ok_or_else(|| {
-            "machine-identity.requests-per-second: expected a positive value (internal error)"
-                .to_string()
-        })?;
-        let burst_nz = NonZeroU32::new(u32::from(params.burst())).ok_or_else(|| {
-            "machine-identity.burst: expected a positive value (internal error)".to_string()
-        })?;
-        let identity_quota = Quota::per_second(rps).allow_burst(burst_nz);
-
-        let sign_proxy_base = params.sign_proxy_url().map(str::to_string);
-        let call_timeout = Duration::from_secs(u64::from(params.sign_timeout_secs()));
-        let sign_proxy_http_client = if sign_proxy_base.is_some() {
-            Some(
-                forge_dpu_fmds_shared::machine_identity::build_sign_proxy_http_client(
-                    call_timeout,
-                    params.sign_proxy_tls_root_ca(),
-                )?,
-            )
-        } else {
-            None
-        };
-
-        Ok(Self {
-            governor: Arc::new(RateLimiter::direct(identity_quota)),
-            wait_timeout: Duration::from_secs(u64::from(params.wait_timeout_secs())),
-            forge_call_timeout: call_timeout,
-            sign_proxy_base,
-            sign_proxy_http_client,
-        })
-    }
-}
 
 /// Shared state between the gRPC server (writer) and REST server (reader).
 pub struct FmdsState {

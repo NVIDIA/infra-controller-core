@@ -18,6 +18,9 @@
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 
+use forge_dpu_agent_utils::machine_identity::defaults::{
+    BURST, REQUESTS_PER_SECOND, SIGN_TIMEOUT_SECS, WAIT_TIMEOUT_SECS,
+};
 use forge_tls::default as tls_default;
 use serde::{Deserialize, Serialize};
 
@@ -206,19 +209,19 @@ pub struct MachineIdentityConfig {
 }
 
 fn default_machine_identity_requests_per_second() -> u8 {
-    3
+    REQUESTS_PER_SECOND
 }
 
 fn default_machine_identity_burst() -> u8 {
-    8
+    BURST
 }
 
 fn default_machine_identity_wait_timeout_secs() -> u8 {
-    2
+    WAIT_TIMEOUT_SECS
 }
 
 fn default_machine_identity_sign_timeout_secs() -> u8 {
-    5
+    SIGN_TIMEOUT_SECS
 }
 
 impl Default for MachineIdentityConfig {

@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,7 +30,9 @@ use carbide_host_support::agent_config::MachineIdentityConfig;
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
 use forge_dpu_agent_utils::utils::create_forge_client;
-use forge_dpu_fmds_shared::machine_identity::{self, MetaDataIdentitySigner};
+use forge_dpu_fmds_shared::machine_identity::{
+    self, MetaDataIdentitySigner, sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
+};
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
@@ -144,23 +145,13 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
         &self,
         audiences: Vec<String>,
     ) -> Result<forge::MachineIdentityResponse, tonic::Status> {
-        tokio::time::timeout(self.machine_identity_forge_call_timeout, async {
-            let mut client = create_forge_client(&self.forge_api, &self.forge_client_config)
-                .await
-                .map_err(|e| tonic::Status::internal(e.to_string()))?;
-            client
-                .sign_machine_identity(forge::MachineIdentityRequest {
-                    audience: audiences,
-                })
-                .await
-                .map(|r| r.into_inner())
-        })
+        sign_machine_identity_with_forge(
+            &self.forge_api,
+            &self.forge_client_config,
+            self.machine_identity_forge_call_timeout,
+            audiences,
+        )
         .await
-        .map_err(|_| {
-            tonic::Status::deadline_exceeded(
-                "timed out calling Forge for machine identity (machine-identity.sign-timeout-secs)",
-            )
-        })?
     }
 
     async fn serve_meta_data_identity(&self, uri: Uri, headers: HeaderMap) -> Response {
@@ -193,15 +184,11 @@ impl MetaDataIdentitySigner for InstanceMetadataRouterStateImpl {
 impl InstanceMetadataRouterStateImpl {
     /// Wait for a `meta-data/identity` rate-limit permit (governor).
     pub async fn wait_identity_governor(&self) -> Result<(), tonic::Status> {
-        let lim = Arc::clone(&self.machine_identity_governor);
-        tokio::time::timeout(self.machine_identity_wait_timeout, lim.until_ready())
-            .await
-            .map_err(|_| {
-                tonic::Status::resource_exhausted(
-                    "timed out waiting for machine-identity rate limit capacity (machine-identity.wait-timeout-secs)",
-                )
-            })?;
-        Ok(())
+        wait_identity_rate_limit_permit(
+            &self.machine_identity_governor,
+            self.machine_identity_wait_timeout,
+        )
+        .await
     }
 
     pub fn new(
@@ -218,24 +205,7 @@ impl InstanceMetadataRouterStateImpl {
             machine_identity.sign_proxy_url.as_deref(),
             machine_identity.sign_proxy_tls_root_ca.as_deref(),
         )?;
-        let rps = NonZeroU32::new(u32::from(params.requests_per_second())).ok_or_else(|| {
-            "machine-identity.requests-per-second: expected a positive value (internal error)"
-                .to_string()
-        })?;
-        let burst = NonZeroU32::new(u32::from(params.burst())).ok_or_else(|| {
-            "machine-identity.burst: expected a positive value (internal error)".to_string()
-        })?;
-        let identity_quota = Quota::per_second(rps).allow_burst(burst);
-        let call_timeout = Duration::from_secs(u64::from(params.sign_timeout_secs()));
-        let sign_proxy_base = params.sign_proxy_url().map(str::to_string);
-        let sign_proxy_http_client = if sign_proxy_base.is_some() {
-            Some(machine_identity::build_sign_proxy_http_client(
-                call_timeout,
-                params.sign_proxy_tls_root_ca(),
-            )?)
-        } else {
-            None
-        };
+        let serving = machine_identity::MachineIdentityServing::try_from_params(params)?;
         Ok(Self {
             latest_instance_data: ArcSwapOption::new(None),
             latest_network_config: ArcSwapOption::new(None),
@@ -243,13 +213,11 @@ impl InstanceMetadataRouterStateImpl {
             forge_api,
             forge_client_config,
             outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
-            machine_identity_governor: Arc::new(RateLimiter::direct(identity_quota)),
-            machine_identity_wait_timeout: Duration::from_secs(u64::from(
-                params.wait_timeout_secs(),
-            )),
-            machine_identity_forge_call_timeout: call_timeout,
-            sign_proxy_base,
-            sign_proxy_http_client,
+            machine_identity_governor: serving.governor,
+            machine_identity_wait_timeout: serving.wait_timeout,
+            machine_identity_forge_call_timeout: serving.forge_call_timeout,
+            sign_proxy_base: serving.sign_proxy_base,
+            sign_proxy_http_client: serving.sign_proxy_http_client,
         })
     }
 

@@ -17,20 +17,28 @@
 
 //! IMDS-style `GET …/meta-data/identity` (shared between carbide-agent and carbide-fmds).
 //!
-//! Numeric bounds are in [`forge_dpu_agent_utils::machine_identity::limits`] (also used by
-//! carbide-host-support validation).
+//! Defaults and numeric bounds are in [`forge_dpu_agent_utils::machine_identity`] (`defaults`, `limits`;
+//! the latter is also used by carbide-host-support validation).
 
 use std::convert::TryFrom;
+use std::num::NonZeroU32;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::http::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
+use forge_dpu_agent_utils::machine_identity::defaults::{
+    BURST, REQUESTS_PER_SECOND, SIGN_TIMEOUT_SECS, WAIT_TIMEOUT_SECS,
+};
 use forge_dpu_agent_utils::machine_identity::limits::{
     BURST_MAX, BURST_MIN, REQUESTS_PER_SECOND_MAX, REQUESTS_PER_SECOND_MIN, SIGN_TIMEOUT_SECS_MAX,
     SIGN_TIMEOUT_SECS_MIN, WAIT_TIMEOUT_SECS_MAX, WAIT_TIMEOUT_SECS_MIN,
 };
+use governor::middleware::NoOpMiddleware;
+use governor::state::{InMemoryState, NotKeyed};
+use governor::{Quota, RateLimiter, clock};
 use rpc::fmds::FmdsMachineIdentityConfig;
 use rpc::forge::MachineIdentityResponse;
 
@@ -40,11 +48,9 @@ pub const META_DATA_IDENTITY_CATEGORY: &str = "identity";
 /// Upstream path appended to `sign-proxy-url` for HTTP pass-through (`{base}/latest/...`).
 pub const SIGN_PROXY_UPSTREAM_IMDS_PREFIX: &str = "latest/meta-data/identity";
 
-/// Validated, normalized machine-identity limits (see [*parse, don’t validate*](https://www.rustfinity.com/blog/parse-dont-validate)):
+/// Validated, normalized machine-identity limits
 /// values are only obtainable through [`Self::try_from_limits`], [`TryFrom`] from `FmdsMachineIdentityConfig`,
 /// or [`Self::fmds_default`] (known-good defaults). Use accessors; fields are private so callers cannot bypass parsing.
-///
-/// Agent TOML `[machine-identity]` keys use kebab-case; `FmdsMachineIdentityConfig` uses snake_case for the same fields.
 ///
 /// ## What is validated where
 ///
@@ -53,9 +59,6 @@ pub const SIGN_PROXY_UPSTREAM_IMDS_PREFIX: &str = "latest/meta-data/identity";
 ///   path requires a proxy URL.
 /// - **Agent `MachineIdentityConfig::validate()`** (carbide-host-support): the above bounds **plus** HTTP(S)
 ///   scheme checks for `sign-proxy-url`, PEM file readability/parsing for `sign-proxy-tls-root-ca`, etc.
-///
-/// Call **`try_from_limits`** after agent **`validate()`**, or use **`TryFrom::try_from`** for **`FmdsMachineIdentityConfig`**
-/// from gRPC. Callers build governors and HTTP clients from these values without re-running range checks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineIdentityParams {
     requests_per_second: u8,
@@ -67,13 +70,14 @@ pub struct MachineIdentityParams {
 }
 
 impl MachineIdentityParams {
-    /// Defaults match `MachineIdentityConfig::default()` in carbide-host-support (agent).
+    /// Defaults match [`forge_dpu_agent_utils::machine_identity::defaults`] (agent
+    /// `MachineIdentityConfig` serde and this crate).
     pub fn fmds_default() -> Self {
         Self {
-            requests_per_second: 3,
-            burst: 8,
-            wait_timeout_secs: 2,
-            sign_timeout_secs: 5,
+            requests_per_second: REQUESTS_PER_SECOND,
+            burst: BURST,
+            wait_timeout_secs: WAIT_TIMEOUT_SECS,
+            sign_timeout_secs: SIGN_TIMEOUT_SECS,
             sign_proxy_url: None,
             sign_proxy_tls_root_ca: None,
         }
@@ -215,6 +219,105 @@ impl TryFrom<&FmdsMachineIdentityConfig> for MachineIdentityParams {
             p.sign_proxy_tls_root_ca.as_deref(),
         )
     }
+}
+
+/// Rate limiting, timeouts, and optional HTTP sign-proxy client for `GET …/meta-data/identity`.
+#[derive(Debug)]
+pub struct MachineIdentityServing {
+    pub governor: Arc<IdentityRateLimiter>,
+    pub wait_timeout: Duration,
+    pub forge_call_timeout: Duration,
+    pub sign_proxy_base: Option<String>,
+    pub sign_proxy_http_client: Option<reqwest::Client>,
+}
+
+impl MachineIdentityServing {
+    /// Defaults match [`MachineIdentityParams::fmds_default`].
+    pub fn try_default() -> Result<Self, String> {
+        Self::try_from_params(MachineIdentityParams::fmds_default())
+    }
+
+    /// Builds serving state from parsed [`MachineIdentityParams`] (via [`MachineIdentityParams::try_from_limits`]
+    /// or `TryFrom<&FmdsMachineIdentityConfig>`). Input must already be normalized (trimmed option strings).
+    pub fn try_from_params(params: MachineIdentityParams) -> Result<Self, String> {
+        let rps = NonZeroU32::new(u32::from(params.requests_per_second())).ok_or_else(|| {
+            "machine-identity.requests-per-second: expected a positive value (internal error)"
+                .to_string()
+        })?;
+        let burst_nz = NonZeroU32::new(u32::from(params.burst())).ok_or_else(|| {
+            "machine-identity.burst: expected a positive value (internal error)".to_string()
+        })?;
+        let identity_quota = Quota::per_second(rps).allow_burst(burst_nz);
+
+        let sign_proxy_base = params.sign_proxy_url().map(str::to_string);
+        let call_timeout = Duration::from_secs(u64::from(params.sign_timeout_secs()));
+        let sign_proxy_http_client = if sign_proxy_base.is_some() {
+            Some(build_sign_proxy_http_client(
+                call_timeout,
+                params.sign_proxy_tls_root_ca(),
+            )?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            governor: Arc::new(RateLimiter::direct(identity_quota)),
+            wait_timeout: Duration::from_secs(u64::from(params.wait_timeout_secs())),
+            forge_call_timeout: call_timeout,
+            sign_proxy_base,
+            sign_proxy_http_client,
+        })
+    }
+}
+
+/// `governor::RateLimiter` used for `GET …/meta-data/identity` (carbide-agent + carbide-fmds).
+pub type IdentityRateLimiter =
+    RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>;
+
+/// Wait for an IMDS machine-identity rate-limit permit.
+pub async fn wait_identity_rate_limit_permit(
+    governor: &Arc<IdentityRateLimiter>,
+    wait_timeout: Duration,
+) -> Result<(), tonic::Status> {
+    let lim = Arc::clone(governor);
+    tokio::time::timeout(wait_timeout, lim.until_ready())
+        .await
+        .map_err(|_| {
+            tonic::Status::resource_exhausted(
+                "timed out waiting for machine-identity rate limit capacity (machine-identity.wait-timeout-secs)",
+            )
+        })?;
+    Ok(())
+}
+
+/// Call Carbide `SignMachineIdentity` using [`forge_dpu_agent_utils::utils::create_forge_client`] and
+/// `machine_identity.sign_timeout_secs` as the overall deadline.
+pub async fn sign_machine_identity_with_forge(
+    forge_api: &str,
+    forge_client_config: &rpc::forge_tls_client::ForgeClientConfig,
+    call_timeout: Duration,
+    audiences: Vec<String>,
+) -> Result<MachineIdentityResponse, tonic::Status> {
+    use rpc::forge::MachineIdentityRequest;
+
+    tokio::time::timeout(call_timeout, async {
+        let mut client =
+            forge_dpu_agent_utils::utils::create_forge_client(forge_api, forge_client_config)
+                .await
+                .map_err(|e| tonic::Status::internal(e.to_string()))?;
+        client
+            .sign_machine_identity(MachineIdentityRequest {
+                audience: audiences,
+            })
+            .await
+            .map(|r| r.into_inner())
+    })
+    .await
+    .map_err(|_| {
+        tonic::Status::deadline_exceeded(
+            "timed out calling Forge for machine identity (machine-identity.sign-timeout-secs)",
+        )
+    })?
 }
 
 #[async_trait]
