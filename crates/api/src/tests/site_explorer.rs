@@ -429,11 +429,6 @@ async fn test_handle_redfish_error_powers_on_machine(
     let endpoint = endpoints
         .first()
         .expect("expected explored endpoint to be inserted");
-    assert!(
-        endpoint.exploration_requested,
-        "power-on remediation should request a follow-up exploration"
-    );
-
     Ok(())
 }
 

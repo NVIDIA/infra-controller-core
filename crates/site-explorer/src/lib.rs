@@ -1824,24 +1824,14 @@ impl SiteExplorer {
                 endpoint.address,
             );
 
-            if self
+            match self
                 .redfish_power(endpoint, libredfish::SystemPowerControl::On)
                 .await
-                .inspect_err(|err| {
-                    tracing::error!(%err, "Site Explorer failed to power on host through Redfish")
-                })
-                .is_ok()
             {
-                if let Ok(mut txn) = self.txn_begin().await {
-                    db::explored_endpoints::request_exploration_for_addresses(
-                        &[endpoint.address],
-                        &mut txn,
-                    )
-                    .await
-                    .ok();
-                    txn.commit().await.ok();
+                Ok(()) => return,
+                Err(err) => {
+                    tracing::error!(%err, "Site Explorer failed to power on host through Redfish");
                 }
-                return;
             }
         }
 
