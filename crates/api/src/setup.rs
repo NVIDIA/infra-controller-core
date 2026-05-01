@@ -715,7 +715,7 @@ pub async fn initialize_and_start_controllers(
                 tracing::error!("expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing: {err}.");
             })?;
         let mut txn = Transaction::begin(db_pool).await?;
-        db::expected_machine::create_missing_from(&mut txn, &expected_machines)
+        crate::handlers::expected_machine::create_missing_from(&mut txn, &expected_machines)
             .await
             .inspect_err(|err| {
                 tracing::error!(
