@@ -78,7 +78,10 @@ impl InstanceExtensionServicesStatus {
         let all_dpu_ids: Vec<MachineId> =
             dpu_id_to_device_map.values().flatten().copied().collect();
 
-        // @TODO(Felicity): Zero DPU for this instance? Maybe deny extension service config if no DPUs?
+        // Instance allocation rejects non-empty service_configs on zero-DPU
+        // hosts, so, in practice, we *shouldn't* reach here. BUT, if we do,
+        // assume it's from something like a stale pre-validation instance,
+        // and just report unsynced.
         if all_dpu_ids.is_empty() {
             return Self::unsynced_for_config(&config);
         }

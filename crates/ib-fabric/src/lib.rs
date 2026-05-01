@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 
+pub mod config;
+pub mod errors;
+pub mod ib;
 mod metrics;
 
 use std::collections::{HashMap, HashSet};
@@ -45,9 +48,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::cfg::file::{CarbideConfig, IbFabricDefinition};
+use crate::config::IbFabricDefinition;
+use crate::errors::{IbError, IbResult};
 use crate::ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType};
-use crate::{CarbideError, CarbideResult};
 
 type SkuInactiveDevicesCache = HashMap<String, Option<HashSet<u32>>>;
 
@@ -73,7 +76,7 @@ impl IbFabricMonitor {
         fabrics: HashMap<String, IbFabricDefinition>,
         meter: opentelemetry::metrics::Meter,
         fabric_manager: Arc<dyn IBFabricManager>,
-        config: Arc<CarbideConfig>,
+        host_health: HostHealthConfig,
         work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
@@ -98,7 +101,7 @@ impl IbFabricMonitor {
             fabrics,
             metric_holder,
             fabric_manager,
-            host_health: config.host_health,
+            host_health,
             work_lock_manager_handle,
         }
     }
@@ -149,7 +152,7 @@ impl IbFabricMonitor {
         }
     }
 
-    pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
+    pub async fn run_single_iteration(&self) -> IbResult<usize> {
         let mut metrics = IbFabricMonitorMetrics::new();
 
         let num_changes = if let Ok(_lock) = self
@@ -217,7 +220,7 @@ impl IbFabricMonitor {
     async fn check_ib_fabrics_and_apply_changes(
         &self,
         metrics: &mut IbFabricMonitorMetrics,
-    ) -> CarbideResult<usize> {
+    ) -> IbResult<usize> {
         if self.fabric_manager.get_config().manager_type == IBFabricManagerType::Disable {
             return Ok(0);
         }
@@ -226,7 +229,7 @@ impl IbFabricMonitor {
             .db_pool
             .acquire()
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new("acquire connection", e)))?;
+            .map_err(|e| IbError::from(DatabaseError::new("acquire connection", e)))?;
         let snapshots = match self.get_all_snapshots(&mut conn).await {
             Ok(snapshots) => snapshots,
             Err(e) => {
@@ -448,7 +451,7 @@ impl IbFabricMonitor {
     async fn get_all_snapshots(
         &self,
         txn: &mut PgConnection,
-    ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
+    ) -> IbResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let machine_ids = db::machine::find_machine_ids(
             &mut *txn,
             MachineSearchConfig {
@@ -477,7 +480,7 @@ async fn check_ib_fabric(
     fabric: &str,
     fabric_definition: &IbFabricDefinition,
     metrics: &mut FabricMetrics,
-) -> Result<(), CarbideError> {
+) -> Result<(), IbError> {
     metrics.endpoints = fabric_definition.endpoints.clone();
     metrics.allow_insecure_fabric_configuration = fabric_manager
         .get_config()
@@ -566,7 +569,7 @@ async fn get_ports_information(
     fabric_manager: &dyn IBFabricManager,
     fabric: &str,
     metrics: &mut FabricMetrics,
-) -> Result<HashMap<String, IBPort>, CarbideError> {
+) -> Result<HashMap<String, IBPort>, IbError> {
     let conn = fabric_manager.new_client(fabric).await?;
 
     let ports = conn.find_ib_port(None).await?;
@@ -590,7 +593,7 @@ async fn get_partition_information(
     fabric_manager: &dyn IBFabricManager,
     fabric: &str,
     metrics: &mut FabricMetrics,
-) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+) -> Result<HashMap<u16, IBNetwork>, IbError> {
     let conn = fabric_manager.new_client(fabric).await?;
 
     // Due to the UFM bug we need to first get partition IDs and then query
@@ -618,7 +621,7 @@ async fn get_partition_information(
             Ok(partition) => {
                 result.insert(pkey, partition);
             }
-            Err(CarbideError::NotFoundError { .. }) => continue, // Partition might have been deleted
+            Err(IbError::NotFoundError { .. }) => continue, // Partition might have been deleted
             Err(e) => return Err(e),
         }
     }
@@ -629,7 +632,7 @@ async fn get_partition_information(
 /// Find all active partitions in order to determine pkeys
 async fn get_tenant_partitions(
     txn: &mut PgConnection,
-) -> Result<HashMap<IBPartitionId, IBPartition>, CarbideError> {
+) -> Result<HashMap<IBPartitionId, IBPartition>, IbError> {
     let partition_ids = db::ib_partition::find_ids(
         &mut *txn,
         IbPartitionSearchFilter {
@@ -678,7 +681,7 @@ async fn record_machine_infiniband_status_observation(
     data_by_fabric: &HashMap<String, FabricData>,
     sku_inactive_cache: &SkuInactiveDevicesCache,
     metrics: &mut IbFabricMonitorMetrics,
-) -> Result<MachineIbStatusEvaluation, CarbideError> {
+) -> Result<MachineIbStatusEvaluation, IbError> {
     let mut result = MachineIbStatusEvaluation::default();
 
     if mh_snapshot.host_snapshot.hardware_info.is_none() {
@@ -1078,10 +1081,7 @@ async fn record_machine_infiniband_status_observation(
 }
 
 /// Clear the IbCleanupPending alert
-async fn clear_ib_cleanup_alert(
-    db_pool: &PgPool,
-    machine_id: &MachineId,
-) -> Result<(), CarbideError> {
+async fn clear_ib_cleanup_alert(db_pool: &PgPool, machine_id: &MachineId) -> Result<(), IbError> {
     let mut conn = db_pool
         .acquire()
         .await
@@ -1094,7 +1094,7 @@ async fn clear_ib_cleanup_alert(
         "ib-cleanup-validation",
     )
     .await
-    .map_err(|e| CarbideError::internal(format!("Failed to clear IB cleanup alert: {e}")))?;
+    .map_err(|e| IbError::internal(format!("Failed to clear IB cleanup alert: {e}")))?;
 
     Ok(())
 }
@@ -1106,7 +1106,7 @@ async fn set_ib_port_down_alert(
     machine_id: &MachineId,
     down_port_guids: &[String],
     total_ports: usize,
-) -> Result<(), CarbideError> {
+) -> Result<(), IbError> {
     let mut conn = db_pool
         .acquire()
         .await
@@ -1130,15 +1130,12 @@ async fn set_ib_port_down_alert(
         false, // overwrite existing
     )
     .await
-    .map_err(|e| CarbideError::internal(format!("Failed to set IB port down alert: {e}")))?;
+    .map_err(|e| IbError::internal(format!("Failed to set IB port down alert: {e}")))?;
 
     Ok(())
 }
 
-async fn clear_ib_port_down_alert(
-    db_pool: &PgPool,
-    machine_id: &MachineId,
-) -> Result<(), CarbideError> {
+async fn clear_ib_port_down_alert(db_pool: &PgPool, machine_id: &MachineId) -> Result<(), IbError> {
     let mut conn = db_pool
         .acquire()
         .await
@@ -1151,7 +1148,7 @@ async fn clear_ib_port_down_alert(
         IB_PORT_DOWN_OVERRIDE_SOURCE,
     )
     .await
-    .map_err(|e| CarbideError::internal(format!("Failed to clear IB port down alert: {e}")))?;
+    .map_err(|e| IbError::internal(format!("Failed to clear IB port down alert: {e}")))?;
 
     Ok(())
 }
@@ -1182,7 +1179,7 @@ fn should_track_port_as_down(
 async fn preload_sku_inactive_devices(
     db_pool: &PgPool,
     snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
-) -> Result<SkuInactiveDevicesCache, CarbideError> {
+) -> Result<SkuInactiveDevicesCache, IbError> {
     let sku_ids: Vec<&str> = snapshots
         .values()
         .filter_map(|snap| snap.host_snapshot.hw_sku.as_deref())
@@ -1201,7 +1198,7 @@ async fn preload_sku_inactive_devices(
 
     let skus = db::sku::find(&mut conn, &sku_ids)
         .await
-        .map_err(|e| CarbideError::internal(format!("Failed to load SKUs: {e}")))?;
+        .map_err(|e| IbError::internal(format!("Failed to load SKUs: {e}")))?;
 
     let mut cache: SkuInactiveDevicesCache = HashMap::new();
     for sku in skus {
