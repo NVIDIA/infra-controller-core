@@ -19,6 +19,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
 
@@ -57,6 +58,24 @@ pub(crate) async fn set_primary_dpu(
     log_machine_id(&host_machine_id);
 
     let mut txn = api.txn_begin().await?;
+
+    // Reject early on a zero-DPU host to provide a better error,
+    // otherwise we'd end up just looping over snapshots below,
+    // and eventually error that it couldn't deetermine the primary
+    // interface ID, which is kind of confusing.
+    let snapshot =
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, LoadSnapshotOptions::default())
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "Machine",
+                id: host_machine_id.to_string(),
+            })?;
+    if snapshot.is_zero_dpu() {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "Host {host_machine_id} has no DPUs; set-primary-dpu does not apply to zero-DPU hosts."
+        ))
+        .into());
+    }
 
     let interface_map =
         db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id]).await?;

@@ -862,6 +862,16 @@ pub async fn batch_allocate_instances(
                     )));
                 }
             }
+
+            // Extension services run on DPU agents; a zero-DPU host has no
+            // place to schedule them. We need to check, otherwise the status
+            // would just report "Unknown" forever.
+            if !request.config.extension_services.service_configs.is_empty() {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "zero-DPU host {} cannot serve extension services; remove `dpu_extension_services` from the instance config.",
+                    mh_snapshot.host_snapshot.id,
+                )));
+            }
         }
 
         processed_requests.push((request, mh_snapshot));

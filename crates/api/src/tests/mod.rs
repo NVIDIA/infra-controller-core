@@ -104,6 +104,7 @@ mod redfish_actions;
 mod resource_pool;
 mod route_servers;
 mod service_health_metrics;
+mod set_primary_dpu;
 mod site_explorer;
 mod sku;
 mod spdm;

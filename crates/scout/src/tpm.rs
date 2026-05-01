@@ -57,9 +57,9 @@ pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-/// Clears the TPM storage hierarchies via TPM2_Clear (platform authorization), after dictionary
+/// Clears the TPM storage hierarchies via TPM2_Clear (lockout authorization), after dictionary
 /// lockout setup.
-pub(crate) fn clear_tpm_platform_hierarchy(tpm_path: &str) -> Result<(), CarbideClientError> {
+pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
     set_tpm_max_auth_fail()?;
 
     let mut ctx = attest::create_context_from_path(tpm_path).map_err(|e| {
@@ -68,17 +68,16 @@ pub(crate) fn clear_tpm_platform_hierarchy(tpm_path: &str) -> Result<(), Carbide
 
     // TPM2_Clear must be authorized. In tss-esapi, `Context::clear` calls `required_session_1()`:
     // ESAPI session slot 1 cannot be None or the call fails with MissingAuthSession. That slot is
-    // how authorization for the platform handle is supplied—not an optional extra.
+    // how authorization for the lockout handle is supplied—not an optional extra.
     //
     // We use `AuthSession::Password` (empty password) instead of `start_auth_session` + HMAC: for
-    // the usual case where platform hierarchy auth is empty, ESAPI’s password handle is enough; a
-    // full TPM auth session is unnecessary.
+    // the usual case where lockout hierarchy auth is empty, ESAPI’s password handle is enough.
     ctx.set_sessions((Some(AuthSession::Password), None, None));
 
-    ctx.clear(AuthHandle::Platform)
-        .map_err(|e| CarbideClientError::TpmError(format!("TPM2_Clear (platform) failed: {e}")))?;
+    ctx.clear(AuthHandle::Lockout)
+        .map_err(|e| CarbideClientError::TpmError(format!("TPM2_Clear (lockout) failed: {e}")))?;
 
     ctx.clear_sessions();
-    tracing::info!("TPM platform hierarchy clear completed");
+    tracing::info!("TPM lockout hierarchy clear completed");
     Ok(())
 }

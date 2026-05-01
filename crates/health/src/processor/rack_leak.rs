@@ -84,6 +84,13 @@ impl EventProcessor for RackLeakProcessor {
             return Vec::new();
         };
 
+        if matches!(event, CollectorEvent::CollectorRemoved) {
+            if let Some(mut entry) = self.racks.get_mut(rack_id) {
+                entry.leaking_trays.remove(context.endpoint_key());
+            }
+            return Vec::new();
+        }
+
         let CollectorEvent::HealthReport(report) = event else {
             return Vec::new();
         };
@@ -275,6 +282,26 @@ mod tests {
             panic!("expected health report");
         };
         assert_eq!(report.alerts.len(), 1, "rack should still be in alert");
+    }
+
+    #[test]
+    fn removed_tray_is_no_longer_counted() {
+        let processor = RackLeakProcessor::new(2);
+
+        let ctx_a = context_with_rack("42:9e:b1:bd:9d:dd", "rack-1");
+        let ctx_b = context_with_rack("42:9e:b1:bd:9d:ee", "rack-1");
+
+        processor.process_event(&ctx_a, &tray_leak_report(true));
+        processor.process_event(&ctx_b, &tray_leak_report(true));
+
+        let emitted = processor.process_event(&ctx_a, &CollectorEvent::CollectorRemoved);
+
+        assert!(emitted.is_empty());
+        let Some(rack) = processor.racks.get(ctx_a.rack_id().expect("rack id")) else {
+            panic!("expected rack state");
+        };
+        assert_eq!(rack.leaking_trays.len(), 1);
+        assert!(rack.leaking_trays.contains(ctx_b.endpoint_key()));
     }
 
     #[test]

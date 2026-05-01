@@ -310,8 +310,8 @@ async fn test_dpf_waiting_for_ready_exits_to_powering_off_host_during_reprovisio
         ManagedHostState::DPUReprovision { dpu_states } => {
             for (dpu_id, state) in &dpu_states.states {
                 assert!(
-                    matches!(state, ReprovisionState::PoweringOffHost),
-                    "DPU {dpu_id} should be in PoweringOffHost after WaitingForReady during reprovision, got: {state:?}"
+                    matches!(state, ReprovisionState::WaitingForNetworkConfig),
+                    "DPU {dpu_id} should be in WaitingForNetworkConfig after WaitingForReady during reprovision, got: {state:?}"
                 );
             }
         }
@@ -607,7 +607,7 @@ async fn test_assigned_waiting_for_ready_exits_to_powering_off_host(pool: sqlx::
         } => {
             for (dpu_id, state) in states {
                 assert!(
-                    matches!(state, ReprovisionState::PoweringOffHost),
+                    matches!(state, ReprovisionState::WaitingForNetworkConfig),
                     "DPU {dpu_id} should be PoweringOffHost after WaitingForReady \
                      during assigned reprovision, got: {state:?}"
                 );

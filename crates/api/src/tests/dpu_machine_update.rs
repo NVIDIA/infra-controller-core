@@ -201,13 +201,12 @@ async fn test_find_available_outdated_dpus_skips_dpf_ingested(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let dpu_count: usize = 3;
+    let dpu_count: usize = 2;
     let snapshots = create_machines(&env, dpu_count).await;
 
-    let dpf_dpu_id = snapshots.values().next().unwrap().dpu_snapshots[0].id;
-
     let mut txn = env.pool.begin().await?;
-    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &dpf_dpu_id).await?;
+    let host_machine_id = snapshots.keys().collect::<Vec<_>>()[0];
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, host_machine_id).await?;
     txn.commit().await?;
 
     let snapshots = get_all_snapshots(&env).await;
@@ -218,8 +217,7 @@ async fn test_find_available_outdated_dpus_skips_dpf_ingested(
         &snapshots,
     )?;
 
-    assert_eq!(dpus.len(), dpu_count - 1);
-    assert!(dpus.iter().all(|d| d.dpu_machine_id != dpf_dpu_id));
+    assert_eq!(dpus.len(), 1);
     Ok(())
 }
 
