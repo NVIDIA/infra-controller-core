@@ -396,6 +396,15 @@ pub async fn define_all_from(
     }
     Ok(())
 }
+pub async fn pool_has_rows(txn: &mut PgConnection, name: &str) -> Result<bool, DatabaseError> {
+    let query: &str = "SELECT EXISTS(SELECT 1 FROM resource_pool WHERE name = $1)";
+    let (exists,): (bool,) = sqlx::query_as(query)
+        .bind(name)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(exists)
+}
 
 /// Reconcile declared pool definitions against what was previously seeded.
 /// Each declared pool is classified independently by its `(snapshot, pool)`
@@ -419,11 +428,9 @@ pub async fn reconcile_pool_defs(
     declared: &HashMap<String, ResourcePoolDef>,
 ) -> Result<(), DefineResourcePoolError> {
     let stored = all_stored_defs(&mut *txn).await?;
-    let existing_pool_names: HashSet<String> =
-        all(txn).await?.into_iter().map(|s| s.name).collect();
 
     for (name, def) in declared {
-        let pool_exists = existing_pool_names.contains(name);
+        let pool_exists = pool_has_rows(&mut *txn, name).await?;
         match (stored.get(name), pool_exists) {
             // Snapshot exists but pool is missing from resource_pool.
             // Anomaly: e.g., partial DB restore. Don't auto-heal — operator
