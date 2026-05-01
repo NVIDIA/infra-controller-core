@@ -531,11 +531,11 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(state_history::show_switch_state_history_json),
             )
             .route(
-                "/machine/{machine_id}/health-report/add",
+                "/machine/{machine_id}/health/add-report",
                 post(health::add_health_report),
             )
             .route(
-                "/machine/{machine_id}/health-report/remove",
+                "/machine/{machine_id}/health/remove-report",
                 post(health::remove_health_report),
             )
             .route(

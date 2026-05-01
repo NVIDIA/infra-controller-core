@@ -245,12 +245,12 @@ function setHealthReportTextBoxToTemplate(template) {
 document.addEventListener("DOMContentLoaded", function (event) {
 	setHealthReportTextBoxToTemplate(templateHealthReport);
 	for (const item of [
-		["submit_add", "/health-report/add", () => document.getElementById("health-report").value],
+		["submit_add", "/add-report", () => document.getElementById("health-report").value],
 	]) {
 		add_click_listener(item);
 	}
 	{% for entry in entries %}
-	add_click_listener(["remove-health-report-{{ entry.health_report.source }}", "/health-report/remove", () => JSON.stringify({source: "{{ entry.health_report.source }}"})]);
+	add_click_listener(["remove-health-report-{{ entry.health_report.source }}", "/remove-report", () => JSON.stringify({source: "{{ entry.health_report.source }}"})]);
 	{% endfor %}
 });
 
