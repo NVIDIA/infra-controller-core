@@ -108,24 +108,10 @@ ilog "=== Installing debs from $forge_path_chroot_debs:"
 chroot /mnt chown -R root:root "$forge_path_chroot_debs"
 chroot /mnt dpkg -R -i "$forge_path_chroot_debs" 2>&1 | while read -r log_line; do ilog "dpkg: $log_line"; done
 
-# Mask NetworkManager so the tmfifo_net0 profile's 192.168.100.1 DNS
-# never poisons /etc/resolv.conf. NM is vestigial on DOCA BFB — networkd
-# and netplan manage oob_net0, mellanox scripts handle SFs/reps/bridges.
-# Mask (not just disable) because a disabled unit can still be started
-# automatically — e.g. dpkg postinst re-enables it on package upgrade,
-# or D-Bus auto-activates it. Mask prevents all of these.
-ln -sf /dev/null /mnt/etc/systemd/system/NetworkManager.service
-# NM-wait-online has Requires=NetworkManager.service, so if left unmasked
-# it would attempt to pull NM into the dependency tree (failing because NM
-# is masked), stalling network-online.target and logging spurious errors.
-ln -sf /dev/null /mnt/etc/systemd/system/NetworkManager-wait-online.service
-
-# Route DNS through systemd-resolved (uplink mode) instead of NM's
-# direct-write mode. Masking NM alone is not sufficient — the base image
-# rootfs already ships /etc/resolv.conf as a regular file with stale
-# content. Without this symlink, glibc reads that stale file instead of
-# resolved's output even though resolved is running and has correct DNS.
-ln -sf /run/systemd/resolve/resolv.conf /mnt/etc/resolv.conf
+cat << \EOF > /mnt/etc/NetworkManager/conf.d/99-carbide.conf
+[main]
+dns=systemd-resolved
+EOF
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
