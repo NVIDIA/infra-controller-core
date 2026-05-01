@@ -43,6 +43,7 @@ async fn main() -> eyre::Result<()> {
 
     let interface_cidr: ipnetwork::IpNetwork = options.interface_cidr.parse()?;
     nic_init::assign_address(&options.interface_name, interface_cidr).await?;
+    nic_init::setup_metadata_routing(&options.interface_name, interface_cidr).await?;
 
     // Build ForgeClientConfig for phone_home if cert paths are provided
     let forge_client_config = match (&options.root_ca, &options.client_cert, &options.client_key) {
