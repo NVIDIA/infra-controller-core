@@ -325,9 +325,15 @@ pub trait MetaDataIdentitySigner: Send + Sync {
     /// Rate-limit permit (governor) before signing or proxying.
     async fn wait_identity_permit(&self) -> Result<(), tonic::Status>;
 
-    fn sign_proxy_base(&self) -> Option<String>;
-
-    fn sign_proxy_http_client(&self) -> Option<reqwest::Client>;
+    /// When `sign-proxy-url` is configured, forward this request to the HTTP sign proxy and return
+    /// the response. Returns [`None`] when the Forge (`SignMachineIdentity`) path should be used
+    /// instead. Implementations should hold any `Arc`/lock guard across the `.await` so borrows into
+    /// sign-proxy config remain valid (see [`forward_sign_proxy_if_ready`] / [`forward_sign_proxy_http`]).
+    async fn forward_sign_proxy_if_configured(
+        &self,
+        uri: &Uri,
+        headers: &HeaderMap,
+    ) -> Option<Response>;
 
     async fn sign_machine_identity(
         &self,
@@ -483,6 +489,30 @@ pub async fn forward_sign_proxy_http(
     }
 }
 
+/// When `sign-proxy-url` is configured (`sign_proxy_base` is [`Some`]), forward the identity request
+/// to the HTTP sign proxy. Returns [`None`] when sign-proxy is not in use (caller should use Forge).
+///
+/// If the base URL is set but `sign_proxy_http_client` is missing, returns [`Some`] with HTTP 500
+/// (misconfiguration).
+pub async fn forward_sign_proxy_if_ready(
+    sign_proxy_base: Option<&str>,
+    sign_proxy_http_client: Option<&reqwest::Client>,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> Option<Response> {
+    let base = sign_proxy_base?;
+    let Some(client) = sign_proxy_http_client else {
+        return Some(
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "machine-identity.sign-proxy-url: HTTP client is not configured\n",
+            )
+                .into_response(),
+        );
+    };
+    Some(forward_sign_proxy_http(client, base, uri, headers).await)
+}
+
 #[derive(serde::Serialize)]
 struct IdentityTokenJsonBody {
     access_token: String,
@@ -509,15 +539,11 @@ pub async fn serve_meta_data_identity<S: MetaDataIdentitySigner + ?Sized>(
         return (code, e.message().to_string()).into_response();
     }
 
-    if let Some(base) = signer.sign_proxy_base() {
-        let Some(client) = signer.sign_proxy_http_client() else {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "machine-identity.sign-proxy-url: HTTP client is not configured\n",
-            )
-                .into_response();
-        };
-        return forward_sign_proxy_http(&client, &base, &uri, &headers).await;
+    if let Some(resp) = signer
+        .forward_sign_proxy_if_configured(&uri, &headers)
+        .await
+    {
+        return resp;
     }
 
     let audiences = parse_identity_audiences(&uri);
@@ -708,6 +734,81 @@ mod tests {
             .unwrap();
 
         let res = forward_sign_proxy_http(&client, &base, &uri, &headers).await;
+        assert_eq!(res.status(), StatusCode::CREATED);
+        assert_eq!(
+            res.headers().get(CONTENT_TYPE).unwrap().as_bytes(),
+            b"application/special"
+        );
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"custom-token-body");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn forward_sign_proxy_if_ready_returns_none_without_base_url() {
+        let uri: Uri = "http://127.0.0.1/latest/meta-data/identity"
+            .parse()
+            .unwrap();
+        let headers = HeaderMap::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap();
+
+        assert!(
+            forward_sign_proxy_if_ready(None, Some(&client), &uri, &headers)
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn forward_sign_proxy_if_ready_returns_500_when_http_client_missing() {
+        let uri: Uri = "http://127.0.0.1/latest/meta-data/identity"
+            .parse()
+            .unwrap();
+        let headers = HeaderMap::new();
+
+        let res = forward_sign_proxy_if_ready(Some("http://127.0.0.1:1"), None, &uri, &headers)
+            .await
+            .expect("expected misconfiguration response");
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn forward_sign_proxy_if_ready_delegates_to_forward_http() {
+        let path = format!("/{}", SIGN_PROXY_UPSTREAM_IMDS_PREFIX);
+        let app = Router::new().route(
+            path.as_str(),
+            get(|| async {
+                (
+                    StatusCode::CREATED,
+                    [(CONTENT_TYPE, "application/special")],
+                    "custom-token-body",
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+        let base = format!("http://{}", addr);
+        let uri: Uri = "http://client/latest/meta-data/identity?aud=test"
+            .parse()
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("metadata", HeaderValue::from_static("true"));
+        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap();
+
+        let res = forward_sign_proxy_if_ready(Some(base.as_str()), Some(&client), &uri, &headers)
+            .await
+            .expect("expected forward response");
         assert_eq!(res.status(), StatusCode::CREATED);
         assert_eq!(
             res.headers().get(CONTENT_TYPE).unwrap().as_bytes(),

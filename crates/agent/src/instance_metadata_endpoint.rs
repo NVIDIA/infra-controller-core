@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use std::sync::Arc;
-use std::time::Duration;
 
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use arc_swap::ArcSwapOption;
@@ -31,7 +30,8 @@ use carbide_uuid::machine::MachineId;
 use eyre::eyre;
 use forge_dpu_agent_utils::utils::create_forge_client;
 use forge_dpu_fmds_shared::machine_identity::{
-    self, MetaDataIdentitySigner, sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
+    self, MetaDataIdentitySigner, forward_sign_proxy_if_ready, sign_machine_identity_with_forge,
+    wait_identity_rate_limit_permit,
 };
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
@@ -92,17 +92,9 @@ pub struct InstanceMetadataRouterStateImpl {
     forge_client_config: Arc<ForgeClientConfig>,
     outbound_governor:
         Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
-    machine_identity_governor:
-        Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
-    /// Max wait for `governor::RateLimiter::until_ready` (rate-limit permit), not Forge call duration.
-    machine_identity_wait_timeout: Duration,
-    /// Wall-clock limit for `create_forge_client` + `SignMachineIdentity` on `…/meta-data/identity`,
-    /// and for outbound HTTP sign-proxy requests.
-    machine_identity_forge_call_timeout: Duration,
-    /// Trimmed base URL for HTTP pass-through signing (`None` → gRPC).
-    sign_proxy_base: Option<String>,
-    /// Prebuilt client when `sign_proxy_base` is set (timeout and optional private roots).
-    sign_proxy_http_client: Option<reqwest::Client>,
+    /// Rate limits, Forge/sign-proxy timeouts, and optional HTTP sign-proxy client for
+    /// `GET …/meta-data/identity`.
+    identity_serving: Arc<machine_identity::MachineIdentityServing>,
 }
 
 #[async_trait]
@@ -148,7 +140,7 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
         sign_machine_identity_with_forge(
             &self.forge_api,
             &self.forge_client_config,
-            self.machine_identity_forge_call_timeout,
+            self.identity_serving.forge_call_timeout,
             audiences,
         )
         .await
@@ -165,12 +157,18 @@ impl MetaDataIdentitySigner for InstanceMetadataRouterStateImpl {
         self.wait_identity_governor().await
     }
 
-    fn sign_proxy_base(&self) -> Option<String> {
-        self.sign_proxy_base.clone()
-    }
-
-    fn sign_proxy_http_client(&self) -> Option<reqwest::Client> {
-        self.sign_proxy_http_client.clone()
+    async fn forward_sign_proxy_if_configured(
+        &self,
+        uri: &Uri,
+        headers: &HeaderMap,
+    ) -> Option<Response> {
+        forward_sign_proxy_if_ready(
+            self.identity_serving.sign_proxy_base.as_deref(),
+            self.identity_serving.sign_proxy_http_client.as_ref(),
+            uri,
+            headers,
+        )
+        .await
     }
 
     async fn sign_machine_identity(
@@ -185,8 +183,8 @@ impl InstanceMetadataRouterStateImpl {
     /// Wait for a `meta-data/identity` rate-limit permit (governor).
     pub async fn wait_identity_governor(&self) -> Result<(), tonic::Status> {
         wait_identity_rate_limit_permit(
-            &self.machine_identity_governor,
-            self.machine_identity_wait_timeout,
+            &self.identity_serving.governor,
+            self.identity_serving.wait_timeout,
         )
         .await
     }
@@ -205,7 +203,9 @@ impl InstanceMetadataRouterStateImpl {
             machine_identity.sign_proxy_url.as_deref(),
             machine_identity.sign_proxy_tls_root_ca.as_deref(),
         )?;
-        let serving = machine_identity::MachineIdentityServing::try_from_params(params)?;
+        let serving = Arc::new(machine_identity::MachineIdentityServing::try_from_params(
+            params,
+        )?);
         Ok(Self {
             latest_instance_data: ArcSwapOption::new(None),
             latest_network_config: ArcSwapOption::new(None),
@@ -213,11 +213,7 @@ impl InstanceMetadataRouterStateImpl {
             forge_api,
             forge_client_config,
             outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
-            machine_identity_governor: serving.governor,
-            machine_identity_wait_timeout: serving.wait_timeout,
-            machine_identity_forge_call_timeout: serving.forge_call_timeout,
-            sign_proxy_base: serving.sign_proxy_base,
-            sign_proxy_http_client: serving.sign_proxy_http_client,
+            identity_serving: serving,
         })
     }
 
@@ -305,8 +301,9 @@ fn extract_metadata(
     category: String,
     state: Arc<dyn InstanceMetadataRouterState>,
 ) -> (StatusCode, String) {
+    let (instance_meta, network_config) = state.read();
     if let (Some(metadata), Some(network_config)) =
-        (state.read().0.as_ref(), state.read().1.as_ref())
+        (instance_meta.as_ref(), network_config.as_ref())
     {
         match category.as_str() {
             PUBLIC_IPV4_CATEGORY => (StatusCode::OK, metadata.address.clone()),
@@ -459,7 +456,6 @@ async fn get_instance_attributes(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path((device_index, instance_index)): Path<(usize, usize)>,
 ) -> (StatusCode, String) {
-    println!("Got here!");
     let read_guard = state.read();
     let metadata = match read_guard.0.as_ref() {
         Some(metadata) => metadata,

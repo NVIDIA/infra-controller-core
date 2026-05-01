@@ -16,8 +16,10 @@
  */
 
 use async_trait::async_trait;
+use axum::http::{HeaderMap, Uri};
 use forge_dpu_fmds_shared::machine_identity::{
-    MetaDataIdentitySigner, sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
+    MetaDataIdentitySigner, forward_sign_proxy_if_ready, sign_machine_identity_with_forge,
+    wait_identity_rate_limit_permit,
 };
 
 use crate::state::FmdsState;
@@ -29,12 +31,19 @@ impl MetaDataIdentitySigner for FmdsState {
         wait_identity_rate_limit_permit(&snap.governor, snap.wait_timeout).await
     }
 
-    fn sign_proxy_base(&self) -> Option<String> {
-        self.machine_identity.load().sign_proxy_base.clone()
-    }
-
-    fn sign_proxy_http_client(&self) -> Option<reqwest::Client> {
-        self.machine_identity.load().sign_proxy_http_client.clone()
+    async fn forward_sign_proxy_if_configured(
+        &self,
+        uri: &Uri,
+        headers: &HeaderMap,
+    ) -> Option<axum::response::Response> {
+        let serving = self.machine_identity.load_full();
+        forward_sign_proxy_if_ready(
+            serving.sign_proxy_base.as_deref(),
+            serving.sign_proxy_http_client.as_ref(),
+            uri,
+            headers,
+        )
+        .await
     }
 
     async fn sign_machine_identity(

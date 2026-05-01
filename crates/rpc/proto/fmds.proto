@@ -50,7 +50,8 @@ message FmdsConfigUpdate {
   uint32 asn = 8;
 
   // Machine-identity (`GET …/meta-data/identity`) rate limits, timeouts, and optional HTTP sign proxy.
-  // When omitted, FMDS keeps its current machine-identity settings (startup defaults until first push).
+  // When omitted, FMDS leaves machine-identity serving unchanged (startup defaults from `FmdsState::try_new`
+  // until the first update that includes this field).
   optional FmdsMachineIdentityConfig machine_identity = 9;
 }
 

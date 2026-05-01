@@ -695,6 +695,34 @@ addresses = ["168.254.169.254/30"]
     }
 
     #[test]
+    fn test_load_forge_agent_config_machine_identity_section() {
+        let raw = r#"[forge-system]
+api-server = "https://127.0.0.1:1234"
+root-ca = "/opt/forge/forge_root.pem"
+
+[machine]
+interface-id = "91609f10-c91d-470d-a260-6293ea0c1200"
+
+[machine-identity]
+requests-per-second = 7
+burst = 12
+wait-timeout-secs = 4
+sign-timeout-secs = 9
+"#;
+
+        let config: AgentConfig = toml::from_str(raw).unwrap();
+
+        assert_eq!(config.machine_identity.requests_per_second, 7);
+        assert_eq!(config.machine_identity.burst, 12);
+        assert_eq!(config.machine_identity.wait_timeout_secs, 4);
+        assert_eq!(config.machine_identity.sign_timeout_secs, 9);
+        assert!(config.machine_identity.sign_proxy_url.is_none());
+        assert!(config.machine_identity.sign_proxy_tls_root_ca.is_none());
+
+        config.machine_identity.validate().unwrap();
+    }
+
+    #[test]
     fn test_load_forge_agent_config_without_services() {
         let config = "[forge-system]
 api-server = \"https://127.0.0.1:1234\"
