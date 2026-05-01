@@ -189,6 +189,10 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
     fn collector_type(&self) -> &'static str {
         "nmxt"
     }
+
+    async fn stop(&mut self) {
+        self.emit_event(CollectorEvent::CollectorRemoved);
+    }
 }
 
 impl NmxtCollector {
