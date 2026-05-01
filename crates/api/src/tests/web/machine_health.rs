@@ -17,7 +17,7 @@
 
 use axum::body::Body;
 use http_body_util::BodyExt;
-use hyper::http::StatusCode;
+use hyper::http::{Method, StatusCode};
 use rpc::forge::AdminForceDeleteMachineRequest;
 use rpc::forge::forge_server::Forge;
 use tower::ServiceExt;
@@ -77,4 +77,95 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
     assert!(env.find_machine(host_machine_id).await.is_empty());
 
     verify_history(&app, host_machine_id.to_string()).await;
+}
+
+#[crate::sqlx_test]
+async fn test_add_remove_health_report_via_web_ui(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let app = make_test_app(&env);
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+
+    let payload = r#"{
+        "mode": "Merge",
+        "health_report": {
+            "source": "web-health-test",
+            "triggered_by": null,
+            "observed_at": null,
+            "successes": [],
+            "alerts": []
+        }
+    }"#;
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/admin/machine/{host_machine_id}/health/add-report"
+                ))
+                .header("Content-Type", "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/machine/{host_machine_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(body.contains("web-health-test"));
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/admin/machine/{host_machine_id}/health/remove-report"
+                ))
+                .header("Content-Type", "application/json")
+                .body(Body::from(r#"{"source":"web-health-test"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/machine/{host_machine_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(!body.contains("web-health-test"));
 }
