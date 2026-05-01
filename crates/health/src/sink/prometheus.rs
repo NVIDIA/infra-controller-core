@@ -133,6 +133,25 @@ impl PrometheusSink {
             }
         }
     }
+
+    fn remove_collector_metrics(&self, context: &EventContext) {
+        let Some(endpoint_metrics) = self.stream_metrics.get::<str>(context.endpoint_key()) else {
+            return;
+        };
+        let Some((_, metrics)) = endpoint_metrics.remove(context.collector_type) else {
+            return;
+        };
+
+        metrics.clear();
+        if let Err(error) = self.collector_registry.unregister_gauge_metrics(&metrics) {
+            tracing::warn!(
+                ?error,
+                endpoint_key = context.endpoint_key(),
+                collector = context.collector_type,
+                "Failed to unregister Prometheus stream metrics"
+            );
+        }
+    }
 }
 
 impl DataSink for PrometheusSink {
@@ -187,6 +206,7 @@ impl DataSink for PrometheusSink {
                     entry.value().sweep_stale();
                 }
             }
+            CollectorEvent::CollectorRemoved => self.remove_collector_metrics(context),
             CollectorEvent::Log(_)
             | CollectorEvent::Firmware(_)
             | CollectorEvent::HealthReport(_) => {}

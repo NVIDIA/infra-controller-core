@@ -239,6 +239,9 @@ impl EventProcessor for HealthReportProcessor {
 
                 return vec![CollectorEvent::HealthReport(Arc::new(report))];
             }
+            CollectorEvent::CollectorRemoved => {
+                self.windows.remove(&Self::stream_key(context));
+            }
             CollectorEvent::Log(_)
             | CollectorEvent::Firmware(_)
             | CollectorEvent::HealthReport(_) => {}
@@ -320,5 +323,19 @@ mod tests {
         assert_eq!(report.source, ReportSource::BmcSensors);
         assert!(report.successes.is_empty());
         assert_eq!(report.alerts.len(), 1);
+    }
+
+    #[test]
+    fn collector_removed_clears_metric_window() {
+        let processor = HealthReportProcessor::new();
+        let context = test_context();
+
+        let _ = processor.process_event(&context, &CollectorEvent::MetricCollectionStart);
+        assert_eq!(processor.windows.len(), 1);
+
+        let emitted = processor.process_event(&context, &CollectorEvent::CollectorRemoved);
+
+        assert!(emitted.is_empty());
+        assert!(processor.windows.is_empty());
     }
 }

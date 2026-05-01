@@ -248,6 +248,10 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
     fn collector_type(&self) -> &'static str {
         COLLECTOR_NAME
     }
+
+    async fn stop(&mut self) {
+        self.emit_event(CollectorEvent::CollectorRemoved);
+    }
 }
 
 impl NvueRestCollector {

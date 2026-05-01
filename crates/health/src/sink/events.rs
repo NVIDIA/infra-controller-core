@@ -137,6 +137,7 @@ pub enum CollectorEvent {
     MetricCollectionStart,
     Metric(Box<SensorHealthData>),
     MetricCollectionEnd,
+    CollectorRemoved,
     Log(Box<LogRecord>),
     Firmware(FirmwareInfo),
     HealthReport(Arc<HealthReport>),
