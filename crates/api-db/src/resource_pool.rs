@@ -398,20 +398,22 @@ pub async fn define_all_from(
 }
 
 /// Reconcile declared pool definitions against what was previously seeded.
+/// Each declared pool is classified independently by its `(snapshot, pool)`
+/// state.
 ///
-///   1. **First boot** (snapshot table empty, resource_pool also empty):
-///      seed every declared pool, record a snapshot per pool.
-///   2. **First boot after migration** (snapshot table empty, but pools
-///      already exist in `resource_pool` from a pre-migration deployment):
-///      backfill snapshots from the current declarations *without* re-seeding.
-///   3. **Pool declaration unchanged** (snapshot == declared): no-op.
-///   4. **Pool declaration changed** (snapshot != declared): log a
-///      warning and do nothing. Operator intervention is required to update
-///      the DB
+///   1. **New** (no snapshot, pool absent from `resource_pool`): seed
+///      and snapshot.
+///   2. **Backfill** (no snapshot, pool present): record the snapshot only.
+///   3. **In sync** (snapshot matches declaration): no-op.
+///   4. **Drift** (snapshot differs from declaration, pool present): warn
+///      and leave both in place. Operator must reconcile by hand.
+///   5. **Anomaly** (snapshot present, pool absent): error-log and skip.
+///      Indicates a partial restore or manual deletion; auto-healing here
+///      would risk re-seeding a pool an operator deliberately cleared.
 ///
 /// Pools that appear in the snapshot table but are no longer declared
-/// ("dropped" from `InitialObjectsConfig.pools`) are also warned about,
-/// but not removed.
+/// ("dropped" from `InitialObjectsConfig.pools`) are warned about, but
+/// not removed.
 pub async fn reconcile_pool_defs(
     txn: &mut PgConnection,
     declared: &HashMap<String, ResourcePoolDef>,
@@ -420,38 +422,48 @@ pub async fn reconcile_pool_defs(
     let existing_pool_names: HashSet<String> =
         all(txn).await?.into_iter().map(|s| s.name).collect();
 
-    let backfill = stored.is_empty() && !existing_pool_names.is_empty();
     for (name, def) in declared {
-        if backfill && existing_pool_names.contains(name) {
-            // existing deployment, first run after migration.
-            // Record the snapshot for the already-seeded pool
-            insert_pool_def(txn, name, def).await?;
-            tracing::info!(
-                pool_name = name,
-                "Backfilled pool definition snapshot for pre-existing pool"
-            );
-            continue;
-        }
-        match stored.get(name) {
-            // never seeded. Seed it and snapshot.
-            None => {
-                define(txn, name, def).await?;
-                insert_pool_def(txn, name, def).await?;
-                tracing::info!(
+        let pool_exists = existing_pool_names.contains(name);
+        match (stored.get(name), pool_exists) {
+            // Snapshot exists but pool is missing from resource_pool.
+            // Anomaly: e.g., partial DB restore. Don't auto-heal — operator
+            // must reconcile by hand.
+            (Some(stored_def), false) => {
+                tracing::error!(
                     pool_name = name,
-                    "Seeded Resource Pool definition snapshot for pool"
+                    stored = ?stored_def,
+                    "Resource Pool snapshot exists but resource_pool has no rows for it; \
+                     manual recovery required"
                 );
             }
-            // already seeded with the current declaration.
-            Some(stored_def) if stored_def == def => {}
-            // declaration has drifted since seed. Warn, don't reapply.
-            // Log  both pool definitions
-            Some(stored_def) => {
+            // Already seeded with the current declaration.
+            (Some(stored_def), true) if stored_def == def => {}
+            // Declaration has drifted since seed. Warn, don't reapply.
+            (Some(stored_def), true) => {
                 tracing::warn!(
                     pool_name = name,
                     stored = ?stored_def,
                     declared = ?def,
                     "Resource Pool definition has changed since it was seeded; not re-applying"
+                );
+            }
+            // Pool exists in resource_pool but has no snapshot yet.
+            // Pre-migration deployment, or a pool re-added after a snapshot
+            // was manually deleted. Record the snapshot only.
+            (None, true) => {
+                insert_pool_def(txn, name, def).await?;
+                tracing::info!(
+                    pool_name = name,
+                    "Backfilled pool definition snapshot for pre-existing pool"
+                );
+            }
+            // New — seed and snapshot.
+            (None, false) => {
+                define(txn, name, def).await?;
+                insert_pool_def(txn, name, def).await?;
+                tracing::info!(
+                    pool_name = name,
+                    "Seeded Resource Pool definition snapshot for pool"
                 );
             }
         }
@@ -1584,6 +1596,57 @@ mod tests {
             stored.as_ref(),
             Some(&original),
             "drift path must not overwrite the snapshot"
+        );
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    // snapshot exists but the pool has no rows in `resource_pool`.
+    // The reconciler must surface the anomaly and leave the snapshot alone
+    // so an operator can investigate.
+    #[crate::sqlx_test]
+    async fn reconcile_pool_defs_snapshot_without_pool_logs_error(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::Range;
+        let def = ResourcePoolDef {
+            prefix: None,
+            ranges: vec![Range {
+                start: 500.to_string(),
+                end: 505.to_string(),
+                auto_assign: true,
+            }],
+            pool_type: ResourcePoolType::Integer,
+            delegate_prefix_len: None,
+        };
+        let mut txn = pool.begin().await?;
+
+        // Pre-seed only the snapshot — skip define() so the pool has no
+        // rows in resource_pool.
+        insert_pool_def(&mut txn, "orphaned-snapshot", &def).await?;
+
+        let declared: HashMap<String, ResourcePoolDef> =
+            [("orphaned-snapshot".to_string(), def.clone())]
+                .into_iter()
+                .collect();
+
+        // Reconcile must succeed (warn-only), not error.
+        reconcile_pool_defs(&mut txn, &declared).await?;
+
+        // The snapshot is unchanged.
+        let stored = stored_def(txn.as_mut(), "orphaned-snapshot").await?;
+        assert_eq!(
+            stored.as_ref(),
+            Some(&def),
+            "anomaly path must not modify the snapshot"
+        );
+
+        // The pool was NOT seeded by reconcile.
+        let pool_rows = all(txn.as_mut()).await?;
+        assert!(
+            !pool_rows.iter().any(|s| s.name == "orphaned-snapshot"),
+            "anomaly path must not auto-seed the missing pool"
         );
 
         txn.rollback().await?;
