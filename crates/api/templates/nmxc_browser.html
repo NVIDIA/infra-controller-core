@@ -21,6 +21,7 @@ See the <a href="https://docs.nvidia.com/networking/display/nmxcv11/grpc+api+doc
 			<option value="" {% if operation.is_empty() %}selected{% endif %}>— choose —</option>
 			<option value="compute_node_info_list" {% if operation == "compute_node_info_list" %}selected{% endif %}>Compute node info list</option>
 			<option value="gpu_info" {% if operation == "gpu_info" %}selected{% endif %}>GPU info (by UID)</option>
+			<option value="gpu_info_list" {% if operation == "gpu_info_list" %}selected{% endif %}>GPU info list (domain)</option>
 		</select>
 	</div>
 	<div>

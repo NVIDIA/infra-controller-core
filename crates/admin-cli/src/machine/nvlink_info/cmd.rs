@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
-
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 
@@ -121,115 +119,58 @@ pub async fn handle_nvlink_info_populate(
             CarbideCliError::GenericError("No SerialNumber found in Redfish response".to_string())
         })?;
 
-    // Fetch compute nodes and build lookup map by (serial_number, tray_index)
-    let nmxm_compute_nodes: HashMap<(String, i32), serde_json::Value> = match api_client
+    // Get domain UUID and GPUs by tray index
+    let gpu_list_response = api_client
         .0
         .nmxc_browse(forgerpc::NmxcBrowseRequest {
             chassis_serial: serial_number.clone(),
-            operation: forgerpc::NmxcBrowseOperation::ComputeNodeInfoList as i32,
+            operation: forgerpc::NmxcBrowseOperation::GpuInfoList as i32,
             gpu_uid: 0,
         })
         .await
-    {
-        Ok(response) => {
-            // Check for HTTP error codes
-            if response.code < 200 || response.code >= 300 {
-                return Err(CarbideCliError::GenericError(format!(
-                    "NMX-C compute-nodes request failed with HTTP {}: {}",
-                    response.code, response.body
-                )));
-            }
-            if let Ok(nodes) = serde_json::from_str::<Vec<serde_json::Value>>(&response.body) {
-                nodes
-                    .into_iter()
-                    .filter_map(|node| {
-                        let location_info = node.get("LocationInfo")?;
-                        let serial = location_info
-                            .get("ChassisSerialNumber")?
-                            .as_str()?
-                            .to_string();
-                        let tray_idx = location_info.get("TrayIndex")?.as_i64()? as i32;
-                        Some(((serial, tray_idx), node))
-                    })
-                    .collect()
-            } else {
-                HashMap::new()
-            }
-        }
-        Err(e) => {
-            return Err(CarbideCliError::GenericError(format!(
-                "Failed to fetch NMX-C compute nodes: {}",
-                e
-            )));
-        }
-    };
-
-    // Look up matching nmx-m compute node
-    let nmxm_node = nmxm_compute_nodes
-        .get(&(serial_number.clone(), tray_index))
-        .ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
-                "No NMX-M compute node found for serial={}, tray_index={}",
-                serial_number, tray_index
-            ))
+        .map_err(|e| {
+            CarbideCliError::GenericError(format!("Failed to fetch NMX-C GPU list: {}", e))
         })?;
 
-    let domain_uuid = nmxm_node
-        .get("DomainUUID")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            CarbideCliError::GenericError("No DomainUUID found in NMX-M response".to_string())
-        })?;
-
-    let gpu_id_list: Vec<String> = nmxm_node
-        .get("GpuIDList")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    if gpu_id_list.is_empty() {
-        return Err(CarbideCliError::GenericError(
-            "No GPUs found in NMX-M compute node".to_string(),
-        ));
+    if gpu_list_response.code < 200 || gpu_list_response.code >= 300 {
+        return Err(CarbideCliError::GenericError(format!(
+            "NMX-C GPU list request failed with HTTP {}: {}",
+            gpu_list_response.code, gpu_list_response.body
+        )));
     }
 
-    // Fetch GPU details from nmx-m for each GPU in the list
-    let mut gpus: Vec<forgerpc::NvLinkGpu> = Vec::new();
-    for gpu_id in &gpu_id_list {
-        let gpu_uid: u64 = gpu_id.parse().map_err(|_| {
-            CarbideCliError::GenericError(format!("Invalid GPU id (expected u64): {}", gpu_id))
+    let list_json: serde_json::Value =
+        serde_json::from_str(&gpu_list_response.body).map_err(|e| {
+            CarbideCliError::GenericError(format!("Failed to parse NMX-C GPU list response: {}", e))
         })?;
-        let gpu_response = api_client
-            .0
-            .nmxc_browse(forgerpc::NmxcBrowseRequest {
-                chassis_serial: serial_number.clone(),
-                operation: forgerpc::NmxcBrowseOperation::GpuInfo as i32,
-                gpu_uid,
-            })
-            .await
-            .map_err(|e| {
-                CarbideCliError::GenericError(format!("Failed to fetch GPU {}: {}", gpu_id, e))
-            })?;
 
-        // Check for HTTP error codes
-        if gpu_response.code < 200 || gpu_response.code >= 300 {
-            return Err(CarbideCliError::GenericError(format!(
-                "NMX-C GPU {} request failed with HTTP {}: {}",
-                gpu_id, gpu_response.code, gpu_response.body
-            )));
+    let domain_uuid = list_json
+        .get("DomainUUID")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            CarbideCliError::GenericError(
+                "No non-empty DomainUUID in NMX-C GPU list response".to_string(),
+            )
+        })?;
+
+    let gpus_json = list_json
+        .get("Gpus")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            CarbideCliError::GenericError("No Gpus array in NMX-C GPU list response".to_string())
+        })?;
+
+    let mut gpus: Vec<forgerpc::NvLinkGpu> = Vec::new();
+    for gpu_json in gpus_json {
+        let gpu_tray_index = gpu_json
+            .get("LocationInfo")
+            .and_then(|loc| loc.get("TrayIndex"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+        if gpu_tray_index != tray_index {
+            continue;
         }
-
-        let gpu_json: serde_json::Value =
-            serde_json::from_str(&gpu_response.body).map_err(|e| {
-                CarbideCliError::GenericError(format!(
-                    "Failed to parse GPU {} response: {}",
-                    gpu_id, e
-                ))
-            })?;
 
         let gpu_device_id = gpu_json
             .get("DeviceID")
@@ -239,12 +180,8 @@ pub async fn handle_nvlink_info_populate(
             .get("DeviceUID")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        let gpu_location = gpu_json.get("LocationInfo");
-        let gpu_tray_index = gpu_location
-            .and_then(|loc| loc.get("TrayIndex"))
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32;
-        let gpu_slot_id = gpu_location
+        let gpu_slot_id = gpu_json
+            .get("LocationInfo")
             .and_then(|loc| loc.get("SlotID"))
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as i32;
@@ -255,6 +192,13 @@ pub async fn handle_nvlink_info_populate(
             tray_index: gpu_tray_index,
             slot_id: gpu_slot_id,
         });
+    }
+
+    if gpus.is_empty() {
+        return Err(CarbideCliError::GenericError(format!(
+            "No GPUs in NMX-C GPU list with tray_index={} (chassis serial {})",
+            tray_index, serial_number
+        )));
     }
 
     // Parse domain_uuid as UUID

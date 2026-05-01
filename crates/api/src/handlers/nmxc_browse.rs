@@ -157,6 +157,63 @@ async fn gpu_info_json(
     Ok((body, 200, HashMap::new()))
 }
 
+async fn gpu_info_list_json(
+    nmxc: &dyn Nmxc,
+) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
+    let gresp = nmxc
+        .get_gpu_info_list(GetGpuInfoListRequest {
+            context: Some(nmxc_context()),
+            attr: GpuAttr::NmxGpuAttrAll as i32,
+            num_gpus: 0,
+            loc: None,
+            partition_id: None,
+            gateway_id: NMX_C_GATEWAY_ID.to_string(),
+            gpu_health: 0,
+        })
+        .await
+        .map_err(map_nmxc_err)?;
+
+    let domain_uuid = gresp
+        .server_header
+        .as_ref()
+        .map(|h| h.domain_uuid.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let mut gpus = Vec::with_capacity(gresp.gpu_info_list.len());
+    for gpu in gresp.gpu_info_list {
+        let (tray_index, slot_id) = gpu
+            .loc
+            .as_ref()
+            .map(|l| {
+                let tray = l.slot_index as i64;
+                let slot = l
+                    .location
+                    .as_ref()
+                    .map(|loc| loc.slot_id as i64)
+                    .unwrap_or(0);
+                (tray, slot)
+            })
+            .unwrap_or((0, 0));
+
+        gpus.push(json!({
+            "DeviceID": gpu.gpu_index as i64,
+            "DeviceUID": gpu.gpu_uid,
+            "LocationInfo": {
+                "TrayIndex": tray_index,
+                "SlotID": slot_id,
+            },
+        }));
+    }
+
+    let body = serde_json::to_string(&json!({
+        "DomainUUID": domain_uuid,
+        "Gpus": gpus,
+    }))
+    .map_err(|e| CarbideError::internal(format!("serialize gpu list: {e}")))?;
+    Ok((body, 200, HashMap::new()))
+}
+
 pub(crate) async fn nmxc_browse(
     api: &Api,
     request: Request<rpc::NmxcBrowseRequest>,
@@ -212,6 +269,7 @@ pub(crate) async fn nmxc_browse(
                     gpu_info_json(nmxc.as_ref(), request.gpu_uid).await
                 }
             }
+            rpc::NmxcBrowseOperation::GpuInfoList => gpu_info_list_json(nmxc.as_ref()).await,
         };
 
         match result {

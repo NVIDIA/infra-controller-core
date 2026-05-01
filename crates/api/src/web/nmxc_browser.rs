@@ -55,6 +55,7 @@ fn browse_operation_from_query(s: &str) -> i32 {
     match s.trim() {
         "compute_node_info_list" => rpc::forge::NmxcBrowseOperation::ComputeNodeInfoList as i32,
         "gpu_info" => rpc::forge::NmxcBrowseOperation::GpuInfo as i32,
+        "gpu_info_list" => rpc::forge::NmxcBrowseOperation::GpuInfoList as i32,
         _ => rpc::forge::NmxcBrowseOperation::Unspecified as i32,
     }
 }
@@ -77,9 +78,10 @@ pub async fn query(
 
     let op = browse_operation_from_query(&browser.operation);
     let gpu_uid = browser.gpu_uid.trim().parse::<u64>().unwrap_or(0);
+    let needs_gpu_uid = op == rpc::forge::NmxcBrowseOperation::GpuInfo as i32;
     let can_query = !browser.chassis_serial.is_empty()
         && op != rpc::forge::NmxcBrowseOperation::Unspecified as i32
-        && (op != rpc::forge::NmxcBrowseOperation::GpuInfo as i32 || gpu_uid != 0);
+        && (!needs_gpu_uid || gpu_uid != 0);
 
     if !can_query {
         return (StatusCode::OK, Html(browser.render().unwrap())).into_response();

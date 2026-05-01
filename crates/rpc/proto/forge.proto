@@ -6762,6 +6762,8 @@ enum NmxcBrowseOperation {
   NMXC_BROWSE_OPERATION_UNSPECIFIED = 0;
   NMXC_BROWSE_OPERATION_COMPUTE_NODE_INFO_LIST = 1;
   NMXC_BROWSE_OPERATION_GPU_INFO = 2;
+  // Calls NMX-C GetGpuInfoList (all GPUs in the domain); response includes domain UUID from the RPC header.
+  NMXC_BROWSE_OPERATION_GPU_INFO_LIST = 3;
 }
 
 message NmxcBrowseRequest {
@@ -6770,7 +6772,7 @@ message NmxcBrowseRequest {
   // Chassis serial used to resolve the NMX-C gRPC endpoint URL from `nvlink_nmxc_endpoints`.
   string chassis_serial = 2;
   NmxcBrowseOperation operation = 3;
-  // Required when `operation` is `NMXC_BROWSE_OPERATION_GPU_INFO`.
+  // Required when `operation` is `NMXC_BROWSE_OPERATION_GPU_INFO`; ignored for `NMXC_BROWSE_OPERATION_GPU_INFO_LIST`.
   uint64 gpu_uid = 4;
 }
 
