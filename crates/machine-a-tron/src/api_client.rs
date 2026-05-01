@@ -17,7 +17,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use base64::prelude::*;
-use bmc_mock::MachineInfo;
+use bmc_mock::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, MachineInfo};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
@@ -508,8 +508,8 @@ impl ApiClient {
         self.0
             .add_expected_machine(ExpectedMachine {
                 bmc_mac_address,
-                bmc_username: "root".to_string(),
-                bmc_password: "factory_password".to_string(),
+                bmc_username: DUMMY_FACTORY_USERNAME.to_string(),
+                bmc_password: DUMMY_FACTORY_PASSWORD.to_string(),
                 chassis_serial_number,
                 fallback_dpu_serial_numbers: Vec::new(),
                 metadata: None,
