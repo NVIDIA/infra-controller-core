@@ -19,7 +19,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::extract::{Path as AxumPath, Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse};
 use carbide_uuid::measured_boot::MeasurementReportId;
@@ -31,7 +30,7 @@ use measured_boot::{
 use rpc::forge::forge_server::Forge;
 use rpc::protos::measured_boot as mbprotos;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const PCR_SLOT_MAX_NUM: usize = 12;

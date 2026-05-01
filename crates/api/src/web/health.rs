@@ -19,7 +19,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use carbide_uuid::machine::{MachineId, MachineType};
@@ -32,7 +31,7 @@ use rpc::forge::{
     RemoveMachineHealthReportRequest,
 };
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 use crate::auth::AuthContext;
 

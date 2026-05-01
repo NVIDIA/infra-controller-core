@@ -18,7 +18,6 @@
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::Extension;
 use axum::extract::{Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
@@ -29,7 +28,7 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
-use super::Oauth2Layer;
+use super::{Base, Oauth2Layer};
 use crate::api::Api;
 use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
 use crate::web::redfish_actions::RedfishActionsTable;

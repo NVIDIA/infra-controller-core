@@ -18,7 +18,6 @@
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
@@ -33,7 +32,7 @@ use rpc::forge::{
     SwitchStateHistoriesRequest,
 };
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]

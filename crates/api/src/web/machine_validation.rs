@@ -18,13 +18,13 @@
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 
+use super::Base;
 use super::machine::ValidationRun;
 use crate::api::Api;
 

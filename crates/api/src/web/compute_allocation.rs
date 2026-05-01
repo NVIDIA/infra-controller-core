@@ -21,7 +21,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::Json;
 use axum::extract::{Form, OriginalUri, Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -31,7 +30,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use serde::{Deserialize, Deserializer, de};
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 100;

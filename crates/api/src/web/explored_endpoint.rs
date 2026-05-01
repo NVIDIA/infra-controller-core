@@ -20,7 +20,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
@@ -33,7 +32,7 @@ use rpc::site_explorer::{
 };
 use serde::Deserialize;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 use crate::web::action_status::{self, ActionStatus};
 

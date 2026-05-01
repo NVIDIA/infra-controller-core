@@ -19,7 +19,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -33,7 +32,7 @@ use model::{self, machine};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const UNKNOWN: &str = "Unknown";

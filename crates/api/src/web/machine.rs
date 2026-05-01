@@ -19,7 +19,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
@@ -32,8 +31,8 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
 
-use super::filters;
 use super::state_history::StateHistoryTable;
+use super::{Base, filters};
 use crate::api::Api;
 use crate::web::action_status::{self, ActionStatus};
 

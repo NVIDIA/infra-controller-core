@@ -20,7 +20,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
-use super::Base;
 use axum::Json;
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
@@ -29,7 +28,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 50;
