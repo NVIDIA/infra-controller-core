@@ -121,7 +121,7 @@ impl EndpointExplorer for MockEndpointExplorer {
             .lock()
             .unwrap()
             .get(&address.ip())
-            .cloned()
+            .copied()
             .unwrap_or(PowerState::On))
     }
 

@@ -408,17 +408,19 @@ async fn test_handle_redfish_error_powers_on_machine(
 
     explorer.run_single_iteration().await?;
 
-    let calls = endpoint_explorer
-        .redfish_power_control_calls
-        .lock()
-        .unwrap();
-    assert_eq!(
-        calls.as_slice(),
-        &[(
-            std::net::SocketAddr::new(bmc_ip, 443),
-            libredfish::SystemPowerControl::On
-        )]
-    );
+    {
+        let calls = endpoint_explorer
+            .redfish_power_control_calls
+            .lock()
+            .unwrap();
+        assert_eq!(
+            calls.as_slice(),
+            &[(
+                std::net::SocketAddr::new(bmc_ip, 443),
+                libredfish::SystemPowerControl::On
+            )]
+        );
+    }
 
     let mut txn = env.pool.begin().await?;
     let endpoints = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
