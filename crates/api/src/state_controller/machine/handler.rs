@@ -110,6 +110,7 @@ use helpers::{
     DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, NextState,
     ReprovisionStateHelper, all_equal,
 };
+use rpc::forge_agent_control_response::FileArtifact;
 
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::write_ops::MachineWriteOp;
@@ -7138,23 +7139,26 @@ impl HostUpgradeState {
 
                     let upgrade_task_id = uuid::Uuid::new_v4().to_string();
                     let file_artifact_count = to_install.files.len();
-                    let task = serde_json::json!({
-                        "upgrade_task_id": &upgrade_task_id,
-                        "component_type": firmware_type.to_string(),
-                        "target_version": to_install.version,
-                        "script": {
-                            "url": to_pxe_url(&scout_config.script.filename),
-                            "sha256": scout_config.script.sha256,
-                        },
-                        "execution_timeout_seconds": scout_config.execution_timeout_seconds,
-                        "artifact_download_timeout_seconds": scout_config.artifact_download_timeout_seconds,
-                        "file_artifacts": to_install.files.iter().map(|f| {
-                            serde_json::json!({
-                                "url": to_pxe_url(&f.filename),
-                                "sha256": f.sha256,
+                    let task = rpc::forge_agent_control_response::ScoutFirmwareUpgradeTask {
+                        upgrade_task_id: upgrade_task_id.clone(),
+                        component_type: firmware_type.to_string(),
+                        target_version: to_install.version,
+                        script: Some(FileArtifact {
+                            url: to_pxe_url(&scout_config.script.filename),
+                            sha256: scout_config.script.sha256.clone(),
+                        }),
+                        execution_timeout_seconds: scout_config.execution_timeout_seconds,
+                        artifact_download_timeout_seconds: scout_config
+                            .artifact_download_timeout_seconds,
+                        file_artifacts: to_install
+                            .files
+                            .into_iter()
+                            .map(|f| FileArtifact {
+                                url: to_pxe_url(&f.filename),
+                                sha256: f.sha256,
                             })
-                        }).collect::<Vec<_>>(),
-                    });
+                            .collect(),
+                    };
 
                     // Scout uses a fixed timeout for the script download and applies the artifact
                     // download timeout per file
@@ -7165,18 +7169,22 @@ impl HostUpgradeState {
                         scout_config.artifact_download_timeout_seconds,
                         file_artifact_count,
                     );
-                    return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
-                        HostReprovisionState::WaitingForScoutUpgrade {
-                            upgrade_task_id,
-                            component_type: firmware_type,
-                            target_version: to_install.version,
-                            started_at,
-                            deadline,
-                            task_json: task.to_string(),
-                            result: None,
-                        },
-                        state.managed_state.get_host_repro_retry_count(),
-                    )));
+                    return Ok(StateHandlerOutcome::transition(
+                        scenario.actual_new_state(
+                            HostReprovisionState::WaitingForScoutUpgrade {
+                                upgrade_task_id,
+                                component_type: firmware_type,
+                                target_version: task.target_version.clone(),
+                                started_at,
+                                deadline,
+                                // Safety: The #[derive(Serialize)] impl does not fail
+                                task_json: serde_json::to_string(&task)
+                                    .expect("BUG: derived Serialize impl failed?"),
+                                result: None,
+                            },
+                            state.managed_state.get_host_repro_retry_count(),
+                        ),
+                    ));
                 }
                 if to_install.script.is_some() {
                     return self

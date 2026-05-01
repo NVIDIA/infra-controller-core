@@ -833,6 +833,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.PlacementInRack",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.ForgeAgentControlResponse.ScoutFirmwareUpgradeTask", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.ForgeAgentControlResponse.FileArtifact", "#[derive(serde::Serialize, serde::Deserialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

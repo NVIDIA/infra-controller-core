@@ -36,6 +36,7 @@ mod api;
 mod attestation;
 mod auth;
 mod cfg;
+mod compat;
 mod credentials;
 mod db_init;
 mod dhcp;

@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use ::rpc::forge::ForgeAgentControlResponse;
+use ::rpc::{forge as rpc, forge_agent_control_response as fac};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, HostReprovisionState,
@@ -28,6 +28,7 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::api::{Api, log_request_data};
+use crate::compat::BuildAndFillLegacyFields;
 use crate::handlers::utils::convert_and_log_machine_id;
 
 // Transitions the machine to Ready state.
@@ -119,7 +120,7 @@ pub(crate) async fn forge_agent_control(
 ) -> Result<Response<rpc::ForgeAgentControlResponse>, Status> {
     log_request_data(&request);
 
-    use ::rpc::forge_agent_control_response::Action;
+    use rpc::forge_agent_control_response::Action;
 
     let machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
@@ -146,15 +147,16 @@ pub(crate) async fn forge_agent_control(
     // Respond based on machine current state
     let state = host_machine.current_state();
 
-    let (action, action_data, maybe_pending_txn) = if is_dpu {
-        let (action, action_data) =
-            get_action_for_dpu_state(state, &machine_id).map_err(CarbideError::from)?;
-        (action, action_data, Some(txn))
+    let (action, maybe_pending_txn) = if is_dpu {
+        (
+            get_action_for_dpu_state(state, &machine_id).map_err(CarbideError::from)?,
+            Some(txn),
+        )
     } else {
         match state {
             ManagedHostState::HostInit {
                 machine_state: MachineState::Init,
-            } => (Action::Retry, None, Some(txn)),
+            } => (Action::retry(), Some(txn)),
             ManagedHostState::Validation {
                 validation_state:
                     ValidationState::MachineValidation {
@@ -189,37 +191,20 @@ pub(crate) async fn forge_agent_control(
                     let machine_validation =
                         db::machine_validation::find_by_id(&mut txn, id).await?;
                     (
-                        Action::MachineValidation,
-                        Some(
-                            rpc::forge_agent_control_response::ForgeAgentControlExtraInfo {
-                                pair: [
-                                    KeyValuePair {
-                                        key: "Context".to_string(),
-                                        value: context.clone(),
-                                    },
-                                    KeyValuePair {
-                                        key: "ValidationId".to_string(),
-                                        value: id.to_string(),
-                                    },
-                                    KeyValuePair {
-                                        key: "IsEnabled".to_string(),
-                                        value: is_enabled.to_string(),
-                                    },
-                                    KeyValuePair {
-                                        key: "MachineValidationFilter".to_string(),
-                                        value: serde_json::to_string(&machine_validation.filter)
-                                            .map_err(CarbideError::from)?,
-                                    },
-                                ]
-                                .to_vec(),
-                            },
-                        ),
+                        Action::MachineValidation(fac::MachineValidation {
+                            is_enabled: true,
+                            context: context.clone(),
+                            validation_id: Some(::rpc::Uuid {
+                                value: id.to_string(),
+                            }),
+                            filter: Some(machine_validation.filter.unwrap_or_default().into()),
+                        }),
                         Some(txn),
                     )
                 } else {
                     // This avoids sending Machine validation command scout
-                    tracing::info!("Skipped machine validation",);
-                    (Action::Noop, None, Some(txn))
+                    tracing::info!("Skipped machine validation");
+                    (Action::noop(), Some(txn))
                 }
             }
             ManagedHostState::HostInit {
@@ -232,7 +217,7 @@ pub(crate) async fn forge_agent_control(
                         ..
                     },
                 ..
-            } => (Action::Discovery, None, Some(txn)),
+            } => (Action::discovery(), Some(txn)),
             // If the API is configured with attestation_enabled, and
             // the machine has been Discovered (and progressed on to the
             // point where it is WaitingForMeasurements), then let Scout (or
@@ -240,7 +225,7 @@ pub(crate) async fn forge_agent_control(
             // to be sent.
             ManagedHostState::Measuring {
                 measuring_state: MeasuringState::WaitingForMeasurements,
-            } => (Action::Measure, None, Some(txn)),
+            } => (Action::measure(), Some(txn)),
             ManagedHostState::WaitingForCleanup {
                 cleanup_state: CleanupState::HostCleanup { .. },
             }
@@ -262,9 +247,9 @@ pub(crate) async fn forge_agent_control(
                 // Check scout has already cleaned up the machine
                 if last_cleanup_time.unwrap_or_default() > state_version.timestamp() {
                     tracing::info!("Cleanup is already done");
-                    (Action::Noop, None, Some(txn))
+                    (Action::noop(), Some(txn))
                 } else {
-                    (Action::Reset, None, Some(txn))
+                    (Action::reset(), Some(txn))
                 }
             }
             ManagedHostState::BomValidating {
@@ -278,9 +263,9 @@ pub(crate) async fn forge_agent_control(
                 if machine.last_discovery_time.unwrap_or_default()
                     < machine.current_version().timestamp()
                 {
-                    (Action::Discovery, None, Some(txn))
+                    (Action::discovery(), Some(txn))
                 } else {
-                    (Action::Noop, None, Some(txn))
+                    (Action::noop(), Some(txn))
                 }
             }
             ManagedHostState::Assigned {
@@ -289,10 +274,10 @@ pub(crate) async fn forge_agent_control(
                 // Commit the transaction now, to avoid holding across an unrelated await point
                 txn.commit().await?;
                 match crate::handlers::dpa::process_scout_req(api, machine_id).await {
-                    Ok((action, einfo)) => (action, einfo, None),
+                    Ok(action) => (action, None),
                     Err(e) => {
                         tracing::error!("Error returned from process_scout_req: {e}");
-                        (Action::Noop, None, None)
+                        (Action::noop(), None)
                     }
                 }
             }
@@ -310,18 +295,17 @@ pub(crate) async fn forge_agent_control(
                     machine_id = %machine.id,
                     "Sending firmware upgrade task to scout",
                 );
-                (
-                    Action::FirmwareUpgrade,
-                    Some(
-                        rpc::forge_agent_control_response::ForgeAgentControlExtraInfo {
-                            pair: vec![KeyValuePair {
-                                key: "firmware_upgrade_task".to_string(),
-                                value: task_json.clone(),
-                            }],
-                        },
-                    ),
-                    Some(txn),
-                )
+                let action = match serde_json::from_str::<fac::ScoutFirmwareUpgradeTask>(task_json)
+                {
+                    Ok(task) => Action::FirmwareUpgrade(fac::FirmwareUpgrade { task: Some(task) }),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Could not deserialize firmware upgrade task, sending no-op action to scout: {e}"
+                        );
+                        Action::noop()
+                    }
+                };
+                (action, Some(txn))
             }
 
             _ => {
@@ -332,7 +316,7 @@ pub(crate) async fn forge_agent_control(
                     %state,
                     "forge agent control",
                 );
-                (Action::Noop, None, Some(txn))
+                (Action::noop(), Some(txn))
             }
         }
     };
@@ -347,10 +331,9 @@ pub(crate) async fn forge_agent_control(
         txn.commit().await?;
     }
 
-    Ok(Response::new(rpc::ForgeAgentControlResponse {
-        action: action as i32,
-        data: action_data,
-    }))
+    Ok(Response::new(
+        ForgeAgentControlResponse::build_and_fill_legacy_fields(action)?,
+    ))
 }
 
 /// Records reboot duration metric for a machine if applicable

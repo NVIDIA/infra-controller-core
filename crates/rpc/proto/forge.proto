@@ -4300,7 +4300,8 @@ message ForgeAgentControlRequest {
 }
 
 message ForgeAgentControlResponse {
-  enum Action {
+  // Legacy action enum. New clients will use `action` oneof below.
+  enum LegacyAction {
     NOOP = 0; // No operation. Do nothing
     RESET = 1; // Wipe the machine, prepare for next tenant
     DISCOVERY = 2; // Run full discovery
@@ -4312,8 +4313,9 @@ message ForgeAgentControlResponse {
     MLX_ACTION = 8; // MlxAction for DPA NICs
     FIRMWARE_UPGRADE = 9; // Firmware upgrade through scout
   }
-  Action action = 1;
+  LegacyAction legacy_action = 1;
 
+  // Legacy untyped action payload. New clients should use typed_action below.
   message ForgeAgentControlExtraInfo {
     message KeyValuePair {
       string key = 1;
@@ -4323,6 +4325,108 @@ message ForgeAgentControlResponse {
   }
 
   optional ForgeAgentControlExtraInfo data = 2;
+
+  message Noop {
+  }
+
+  message Reset {
+  }
+
+  message Discovery {
+  }
+
+  message Rebuild {
+  }
+
+  message Retry {
+  }
+
+  message Measure {
+  }
+
+  message LogError {
+  }
+
+  message MachineValidation {
+    bool is_enabled = 1;
+    string context = 2;
+    common.UUID validation_id = 3;
+    MachineValidationFilter filter = 4;
+  }
+
+  message MachineValidationFilter {
+    repeated string tags = 1;
+    repeated string allowed_tests = 2;
+    optional bool run_unverfied_tests = 3;
+    optional common.StringList contexts = 4;
+  }
+
+  message MlxAction {
+    repeated MlxDeviceAction device_actions = 1;
+  }
+
+  message MlxDeviceAction {
+    string pci_name = 1;
+
+    oneof command {
+      MlxDeviceNoop noop = 2;
+      MlxDeviceLock lock = 3;
+      MlxDeviceUnlock unlock = 4;
+      MlxDeviceApplyProfile apply_profile = 5;
+      MlxDeviceApplyFirmware apply_firmware = 6;
+    }
+  }
+
+  message MlxDeviceNoop {
+  }
+
+  message MlxDeviceLock {
+    string key = 1;
+  }
+
+  message MlxDeviceUnlock {
+    string key = 1;
+  }
+
+  message MlxDeviceApplyProfile {
+    optional mlx_device.SerializableMlxConfigProfile serialized_profile = 1;
+  }
+
+  message MlxDeviceApplyFirmware {
+    optional mlx_device.FirmwareFlasherProfile profile = 1;
+  }
+
+  message FirmwareUpgrade {
+    ScoutFirmwareUpgradeTask task = 1;
+  }
+
+  message ScoutFirmwareUpgradeTask {
+    string upgrade_task_id = 1;
+    string component_type = 2;
+    string target_version = 3;
+    FileArtifact script = 4;
+    uint32 execution_timeout_seconds = 5;
+    uint32 artifact_download_timeout_seconds = 6;
+    repeated FileArtifact file_artifacts = 7;
+  }
+
+  message FileArtifact {
+    string url = 1;
+    string sha256 = 2;
+  }
+
+  oneof action {
+    Noop noop = 3;
+    Reset reset = 4;
+    Discovery discovery = 5;
+    Rebuild rebuild = 6;
+    Retry retry = 7;
+    Measure measure = 8;
+    LogError log_error = 9;
+    MachineValidation machine_validation = 10;
+    MlxAction mlx_action = 11;
+    FirmwareUpgrade firmware_upgrade = 12;
+  }
 }
 
 message MachineDiscoveryInfo {

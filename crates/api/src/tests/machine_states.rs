@@ -48,7 +48,7 @@ use model::machine::{
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest, TpmCaCert, TpmCaCertId};
-use rpc::forge_agent_control_response::Action;
+use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
 use tonic::{Code, Request};
@@ -848,7 +848,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     assert!(pxe.pxe_script.contains("scout.efi"));
 
     let response = forge_agent_control(&env, mh.id).await;
-    assert_eq!(response.action, Action::Discovery as i32);
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
+    assert_eq!(response.legacy_action, LegacyAction::Discovery as i32);
 
     discovery_completed(&env, mh.id).await;
 
@@ -940,7 +941,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let response = forge_agent_control(&env, mh.id).await;
-    assert_eq!(response.action, Action::Noop as i32);
+    assert!(matches!(response.action, Some(Action::Noop(_))));
+    assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.id,
         1,
@@ -1586,7 +1588,8 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         .expect("Failed to add hardware health report to newly created machine");
 
     let response = mh.host().forge_agent_control().await;
-    assert_eq!(response.action, Action::Discovery as i32);
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
+    assert_eq!(response.legacy_action, LegacyAction::Discovery as i32);
 
     mh.host().discovery_completed().await;
 
@@ -1642,7 +1645,8 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     // This is what simulates a reboot being completed.
     let response = mh.host().forge_agent_control().await;
-    assert_eq!(response.action, Action::Noop as i32);
+    assert!(matches!(response.action, Some(Action::Noop(_))));
+    assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,

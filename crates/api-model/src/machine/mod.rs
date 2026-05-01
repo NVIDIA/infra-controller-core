@@ -37,7 +37,7 @@ use json::MachineSnapshotPgJson;
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
 use rpc::forge::HealthSourceOrigin;
-use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use rpc::forge_agent_control_response as fac;
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -2578,7 +2578,7 @@ pub struct MachineNextStateResolver;
 pub fn get_action_for_dpu_state(
     state: &ManagedHostState,
     dpu_machine_id: &MachineId,
-) -> ModelResult<(Action, Option<ForgeAgentControlExtraInfo>)> {
+) -> ModelResult<fac::Action> {
     Ok(match state {
         ManagedHostState::DPUReprovision { .. }
         | ManagedHostState::Assigned {
@@ -2588,11 +2588,11 @@ pub fn get_action_for_dpu_state(
                 .as_reprovision_state(dpu_machine_id)
                 .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
             match dpu_state {
-                ReprovisionState::BufferTime => (Action::Retry, None),
+                ReprovisionState::BufferTime => fac::Action::retry(),
                 ReprovisionState::WaitingForNetworkInstall
                 | ReprovisionState::DpfStates {
                     substate: DpfState::WaitingForReady { .. },
-                } => (Action::Discovery, None),
+                } => fac::Action::Discovery(fac::Discovery {}),
                 _ => {
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
@@ -2600,7 +2600,7 @@ pub fn get_action_for_dpu_state(
                         %state,
                         "forge agent control",
                     );
-                    (Action::Noop, None)
+                    fac::Action::noop()
                 }
             }
         }
@@ -2614,7 +2614,7 @@ pub fn get_action_for_dpu_state(
                 DpuInitState::Init
                 | DpuInitState::DpfStates {
                     state: DpfState::WaitingForReady { .. },
-                } => (Action::Discovery, None),
+                } => fac::Action::Discovery(fac::Discovery {}),
                 _ => {
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
@@ -2622,7 +2622,7 @@ pub fn get_action_for_dpu_state(
                         %state,
                         "forge agent control",
                     );
-                    (Action::Noop, None)
+                    fac::Action::noop()
                 }
             }
         }
@@ -2634,7 +2634,7 @@ pub fn get_action_for_dpu_state(
                 %state,
                 "forge agent control",
             );
-            (Action::Noop, None)
+            fac::Action::noop()
         }
     })
 }
@@ -2820,6 +2820,30 @@ pub struct MachineValidationFilter {
     pub allowed_tests: Vec<String>,
     pub run_unverfied_tests: Option<bool>,
     pub contexts: Option<Vec<String>>,
+}
+
+impl From<rpc::forge_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
+    fn from(filter: rpc::forge_agent_control_response::MachineValidationFilter) -> Self {
+        Self {
+            tags: filter.tags,
+            allowed_tests: filter.allowed_tests,
+            run_unverfied_tests: filter.run_unverfied_tests,
+            contexts: filter.contexts.map(|c| c.items),
+        }
+    }
+}
+
+impl From<MachineValidationFilter> for fac::MachineValidationFilter {
+    fn from(filter: MachineValidationFilter) -> Self {
+        Self {
+            tags: filter.tags,
+            allowed_tests: filter.allowed_tests,
+            run_unverfied_tests: filter.run_unverfied_tests,
+            contexts: filter
+                .contexts
+                .map(|items| rpc::common::StringList { items }),
+        }
+    }
 }
 
 impl Display for MachineValidationFilter {

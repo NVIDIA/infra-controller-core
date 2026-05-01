@@ -533,6 +533,21 @@ async fn test_machine_validation_test_on_demand_filter(
     .await;
 
     let response = mh.host().forge_agent_control().await;
+    let Some(rpc::forge_agent_control_response::Action::MachineValidation(machine_validation)) =
+        response.action.as_ref()
+    else {
+        panic!("expected typed machine validation action");
+    };
+    let typed_filter = machine_validation
+        .filter
+        .as_ref()
+        .expect("typed machine validation filter");
+    assert!(
+        allowed_tests
+            .iter()
+            .all(|item| typed_filter.allowed_tests.contains(item))
+    );
+
     for item in response.data.unwrap().pair {
         if item.key == "MachineValidationFilter" {
             let machine_validation_filter: MachineValidationFilter =

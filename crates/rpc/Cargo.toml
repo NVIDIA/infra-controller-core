@@ -75,18 +75,18 @@ async-trait = { workspace = true }
 nonempty = { workspace = true }
 clap = { features = ["derive"], optional = true, workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
-  "mac_address",
-  "ipnetwork",
-  "uuid",
-  "migrate",
-  "postgres",
-  "chrono",
-  "macros",
-  "json",
+    "runtime-tokio-rustls",
+    "mac_address",
+    "ipnetwork",
+    "uuid",
+    "migrate",
+    "postgres",
+    "chrono",
+    "macros",
+    "json",
 ], optional = true }
 prettytable-rs = { optional = true, default-features = false, features = [
-  "csv",
+    "csv",
 ], workspace = true }
 serde_yaml = { optional = true, workspace = true }
 data-encoding = { workspace = true }
