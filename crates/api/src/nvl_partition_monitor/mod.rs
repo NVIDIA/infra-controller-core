@@ -32,7 +32,7 @@ use db::{self, ObjectColumnFilter, machine};
 use libnmxc::nmxc_model::{GetPartitionInfoListRequest, PartitionInfo};
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
 use metrics::{AppliedChange, NmxmPartitionOperationStatus, NvlPartitionMonitorMetrics};
-use model::hardware_info::{HardwareInfo, MachineNvLinkInfo};
+use model::hardware_info::MachineNvLinkInfo;
 use model::instance::status::SyncState;
 use model::instance::status::nvlink::InstanceNvLinkStatus;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -117,24 +117,6 @@ fn nmx_c_partition_id_string(pi: &PartitionInfo) -> String {
         .as_ref()
         .map(|id| id.partition_id.to_string())
         .unwrap_or_default()
-}
-
-/// First non-empty `GpuPlatformInfo::chassis_serial` from the **first** snapshot's host `HardwareInfo`.
-fn chassis_serial_from_snapshots(snapshots: &[&ManagedHostStateSnapshot]) -> Option<String> {
-    let snapshot = snapshots.first()?;
-    chassis_serial_from_hardware_info(snapshot.host_snapshot.hardware_info.as_ref())
-}
-
-fn chassis_serial_from_hardware_info(hi: Option<&HardwareInfo>) -> Option<String> {
-    let hi = hi?;
-    for gpu in &hi.gpus {
-        if let Some(ref pi) = gpu.platform_info {
-            if !pi.chassis_serial.is_empty() {
-                return Some(pi.chassis_serial.clone());
-            }
-        }
-    }
-    None
 }
 
 fn is_nmx_c_default_partition(partition: &PartitionInfo) -> bool {
@@ -738,33 +720,23 @@ impl NvlPartitionMonitor {
             &managed_host_snapshots.keys().copied().collect::<Vec<_>>(),
         )
         .await?;
-        let managed_host_snapshots_by_domain: HashMap<
-            NvLinkDomainId,
+
+        let managed_host_snapshots_by_chassis_serial: HashMap<
+            String,
             Vec<&ManagedHostStateSnapshot>,
         > = managed_host_snapshots.iter().fold(
             HashMap::new(),
             |mut acc, (_machine_id, snapshot)| {
                 if let Some(nvlink_info) = snapshot.host_snapshot.nvlink_info.as_ref() {
-                    acc.entry(nvlink_info.domain_uuid)
-                        .or_default()
-                        .push(snapshot);
+                    let serial = nvlink_info.chassis_serial.trim();
+                    if !serial.is_empty() {
+                        acc.entry(serial.to_string()).or_default().push(snapshot);
+                    }
                 }
                 acc
             },
         );
-        let domain_to_chassis_serial: HashMap<NvLinkDomainId, String> =
-            managed_host_snapshots_by_domain
-                .iter()
-                .map(|(domain_id, snapshots)| {
-                    chassis_serial_from_snapshots(snapshots.as_slice())
-                        .ok_or_else(|| {
-                            CarbideError::internal(format!(
-                                "Missing GpuPlatformInfo.chassis_serial in hardware info for NvLink domain {domain_id}"
-                            ))
-                        })
-                        .map(|serial| (*domain_id, serial))
-                })
-                .collect::<Result<_, _>>()?;
+
         let db_nvl_partitions =
             db::nvl_partition::find_by(&mut txn, ObjectColumnFilter::<IdColumn>::All).await?;
 
@@ -778,19 +750,6 @@ impl NvlPartitionMonitor {
                 .into_iter()
                 .map(|r| (r.chassis_serial, r.endpoint))
                 .collect();
-        let mut domain_to_endpoint: HashMap<NvLinkDomainId, String> =
-            HashMap::with_capacity(domain_to_chassis_serial.len());
-        for (domain_id, chassis_serial) in &domain_to_chassis_serial {
-            if let Some(endpoint) = chassis_serial_to_endpoint.get(chassis_serial) {
-                domain_to_endpoint.insert(*domain_id, endpoint.clone());
-            } else {
-                tracing::debug!(
-                    domain_id = %domain_id,
-                    %chassis_serial,
-                    "nvlink_nmxc_endpoint not found; skipping NMX-C for this domain"
-                );
-            }
-        }
 
         // Don't hold the transaction across unrelated awaits
         txn.commit().await?;
@@ -800,11 +759,11 @@ impl NvlPartitionMonitor {
 
         let mut total_completed_operations = 0;
 
-        for (domain_id, domain_snapshots) in &managed_host_snapshots_by_domain {
-            let Some(endpoint_url) = domain_to_endpoint.get(domain_id) else {
+        for (chassis_serial, chassis_snapshots) in &managed_host_snapshots_by_chassis_serial {
+            let Some(endpoint_url) = chassis_serial_to_endpoint.get(chassis_serial) else {
                 tracing::debug!(
-                    domain_id = %domain_id,
-                    "No nvlink_nmxc_endpoints mapping for domain; skipping partition monitor work"
+                    %chassis_serial,
+                    "No nvlink_nmxc_endpoints mapping for chassis; skipping partition monitor work"
                 );
                 continue;
             };
@@ -817,18 +776,18 @@ impl NvlPartitionMonitor {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::warn!(
-                        domain_id = %domain_id,
+                        %chassis_serial,
                         endpoint = %endpoint_url,
                         error = %e,
-                        "Failed to create NMX-C client; skipping partition monitor work for this domain"
+                        "Failed to create NMX-C client; skipping partition monitor work for this chassis"
                     );
                     continue;
                 }
             };
 
-            // filter managed host snapshots, nvlink info and db partitionsby domain
+            // Filter managed host snapshots, nvlink info, and DB partitions for this chassis.
             let managed_host_snapshots_domain: HashMap<MachineId, ManagedHostStateSnapshot> =
-                domain_snapshots
+                chassis_snapshots
                     .iter()
                     .map(|s| (s.host_snapshot.id, (*s).clone()))
                     .collect();
@@ -840,9 +799,13 @@ impl NvlPartitionMonitor {
                     .filter(|(id, _)| machine_ids_in_domain.contains(id))
                     .map(|(k, v)| (*k, v.clone()))
                     .collect();
+            let domain_uuids: HashSet<NvLinkDomainId> = chassis_snapshots
+                .iter()
+                .filter_map(|s| s.host_snapshot.nvlink_info.as_ref().map(|n| n.domain_uuid))
+                .collect();
             let db_nvl_partitions_domain: Vec<NvlPartition> = db_nvl_partitions
                 .iter()
-                .filter(|p| p.domain_uuid == *domain_id)
+                .filter(|p| domain_uuids.contains(&p.domain_uuid))
                 .cloned()
                 .collect();
 
@@ -886,12 +849,12 @@ impl NvlPartitionMonitor {
             })
             .await
             .map_err(|e| {
-                metrics.nmxm.connect_error = "Failed to get NMX-C partition info list".to_string();
+                metrics.nmxc.connect_error = "Failed to get NMX-C partition info list".to_string();
                 CarbideError::internal(format!("Failed to get NMX-C partition info list: {e}"))
             })?
             .partition_info_list;
 
-        metrics.nmxm.num_partitions += partition_info_list.len();
+        metrics.nmxc.num_partitions += partition_info_list.len();
 
         let mut partition_processing_context = PartitionProcessingContext::new(
             partition_info_list,
@@ -917,7 +880,7 @@ impl NvlPartitionMonitor {
 
         // Execute any NMX-C operations and collect successful completions.
         let completed_nmx_c_operations = self
-            .execute_nmx_c_operations(nmx_c_operations, metrics)
+            .execute_nmx_c_operations(nmxc_client, nmx_c_operations, metrics)
             .await?;
 
         if !completed_nmx_c_operations.is_empty() {
@@ -944,7 +907,7 @@ impl NvlPartitionMonitor {
             })
             .await
             .map_err(|e| {
-                metrics.nmxm.connect_error =
+                metrics.nmxc.connect_error =
                     "Failed to get NMX-C partition info list when updating db".to_string();
                 CarbideError::internal(format!("Failed to get NMX-C partition info list: {e}"))
             })?
@@ -1006,7 +969,6 @@ impl NvlPartitionMonitor {
                 Some(info) => {
                     for nvlink_gpu in &info.gpus {
                         metrics.num_gpus_scanned += 1;
-                        // NMX-M ID is 1-based so subtract 1 to get our device_instance.
                         let device_instance: u32 = nvlink_gpu.device_id as u32 - 1;
                         let instance_gpu_config = &instance
                             .config
@@ -1449,15 +1411,10 @@ impl NvlPartitionMonitor {
 
     async fn execute_nmx_c_operations(
         &self,
+        nmxc_client: &dyn Nmxc,
         nmx_c_operations: HashMap<NvLinkLogicalPartitionId, Vec<NmxcPartitionOperation>>,
         metrics: &mut NvlPartitionMonitorMetrics,
     ) -> CarbideResult<HashMap<NvLinkLogicalPartitionId, Vec<NmxcPartitionOperation>>> {
-        let nmxc_client = self
-            .nmxc_client_pool
-            .create_client(Endpoint::new(self.config.nmx_c_endpoint.clone()))
-            .await
-            .map_err(|e| CarbideError::internal(format!("Failed to create NMXC client: {e}")))?;
-
         let mut completed_operations: HashMap<
             NvLinkLogicalPartitionId,
             Vec<NmxcPartitionOperation>,

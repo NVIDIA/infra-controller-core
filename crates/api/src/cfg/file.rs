@@ -1588,9 +1588,6 @@ pub struct NvLinkConfig {
     /// include port number as well if required eg. https://127.0.0.1:4010
     #[serde(default = "default_nmx_m_endpoint")]
     pub nmx_m_endpoint: String,
-    /// NMX-C gRPC endpoint URL used to create client connections, e.g. http://127.0.0.1:9601
-    #[serde(default = "default_nmx_c_endpoint")]
-    pub nmx_c_endpoint: String,
     /// PEM file path: extra CA bundle for verifying the NMX-C server over HTTPS (optional).
     #[serde(default)]
     pub nmx_c_tls_ca_cert_path: Option<String>,
@@ -1611,10 +1608,6 @@ fn default_nmx_m_endpoint() -> String {
     "localhost".to_string()
 }
 
-fn default_nmx_c_endpoint() -> String {
-    "http://127.0.0.1:9601".to_string()
-}
-
 impl Default for NvLinkConfig {
     fn default() -> Self {
         Self {
@@ -1622,7 +1615,6 @@ impl Default for NvLinkConfig {
             monitor_run_interval: Self::default_monitor_run_interval(),
             nmx_m_operation_timeout: Self::default_nmx_m_operation_timeout(),
             nmx_m_endpoint: "localhost".to_string(),
-            nmx_c_endpoint: default_nmx_c_endpoint(),
             nmx_c_tls_ca_cert_path: None,
             nmx_c_tls_client_cert_path: None,
             nmx_c_tls_client_key_path: None,
@@ -3902,7 +3894,6 @@ mqtt_endpoint = "mqtt.forge"
                 monitor_run_interval: std::time::Duration::from_secs(33),
                 nmx_m_operation_timeout: std::time::Duration::from_secs(21),
                 nmx_m_endpoint: "localhost".to_string(),
-                nmx_c_endpoint: default_nmx_c_endpoint(),
                 nmx_c_tls_ca_cert_path: None,
                 nmx_c_tls_client_cert_path: None,
                 nmx_c_tls_client_key_path: None,

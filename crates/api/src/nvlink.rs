@@ -805,7 +805,18 @@ pub mod test_support {
 
         fn default_gpu_uids() -> Vec<u64> {
             vec![
-                12345, 12346, 12347, 12348, 12349, 12350, 12351, 12352, 12353, 12354, 12355, 12356,
+                0xdb488cb17978480,
+                0xdb488cb17978481,
+                0xdb488cb17978482,
+                0xdb488cb17978483,
+                0xeb488cb17978480,
+                0xeb488cb17978481,
+                0xeb488cb17978482,
+                0xeb488cb17978483,
+                0xfb488cb17978480,
+                0xfb488cb17978481,
+                0xfb488cb17978482,
+                0xfb488cb17978483,
             ]
         }
 
@@ -847,7 +858,10 @@ pub mod test_support {
     impl Nmxc for NmxcSimClient {
         async fn hello(&self, _gateway_id: &str) -> Result<nmxc_model::ServerHello, NmxcError> {
             Ok(nmxc_model::ServerHello {
-                server_header: None,
+                server_header: Some(nmxc_model::ServerHeader {
+                    domain_uuid: "ffffffff-ffff-ffff-ffff-ffffffffffff".to_string(),
+                    ..Default::default()
+                }),
                 components_ver: vec![],
                 capabilities: vec![],
                 host_os_details: String::new(),
@@ -1135,8 +1149,8 @@ pub mod test_support {
     /// [`NmxcPool`] that dials the NMX-C gRPC **simulator** on localhost (default port 9601).
     ///
     /// Ignores the `endpoint` argument on [`NmxcPool::create_client`] and always connects to
-    /// [`Self::simulator_endpoint`], so carbide config’s `nmx_c_endpoint` does not need to match
-    /// the simulator when using this pool in tests.
+    /// [`Self::simulator_endpoint`], so configured endpoints do not need to match the simulator
+    /// when using this pool in tests.
     #[derive(Debug, Clone)]
     pub struct NmxcSimClient2 {
         pool: NmxcClientPool,

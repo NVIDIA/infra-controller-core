@@ -268,11 +268,13 @@ pub async fn handle_nvlink_info_populate(
             domain_uuid_parsed,
         )),
         gpus: gpus.clone(),
+        chassis_serial: serial_number.clone(),
     };
 
     // Build the nvlink_info structure as JSON for display
     let nvlink_info = serde_json::json!({
         "domain_uuid": domain_uuid,
+        "chassis_serial": serial_number,
         "gpus": gpus.iter().map(|g| serde_json::json!({
             "device_id": g.device_id,
             "guid": g.guid,

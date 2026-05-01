@@ -55,7 +55,7 @@ use libnmxc::NmxcPool;
 use measured_boot::pcr::PcrRegisterValue;
 use model::attestation::spdm::Verifier;
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
-use model::hardware_info::TpmEkCertificate;
+use model::hardware_info::{HardwareInfo, TpmEkCertificate};
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
 use model::machine::capabilities::MachineCapabilityType;
 use model::machine::{
@@ -2443,53 +2443,67 @@ pub async fn create_managed_host_with_hardware_info_template(
     env: &TestEnv,
     hardware_info_template: managed_host::HardwareInfoTemplate,
 ) -> TestManagedHost {
+    insert_nvlink_nmxc_endpoint_from_managed_host(env, &hardware_info_template).await;
     let config = ManagedHostConfig::with_hardware_info_template(hardware_info_template);
     let mh = site_explorer::new_host(env, config).await.unwrap();
-    let test_mh = TestManagedHost {
+    TestManagedHost {
         id: mh.host_snapshot.id,
         dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),
         api: env.api.clone(),
-    };
-    insert_nvlink_nmxc_endpoint_from_managed_host_discovery(env, &test_mh).await;
-    test_mh
+    }
 }
 
-/// Returns true when discovery looks like a GB200-class host
-fn discovery_indicates_gb200(discovery: &rpc::DiscoveryInfo) -> bool {
-    if discovery
+fn hardware_info_from_hardware_info_template(
+    template: &managed_host::HardwareInfoTemplate,
+) -> Option<HardwareInfo> {
+    let json_bytes: &[u8] = match template {
+        managed_host::HardwareInfoTemplate::Default => host::X86_INFO_JSON,
+        managed_host::HardwareInfoTemplate::Custom(data) => data,
+    };
+    serde_json::from_slice::<HardwareInfo>(json_bytes).ok()
+}
+
+/// Inserts `nvlink_nmxc_endpoints` with a random `http://<ipv4>:<port>` endpoint when the template's
+/// `dmi_data.product_name` contains `"GB200"` and a non-empty `gpus[].platform_info.chassis_serial`
+/// exists. Skips if the row already exists or on DB errors.
+pub async fn insert_nvlink_nmxc_endpoint_from_managed_host(
+    env: &TestEnv,
+    hardware_info_template: &managed_host::HardwareInfoTemplate,
+) {
+    let endpoint = format!(
+        "http://{}.{}.{}.{}:{}",
+        rand::random::<u8>(),
+        rand::random::<u8>(),
+        rand::random::<u8>(),
+        rand::random::<u8>(),
+        rand::random::<u16>() % 40_000 + 10_000,
+    );
+    let Some(hi) = hardware_info_from_hardware_info_template(hardware_info_template) else {
+        return;
+    };
+    if !hi
         .dmi_data
         .as_ref()
         .is_some_and(|d| d.product_name.contains("GB200"))
     {
-        return true;
-    }
-    discovery.gpus.iter().any(|g| g.name.contains("GB200"))
-}
-
-/// Inserts `nvlink_nmxc_endpoints` using the first non-empty
-/// `discovery_info.gpus[].platform_info.chassis_serial` from the host machine (endpoint `1.1.1.1`).
-/// Only runs for GB200-class discovery; skips otherwise, if discovery data is missing, if there is no
-/// chassis serial, or if the row already exists.
-pub async fn insert_nvlink_nmxc_endpoint_from_managed_host_discovery(
-    env: &TestEnv,
-    mh: &TestManagedHost,
-) {
-    const ENDPOINT: &str = "1.1.1.1";
-    let machine = mh.host().rpc_machine().await;
-    let Some(ref discovery) = machine.discovery_info else {
-        return;
-    };
-    if !discovery_indicates_gb200(discovery) {
         return;
     }
-    let Some(chassis_serial) = discovery.gpus.iter().find_map(|g| {
-        g.platform_info
-            .as_ref()
-            .map(|p| p.chassis_serial.as_str())
-            .filter(|s| !s.is_empty())
+    let Some(chassis_serial_owned) = hi.gpus.iter().find_map(|g| {
+        g.platform_info.as_ref().and_then(|p| {
+            let s = p.chassis_serial.trim();
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        })
     }) else {
         return;
     };
+    let chassis_serial = chassis_serial_owned.trim();
+    if chassis_serial.is_empty() {
+        return;
+    }
     let Ok(mut txn) = db::Transaction::begin(&env.pool).await else {
         return;
     };
@@ -2503,7 +2517,7 @@ pub async fn insert_nvlink_nmxc_endpoint_from_managed_host_discovery(
         txn.commit().await.ok();
         return;
     }
-    if db::nvlink_nmxc_endpoints::create(&mut txn, chassis_serial, ENDPOINT)
+    if db::nvlink_nmxc_endpoints::create(&mut txn, chassis_serial, endpoint.as_str())
         .await
         .is_err()
     {

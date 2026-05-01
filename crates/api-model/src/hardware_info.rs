@@ -1016,6 +1016,8 @@ impl From<MachineInventory> for rpc::forge::MachineInventory {
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MachineNvLinkInfo {
     pub domain_uuid: NvLinkDomainId,
+    /// Chassis serial from the first GPU `GpuPlatformInfo` at discovery (or operator RPC).
+    pub chassis_serial: String,
     pub gpus: Vec<NvLinkGpu>,
 }
 
@@ -1028,6 +1030,7 @@ impl From<MachineNvLinkInfo> for rpc::forge::MachineNvLinkInfo {
                 .into_iter()
                 .map(rpc::forge::NvLinkGpu::from)
                 .collect(),
+            chassis_serial: value.chassis_serial,
         }
     }
 }
@@ -1051,6 +1054,7 @@ impl TryFrom<rpc::forge::MachineNvLinkInfo> for MachineNvLinkInfo {
             domain_uuid: value.domain_uuid.ok_or(
                 rpc::errors::RpcDataConversionError::MissingArgument("domain_uuid"),
             )?,
+            chassis_serial: value.chassis_serial,
             gpus: value.gpus.into_iter().map(NvLinkGpu::from).collect(),
         })
     }
