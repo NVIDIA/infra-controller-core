@@ -1052,39 +1052,27 @@ async fn test_increment_vpc_version_detects_concurrent_writes(
     };
 
     // Open two transactions, have both read the current version, then race!
-    let pool_a = pool.clone();
-    let pool_b = pool.clone();
+    let mut txn_a = pool.begin().await.unwrap();
+    let mut txn_b = pool.begin().await.unwrap();
     let (a, b) = tokio::join!(
         tokio::spawn(async move {
-            let mut txn = pool_a.begin().await.unwrap();
-            let result = db::vpc::increment_vpc_version(&mut txn, vpc_id).await;
-            if result.is_ok() {
-                txn.commit().await.unwrap();
-            } else {
-                txn.rollback().await.unwrap();
-            }
-            result
+            let result = db::vpc::increment_vpc_version(&mut txn_a, vpc_id).await;
+            (result, txn_a) // Return txn to make sure it stays open until the other task finishes
         }),
         tokio::spawn(async move {
-            let mut txn = pool_b.begin().await.unwrap();
-            let result = db::vpc::increment_vpc_version(&mut txn, vpc_id).await;
-            if result.is_ok() {
-                txn.commit().await.unwrap();
-            } else {
-                txn.rollback().await.unwrap();
-            }
-            result
+            let result = db::vpc::increment_vpc_version(&mut txn_b, vpc_id).await;
+            (result, txn_b)
         }),
     );
-    let (a, b) = (a.unwrap(), b.unwrap());
+    let ((a, txn_a), (b, txn_b)) = (a.unwrap(), b.unwrap());
 
-    let outcomes = [&a, &b];
-    let successes = outcomes.iter().filter(|r| r.is_ok()).count();
+    let outcomes = [(&a, txn_a), (&b, txn_b)];
+    let successes = outcomes.iter().filter(|r| r.0.is_ok()).count();
     let conflicts = outcomes
         .iter()
         .filter(|r| {
             matches!(
-                r,
+                r.0,
                 Err(db::DatabaseError::ConcurrentModificationError("vpc", _))
             )
         })
@@ -1097,6 +1085,14 @@ async fn test_increment_vpc_version_detects_concurrent_writes(
         conflicts, 1,
         "the losing race should get a ConcurrentModificationError; got {conflicts} (a={a:?}, b={b:?})"
     );
+
+    for outcome in outcomes {
+        if outcome.0.is_ok() {
+            outcome.1.commit().await.unwrap();
+        } else {
+            outcome.1.rollback().await.unwrap();
+        }
+    }
 
     let final_version_nr = {
         let vpcs =
