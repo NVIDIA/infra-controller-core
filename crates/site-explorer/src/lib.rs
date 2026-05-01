@@ -942,6 +942,26 @@ impl SiteExplorer {
             // a bare managed host regardless of what matched).
             let host_dpu_mode = effective_mode(&ep.address);
 
+            // If an operator has declared this host `dpu_mode::NoDpu`,
+            // treat it as zero-DPU, regardless of what BMC hardware
+            // enumeration says about attached DPUs. Without this check,
+            // we can't ingest hosts which may have >= DPUs, but aren't
+            // actively using them. For instance, a machine may have DPUs
+            // that aren't actually cabled up, and we're instead using a
+            // basic NIC. Since they aren't cabled, we'll never be able to
+            // discover + link them; just ignore them entirely.
+            if matches!(host_dpu_mode, DpuMode::NoDpu) {
+                managed_hosts.push((
+                    ExploredManagedHost {
+                        host_bmc_ip: ep.address,
+                        dpus: Vec::new(),
+                    },
+                    ep.report,
+                ));
+                metrics.exploration_identified_managed_hosts += 1;
+                continue;
+            }
+
             // the list of DPUs that the site-explorer has explored for this host
             let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
             // the number of DPUs that the host reports are attached to it
@@ -1209,14 +1229,23 @@ impl SiteExplorer {
                 });
             }
 
-            // For NicMode / NoDpu hosts, don't attach DPUs even if matching
+            // For NicMode hosts, don't attach DPUs even if matching
             // discovered some: the operator has declared "treat this host
             // as zero-DPU". Any DPU hardware has already had `set_nic_mode`
             // issued by the check-and-configure step above if it was in
             // DPU mode; this cycle we just emit a bare host.
+            // For NoDpu hosts, we should have already returned/continued
+            // earlier on after detecting the host_dpu_mode as such, so
+            // this shouldn't fire.
             let dpus = match host_dpu_mode {
-                DpuMode::NicMode | DpuMode::NoDpu => Vec::new(),
+                DpuMode::NicMode => Vec::new(),
                 DpuMode::DpuMode => dpus_explored_for_host,
+                // Now that we continue/return early for NoDpu hosts,
+                // we shouldn't actually get here. Probably could be
+                // lazy and just leave it as Vec::new(), but I think
+                // this firing would also surface a bug, which we
+                // probably want.
+                DpuMode::NoDpu => unreachable!("NoDpu hosts should have already returned early"),
             };
 
             managed_hosts.push((
