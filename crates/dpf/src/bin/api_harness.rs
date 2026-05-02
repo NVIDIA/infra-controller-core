@@ -709,7 +709,6 @@ async fn run_provisioning_flow(
     let init_config = InitDpfResourcesConfig {
         bfb_url: bfb_url.to_string(),
         services: services.to_vec(),
-        bfcfg_template: None,
         ..Default::default()
     };
     sdk.create_initialization_objects(&init_config).await?;

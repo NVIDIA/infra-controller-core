@@ -53,9 +53,6 @@ pub struct InitDpfResourcesConfig {
     /// Service templates and configs for M4 DPUDeployment.
     /// When empty, `default_services()` is used automatically.
     pub services: Vec<ServiceDefinition>,
-    /// Rendered bf.cfg template content for the DPU configuration ConfigMap.
-    /// When set, a ConfigMap is created during initialization.
-    pub bfcfg_template: Option<String>,
 }
 
 impl Default for InitDpfResourcesConfig {
@@ -65,7 +62,6 @@ impl Default for InitDpfResourcesConfig {
             deployment_name: "dpu-deployment".to_string(),
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
-            bfcfg_template: None,
         }
     }
 }

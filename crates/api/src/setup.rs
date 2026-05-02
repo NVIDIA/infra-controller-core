@@ -529,8 +529,7 @@ pub async fn start_api(
         let provider = crate::dpf::CarbideBmcPasswordProvider::new(credential_manager.clone());
 
         let mandatory_services = carbide_config.dpf.services.clone();
-        let services = vec![crate::dpf_services::dts_service(&mandatory_services.dts)];
-        let v2_services = vec![
+        let dpf_mandatory_services = vec![
             crate::dpf_services::dts_service(&mandatory_services.dts),
             crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
             crate::dpf_services::dhcp_server_service(&mandatory_services.dhcp_server),
@@ -540,53 +539,18 @@ pub async fn start_api(
             crate::dpf_services::otel_agent_service(&mandatory_services.otel_agent),
         ];
 
-        let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
-            Some(crate::dpf::render_bfcfg(&carbide_config)?)
-        } else {
-            None
-        };
-
-        let bfb_url = if carbide_config.dpf.v2 && carbide_config.dpf.bfb_url.is_empty() {
-            // This should move to cfg/file as a default value once v2 is the only mode.
-            "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb".to_string()
-        } else if carbide_config.dpf.bfb_url.is_empty() {
-            crate::dpf::resolve_bfb_url().await?
-        } else {
-            carbide_config.dpf.bfb_url.clone()
-        };
-
         // This is just temparary code until we make v2 only option. (just 2 weeks)
         // Soon v2 flag will be removed and will become only mode for dpf handling.
         let init_config = carbide_dpf::InitDpfResourcesConfig {
-            bfb_url,
+            bfb_url: carbide_config.dpf.bfb_url.clone(),
             flavor_name: carbide_config.dpf.flavor_name.clone(),
-            deployment_name: if carbide_config.dpf.v2 {
-                // We can't keep name longer than 20 chars (DPF restriction)
-                "nico-deployment-v2".to_string()
-            } else {
-                carbide_config.dpf.deployment_name.clone()
-            },
-            services: if carbide_config.dpf.v2 {
-                v2_services
-            } else {
-                services
-            },
-            bfcfg_template: if carbide_config.dpf.v2 {
-                // We use default bf.cfg.
-                None
-            } else {
-                bfcfg_template
-            },
+            deployment_name: carbide_config.dpf.deployment_name.clone(),
+            services: dpf_mandatory_services,
         };
 
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
             .with_labeler(crate::dpf::CarbideDPFLabeler::new(
-                if carbide_config.dpf.v2 {
-                    // This will be removed and moved to config file when v1 code is deleted.
-                    "carbide.nvidia.com/controlled.node.v2".to_string()
-                } else {
-                    carbide_config.dpf.node_label_key.clone()
-                },
+                carbide_config.dpf.node_label_key.clone(),
             ))
             .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
             .with_join_set(join_set)

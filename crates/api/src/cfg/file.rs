@@ -672,18 +672,11 @@ pub struct DpfConfig {
     pub node_label_key: String,
     /// URL to the BlueField firmware bundle (BFB) for
     /// DPU provisioning.
-    #[serde(default)]
+    #[serde(default = "default_dpf_bfb_url")]
     pub bfb_url: String,
     /// Additional Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
-    /// Whether to create the bf.cfg ConfigMap during initialization.
-    #[serde(default = "default_to_true")]
-    pub bfcfg_enabled: bool,
-    /// Are we testing v2 version??
-    /// This is just temporary flag and will be removed once v2 becomes only option.
-    #[serde(default)]
-    pub v2: bool,
 }
 
 impl Default for DpfConfig {
@@ -695,25 +688,24 @@ impl Default for DpfConfig {
             node_label_key: default_dpf_node_label_key(),
             bfb_url: String::new(),
             services: Box::default(),
-            bfcfg_enabled: true,
-            v2: false,
         }
     }
 }
 
-// TODO change to -v2 when we're ready to enable v2 by default
-fn default_dpf_deployment_name() -> String {
-    "carbide-deployment".to_string()
+fn default_dpf_bfb_url() -> String {
+    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb".to_string()
 }
 
-// TODO change to -v2 when we're ready to enable v2 by default
+fn default_dpf_deployment_name() -> String {
+    "nico-deployment-v2".to_string()
+}
+
 fn default_dpf_flavor_name() -> String {
     "carbide-dpu-flavor".to_string()
 }
 
-// TODO change to .v2 when we're ready to enable v2 by default
 fn default_dpf_node_label_key() -> String {
-    "carbide.nvidia.com/controlled.node.v1".to_string()
+    "carbide.nvidia.com/controlled.node.v2".to_string()
 }
 
 /// Configuration for a mandatory Helm-based DPF service.

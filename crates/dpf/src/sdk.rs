@@ -1102,31 +1102,20 @@ impl<
         )
         .await?;
 
-        if let Some(ref bfcfg) = config.bfcfg_template {
-            let data = BTreeMap::from([("BF_CFG_TEMPLATE".to_string(), bfcfg.clone())]);
-            K8sConfigRepository::apply_configmap(
-                &*self.repo,
-                "dpf-bf-cfg-template",
-                &self.namespace,
-                data,
-            )
-            .await?;
-        } else {
-            // Use default bf.cfg. In this case, delete bfCFGTemplateConfigMap from dpfoperatorconfig
-            DpfOperatorConfigRepository::patch(
-                &*self.repo,
-                DPF_OPERATOR_CONFIG,
-                &self.namespace,
-                serde_json::json!({
-                    "spec": {
-                        "provisioningController": {
-                            "bfCFGTemplateConfigMap": null
-                        }
+        // Use default bf.cfg. In this case, delete bfCFGTemplateConfigMap from dpfoperatorconfig
+        DpfOperatorConfigRepository::patch(
+            &*self.repo,
+            DPF_OPERATOR_CONFIG,
+            &self.namespace,
+            serde_json::json!({
+                "spec": {
+                    "provisioningController": {
+                        "bfCFGTemplateConfigMap": null
                     }
-                }),
-            )
-            .await?;
-        }
+                }
+            }),
+        )
+        .await?;
         Ok(())
     }
 }
@@ -2394,7 +2383,6 @@ mod tests {
             deployment_name: "my-deployment".to_string(),
             flavor_name: "my-flavor".to_string(),
             services: vec![],
-            bfcfg_template: None,
         };
 
         assert_eq!(config.bfb_url, "http://example.com/test.bfb");
