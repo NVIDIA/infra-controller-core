@@ -60,7 +60,6 @@ tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tryhard = { workspace = true }
 tss-esapi = { workspace = true }
-uname = { workspace = true }
 uuid = { workspace = true }
 reqwest = { default-features = false, features = [
   "rustls-tls",
@@ -69,7 +68,6 @@ reqwest = { default-features = false, features = [
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 futures-util = { workspace = true }
-prost-types = { workspace = true }
 x509-parser = { workspace = true }
 
 [dev-dependencies]
