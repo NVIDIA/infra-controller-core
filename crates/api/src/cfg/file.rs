@@ -2335,6 +2335,8 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .to_string(),
             dpa_subnet_mask: value.dpa_config.unwrap_or_default().subnet_mask,
             dpf_enabled: value.dpf.enabled,
+            compile_time_helm_version: crate::dpf_services::COMPILE_TIME_HELM_VERSION.to_string(),
+            compile_time_docker_version: crate::dpf_services::COMPILE_TIME_IMAGE_TAG.to_string(),
         }
     }
 }

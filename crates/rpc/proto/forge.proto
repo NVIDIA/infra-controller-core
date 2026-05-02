@@ -1303,6 +1303,9 @@ message RuntimeConfig {
   bool dpf_enabled = 49;
 
   bool rack_validation_enabled = 50;
+
+  string compile_time_helm_version = 51;
+  string compile_time_docker_version = 52;
 }
 
 message EchoRequest {
