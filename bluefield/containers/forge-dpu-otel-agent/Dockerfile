@@ -22,4 +22,4 @@ COPY --chmod=755 target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent /
 COPY --from=udev /lib/aarch64-linux-gnu/libudev.so.1 /lib/aarch64-linux-gnu/libudev.so.1
 
 ENTRYPOINT ["/usr/bin/forge-dpu-otel-agent"]
-CMD ["--config-path=/etc/forge-dpu-otel-agent/config.toml", "run", "--source-tls-cert-path=/opt/forge/machine_cert.pem", "--source-tls-key-path=/opt/forge/machine_cert.key"]
+CMD ["--config-path=/etc/forge-dpu-otel-agent/config.toml", "run" ]
