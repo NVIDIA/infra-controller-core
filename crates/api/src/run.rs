@@ -19,8 +19,10 @@ use std::sync::Arc;
 
 use carbide_utils::HostPortPair;
 use eyre::WrapErr;
-use forge_secrets::credentials::{CredentialReader, CredentialWriter};
-use forge_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
+use forge_secrets::credentials::{CredentialManager, CredentialReader};
+use forge_secrets::{
+    CredentialConfig, MemoryCredentialStore, create_credential_manager_from, create_vault_client,
+};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -148,6 +150,24 @@ pub async fn run(
     let certificate_provider =
         create_vault_client(&credential_config.vault, metrics.meter.clone())?;
 
+    // Pick a credential store based on CARBIDE_CREDENTIAL_STORE (default: "vault").
+    // Set to "memory" to use an in-memory store with no persistence or shared state between
+    // processes. This is only suitable for development and testing.
+    let credential_store: Arc<dyn CredentialManager> = match std::env::var(
+        "CARBIDE_CREDENTIAL_STORE",
+    )
+    .as_deref()
+    .unwrap_or("vault")
+    {
+        "vault" => create_vault_client(&credential_config.vault, metrics.meter.clone())?,
+        "memory" => Arc::new(MemoryCredentialStore::default()),
+        other => {
+            return Err(eyre::eyre!(
+                "Invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
+            ));
+        }
+    };
+
     // Build credential reader chain. The idea is this chain
     // can be flexible, to allow us to introduce an ordered
     // list of readers, which we build on-demand based on
@@ -175,17 +195,12 @@ pub async fn run(
         ));
     }
 
-    // Last, we tack on the VaultClient to the end.
-    let vault_client = create_vault_client(&credential_config.vault, metrics.meter.clone())?;
-    readers.push(Box::new(vault_client.clone()));
-
-    // And our vault_client is also implemented as the writer.
-    let writer: Arc<dyn CredentialWriter> = vault_client;
+    // Last, we tack on the credential store to the end.
+    readers.push(Box::new(credential_store.clone()));
 
     // And now we create our new composite credential manager
-    // from the list of readers we just built, plus the Vault
-    // client.
-    let credential_manager = create_credential_manager_from(writer, readers);
+    // from the list of readers we just built, plus the credential store as writer.
+    let credential_manager = create_credential_manager_from(credential_store, readers);
 
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
