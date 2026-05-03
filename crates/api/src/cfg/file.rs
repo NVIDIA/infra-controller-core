@@ -727,7 +727,7 @@ pub struct DpfMandatoryServicesConfig {
     pub fmds: DpfServiceConfig,
     #[serde(default = "crate::dpf_services::default_otelcol_service")]
     pub otel: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_otel_agent_service")]
+    #[serde(default)]
     pub otel_agent: DpfServiceConfig,
 }
 
@@ -740,7 +740,7 @@ impl Default for DpfMandatoryServicesConfig {
             dhcp_server: crate::dpf_services::default_dhcp_server_service(),
             fmds: crate::dpf_services::default_fmds_service(),
             otel: crate::dpf_services::default_otelcol_service(),
-            otel_agent: crate::dpf_services::default_otel_agent_service(),
+            otel_agent: DpfServiceConfig::default(),
         }
     }
 }

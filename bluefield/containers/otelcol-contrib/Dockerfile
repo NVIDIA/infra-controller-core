@@ -63,7 +63,7 @@ COPY --from=builder --chmod=755 /build/ocb-build/otelcol-contrib /usr/bin/otelco
 COPY --from=builder /lib/aarch64-linux-gnu/libudev.so.1 /lib/aarch64-linux-gnu/libudev.so.1
 # Wrapper scripts
 COPY bluefield/otel/otelcol-wrapper /etc/otelcol-contrib/otelcol-wrapper
-COPY bluefield/otel/otelcol-wrapper-imports /etc/otelcol-contrib/otelcol-wrapper-imports
+COPY bluefield/otel/otelcol-wrapper-imports-dpf /etc/otelcol-contrib/otelcol-wrapper-imports
 COPY bluefield/otel/otelcol-wrapper-validate /etc/otelcol-contrib/otelcol-wrapper-validate
 RUN chmod +x /etc/otelcol-contrib/otelcol-wrapper \
              /etc/otelcol-contrib/otelcol-wrapper-imports \

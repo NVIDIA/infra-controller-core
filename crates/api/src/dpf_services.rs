@@ -75,11 +75,6 @@ pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "carbide-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
-/// OTel Agent Service Definitions
-pub const OTEL_SERVICE_NAME: &str = "forge-dpu-otel-agent";
-pub const OTEL_SERVICE_HELM_NAME: &str = "forge-dpu-otel-agent";
-pub const OTEL_SERVICE_IMAGE_NAME: &str = "forge-dpu-otel-agent";
-
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
 pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
     Some(v) => v,
@@ -209,17 +204,6 @@ pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
         docker_repo_url: format!(
             "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{OTEL_COLLECTOR_SERVICE_IMAGE_NAME}"
         ),
-        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
-    }
-}
-
-pub(crate) fn default_otel_agent_service() -> DpfServiceConfig {
-    DpfServiceConfig {
-        name: OTEL_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
-        helm_chart: OTEL_SERVICE_HELM_NAME.to_string(),
-        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
-        docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{OTEL_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
     }
 }

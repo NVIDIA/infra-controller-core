@@ -536,7 +536,6 @@ pub async fn start_api(
             crate::dpf_services::dpu_agent_service(&mandatory_services.dpu_agent),
             crate::dpf_services::fmds_service(&mandatory_services.fmds),
             crate::dpf_services::otelcol_service(&mandatory_services.otel),
-            crate::dpf_services::otel_agent_service(&mandatory_services.otel_agent),
         ];
 
         // This is just temparary code until we make v2 only option. (just 2 weeks)
