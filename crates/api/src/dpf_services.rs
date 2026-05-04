@@ -422,33 +422,6 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-/// OTel service definition.
-pub fn otel_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
-    ServiceDefinition {
-        helm_values: Some(serde_json::json!({
-            "image": {
-                "repository": cfg.docker_repo_url,
-                "tag": cfg.docker_image_tag,
-            },
-            "imagePullSecrets": [
-                {
-                    "name": "dpf-pull-secret"
-                }
-            ]
-        })),
-        service_daemon_set_annotations: Some(BTreeMap::new()),
-
-        config_ports: None,
-        config_ports_service_type: Some(ConfigPortsServiceType::None),
-        ..ServiceDefinition::new(
-            &cfg.name,
-            &cfg.helm_repo_url,
-            &cfg.helm_chart,
-            &cfg.helm_version,
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use carbide_dpf::build_service_interface;
