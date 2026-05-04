@@ -22,7 +22,6 @@ use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
-use rpc::forge_agent_control_response::Action;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -70,32 +69,20 @@ pub async fn forge_agent_control(
                 return None;
             }
             tracing::warn!("Error getting control action: {e}");
-            Some(ForgeAgentControlResponse {
-                action: Action::Noop as i32,
-                data: None,
-            })
+            Some(ForgeAgentControlResponse::noop())
         }
     }
 }
 
-pub fn get_fac_action(
-    response: &ForgeAgentControlResponse,
-) -> rpc::forge::forge_agent_control_response::Action {
-    rpc::forge::forge_agent_control_response::Action::try_from(response.action).unwrap()
-}
-
 pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<rpc::common::Uuid> {
-    response.data.as_ref().and_then(|d| {
-        d.pair.iter().find_map(|pair| {
-            if pair.key.eq("ValidationId") {
-                Some(rpc::common::Uuid {
-                    value: pair.value.clone(),
-                })
-            } else {
-                None
-            }
-        })
-    })
+    if let Some(rpc::forge::forge_agent_control_response::Action::MachineValidation(
+        machine_validation,
+    )) = &response.action
+    {
+        machine_validation.validation_id.clone()
+    } else {
+        None
+    }
 }
 
 pub async fn send_pxe_boot_request(

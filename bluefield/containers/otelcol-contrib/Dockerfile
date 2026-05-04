@@ -50,15 +50,17 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 ocb --config ocb_config.yaml
 # ---------------------------------------------------------------------------
 # Runtime (arm64)
 # ---------------------------------------------------------------------------
-FROM --platform=linux/arm64 debian:12-slim
+FROM debian:12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    libudev1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Collector binary
 COPY --from=builder --chmod=755 /build/ocb-build/otelcol-contrib /usr/bin/otelcol-contrib
 
+COPY --from=builder /lib/aarch64-linux-gnu/libudev.so.1 /lib/aarch64-linux-gnu/libudev.so.1
 # Wrapper scripts
 COPY bluefield/otel/otelcol-wrapper /etc/otelcol-contrib/otelcol-wrapper
 COPY bluefield/otel/otelcol-wrapper-imports /etc/otelcol-contrib/otelcol-wrapper-imports

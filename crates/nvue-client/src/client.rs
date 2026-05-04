@@ -134,13 +134,10 @@ impl NvueClient {
         // If the config is a top-level array but has no "set" entry that is a
         // schema error — surface it now rather than letting the API reject it
         // with a cryptic response.
-        let mut config = match config.extract_set_payload()? {
+        let config = match config.extract_set_payload()? {
             Some(inner) => inner,
             None => config,
         };
-        // pf0dpu* interfaces lack a `type` field and are rejected by the REST API;
-        // skip them for now.
-        config.remove_pf0dpu_interfaces();
         let builder = builder.json(&config);
         let request = builder.build()?;
         let _response = self.execute(request).await?;

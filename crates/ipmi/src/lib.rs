@@ -49,8 +49,14 @@ pub fn tool(cred_provider: Arc<dyn CredentialReader>, attempts: Option<u32>) -> 
     Arc::new(tool::IPMIToolImpl::new(cred_provider, attempts))
 }
 
-pub fn bmc_mock(bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>) -> Arc<dyn IPMITool> {
-    Arc::new(bmc_mock::IPMIToolHttpImpl::new(bmc_proxy))
+pub fn bmc_mock(
+    bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
+    credential_reader: Arc<dyn CredentialReader>,
+) -> Arc<dyn IPMITool> {
+    Arc::new(bmc_mock::IPMIToolHttpImpl::new(
+        bmc_proxy,
+        credential_reader,
+    ))
 }
 
 pub fn test_support() -> Arc<dyn IPMITool> {

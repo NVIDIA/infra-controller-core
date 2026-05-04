@@ -50,17 +50,6 @@ impl NvueConfig {
             Ok(None)
         }
     }
-
-    /// Remove any interfaces whose names start with `pf0dpu` from the config.
-    /// These interfaces lack a `type` field, which the NVUE REST API rejects;
-    /// they are left to be configured by other means.
-    pub fn remove_pf0dpu_interfaces(&mut self) {
-        if let serde_json::Value::Object(root) = &mut self.config_json
-            && let Some(serde_json::Value::Object(ifaces)) = root.get_mut("interface")
-        {
-            ifaces.retain(|key, _| !key.starts_with("pf0dpu"));
-        }
-    }
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

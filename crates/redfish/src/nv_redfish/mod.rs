@@ -97,7 +97,7 @@ impl NvRedfishClientPool {
         }
     }
 
-    pub fn cached_root(
+    fn cached_root(
         &self,
         bmc_address: SocketAddr,
         credentials: Credentials,

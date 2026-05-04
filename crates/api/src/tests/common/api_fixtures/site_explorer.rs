@@ -47,7 +47,7 @@ use model::site_explorer::EndpointExplorationReport;
 use model::switch::{NewSwitch, SwitchConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self, HealthReportEntry, InsertMachineHealthReportRequest};
-use rpc::forge_agent_control_response::Action;
+use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
 use sqlx::PgConnection;
@@ -397,9 +397,10 @@ impl<'a> MockExploredHost<'a> {
 
         for machine_id in self.dpu_machine_ids.values() {
             let response = forge_agent_control(self.test_env, *machine_id).await;
+            assert!(matches!(response.action, Some(Action::Discovery(_))));
             assert_eq!(
-                response.action,
-                rpc::forge_agent_control_response::Action::Discovery as i32
+                response.legacy_action,
+                rpc::forge_agent_control_response::LegacyAction::Discovery as i32
             );
 
             discovery_completed(self.test_env, *machine_id).await;
@@ -486,9 +487,10 @@ impl<'a> MockExploredHost<'a> {
 
         for machine_id in self.dpu_machine_ids.values() {
             let response = forge_agent_control(self.test_env, *machine_id).await;
+            assert!(matches!(response.action, Some(Action::Discovery(_)),));
             assert_eq!(
-                response.action,
-                rpc::forge_agent_control_response::Action::Discovery as i32
+                response.legacy_action,
+                rpc::forge_agent_control_response::LegacyAction::Discovery as i32
             );
 
             discovery_completed(self.test_env, *machine_id).await;
@@ -827,9 +829,10 @@ impl<'a> MockExploredHost<'a> {
         }
 
         let response = forge_agent_control(self.test_env, host_machine_id).await;
+        assert!(matches!(response.action, Some(Action::Noop(_))));
         assert_eq!(
-            response.action,
-            rpc::forge_agent_control_response::Action::Noop as i32
+            response.legacy_action,
+            rpc::forge_agent_control_response::LegacyAction::Noop as i32
         );
 
         self.test_env
@@ -1033,7 +1036,8 @@ impl<'a> MockExploredHost<'a> {
                     .await;
 
                 let response = forge_agent_control(self.test_env, host_machine_id).await;
-                assert_eq!(response.action, Action::Noop as i32);
+                assert!(matches!(response.action, Some(Action::Noop(_))));
+                assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
                         &host_machine_id,

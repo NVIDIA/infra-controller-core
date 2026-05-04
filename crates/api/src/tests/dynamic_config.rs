@@ -144,7 +144,9 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified(
         config.site_explorer.override_target_ip = None;
         config.site_explorer.override_target_port = None;
         let config_str = toml::to_string(&config)?;
-        let parsed_config = parse_carbide_config(config_str, None)?;
+        let mut tmp = tempfile::NamedTempFile::new()?;
+        std::io::Write::write_all(&mut tmp, config_str.as_bytes())?;
+        let parsed_config = parse_carbide_config(tmp.path(), None)?;
         create_test_env_with_overrides(
             db_pool,
             TestEnvOverrides::with_config(parsed_config.as_ref().to_owned()),
@@ -188,7 +190,9 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
         config.site_explorer.bmc_proxy =
             carbide_site_explorer::config::bmc_proxy(Some("test:1234".parse().unwrap()));
         let config_str = toml::to_string(&config)?;
-        let parsed_config = parse_carbide_config(config_str, None)?;
+        let mut tmp = tempfile::NamedTempFile::new()?;
+        std::io::Write::write_all(&mut tmp, config_str.as_bytes())?;
+        let parsed_config = parse_carbide_config(tmp.path(), None)?;
         create_test_env_with_overrides(
             db_pool,
             TestEnvOverrides::with_config(parsed_config.as_ref().to_owned()),

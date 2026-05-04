@@ -22,6 +22,7 @@ use std::net::IpAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 
+use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::{DateTime, Utc};
@@ -41,8 +42,9 @@ use model::machine::network::{
 use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, DpuInfo, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    Dpf, DpuInfo, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, ManagedHostState,
+    ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -695,6 +697,26 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Returns the `use_admin_network` flag from the host that owns the
+/// given DPA interface.
+pub async fn get_host_use_admin_network_for_dpa_interface(
+    conn: impl DbReader<'_>,
+    dpa_interface_id: &DpaInterfaceId,
+) -> Result<bool, DatabaseError> {
+    let query = r#"
+        SELECT COALESCE((h.network_config->>'use_admin_network')::bool, true)
+        FROM dpa_interfaces da
+        JOIN machines h ON h.id = da.machine_id
+        WHERE da.id = $1
+        LIMIT 1"#;
+    let flag: Option<bool> = sqlx::query_scalar(query)
+        .bind(dpa_interface_id)
+        .fetch_optional(conn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(flag.unwrap_or(true))
+}
+
 pub async fn find_dpus_by_host_machine_id(
     txn: &mut PgConnection,
     host_machine_id: &MachineId,
@@ -1083,34 +1105,59 @@ pub async fn force_cleanup(
     Ok(())
 }
 
-/// Updates the desired network configuration for a host
+/// Updates the `network_config` on the target machine row (host or
+/// DPU), and bumps the `network_config_version` on *every* machine
+/// row in the same "machine group" (host + every DPU attached to it)
+/// to the same new version, so all rows in the group stay version-equal.
+///
+/// The caller can pass any machine ID in the group; group membership is
+/// computed by the `machine_group_member_ids` Postgres function, which
+/// walks `machine_interfaces`. For zero-DPU hosts, the group is just the
+/// target itself.
 pub async fn try_update_network_config(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     expected_version: ConfigVersion,
     new_state: &ManagedHostNetworkConfig,
 ) -> Result<bool, DatabaseError> {
-    // TODO: We currently need to persist the state on the DPU since it exists
-    // earlier than the host. But we might want to replicate it to the host machine,
-    // as we do with `controller_state`.
-
     let next_version = expected_version.increment();
 
-    let query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
+    // First, do our usual "optimistic" lock update on the target row, which
+    // writes content and bumps to the next_version (which is conditional on
+    // the row currently being at `expected_version`).
+    let target_query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4
             RETURNING id";
-    let query_result: Result<MachineId, _> = sqlx::query_as(query)
+    let target_result: Result<MachineId, _> = sqlx::query_as(target_query)
         .bind(next_version)
         .bind(sqlx::types::Json(new_state))
         .bind(machine_id)
         .bind(expected_version)
-        .fetch_one(txn)
+        .fetch_one(&mut *txn)
         .await;
 
-    match query_result {
-        Ok(_machine_id) => Ok(true),
+    match target_result {
+        Ok(_) => {
+            // ..and if the version bumped, THEN bump every other machine row
+            // in the "machine group" to the same new version. This is where
+            // we pull in the `machine_group_member_ids` Postgres function.
+            let group_query = r#"
+                UPDATE machines
+                SET network_config_version = $1
+                WHERE id != $2
+                  AND id IN (SELECT id FROM machine_group_member_ids($2))
+            "#;
+
+            sqlx::query(group_query)
+                .bind(next_version)
+                .bind(machine_id)
+                .execute(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::query(group_query, e))?;
+            Ok(true)
+        }
         Err(sqlx::Error::RowNotFound) => Ok(false),
-        Err(e) => Err(DatabaseError::query(query, e)),
+        Err(e) => Err(DatabaseError::query(target_query, e)),
     }
 }
 
@@ -1244,6 +1291,7 @@ pub async fn create(
         Some(data) => data.dpf_enabled.unwrap_or(false), // EM entry exists
         None => true,                                    // EM entry does not exist
     };
+    let host_profile = HostProfile::from_expected_machine(expected_machine_data);
 
     // Host and DPU machines are created in same `discover_machine` call. Update same
     // state in both machines.
@@ -1277,8 +1325,8 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf)
-                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14) RETURNING id"#;
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf, host_profile)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14, $15) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
         .bind(state_version)
@@ -1297,6 +1345,7 @@ pub async fn create(
             enabled: dpf_enabled,
             used_for_ingestion: false,
         }))
+        .bind(sqlx::types::Json(&host_profile))
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;

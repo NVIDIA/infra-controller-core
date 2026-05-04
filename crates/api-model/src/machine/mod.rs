@@ -37,7 +37,7 @@ use json::MachineSnapshotPgJson;
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
 use rpc::forge::HealthSourceOrigin;
-use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use rpc::forge_agent_control_response as fac;
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -57,6 +57,7 @@ use super::sku::SkuStatus;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
 use crate::errors::{ModelError, ModelResult};
+use crate::expected_machine::ExpectedMachineData;
 use crate::firmware::FirmwareComponentType;
 use crate::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use crate::instance::config::network::DeviceLocator;
@@ -276,24 +277,6 @@ fn pick_boot_interface_mac(
         .map(|x| x.mac_address)
 }
 
-/// Derive a host-level `use_admin_network` from the per-DPU values for
-/// the host.
-///
-/// Split out from `ManagedHostStateSnapshot::use_admin_network` so it's
-/// more easily testable without building a full snapshot. The way this works is:
-/// - True when an empty slice (e.g. zero-DPU host or snapshots failed to load),
-///   because zero DPU hosts have no DPU to handle tenant overlay (and
-///   are always admin). In the snapshot failure case, it seemed more
-///   conservative to treat it as such.
-/// - Otherwise, walk across all of the use_admin_network values from the
-///   hosts DPU(s) and collect their values, defaulting to true otherwise.
-fn derive_use_admin_network(dpu_use_admin_network: &[Option<bool>]) -> bool {
-    dpu_use_admin_network.is_empty()
-        || dpu_use_admin_network
-            .iter()
-            .any(|flag| flag.unwrap_or(true))
-}
-
 impl ManagedHostStateSnapshot {
     /// Returns `true` if this managed host has no DPU snapshots attached.
     ///
@@ -330,28 +313,15 @@ impl ManagedHostStateSnapshot {
     /// Returns `true` if this managed host is currently operating on the
     /// admin network (rather than a tenant overlay).
     ///
-    /// The underlying `use_admin_network` flag is persisted per-DPU on
-    /// `ManagedHostNetworkConfig` (fwiw, the config is generic, but
-    /// site-explorer and the machine state controller only populate this
-    /// for DPUs. Default is true.
-    ///
     /// Zero-DPU hosts always return `true`, because there's no DPU to
     /// handle tenant overlay networking. This allows consumers like the
     /// IB and NVLink partition monitors to treat the host as admin-only
     /// and detach.
-    ///
-    /// Now, this helper doesn't change where the *flag* is stored. I'm
-    /// planning on doing that in a future PR, but it will be a bit more
-    /// disruptive. It may end up going into the host's network_config,
-    /// allowing us to drop the per-DPU copies, and then this helper can
-    /// just read the host's config value directly.
     pub fn use_admin_network(&self) -> bool {
-        let dpu_use_admin_network: Vec<_> = self
-            .dpu_snapshots
-            .iter()
-            .map(|dpu| dpu.network_config.use_admin_network)
-            .collect();
-        derive_use_admin_network(&dpu_use_admin_network)
+        self.host_snapshot
+            .network_config
+            .use_admin_network
+            .unwrap_or(true)
     }
 
     /// Returns the MAC address the host should boot from, if one can be
@@ -598,6 +568,12 @@ impl ManagedHostStateSnapshot {
 
     /// Returns true if the desired managedhost networking configuration had been synced
     /// to **all** DPUs.
+    ///
+    /// Each DPU's check compares its own `network_config.version` against its
+    /// reported observation; per-DPU versions are kept equal to the host's via
+    /// its "machine group" (and `try_update_network_config`), so a change
+    /// anywhere in the machine group flips all per-DPU sync states to out of
+    /// sync until each agent has polled + re-sent an observation.
     pub fn managed_host_network_config_version_synced(&self) -> bool {
         for dpu_snapshot in self.dpu_snapshots.iter() {
             if !dpu_snapshot.managed_host_network_config_version_synced() {
@@ -933,6 +909,11 @@ pub struct Machine {
     /// Whether the DPF is enabled for this machine
     pub dpf: Dpf,
 
+    /// Per-host profile for state-machine-affecting settings, seeded from the
+    /// expected-machine record. Future per-host knobs that influence ingestion
+    /// or state transitions should be added here.
+    pub host_profile: HostProfile,
+
     /// Timestamp when manual firmware upgrade was marked as completed
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
@@ -955,6 +936,36 @@ pub struct Dpf {
     pub enabled: bool,
     // If dpf is used for ingestion.
     pub used_for_ingestion: bool,
+}
+
+/// Per-host profile for settings that affect state-machine progression,
+/// seeded from the expected-machine record at discovery time. Add new
+/// per-host knobs here rather than creating separate JSONB columns.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HostProfile {
+    /// When `true` the ingestion state machine skips re-enabling lockdown
+    /// after BIOS/UEFI configuration.
+    pub disable_lockdown: bool,
+}
+
+impl HostProfile {
+    /// Resolve a runtime `HostProfile` from an optional expected-machine
+    /// record. When `None` (no expected-machine entry) every field falls
+    /// back to its default.
+    ///
+    /// New profile fields should be resolved here so the
+    /// expected-machine → machine conversion stays in one place.
+    pub fn from_expected_machine(data: Option<&ExpectedMachineData>) -> Self {
+        match data {
+            Some(d) => Self {
+                disable_lockdown: d
+                    .host_lifecycle_profile
+                    .disable_lockdown
+                    .unwrap_or_default(),
+            },
+            None => Self::default(),
+        }
+    }
 }
 
 impl From<Machine> for ::rpc::forge::dpf_state_response::DpfState {
@@ -990,10 +1001,6 @@ impl Machine {
             Some(hw) => hw.bmc_vendor(),
             None => bmc_vendor::BMCVendor::Unknown,
         }
-    }
-
-    pub fn use_admin_network(&self) -> bool {
-        self.network_config.use_admin_network.unwrap_or(true)
     }
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
@@ -2607,7 +2614,7 @@ pub struct MachineNextStateResolver;
 pub fn get_action_for_dpu_state(
     state: &ManagedHostState,
     dpu_machine_id: &MachineId,
-) -> ModelResult<(Action, Option<ForgeAgentControlExtraInfo>)> {
+) -> ModelResult<fac::Action> {
     Ok(match state {
         ManagedHostState::DPUReprovision { .. }
         | ManagedHostState::Assigned {
@@ -2617,11 +2624,11 @@ pub fn get_action_for_dpu_state(
                 .as_reprovision_state(dpu_machine_id)
                 .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
             match dpu_state {
-                ReprovisionState::BufferTime => (Action::Retry, None),
+                ReprovisionState::BufferTime => fac::Action::retry(),
                 ReprovisionState::WaitingForNetworkInstall
                 | ReprovisionState::DpfStates {
                     substate: DpfState::WaitingForReady { .. },
-                } => (Action::Discovery, None),
+                } => fac::Action::Discovery(fac::Discovery {}),
                 _ => {
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
@@ -2629,7 +2636,7 @@ pub fn get_action_for_dpu_state(
                         %state,
                         "forge agent control",
                     );
-                    (Action::Noop, None)
+                    fac::Action::noop()
                 }
             }
         }
@@ -2643,7 +2650,7 @@ pub fn get_action_for_dpu_state(
                 DpuInitState::Init
                 | DpuInitState::DpfStates {
                     state: DpfState::WaitingForReady { .. },
-                } => (Action::Discovery, None),
+                } => fac::Action::Discovery(fac::Discovery {}),
                 _ => {
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
@@ -2651,7 +2658,7 @@ pub fn get_action_for_dpu_state(
                         %state,
                         "forge agent control",
                     );
-                    (Action::Noop, None)
+                    fac::Action::noop()
                 }
             }
         }
@@ -2663,7 +2670,7 @@ pub fn get_action_for_dpu_state(
                 %state,
                 "forge agent control",
             );
-            (Action::Noop, None)
+            fac::Action::noop()
         }
     })
 }
@@ -2849,6 +2856,30 @@ pub struct MachineValidationFilter {
     pub allowed_tests: Vec<String>,
     pub run_unverfied_tests: Option<bool>,
     pub contexts: Option<Vec<String>>,
+}
+
+impl From<rpc::forge_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
+    fn from(filter: rpc::forge_agent_control_response::MachineValidationFilter) -> Self {
+        Self {
+            tags: filter.tags,
+            allowed_tests: filter.allowed_tests,
+            run_unverfied_tests: filter.run_unverfied_tests,
+            contexts: filter.contexts.map(|c| c.items),
+        }
+    }
+}
+
+impl From<MachineValidationFilter> for fac::MachineValidationFilter {
+    fn from(filter: MachineValidationFilter) -> Self {
+        Self {
+            tags: filter.tags,
+            allowed_tests: filter.allowed_tests,
+            run_unverfied_tests: filter.run_unverfied_tests,
+            contexts: filter
+                .contexts
+                .map(|items| rpc::common::StringList { items }),
+        }
+    }
 }
 
 impl Display for MachineValidationFilter {
@@ -3415,34 +3446,73 @@ mod tests {
         assert_eq!(pick_boot_interface_mac(&interfaces), None);
     }
 
-    // Zero-DPU hosts have no DPU snapshots at all. The helper must return
-    // `true` -- consumers (IB partition monitor, NVLink partition monitor)
-    // use this to decide whether to detach tenant partitions, and zero-DPU
-    // hosts never have a tenant overlay to protect.
     #[test]
-    fn derive_use_admin_network_returns_true_for_empty_dpu_snapshots() {
-        assert!(derive_use_admin_network(&[]));
+    fn host_profile_defaults_to_lockdown_enabled() {
+        let profile = HostProfile::default();
+        assert!(!profile.disable_lockdown);
     }
 
-    // Make sure the legacy default still works; when a DPU snapshot has no
-    // explicit value, treat it as admin-network. All or any "None" should
-    // therefore resolve to true.
     #[test]
-    fn derive_use_admin_network_treats_none_as_true() {
-        assert!(derive_use_admin_network(&[None]));
-        assert!(derive_use_admin_network(&[None, None]));
+    fn host_profile_serde_round_trip_lockdown_true() {
+        let profile = HostProfile {
+            disable_lockdown: true,
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        assert_eq!(json, r#"{"disable_lockdown":true}"#);
+        let back: HostProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, profile);
     }
 
-    // ...aand check OR semantics across DPUs: if any single DPU says admin,
-    // the whole host is treated as admin. Only "all DPUs explicitly say false"
-    // flips the host to tenant-network mode.
     #[test]
-    fn derive_use_admin_network_ors_across_dpus() {
-        assert!(derive_use_admin_network(&[Some(false), Some(true)]));
-        assert!(derive_use_admin_network(&[Some(true), Some(true)]));
-        assert!(derive_use_admin_network(&[Some(false), None]));
-        assert!(!derive_use_admin_network(&[Some(false)]));
-        assert!(!derive_use_admin_network(&[Some(false), Some(false)]));
+    fn host_profile_serde_round_trip_lockdown_false() {
+        let profile = HostProfile {
+            disable_lockdown: false,
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        assert_eq!(json, r#"{"disable_lockdown":false}"#);
+        let back: HostProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, profile);
+    }
+
+    #[test]
+    fn host_profile_deserializes_from_db_default() {
+        let db_default = r#"{"disable_lockdown": false}"#;
+        let profile: HostProfile = serde_json::from_str(db_default).unwrap();
+        assert!(!profile.disable_lockdown);
+    }
+
+    #[test]
+    fn host_profile_default_used_when_parent_field_missing() {
+        assert_eq!(
+            HostProfile::default(),
+            HostProfile {
+                disable_lockdown: false
+            }
+        );
+    }
+
+    #[test]
+    fn host_profile_from_expected_none_uses_defaults() {
+        let profile = HostProfile::from_expected_machine(None);
+        assert_eq!(profile, HostProfile::default());
+    }
+
+    #[test]
+    fn host_profile_from_expected_empty_profile_uses_defaults() {
+        let data = ExpectedMachineData::default();
+        let profile = HostProfile::from_expected_machine(Some(&data));
+        assert!(!profile.disable_lockdown);
+    }
+
+    #[test]
+    fn host_profile_from_expected_resolves_disable_lockdown() {
+        let mut data = ExpectedMachineData::default();
+
+        data.host_lifecycle_profile.disable_lockdown = Some(true);
+        assert!(HostProfile::from_expected_machine(Some(&data)).disable_lockdown);
+
+        data.host_lifecycle_profile.disable_lockdown = Some(false);
+        assert!(!HostProfile::from_expected_machine(Some(&data)).disable_lockdown);
     }
 }
 

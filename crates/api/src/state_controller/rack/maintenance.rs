@@ -82,6 +82,7 @@ async fn trigger_rack_firmware_reprovisioning_requests(
     rack_id: &RackId,
     machine_ids: &[carbide_uuid::machine::MachineId],
     switch_ids: &[carbide_uuid::switch::SwitchId],
+    continue_after_firmware_upgrade: bool,
 ) -> Result<(), StateHandlerError> {
     for machine_id in machine_ids {
         db_host_machine_update::trigger_host_reprovisioning_request(
@@ -92,10 +93,11 @@ async fn trigger_rack_firmware_reprovisioning_requests(
         .await?;
     }
     for switch_id in switch_ids {
-        db_switch::set_switch_reprovisioning_requested(
+        db_switch::set_switch_reprovisioning_requested_with_firmware_continuation(
             txn,
             *switch_id,
             &format!("rack-{}", rack_id),
+            continue_after_firmware_upgrade,
         )
         .await?;
     }
@@ -1212,11 +1214,16 @@ pub async fn handle_maintenance(
                     rms_start_firmware_upgrade(rms_client.as_ref(), &firmware.id, batches).await;
 
                 let mut txn = ctx.services.db_pool.begin().await?;
+                let continue_after_firmware_upgrade =
+                    scope.should_run(&MaintenanceActivity::NvosUpdate {
+                        rack_firmware_id: None,
+                    });
                 trigger_rack_firmware_reprovisioning_requests(
                     txn.as_mut(),
                     id,
                     &inventory.machine_ids,
                     &inventory.switch_ids,
+                    continue_after_firmware_upgrade,
                 )
                 .await?;
                 clear_rack_firmware_device_statuses(

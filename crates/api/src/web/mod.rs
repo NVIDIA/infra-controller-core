@@ -84,6 +84,41 @@ pub(crate) struct MetadataDetail {
     pub metadata_version: String,
 }
 
+/// Reusable template for rendering aggregate health details in entity detail
+/// pages. Render with `{{ health_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "health_detail.html")]
+pub(crate) struct HealthDetail {
+    pub health_reports_url: String,
+    pub health_reports_link_text: &'static str,
+    pub health: health_report::HealthReport,
+    pub health_sources: Vec<String>,
+}
+
+impl HealthDetail {
+    pub(crate) fn new(
+        health_reports_url: String,
+        health_reports_link_text: &'static str,
+        health: Option<rpc::health::HealthReport>,
+        health_sources: Vec<rpc::forge::HealthSourceOrigin>,
+    ) -> Self {
+        HealthDetail {
+            health_reports_url,
+            health_reports_link_text,
+            health: health
+                .map(|health| {
+                    health_report::HealthReport::try_from(health)
+                        .unwrap_or_else(health_report::HealthReport::malformed_report)
+                })
+                .unwrap_or_else(health_report::HealthReport::missing_report),
+            health_sources: health_sources
+                .into_iter()
+                .map(|source| source.source)
+                .collect(),
+        }
+    }
+}
+
 /// Reusable template for rendering a color-coded state bubble.
 /// Render with `{{ state_display|safe }}`.
 #[derive(Template)]
@@ -504,7 +539,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/{machine_id}/set-dpu-first-boot-order",
                 post(machine::set_dpu_first_boot_order),
             )
-            .route("/machine/{machine_id}/health", get(health::health))
+            .route("/machine/{machine_id}/health", get(health::machine_health))
             .route(
                 "/machine/{machine_id}/health-history",
                 get(health_history::show_health_history),
@@ -535,6 +570,15 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/rack", get(rack::show_html))
             .route("/rack.json", get(rack::show_json))
             .route("/rack/{rack_id}", get(rack::detail))
+            .route("/rack/{rack_id}/health", get(health::rack_health))
+            .route(
+                "/rack/{rack_id}/health/add-report",
+                post(health::add_rack_health_report),
+            )
+            .route(
+                "/rack/{rack_id}/health/remove-report",
+                post(health::remove_rack_health_report),
+            )
             .route(
                 "/rack/{rack_id}/state-history",
                 get(state_history::show_rack_state_history),
@@ -555,12 +599,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(state_history::show_switch_state_history_json),
             )
             .route(
-                "/machine/{machine_id}/health-report/add",
-                post(health::add_health_report),
+                "/machine/{machine_id}/health/add-report",
+                post(health::add_machine_health_report),
             )
             .route(
-                "/machine/{machine_id}/health-report/remove",
-                post(health::remove_health_report),
+                "/machine/{machine_id}/health/remove-report",
+                post(health::remove_machine_health_report),
             )
             .route(
                 "/machine/{machine_id}/attestation-results",

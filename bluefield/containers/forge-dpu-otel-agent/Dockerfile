@@ -10,10 +10,16 @@ ARG IMG=nvcr.io/nvidia/distroless/cc
 ARG DEBUG_DISTROLESS=true
 ARG DISTROLESS_DEBUG_TAG=${DEBUG_DISTROLESS:+"dev"} # 'dev' provides a busybox shell
 
+FROM debian:12-slim AS udev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libudev1
+
 # NVIDIA Distroless Container
-FROM --platform=linux/arm64 ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
+FROM ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
 
 COPY --chmod=755 target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent /usr/bin/forge-dpu-otel-agent
 
+COPY --from=udev /lib/aarch64-linux-gnu/libudev.so.1 /lib/aarch64-linux-gnu/libudev.so.1
+
 ENTRYPOINT ["/usr/bin/forge-dpu-otel-agent"]
-CMD ["--config-path=/etc/forge-dpu-otel-agent/config.toml", "run", "--source-tls-cert-path=/opt/forge/machine_cert.pem", "--source-tls-key-path=/opt/forge/machine_cert.key"]
+CMD ["--config-path=/etc/forge-dpu-otel-agent/config.toml", "run" ]
