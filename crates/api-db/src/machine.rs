@@ -25,6 +25,7 @@ use std::str::FromStr;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine_validation::MachineValidationId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, HealthReportApplyMode};
@@ -54,7 +55,6 @@ use model::resource_pool::common::CommonPools;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
-use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, Transaction, queries};
 use crate::DatabaseResult;
@@ -1872,7 +1872,7 @@ pub async fn update_machine_validation_time(
 }
 pub async fn update_machine_validation_id(
     machine_id: &MachineId,
-    validation_id: uuid::Uuid,
+    validation_id: MachineValidationId,
     context_column_name: String,
     txn: &mut PgConnection,
 ) -> Result<MachineId, DatabaseError> {
@@ -2033,7 +2033,7 @@ pub async fn allocate_secondary_vtep_ip(
 
 pub async fn find_by_validation_id(
     txn: &mut PgConnection,
-    validation_id: &Uuid,
+    validation_id: &MachineValidationId,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(

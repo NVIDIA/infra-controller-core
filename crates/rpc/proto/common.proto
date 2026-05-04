@@ -110,6 +110,10 @@ message RackHardwareType {
   string value = 1;
 }
 
+message MachineValidationId {
+  string value = 1;
+}
+
 enum SystemPowerControl {
   SYSTEM_POWER_CONTROL_UNKNOWN = 0;
   // Power on a machine

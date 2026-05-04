@@ -290,9 +290,7 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
             fac::Action::MachineValidation(fac::MachineValidation {
                 is_enabled: true,
                 context: data.context.clone(),
-                validation_id: Some(rpc::Uuid {
-                    value: data.validataion_id.to_string(),
-                }),
+                validation_id: Some(data.validataion_id),
                 filter: Some(fac::MachineValidationFilter {
                     tags: Vec::new(),
                     allowed_tests: Vec::new(),
@@ -363,14 +361,11 @@ async fn handle_action(
         }
         fac::Action::MachineValidation(machine_validation) => {
             tracing::info!("Machine validation");
-            let id = machine_validation
-                .validation_id
-                .ok_or_else(|| {
-                    CarbideClientError::GenericError(
-                        "machine validation action missing validation_id".to_string(),
-                    )
-                })?
-                .value;
+            let id = machine_validation.validation_id.ok_or_else(|| {
+                CarbideClientError::GenericError(
+                    "machine validation action missing validation_id".to_string(),
+                )
+            })?;
             let machine_validation_filter = machine_validation
                 .filter
                 .map(Into::into)
@@ -379,7 +374,7 @@ async fn handle_action(
                 match machine_validation::run(
                     config,
                     machine_id,
-                    id.clone(),
+                    id,
                     machine_validation.context,
                     machine_validation_filter,
                 )
@@ -394,7 +389,7 @@ async fn handle_action(
             } else {
                 Ok(())
             };
-            machine_validation::completed(config, machine_id, id, None).await?;
+            machine_validation::completed(config, machine_id, &id, None).await?;
             return ret;
         }
         fac::Action::MlxAction(mlx_action) => {

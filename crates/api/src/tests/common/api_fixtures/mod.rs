@@ -40,6 +40,7 @@ use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
@@ -2500,6 +2501,7 @@ pub async fn machine_validation_completed(
 ) {
     let response = forge_agent_control(env, *machine_id).await;
     let uuid = &response.data.unwrap().pair[1].value;
+    let validation_id: MachineValidationId = uuid.parse().unwrap();
 
     let _response = env
         .api
@@ -2507,9 +2509,7 @@ pub async fn machine_validation_completed(
             rpc::forge::MachineValidationCompletedRequest {
                 machine_id: Some(*machine_id),
                 machine_validation_error,
-                validation_id: Some(rpc::Uuid {
-                    value: uuid.to_owned(),
-                }),
+                validation_id: Some(validation_id),
             },
         ))
         .await
@@ -2584,7 +2584,7 @@ pub async fn get_machine_validation_results(
     env: &TestEnv,
     machine_id: Option<&MachineId>,
     include_history: bool,
-    validation_id: Option<rpc::common::Uuid>,
+    validation_id: Option<MachineValidationId>,
 ) -> rpc::forge::MachineValidationResultList {
     env.api
         .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
@@ -2640,7 +2640,7 @@ pub async fn on_demand_machine_validation(
 
 pub async fn update_machine_validation_run(
     env: &TestEnv,
-    validation_id: Option<rpc::common::Uuid>,
+    validation_id: Option<MachineValidationId>,
     duration_to_complete: Option<rpc::Duration>,
     total: u32,
 ) -> rpc::forge::MachineValidationRunResponse {

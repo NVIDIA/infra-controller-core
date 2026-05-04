@@ -36,6 +36,7 @@ use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -1543,12 +1544,8 @@ impl ApiClient {
         &self,
         machine_id: Option<MachineId>,
         history: bool,
-        arg_validation_id: Option<String>,
+        validation_id: Option<MachineValidationId>,
     ) -> CarbideCliResult<rpc::MachineValidationResultList> {
-        let mut validation_id: Option<::rpc::common::Uuid> = None;
-        if let Some(value) = arg_validation_id {
-            validation_id = Some(::rpc::common::Uuid { value })
-        }
         let request = rpc::MachineValidationGetRequest {
             machine_id,
             include_history: history,

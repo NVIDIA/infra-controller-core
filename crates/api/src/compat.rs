@@ -132,6 +132,7 @@ impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
 mod tests {
     use ::rpc::common;
     use ::rpc::protos::mlx_device;
+    use carbide_uuid::machine_validation::MachineValidationId;
 
     use super::*;
 
@@ -148,12 +149,11 @@ mod tests {
 
     #[test]
     fn machine_validation_converts_to_legacy_pairs() {
+        let validation_id = MachineValidationId::new();
         let action = fac::Action::MachineValidation(fac::MachineValidation {
             is_enabled: true,
             context: "Discovery".to_string(),
-            validation_id: Some(common::Uuid {
-                value: "validation-id".to_string(),
-            }),
+            validation_id: Some(validation_id),
             filter: Some(fac::MachineValidationFilter {
                 tags: vec!["smoke".to_string()],
                 allowed_tests: vec!["test-a".to_string()],
@@ -198,14 +198,12 @@ mod tests {
 
     #[test]
     fn response_from_machine_validation_sets_typed_payload_and_legacy_pairs() {
-        let validation_uuid = uuid::Uuid::new_v4().to_string();
+        let validation_id = MachineValidationId::new();
         let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(
             fac::Action::MachineValidation(fac::MachineValidation {
                 is_enabled: true,
                 context: "Discovery".to_string(),
-                validation_id: Some(common::Uuid {
-                    value: validation_uuid.clone(),
-                }),
+                validation_id: Some(validation_id),
                 filter: Some(fac::MachineValidationFilter {
                     tags: vec!["smoke".to_string()],
                     allowed_tests: vec!["test-a".to_string()],
@@ -229,10 +227,7 @@ mod tests {
             fac::LegacyAction::MachineValidation as i32
         );
         assert_eq!(machine_validation.context, "Discovery");
-        assert_eq!(
-            machine_validation.validation_id.as_ref().unwrap().value,
-            validation_uuid,
-        );
+        assert_eq!(machine_validation.validation_id.unwrap(), validation_id,);
         assert_eq!(
             machine_validation
                 .filter
@@ -247,7 +242,7 @@ mod tests {
             legacy_data
                 .pair
                 .iter()
-                .any(|pair| pair.key == "ValidationId" && pair.value == validation_uuid)
+                .any(|pair| pair.key == "ValidationId" && pair.value == validation_id.to_string())
         );
         assert!(
             legacy_data

@@ -4353,7 +4353,7 @@ message ForgeAgentControlResponse {
   message MachineValidation {
     bool is_enabled = 1;
     string context = 2;
-    common.UUID validation_id = 3;
+    common.MachineValidationId validation_id = 3;
     MachineValidationFilter filter = 4;
   }
 
@@ -5517,7 +5517,7 @@ message ScoutFirmwareUpgradeStatusRequest {
 message MachineValidationCompletedRequest {
   common.MachineId machine_id = 1;
   optional string machine_validation_error = 2;
-  common.UUID validation_id = 3;
+  common.MachineValidationId validation_id = 3;
 }
 
 message MachineValidationCompletedResponse {
@@ -5534,7 +5534,7 @@ message MachineValidationResult {
   int32 exit_code = 8;
   google.protobuf.Timestamp start_time = 10;
   google.protobuf.Timestamp end_time = 11;
-  common.UUID validation_id = 12;
+  common.MachineValidationId validation_id = 12;
   optional string test_id = 13;
 }
 
@@ -5549,7 +5549,7 @@ message MachineValidationResultList {
 message MachineValidationGetRequest {
   optional common.MachineId machine_id = 1;
   bool include_history = 2;
-  optional common.UUID validation_id = 3;
+  optional common.MachineValidationId validation_id = 3;
 }
 
 message MachineValidationStatus {
@@ -5578,7 +5578,7 @@ message MachineValidationStatus {
   uint32 completed_tests = 5;
 }
 message MachineValidationRun {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
   common.MachineId machine_id = 2;
   google.protobuf.Timestamp start_time = 3;
   google.protobuf.Timestamp end_time = 4;
@@ -5647,7 +5647,7 @@ message MachineValidationOnDemandRequest {
 }
 
 message MachineValidationOnDemandResponse {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
 }
 
 message FirmwareUpgradeActivity {
@@ -5879,7 +5879,7 @@ message MachineValidationTestEnableDisableTestResponse {
 }
 
 message MachineValidationRunRequest {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
   google.protobuf.Duration duration_to_complete = 2;
   uint32 total = 3;
 }

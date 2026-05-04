@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use base64::prelude::*;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use chrono::Duration;
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
@@ -909,7 +910,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "Discovery".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: true,
@@ -1620,7 +1621,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "Discovery".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: env.config.machine_validation_config.enabled,

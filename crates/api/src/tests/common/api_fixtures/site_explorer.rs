@@ -20,6 +20,7 @@ use std::iter;
 use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
@@ -938,7 +939,7 @@ impl<'a> MockExploredHost<'a> {
                     validation_state: ValidationState::MachineValidation {
                         machine_validation: MachineValidatingState::MachineValidating {
                             context: "Discovery".to_string(),
-                            id: uuid::Uuid::default(),
+                            id: MachineValidationId::new(),
                             completed: 1,
                             total: 1,
                             is_enabled: self.test_env.config.machine_validation_config.enabled,
@@ -951,12 +952,10 @@ impl<'a> MockExploredHost<'a> {
         let response = forge_agent_control(self.test_env, host_machine_id).await;
         if self.test_env.config.machine_validation_config.enabled {
             let uuid = &response.data.unwrap().pair[1].value;
-            let validation_id = Some(rpc::Uuid {
-                value: uuid.to_owned(),
-            });
+            let validation_id: MachineValidationId = uuid.parse().unwrap();
             let success = update_machine_validation_run(
                 self.test_env,
-                validation_id.clone(),
+                Some(validation_id),
                 Some(rpc::Duration::from(std::time::Duration::from_secs(1200))),
                 1,
             )
@@ -964,13 +963,13 @@ impl<'a> MockExploredHost<'a> {
             assert_eq!(success.message, "Success".to_string());
             let runs = get_machine_validation_runs(self.test_env, &host_machine_id, false).await;
             for run in runs.runs {
-                if run.validation_id == validation_id {
+                if run.validation_id == Some(validation_id) {
                     assert_eq!(run.status.unwrap_or_default().total, 1);
                     assert_eq!(run.status.unwrap_or_default().completed_tests, 0);
                     assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 1200);
                 }
             }
-            machine_validation_result.validation_id = validation_id.clone();
+            machine_validation_result.validation_id = Some(validation_id);
             persist_machine_validation_result(self.test_env, machine_validation_result.clone())
                 .await;
             assert_eq!(
@@ -985,7 +984,7 @@ impl<'a> MockExploredHost<'a> {
 
             let runs = get_machine_validation_runs(self.test_env, &host_machine_id, false).await;
             for run in runs.runs {
-                if run.validation_id == validation_id {
+                if run.validation_id == Some(validation_id) {
                     assert_eq!(run.status.unwrap_or_default().total, 1);
                     assert_eq!(
                         run.status.unwrap_or_default().completed_tests,

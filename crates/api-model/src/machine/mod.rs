@@ -25,6 +25,7 @@ use base64::prelude::*;
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -860,16 +861,16 @@ pub struct Machine {
     pub last_machine_validation_time: Option<DateTime<Utc>>,
 
     /// current discovery validation id.
-    pub discovery_machine_validation_id: Option<uuid::Uuid>,
+    pub discovery_machine_validation_id: Option<MachineValidationId>,
 
     /// current cleanup validation id.
-    pub cleanup_machine_validation_id: Option<uuid::Uuid>,
+    pub cleanup_machine_validation_id: Option<MachineValidationId>,
 
     /// Override to enable or disable firmware auto update
     pub firmware_autoupdate: Option<bool>,
 
     /// current on demand validation id.
-    pub on_demand_machine_validation_id: Option<uuid::Uuid>,
+    pub on_demand_machine_validation_id: Option<MachineValidationId>,
 
     pub on_demand_machine_validation_request: Option<bool>,
 
@@ -1497,11 +1498,11 @@ pub enum ManagedHostState {
 #[serde(rename_all = "lowercase")]
 pub enum MachineValidatingState {
     RebootHost {
-        validation_id: uuid::Uuid,
+        validation_id: MachineValidationId,
     },
     MachineValidating {
         context: String,
-        id: uuid::Uuid,
+        id: MachineValidationId,
         completed: usize,
         total: usize,
         #[serde(default = "default_true")]
