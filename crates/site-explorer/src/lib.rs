@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
@@ -32,7 +33,6 @@ use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config::SiteExplorerConfig;
-use config_version::ConfigVersion;
 use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
 use forge_secrets::credentials::CredentialManager;
 use futures_util::stream::FuturesUnordered;
@@ -181,20 +181,23 @@ pub async fn fetch_slot_and_tray(
 pub struct Endpoint<'a> {
     address: IpAddr,
     iface: &'a MachineInterfaceSnapshot,
-    last_redfish_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
-    last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
-    last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
-    old_report: Option<(ConfigVersion, &'a EndpointExplorationReport)>,
+    last_explored: Option<&'a ExploredEndpoint>,
     pub(crate) expected: Option<&'a ExpectedEntity>,
-    preingestion_state: PreingestionState,
     pause_ingestion_and_poweron: bool,
-    pause_remediation: bool,
-    boot_interface_mac: Option<MacAddress>,
 }
 
 impl Display for Endpoint<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.address)
+    }
+}
+
+impl<'a> Endpoint<'a> {
+    fn preingestion_state(&self) -> Cow<'a, PreingestionState> {
+        self.last_explored
+            .map_or(Cow::Owned(PreingestionState::Initial), |e| {
+                Cow::Borrowed(&e.preingestion_state)
+            })
     }
 }
 
@@ -1480,14 +1483,8 @@ impl SiteExplorer {
             explore_endpoint_data.push(Endpoint {
                 address,
                 iface,
-                last_redfish_bmc_reset: endpoint.last_redfish_bmc_reset,
-                last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
-                last_redfish_reboot: endpoint.last_redfish_reboot,
-                old_report: Some((endpoint.report_version, &endpoint.report)),
-                pause_remediation: endpoint.pause_remediation,
-                preingestion_state: endpoint.preingestion_state.clone(),
+                last_explored: Some(endpoint),
                 pause_ingestion_and_poweron: endpoint.pause_ingestion_and_poweron,
-                boot_interface_mac: endpoint.boot_interface_mac,
                 expected: index.matched_expected(&address),
             });
         }
@@ -1503,14 +1500,8 @@ impl SiteExplorer {
             explore_endpoint_data.push(Endpoint {
                 address: *address,
                 iface,
-                last_redfish_bmc_reset: None,
-                last_ipmitool_bmc_reset: None,
-                last_redfish_reboot: None,
-                old_report: None,
-                pause_remediation: false, // New endpoints haven't been explored yet, so pause_remediation defaults to false
-                preingestion_state: PreingestionState::Initial,
+                last_explored: None,
                 pause_ingestion_and_poweron,
-                boot_interface_mac: None, // boot_interface_mac not yet discovered for new endpoints
                 expected: index.matched_expected(address),
             });
         }
@@ -1529,14 +1520,8 @@ impl SiteExplorer {
                 explore_endpoint_data.push(Endpoint {
                     address,
                     iface,
-                    last_redfish_bmc_reset: endpoint.last_redfish_bmc_reset,
-                    last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
-                    last_redfish_reboot: endpoint.last_redfish_reboot,
-                    old_report: Some((endpoint.report_version, &endpoint.report)),
-                    pause_remediation: endpoint.pause_remediation,
-                    preingestion_state: endpoint.preingestion_state.clone(),
+                    last_explored: Some(endpoint),
                     pause_ingestion_and_poweron: endpoint.pause_ingestion_and_poweron,
-                    boot_interface_mac: endpoint.boot_interface_mac,
                     expected: index.matched_expected(&address),
                 });
             }
@@ -1581,8 +1566,8 @@ impl SiteExplorer {
                             bmc_target_addr,
                             endpoint.iface,
                             endpoint.expected,
-                            endpoint.old_report.map(|report| report.1),
-                            endpoint.boot_interface_mac,
+                            endpoint.last_explored.map(|e| &e.report),
+                            endpoint.last_explored.and_then(|e| e.boot_interface_mac),
                         )
                         .await;
 
@@ -1650,7 +1635,7 @@ impl SiteExplorer {
 
         let mut redfish_errors = Vec::new();
 
-        for (mut endpoint, result, exploration_duration) in exploration_results.into_iter() {
+        for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
             let address = endpoint.address;
             let mut redfish_error = None;
 
@@ -1686,8 +1671,10 @@ impl SiteExplorer {
                 .await?;
             }
 
-            match endpoint.old_report {
-                Some((old_version, ref mut old_report)) => {
+            match endpoint.last_explored {
+                Some(explored) => {
+                    let old_version = explored.report_version;
+                    let old_report = &explored.report;
                     match result {
                         Ok(mut report) => {
                             report.last_exploration_latency = Some(exploration_duration);
@@ -1795,8 +1782,9 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
         error: &EndpointExplorationError,
     ) {
-        // Check if remediation is paused for this endpoint first
-        if endpoint.pause_remediation {
+        // Check if remediation is paused for this endpoint first.
+        // New endpoints haven't been explored yet, so pause_remediation defaults to false
+        if endpoint.last_explored.is_some_and(|e| e.pause_remediation) {
             tracing::info!(
                 "Site explorer will not remediate error for {endpoint} because remediation is paused for this endpoint: {error}"
             );
@@ -1813,12 +1801,12 @@ impl SiteExplorer {
         }
 
         if !matches!(
-            &endpoint.preingestion_state,
+            *endpoint.preingestion_state(),
             PreingestionState::Initial | PreingestionState::Complete
         ) {
             tracing::info!(
                 "Site explorer will not remediate error for {endpoint} because endpoint is in preingestion state {:?}: {error}",
-                endpoint.preingestion_state,
+                endpoint.preingestion_state(),
             );
             return;
         }
@@ -1842,7 +1830,7 @@ impl SiteExplorer {
         };
 
         // Power on machine endpoints in the initial preingestion state automatically unless ingestion was explicitly paused.
-        if matches!(&endpoint.preingestion_state, PreingestionState::Initial)
+        if matches!(*endpoint.preingestion_state(), PreingestionState::Initial)
             && matches!(endpoint.expected, Some(ExpectedEntity::Machine(_)))
             && !endpoint.pause_ingestion_and_poweron
             && let Ok(power_state) = self.redfish_get_power_state(endpoint).await
@@ -1868,12 +1856,24 @@ impl SiteExplorer {
         let reset_rate_limit = self.config.reset_rate_limit;
         let min_time_since_last_action_mins = 20;
         let start = Utc::now();
-        let time_since_redfish_reboot =
-            start.signed_duration_since(endpoint.last_redfish_reboot.unwrap_or_default());
-        let time_since_redfish_bmc_reset =
-            start.signed_duration_since(endpoint.last_redfish_bmc_reset.unwrap_or_default());
-        let time_since_ipmitool_bmc_reset =
-            start.signed_duration_since(endpoint.last_ipmitool_bmc_reset.unwrap_or_default());
+        let time_since_redfish_reboot = start.signed_duration_since(
+            endpoint
+                .last_explored
+                .and_then(|e| e.last_redfish_reboot)
+                .unwrap_or_default(),
+        );
+        let time_since_redfish_bmc_reset = start.signed_duration_since(
+            endpoint
+                .last_explored
+                .and_then(|e| e.last_redfish_bmc_reset)
+                .unwrap_or_default(),
+        );
+        let time_since_ipmitool_bmc_reset = start.signed_duration_since(
+            endpoint
+                .last_explored
+                .and_then(|e| e.last_ipmitool_bmc_reset)
+                .unwrap_or_default(),
+        );
 
         if time_since_redfish_reboot.num_minutes() < min_time_since_last_action_mins
             || time_since_redfish_bmc_reset.num_minutes() < min_time_since_last_action_mins
@@ -2727,6 +2727,7 @@ fn should_alert_power_state(power_state: PowerState) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
 
     use super::*;
