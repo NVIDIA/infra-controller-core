@@ -24,6 +24,10 @@
 #
 # NOTE: This image uses debian:12-slim instead of NVIDIA distroless because the
 # otelcol-wrapper entrypoint is a bash script that requires a full shell.
+#
+# The journaldreceiver invokes `journalctl`; install systemd so that binary and
+# its libraries are present (see journaldreceiver/examples/container/README.md
+# in opentelemetry-collector-contrib).
 
 ARG GO_VERSION=1.22.0
 ARG OTELCOL_VERSION=0.101.0
@@ -70,6 +74,7 @@ FROM debian:12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libudev1 \
+    systemd \
     && rm -rf /var/lib/apt/lists/*
 
 # Collector binary
