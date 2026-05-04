@@ -39,6 +39,7 @@ RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
   export DATABASE_URL="postgresql://%2Fvar%2Frun%2Fpostgresql" && \
   export SCCACHE_DIR=/sccache && \
   export RUSTC_WRAPPER=sccache && \
+  export CARGO_PROFILE_RELEASE_DEBUG=true && \
   /etc/init.d/postgresql start && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \

@@ -29,6 +29,7 @@ RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
   cd /carbide && \
   export SCCACHE_DIR=/sccache && \
   export RUSTC_WRAPPER=sccache && \
+  export CARGO_PROFILE_RELEASE_DEBUG=true && \
   cargo build --release -p carbide-admin-cli
 
 FROM debian:12-slim
