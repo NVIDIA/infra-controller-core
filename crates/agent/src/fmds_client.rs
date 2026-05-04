@@ -96,7 +96,7 @@ impl FmdsGrpcClient {
             self.machine_identity.sign_proxy_url.as_deref(),
             self.machine_identity.sign_proxy_tls_root_ca.as_deref(),
         )
-        .map(|p| p.to_fmds_proto())
+        .map(Into::into)
         .map_err(|msg| eyre!("machine-identity (FMDS config push): {msg}"))
     }
 

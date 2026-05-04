@@ -715,7 +715,7 @@ mod tests {
             user_data: "grpc-user-data".to_string(),
             ib_devices: vec![],
             asn: 12345,
-            machine_identity: Some(MachineIdentityParams::fmds_default().to_fmds_proto()),
+            machine_identity: Some(MachineIdentityParams::default().into()),
         };
         grpc_server
             .update_config(Request::new(UpdateConfigRequest {

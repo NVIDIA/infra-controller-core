@@ -30,8 +30,8 @@ use carbide_uuid::machine::MachineId;
 use eyre::eyre;
 use forge_dpu_agent_utils::utils::create_forge_client;
 use forge_dpu_fmds_shared::machine_identity::{
-    self, MetaDataIdentitySigner, forward_sign_proxy_if_ready, sign_machine_identity_with_forge,
-    wait_identity_rate_limit_permit,
+    self, MetaDataIdentityOutcome, MetaDataIdentitySigner, forward_sign_proxy_if_ready,
+    sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
 };
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
@@ -74,7 +74,9 @@ pub trait InstanceMetadataRouterState: Sync + Send {
     /// in the client certificate must match the managed host machine row used by Carbide for
     /// tenant identity config.
     ///
-    /// [`MetaDataIdentitySigner`] must acquire a rate-limit permit (governor) before calling this method.
+    /// **Note:** `GET …/meta-data/identity` does not use this trait method directly; it goes through
+    /// [`Self::serve_meta_data_identity`], which enforces the identity rate limit before Carbide or
+    /// before invoking this method indirectly.
     async fn sign_machine_identity(
         &self,
         audiences: Vec<String>,
@@ -157,25 +159,25 @@ impl MetaDataIdentitySigner for InstanceMetadataRouterStateImpl {
         self.wait_identity_governor().await
     }
 
-    async fn forward_sign_proxy_if_configured(
+    async fn machine_identity_response(
         &self,
         uri: &Uri,
         headers: &HeaderMap,
-    ) -> Option<Response> {
-        forward_sign_proxy_if_ready(
+        audiences: Vec<String>,
+    ) -> Result<MetaDataIdentityOutcome, tonic::Status> {
+        if let Some(resp) = forward_sign_proxy_if_ready(
             self.identity_serving.sign_proxy_base.as_deref(),
             self.identity_serving.sign_proxy_http_client.as_ref(),
             uri,
             headers,
         )
         .await
-    }
+        {
+            return Ok(MetaDataIdentityOutcome::HttpProxy(resp));
+        }
 
-    async fn sign_machine_identity(
-        &self,
-        audiences: Vec<String>,
-    ) -> Result<forge::MachineIdentityResponse, tonic::Status> {
-        InstanceMetadataRouterState::sign_machine_identity(self, audiences).await
+        let resp = InstanceMetadataRouterState::sign_machine_identity(self, audiences).await?;
+        Ok(MetaDataIdentityOutcome::Forge(resp))
     }
 }
 
@@ -187,6 +189,11 @@ impl InstanceMetadataRouterStateImpl {
             self.identity_serving.wait_timeout,
         )
         .await
+        .map_err(|_| {
+            tonic::Status::resource_exhausted(
+                "timed out waiting for machine-identity rate limit capacity (machine-identity.wait-timeout-secs)",
+            )
+        })
     }
 
     pub fn new(

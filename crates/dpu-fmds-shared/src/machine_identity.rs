@@ -48,31 +48,32 @@ pub const META_DATA_IDENTITY_CATEGORY: &str = "identity";
 /// Upstream path appended to `sign-proxy-url` for HTTP pass-through (`{base}/latest/...`).
 pub const SIGN_PROXY_UPSTREAM_IMDS_PREFIX: &str = "latest/meta-data/identity";
 
-/// Validated, normalized machine-identity limits
-/// values are only obtainable through [`Self::try_from_limits`], [`TryFrom`] from `FmdsMachineIdentityConfig`,
-/// or [`Self::fmds_default`] (known-good defaults). Use accessors; fields are private so callers cannot bypass parsing.
+/// Validated, normalized machine-identity limits.
+///
+/// Construct only through [`Self::try_from_limits`], [`TryFrom`] from `FmdsMachineIdentityConfig`,
+/// or [`Default`] (known-good defaults, aligned with agent `MachineIdentityConfig` serde).
 ///
 /// ## What is validated where
 ///
-/// - [`MachineIdentityParams::try_from_limits`] (and [`TryFrom`] / [`Self::try_from_fmds_proto`]):
+/// - [`MachineIdentityParams::try_from_limits`] and [`TryFrom`] from [`FmdsMachineIdentityConfig`]:
 ///   numeric ranges, trim/empty normalization for proxy URL and TLS root CA path, and the rule that a CA
 ///   path requires a proxy URL.
 /// - **Agent `MachineIdentityConfig::validate()`** (carbide-host-support): the above bounds **plus** HTTP(S)
 ///   scheme checks for `sign-proxy-url`, PEM file readability/parsing for `sign-proxy-tls-root-ca`, etc.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineIdentityParams {
-    requests_per_second: u8,
-    burst: u8,
-    wait_timeout_secs: u8,
-    sign_timeout_secs: u8,
-    sign_proxy_url: Option<String>,
-    sign_proxy_tls_root_ca: Option<String>,
+    pub requests_per_second: u8,
+    pub burst: u8,
+    pub wait_timeout_secs: u8,
+    pub sign_timeout_secs: u8,
+    pub sign_proxy_url: Option<String>,
+    pub sign_proxy_tls_root_ca: Option<String>,
 }
 
-impl MachineIdentityParams {
-    /// Defaults match [`forge_dpu_agent_utils::machine_identity::defaults`] (agent
-    /// `MachineIdentityConfig` serde and this crate).
-    pub fn fmds_default() -> Self {
+impl Default for MachineIdentityParams {
+    /// Matches [`forge_dpu_agent_utils::machine_identity::defaults`] (agent `MachineIdentityConfig`
+    /// serde and this crate).
+    fn default() -> Self {
         Self {
             requests_per_second: REQUESTS_PER_SECOND,
             burst: BURST,
@@ -82,42 +83,14 @@ impl MachineIdentityParams {
             sign_proxy_tls_root_ca: None,
         }
     }
+}
 
-    #[inline]
-    pub fn requests_per_second(&self) -> u8 {
-        self.requests_per_second
-    }
-
-    #[inline]
-    pub fn burst(&self) -> u8 {
-        self.burst
-    }
-
-    #[inline]
-    pub fn wait_timeout_secs(&self) -> u8 {
-        self.wait_timeout_secs
-    }
-
-    #[inline]
-    pub fn sign_timeout_secs(&self) -> u8 {
-        self.sign_timeout_secs
-    }
-
-    #[inline]
-    pub fn sign_proxy_url(&self) -> Option<&str> {
-        self.sign_proxy_url.as_deref()
-    }
-
-    #[inline]
-    pub fn sign_proxy_tls_root_ca(&self) -> Option<&str> {
-        self.sign_proxy_tls_root_ca.as_deref()
-    }
-
+impl MachineIdentityParams {
     /// Single normalization path: range checks (see [`limits`]), trim,
     /// empty→`None`, and CA path requires proxy URL.
     ///
-    /// Call after agent **`MachineIdentityConfig::validate()`** for file-backed config, or from
-    /// [`Self::try_from_fmds_proto`] / [`Self::to_fmds_proto`] for the FMDS boundary.
+    /// Call after agent **`MachineIdentityConfig::validate()`** for file-backed config, or use
+    /// [`TryFrom`] with `&FmdsMachineIdentityConfig` and [`From`] / `.into()` into [`FmdsMachineIdentityConfig`] for the FMDS boundary.
     pub fn try_from_limits(
         requests_per_second: u8,
         burst: u8,
@@ -172,20 +145,17 @@ impl MachineIdentityParams {
             sign_proxy_tls_root_ca,
         })
     }
+}
 
-    /// [`TryFrom::try_from`] — preferred for protobuf (idiomatic “parse” entry point).
-    pub fn try_from_fmds_proto(p: &FmdsMachineIdentityConfig) -> Result<Self, String> {
-        Self::try_from(p)
-    }
-
-    pub fn to_fmds_proto(&self) -> FmdsMachineIdentityConfig {
-        FmdsMachineIdentityConfig {
-            requests_per_second: u32::from(self.requests_per_second),
-            burst: u32::from(self.burst),
-            wait_timeout_secs: u32::from(self.wait_timeout_secs),
-            sign_timeout_secs: u32::from(self.sign_timeout_secs),
-            sign_proxy_url: self.sign_proxy_url.clone(),
-            sign_proxy_tls_root_ca: self.sign_proxy_tls_root_ca.clone(),
+impl From<MachineIdentityParams> for FmdsMachineIdentityConfig {
+    fn from(p: MachineIdentityParams) -> Self {
+        Self {
+            requests_per_second: u32::from(p.requests_per_second),
+            burst: u32::from(p.burst),
+            wait_timeout_secs: u32::from(p.wait_timeout_secs),
+            sign_timeout_secs: u32::from(p.sign_timeout_secs),
+            sign_proxy_url: p.sign_proxy_url,
+            sign_proxy_tls_root_ca: p.sign_proxy_tls_root_ca,
         }
     }
 }
@@ -232,29 +202,29 @@ pub struct MachineIdentityServing {
 }
 
 impl MachineIdentityServing {
-    /// Defaults match [`MachineIdentityParams::fmds_default`].
+    /// Defaults match [`MachineIdentityParams::default`].
     pub fn try_default() -> Result<Self, String> {
-        Self::try_from_params(MachineIdentityParams::fmds_default())
+        Self::try_from_params(MachineIdentityParams::default())
     }
 
     /// Builds serving state from parsed [`MachineIdentityParams`] (via [`MachineIdentityParams::try_from_limits`]
     /// or `TryFrom<&FmdsMachineIdentityConfig>`). Input must already be normalized (trimmed option strings).
     pub fn try_from_params(params: MachineIdentityParams) -> Result<Self, String> {
-        let rps = NonZeroU32::new(u32::from(params.requests_per_second())).ok_or_else(|| {
+        let rps = NonZeroU32::new(u32::from(params.requests_per_second)).ok_or_else(|| {
             "machine-identity.requests-per-second: expected a positive value (internal error)"
                 .to_string()
         })?;
-        let burst_nz = NonZeroU32::new(u32::from(params.burst())).ok_or_else(|| {
+        let burst_nz = NonZeroU32::new(u32::from(params.burst)).ok_or_else(|| {
             "machine-identity.burst: expected a positive value (internal error)".to_string()
         })?;
         let identity_quota = Quota::per_second(rps).allow_burst(burst_nz);
 
-        let sign_proxy_base = params.sign_proxy_url().map(str::to_string);
-        let call_timeout = Duration::from_secs(u64::from(params.sign_timeout_secs()));
+        let sign_proxy_base = params.sign_proxy_url.clone();
+        let call_timeout = Duration::from_secs(u64::from(params.sign_timeout_secs));
         let sign_proxy_http_client = if sign_proxy_base.is_some() {
             Some(build_sign_proxy_http_client(
                 call_timeout,
-                params.sign_proxy_tls_root_ca(),
+                params.sign_proxy_tls_root_ca.as_deref(),
             )?)
         } else {
             None
@@ -262,7 +232,7 @@ impl MachineIdentityServing {
 
         Ok(Self {
             governor: Arc::new(RateLimiter::direct(identity_quota)),
-            wait_timeout: Duration::from_secs(u64::from(params.wait_timeout_secs())),
+            wait_timeout: Duration::from_secs(u64::from(params.wait_timeout_secs)),
             forge_call_timeout: call_timeout,
             sign_proxy_base,
             sign_proxy_http_client,
@@ -274,19 +244,15 @@ impl MachineIdentityServing {
 pub type IdentityRateLimiter =
     RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>;
 
-/// Wait for an IMDS machine-identity rate-limit permit.
+/// Wait for an IMDS machine-identity rate-limit permit (bounded by `wait_timeout`).
+///
+/// Returns [`Err`] with [`tokio::time::error::Elapsed`] when waiting exceeds `wait_timeout`.
 pub async fn wait_identity_rate_limit_permit(
     governor: &Arc<IdentityRateLimiter>,
     wait_timeout: Duration,
-) -> Result<(), tonic::Status> {
+) -> Result<(), tokio::time::error::Elapsed> {
     let lim = Arc::clone(governor);
-    tokio::time::timeout(wait_timeout, lim.until_ready())
-        .await
-        .map_err(|_| {
-            tonic::Status::resource_exhausted(
-                "timed out waiting for machine-identity rate limit capacity (machine-identity.wait-timeout-secs)",
-            )
-        })?;
+    tokio::time::timeout(wait_timeout, lim.until_ready()).await?;
     Ok(())
 }
 
@@ -320,25 +286,47 @@ pub async fn sign_machine_identity_with_forge(
     })?
 }
 
+/// Result of [`MetaDataIdentitySigner::machine_identity_response`] and
+/// [`MetaDataIdentitySigner::rate_limited_identity_request`]: HTTP sign-proxy response, or
+/// Forge payload to build the JSON/text identity body.
+pub enum MetaDataIdentityOutcome {
+    /// Response from the HTTP sign-proxy (`sign-proxy-url`).
+    HttpProxy(Response),
+    /// Successful `SignMachineIdentity` result to encode for the client.
+    Forge(MachineIdentityResponse),
+}
+
 #[async_trait]
 pub trait MetaDataIdentitySigner: Send + Sync {
-    /// Rate-limit permit (governor) before signing or proxying.
+    /// Acquire a rate-limit permit before [`Self::machine_identity_response`].
     async fn wait_identity_permit(&self) -> Result<(), tonic::Status>;
 
-    /// When `sign-proxy-url` is configured, forward this request to the HTTP sign proxy and return
-    /// the response. Returns [`None`] when the Forge (`SignMachineIdentity`) path should be used
-    /// instead. Implementations should hold any `Arc`/lock guard across the `.await` so borrows into
-    /// sign-proxy config remain valid (see [`forward_sign_proxy_if_ready`] / [`forward_sign_proxy_http`]).
-    async fn forward_sign_proxy_if_configured(
+    /// HTTP sign-proxy (if configured), otherwise Carbide `SignMachineIdentity` with `audiences`.
+    ///
+    /// Implementations should try the sign-proxy first when enabled, then fall back to Forge.
+    /// Hold any `Arc`/lock guard across `.await` so sign-proxy config borrows stay valid (see
+    /// [`forward_sign_proxy_if_ready`] / [`forward_sign_proxy_http`]).
+    async fn machine_identity_response(
         &self,
         uri: &Uri,
         headers: &HeaderMap,
-    ) -> Option<Response>;
-
-    async fn sign_machine_identity(
-        &self,
         audiences: Vec<String>,
-    ) -> Result<MachineIdentityResponse, tonic::Status>;
+    ) -> Result<MetaDataIdentityOutcome, tonic::Status>;
+
+    /// Waits for rate-limit capacity, then runs [`Self::machine_identity_response`].
+    ///
+    /// Default implementation encodes the required ordering; override only if you preserve the same
+    /// policy (permit before proxy or Carbide).
+    async fn rate_limited_identity_request(
+        &self,
+        uri: &Uri,
+        headers: &HeaderMap,
+    ) -> Result<MetaDataIdentityOutcome, tonic::Status> {
+        self.wait_identity_permit().await?;
+        let audiences = parse_identity_audiences(uri);
+        self.machine_identity_response(uri, headers, audiences)
+            .await
+    }
 }
 
 /// Parses repeated `aud` query parameters (URL-decoded).
@@ -369,26 +357,28 @@ pub fn accept_text_plain(headers: &HeaderMap) -> bool {
         })
 }
 
-pub fn map_grpc_status_to_http(status: &tonic::Status) -> StatusCode {
+/// HTTP status for failed machine-identity signing (Carbide / implementation errors on the IMDS path).
+///
+/// gRPC status codes from Carbide are all map to **503 Service Unavailable**
+/// The exception is **429 Too Many Requests** for [`tonic::Code::ResourceExhausted`],
+/// used for identity rate-limit wait timeouts in this crate.
+///
+/// The returned message is safe to expose to IMDS clients; details are logged at `WARN`.
+pub fn map_machine_identity_signing_error_to_http(status: &tonic::Status) -> (StatusCode, String) {
     use tonic::Code;
     match status.code() {
-        Code::Ok => StatusCode::OK,
-        Code::Cancelled => StatusCode::REQUEST_TIMEOUT,
-        Code::Unknown => StatusCode::BAD_GATEWAY,
-        Code::InvalidArgument => StatusCode::BAD_REQUEST,
-        Code::DeadlineExceeded => StatusCode::GATEWAY_TIMEOUT,
-        Code::NotFound => StatusCode::NOT_FOUND,
-        Code::AlreadyExists => StatusCode::CONFLICT,
-        Code::PermissionDenied => StatusCode::FORBIDDEN,
-        Code::ResourceExhausted => StatusCode::TOO_MANY_REQUESTS,
-        Code::FailedPrecondition => StatusCode::BAD_REQUEST,
-        Code::Aborted => StatusCode::CONFLICT,
-        Code::OutOfRange => StatusCode::BAD_REQUEST,
-        Code::Unimplemented => StatusCode::NOT_IMPLEMENTED,
-        Code::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-        Code::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-        Code::DataLoss => StatusCode::INTERNAL_SERVER_ERROR,
-        Code::Unauthenticated => StatusCode::UNAUTHORIZED,
+        Code::ResourceExhausted => (StatusCode::TOO_MANY_REQUESTS, status.message().to_string()),
+        code => {
+            tracing::warn!(
+                ?code,
+                message = %status.message(),
+                "machine-identity: upstream signing failed"
+            );
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "machine identity signing is temporarily unavailable\n".to_string(),
+            )
+        }
     }
 }
 
@@ -534,55 +524,43 @@ pub async fn serve_meta_data_identity<S: MetaDataIdentitySigner + ?Sized>(
             .into_response();
     }
 
-    if let Err(e) = signer.wait_identity_permit().await {
-        let code = map_grpc_status_to_http(&e);
-        return (code, e.message().to_string()).into_response();
-    }
+    match signer.rate_limited_identity_request(&uri, &headers).await {
+        Ok(MetaDataIdentityOutcome::HttpProxy(resp)) => resp,
+        Ok(MetaDataIdentityOutcome::Forge(resp)) => {
+            let body = IdentityTokenJsonBody {
+                access_token: resp.access_token,
+                issued_token_type: resp.issued_token_type,
+                token_type: resp.token_type,
+                expires_in: resp.expires_in_sec,
+            };
+            let json = match serde_json::to_string(&body) {
+                Ok(s) => s,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("machine-identity: failed to serialize identity response ({e})"),
+                    )
+                        .into_response();
+                }
+            };
 
-    if let Some(resp) = signer
-        .forward_sign_proxy_if_configured(&uri, &headers)
-        .await
-    {
-        return resp;
-    }
-
-    let audiences = parse_identity_audiences(&uri);
-    let resp = match signer.sign_machine_identity(audiences).await {
-        Ok(r) => r,
-        Err(e) => {
-            let code = map_grpc_status_to_http(&e);
-            return (code, e.message().to_string()).into_response();
+            let content_type = if accept_text_plain(&headers) {
+                "text/plain; charset=utf-8"
+            } else {
+                "application/json"
+            };
+            let mut res = (StatusCode::OK, json).into_response();
+            res.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                HeaderValue::from_static(content_type),
+            );
+            res
         }
-    };
-
-    let body = IdentityTokenJsonBody {
-        access_token: resp.access_token,
-        issued_token_type: resp.issued_token_type,
-        token_type: resp.token_type,
-        expires_in: resp.expires_in_sec,
-    };
-    let json = match serde_json::to_string(&body) {
-        Ok(s) => s,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("machine-identity: failed to serialize identity response ({e})"),
-            )
-                .into_response();
+            let (code, body) = map_machine_identity_signing_error_to_http(&e);
+            (code, body).into_response()
         }
-    };
-
-    let content_type = if accept_text_plain(&headers) {
-        "text/plain; charset=utf-8"
-    } else {
-        "application/json"
-    };
-    let mut res = (StatusCode::OK, json).into_response();
-    res.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static(content_type),
-    );
-    res
+    }
 }
 
 #[cfg(test)]
@@ -605,6 +583,25 @@ mod tests {
     }
 
     #[test]
+    fn map_machine_identity_signing_error_resource_exhausted_is_429_with_message() {
+        let s = tonic::Status::resource_exhausted("rate limit wait");
+        let (code, body) = map_machine_identity_signing_error_to_http(&s);
+        assert_eq!(code, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(body, "rate limit wait");
+    }
+
+    #[test]
+    fn map_machine_identity_signing_error_permission_denied_is_503_generic() {
+        let s = tonic::Status::permission_denied("internal detail");
+        let (code, body) = map_machine_identity_signing_error_to_http(&s);
+        assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            body,
+            "machine identity signing is temporarily unavailable\n"
+        );
+    }
+
+    #[test]
     fn metadata_header_is_true_accepts_case_insensitive() {
         let mut h = HeaderMap::new();
         assert!(!metadata_header_is_true(&h));
@@ -616,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn machine_identity_params_try_from_fmds_proto_trims_url() {
+    fn machine_identity_params_try_from_proto_trims_url() {
         let p = FmdsMachineIdentityConfig {
             requests_per_second: 5,
             burst: 10,
@@ -626,27 +623,14 @@ mod tests {
             sign_proxy_tls_root_ca: None,
         };
         let params = MachineIdentityParams::try_from(&p).unwrap();
-        assert_eq!(params.sign_proxy_url(), Some("https://sign.example"));
-    }
-
-    #[test]
-    fn machine_identity_params_try_from_trait_agrees_with_try_from_fmds_proto() {
-        let p = FmdsMachineIdentityConfig {
-            requests_per_second: 5,
-            burst: 10,
-            wait_timeout_secs: 3,
-            sign_timeout_secs: 6,
-            sign_proxy_url: None,
-            sign_proxy_tls_root_ca: None,
-        };
         assert_eq!(
-            MachineIdentityParams::try_from(&p).unwrap(),
-            MachineIdentityParams::try_from_fmds_proto(&p).unwrap()
+            params.sign_proxy_url.as_deref(),
+            Some("https://sign.example")
         );
     }
 
     #[test]
-    fn try_from_fmds_proto_matches_try_from_limits() {
+    fn try_from_proto_matches_try_from_limits() {
         let proto = FmdsMachineIdentityConfig {
             requests_per_second: 5,
             burst: 10,
@@ -655,7 +639,7 @@ mod tests {
             sign_proxy_url: Some("  https://sign.example  ".to_string()),
             sign_proxy_tls_root_ca: None,
         };
-        let a = MachineIdentityParams::try_from_fmds_proto(&proto).unwrap();
+        let a = MachineIdentityParams::try_from(&proto).unwrap();
         let b = MachineIdentityParams::try_from_limits(
             5,
             10,
@@ -667,7 +651,7 @@ mod tests {
         .unwrap();
         assert_eq!(a, b);
         assert_eq!(
-            a.to_fmds_proto(),
+            FmdsMachineIdentityConfig::from(a),
             FmdsMachineIdentityConfig {
                 requests_per_second: 5,
                 burst: 10,

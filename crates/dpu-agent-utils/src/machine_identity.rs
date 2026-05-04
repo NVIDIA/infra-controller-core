@@ -20,7 +20,7 @@
 //! **carbide-dpu-fmds-shared**.
 
 /// Default numeric values for agent `[machine-identity]` (TOML serde) and
-/// `MachineIdentityParams::fmds_default` (**carbide-dpu-fmds-shared**). Each lies within [`limits`].
+/// `MachineIdentityParams` [`Default`] (**carbide-dpu-fmds-shared**). Each lies within [`limits`].
 pub mod defaults {
     pub const REQUESTS_PER_SECOND: u8 = 3;
     pub const BURST: u8 = 8;

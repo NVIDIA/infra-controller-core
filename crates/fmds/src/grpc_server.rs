@@ -124,7 +124,7 @@ mod tests {
             user_data: "cloud-init-data".to_string(),
             ib_devices: vec![],
             asn: 65000,
-            machine_identity: Some(MachineIdentityParams::fmds_default().to_fmds_proto()),
+            machine_identity: Some(MachineIdentityParams::default().into()),
         }
     }
 

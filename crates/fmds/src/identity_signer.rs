@@ -18,8 +18,8 @@
 use async_trait::async_trait;
 use axum::http::{HeaderMap, Uri};
 use forge_dpu_fmds_shared::machine_identity::{
-    MetaDataIdentitySigner, forward_sign_proxy_if_ready, sign_machine_identity_with_forge,
-    wait_identity_rate_limit_permit,
+    MetaDataIdentityOutcome, MetaDataIdentitySigner, forward_sign_proxy_if_ready,
+    sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
 };
 
 use crate::state::FmdsState;
@@ -28,40 +28,46 @@ use crate::state::FmdsState;
 impl MetaDataIdentitySigner for FmdsState {
     async fn wait_identity_permit(&self) -> Result<(), tonic::Status> {
         let snap = self.machine_identity.load();
-        wait_identity_rate_limit_permit(&snap.governor, snap.wait_timeout).await
+        wait_identity_rate_limit_permit(&snap.governor, snap.wait_timeout)
+            .await
+            .map_err(|_| {
+                tonic::Status::resource_exhausted(
+                    "timed out waiting for machine-identity rate limit capacity (machine-identity.wait-timeout-secs)",
+                )
+            })
     }
 
-    async fn forward_sign_proxy_if_configured(
+    async fn machine_identity_response(
         &self,
         uri: &Uri,
         headers: &HeaderMap,
-    ) -> Option<axum::response::Response> {
+        audiences: Vec<String>,
+    ) -> Result<MetaDataIdentityOutcome, tonic::Status> {
         let serving = self.machine_identity.load_full();
-        forward_sign_proxy_if_ready(
+        if let Some(resp) = forward_sign_proxy_if_ready(
             serving.sign_proxy_base.as_deref(),
             serving.sign_proxy_http_client.as_ref(),
             uri,
             headers,
         )
         .await
-    }
+        {
+            return Ok(MetaDataIdentityOutcome::HttpProxy(resp));
+        }
 
-    async fn sign_machine_identity(
-        &self,
-        audiences: Vec<String>,
-    ) -> Result<rpc::forge::MachineIdentityResponse, tonic::Status> {
         let forge_client_config = self.forge_client_config.as_ref().ok_or_else(|| {
             tonic::Status::failed_precondition(
                 "Forge client TLS is not configured; cannot sign machine identity",
             )
         })?;
         let snap = self.machine_identity.load();
-        sign_machine_identity_with_forge(
+        let resp = sign_machine_identity_with_forge(
             &self.forge_api,
             forge_client_config.as_ref(),
             snap.forge_call_timeout,
             audiences,
         )
-        .await
+        .await?;
+        Ok(MetaDataIdentityOutcome::Forge(resp))
     }
 }
