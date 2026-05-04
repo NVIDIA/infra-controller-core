@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use cache::CacheEntry;
+use carbide_utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
@@ -46,7 +47,6 @@ use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
-use utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 
 use crate::util::get_socket;
 
@@ -72,7 +72,7 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
 
     let dhcp_timestamps = Arc::new(Mutex::new({
         let d = DhcpTimestamps::new(if let ServerMode::Dpu = args.mode {
-            DhcpTimestampsFilePath::Hbn
+            DhcpTimestampsFilePath::HbnTmp
         } else {
             DhcpTimestampsFilePath::NotSet
         });
@@ -241,7 +241,9 @@ async fn handle_update_config(
         .await
         .unwrap_or_default();
     if current_dhcp != dhcp_yaml {
-        tokio::fs::write(&new_dhcp, &dhcp_yaml).await?;
+        tokio::fs::write(&new_dhcp, &dhcp_yaml)
+            .await
+            .map_err(|e| -> Box<dyn Error> { format!("write {new_dhcp}: {e}").into() })?;
         tracing::info!("dhcp_config changed – staged at {new_dhcp}");
     }
 
@@ -249,7 +251,9 @@ async fn handle_update_config(
         let new_host = format!("{}_new", path);
         let current_host = tokio::fs::read_to_string(path).await.unwrap_or_default();
         if current_host != yaml {
-            tokio::fs::write(&new_host, &yaml).await?;
+            tokio::fs::write(&new_host, &yaml)
+                .await
+                .map_err(|e| -> Box<dyn Error> { format!("write {new_host}: {e}").into() })?;
             tracing::info!("host_config changed – staged at {new_host}");
         }
     }
@@ -305,12 +309,23 @@ async fn handle_reload(
 
     // Atomically replace live config files.
     if has_new_dhcp {
-        tokio::fs::rename(&new_dhcp, &args.dhcp_config).await?;
+        tokio::fs::rename(&new_dhcp, &args.dhcp_config)
+            .await
+            .map_err(|e| -> Box<dyn Error> {
+                format!("rename {} -> {}: {e}", new_dhcp, args.dhcp_config).into()
+            })?;
     }
     if let Some(host_path) = &args.host_config {
         let new_host = format!("{}_new", host_path);
-        if tokio::fs::try_exists(&new_host).await? {
-            tokio::fs::rename(&new_host, host_path).await?;
+        let exists = tokio::fs::try_exists(&new_host)
+            .await
+            .map_err(|e| -> Box<dyn Error> { format!("try_exists {new_host}: {e}").into() })?;
+        if exists {
+            tokio::fs::rename(&new_host, host_path)
+                .await
+                .map_err(|e| -> Box<dyn Error> {
+                    format!("rename {new_host} -> {host_path}: {e}").into()
+                })?;
         }
     }
 
@@ -340,7 +355,11 @@ async fn run_with_grpc_control(
     if let Some(dir) = std::path::Path::new(&args.dhcp_config).parent()
         && !tokio::fs::try_exists(dir).await.unwrap_or(false)
     {
-        tokio::fs::create_dir_all(dir).await?;
+        tokio::fs::create_dir_all(dir)
+            .await
+            .map_err(|e| -> Box<dyn Error> {
+                format!("create_dir_all {}: {e}", dir.display()).into()
+            })?;
         tracing::info!("Created config directory {}", dir.display());
     }
 
@@ -602,7 +621,7 @@ async fn process(
         if let Err(e) = dhcp_timestamps.write() {
             tracing::error!(
                 "Failed writing to {}: {e}",
-                DhcpTimestampsFilePath::Hbn.path_str()
+                DhcpTimestampsFilePath::HbnTmp.path_str()
             );
         }
     }
@@ -616,6 +635,7 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
 
+    use carbide_utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
     use chrono::{DateTime, Utc};
     use dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode};
     use dhcproto::{Decodable, Decoder, Encodable};
@@ -624,7 +644,6 @@ mod test {
     use tokio::net::UdpSocket;
     use tokio::sync::Mutex;
     use tokio_util::sync::CancellationToken;
-    use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 
     use crate::command_line::{Args, ServerMode};
     use crate::errors::DhcpError;

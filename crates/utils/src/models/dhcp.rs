@@ -132,6 +132,7 @@ impl HostConfig {
         physical_rep: &str,
         virt_rep_begin: &str,
         sf_id: &str,
+        is_dpu_os: bool,
     ) -> Result<Self, DhcpDataError> {
         let mut host_ip_addresses = BTreeMap::new();
         let virtualization_type = value.network_virtualization_type();
@@ -146,8 +147,10 @@ impl HostConfig {
         };
 
         for interface in interface_configs {
-            let interface_name = if virtualization_type == ::rpc::forge::VpcVirtualizationType::Fnn
-                && !interface.is_l2_segment
+            let interface_name = if (virtualization_type
+                == ::rpc::forge::VpcVirtualizationType::Fnn
+                && !interface.is_l2_segment)
+                || !is_dpu_os
             {
                 if interface.function_type() == InterfaceFunctionType::Physical {
                     // pf0hpf_sf/if
@@ -207,6 +210,7 @@ pub struct DhcpTimestamps {
 }
 
 pub enum DhcpTimestampsFilePath {
+    HbnTmp,
     Hbn,
     Dpu,
     Test,
@@ -216,7 +220,8 @@ pub enum DhcpTimestampsFilePath {
 impl DhcpTimestampsFilePath {
     pub fn path_str(&self) -> &str {
         match self {
-            Self::Hbn => DHCP_TIMESTAMP_FILE_HBN_TMP,
+            Self::HbnTmp => DHCP_TIMESTAMP_FILE_HBN_TMP,
+            Self::Hbn => DHCP_TIMESTAMP_FILE_HBN,
             Self::Dpu => DHCP_TIMESTAMP_FILE_DPU,
             Self::Test => DHCP_TIMESTAMP_FILE_TEST,
             Self::NotSet => "Not set",
@@ -258,7 +263,7 @@ impl DhcpTimestamps {
             .open(self.path.path_str())?;
 
         serde_json::to_writer(timestamp_file, self)?;
-        if let DhcpTimestampsFilePath::Hbn = self.path {
+        if let DhcpTimestampsFilePath::HbnTmp = self.path {
             // Rename the file.
             fs::rename(DHCP_TIMESTAMP_FILE_HBN_TMP, DHCP_TIMESTAMP_FILE_HBN)?;
         }

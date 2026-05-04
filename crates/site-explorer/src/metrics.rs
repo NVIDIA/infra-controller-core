@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use carbide_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
@@ -469,7 +469,7 @@ impl SiteExplorerInstruments {
 
         let site_explorer_create_machines_latency = meter
             .f64_histogram("carbide_site_explorer_create_machines_latency")
-            .with_description("The time it to perform create_machines inside site-explorer")
+            .with_description("The time it took to perform create_machines inside site-explorer")
             .with_unit("ms")
             .build();
 

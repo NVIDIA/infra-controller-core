@@ -111,7 +111,7 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
 
     for ib_partition in ib_partitions.ib_partitions {
         let metadata = ib_partition.metadata.as_ref();
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata);
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(metadata);
 
         table.add_row(row![
             ib_partition.id.unwrap_or_default(),
@@ -160,7 +160,7 @@ fn convert_ib_partition_to_nice_format(
         .unwrap_or_default()
         .tenant_organization_id;
     let metadata = ib_partition.metadata;
-    let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata.as_ref());
+    let labels = crate::metadata::fmt_labels_as_kv_pairs(metadata.as_ref());
 
     let status = ib_partition.status.unwrap_or_default();
     let state_reason = status.state_reason.unwrap_or_default();

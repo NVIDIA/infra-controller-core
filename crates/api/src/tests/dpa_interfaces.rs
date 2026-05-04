@@ -17,7 +17,9 @@
 
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{DpaInterfaceCreationRequest, DpaInterfacesByIdsRequest};
+use rpc::forge_agent_control_response::{self as fac, Action};
 
+use crate::handlers::dpa::process_scout_req;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[crate::sqlx_test]
@@ -77,6 +79,62 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     assert!(find_resp.id.unwrap() == intf_id);
     assert!(find_resp.mac_addr == cr_resp.mac_addr);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn dpa_scout_request_returns_typed_mlx_action(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let cr_resp = env
+        .api
+        .create_dpa_interface(tonic::Request::new(DpaInterfaceCreationRequest {
+            mac_addr: "00:11:22:33:44:55".to_string(),
+            machine_id: Some(mh.id),
+            device_type: "BlueField3".to_string(),
+            pci_name: "0000:cc:00.0".to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let dpa_id = cr_resp.id.unwrap();
+    let dpa = db::dpa_interface::find_by_ids(&env.pool, &[dpa_id], false)
+        .await?
+        .pop()
+        .expect("created dpa interface");
+    let mut txn = env.pool.begin().await.unwrap();
+    db::dpa_interface::try_update_controller_state(
+        &mut txn,
+        dpa.id,
+        dpa.controller_state.version,
+        dpa.controller_state.version.increment(),
+        &model::dpa_interface::DpaInterfaceControllerState::ApplyFirmware,
+    )
+    .await?;
+    txn.commit().await.unwrap();
+
+    let action = process_scout_req(&env.api, mh.id).await?;
+    let Action::MlxAction(mlx_action) = action else {
+        panic!("expected typed mlx action");
+    };
+    let device_action = mlx_action
+        .device_actions
+        .into_iter()
+        .next()
+        .expect("device action");
+
+    assert_eq!(device_action.pci_name, "0000:cc:00.0");
+    assert!(matches!(
+        device_action.command,
+        Some(fac::mlx_device_action::Command::ApplyFirmware(
+            fac::MlxDeviceApplyFirmware { profile: None }
+        ))
+    ));
 
     Ok(())
 }

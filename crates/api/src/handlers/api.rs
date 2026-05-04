@@ -20,8 +20,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use ::rpc::forge as rpc;
+use carbide_utils::HostPortPair;
 use tonic::{Request, Response, Status};
-use utils::HostPortPair;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};

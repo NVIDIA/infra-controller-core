@@ -35,6 +35,7 @@ use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::state_history::StateHistoryRecord;
 
 mod slas;
 
@@ -329,7 +330,7 @@ pub struct DpaInterface {
     // card is back to stock before the next tenancy.
     pub mlxconfig_profile: Option<String>,
 
-    pub history: Vec<DpaInterfaceStateHistoryRecord>,
+    pub history: Vec<StateHistoryRecord>,
 }
 
 #[derive(Clone, Debug)]
@@ -379,10 +380,6 @@ impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
 }
 
 impl DpaInterface {
-    pub fn use_admin_network(&self) -> bool {
-        self.network_config.use_admin_network.unwrap_or(true)
-    }
-
     pub fn get_machine_id(&self) -> MachineId {
         self.machine_id
     }
@@ -390,12 +387,6 @@ impl DpaInterface {
     pub fn managed_host_network_config_version_synced(&self) -> bool {
         let dpa_expected_version = self.network_config.version;
         let dpa_observation = self.network_status_observation.as_ref();
-
-        if self.use_admin_network()
-            && self.controller_state.value == DpaInterfaceControllerState::Provisioning
-        {
-            return true;
-        }
 
         let dpa_observed_version: ConfigVersion = match dpa_observation {
             Some(network_status) => match network_status.network_config_version {
@@ -455,12 +446,9 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
         let history: Vec<rpc::forge::StateHistoryRecord> = src
             .history
             .into_iter()
-            .sorted_by(
-                |s1: &crate::dpa_interface::DpaInterfaceStateHistoryRecord,
-                 s2: &crate::dpa_interface::DpaInterfaceStateHistoryRecord| {
-                    Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
-                },
-            )
+            .sorted_by(|s1: &StateHistoryRecord, s2: &StateHistoryRecord| {
+                Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
+            })
             .map(Into::into)
             .collect();
 
@@ -484,30 +472,6 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             underlay_ip: underlay,
             overlay_ip: overlay,
             mlxconfig_profile: src.mlxconfig_profile,
-        }
-    }
-}
-
-/// A record of a past state of a DpaInterface
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DpaInterfaceStateHistoryRecord {
-    /// The UUID of the dpa interface that experienced the state change
-    interface_id: DpaInterfaceId,
-
-    /// The state that was entered
-    pub state: String,
-    pub state_version: ConfigVersion,
-
-    /// The timestamp of the state change
-    timestamp: DateTime<Utc>,
-}
-
-impl From<DpaInterfaceStateHistoryRecord> for rpc::forge::StateHistoryRecord {
-    fn from(value: DpaInterfaceStateHistoryRecord) -> Self {
-        rpc::forge::StateHistoryRecord {
-            state: value.state,
-            version: value.state_version.version_string(),
-            time: Some(value.timestamp.into()),
         }
     }
 }
@@ -538,7 +502,7 @@ pub struct DpaInterfaceSnapshotPgJson {
     #[serde(default)]
     pub mlxconfig_profile: Option<String>,
     #[serde(default)]
-    pub history: Vec<DpaInterfaceStateHistoryRecord>,
+    pub history: Vec<StateHistoryRecord>,
 }
 
 impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {

@@ -50,8 +50,7 @@ spec:
             privileged: true
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
-            - hardware
-            - "--agent-platform-type=init-container"
+            - init-container
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: RUST_BACKTRACE
@@ -73,6 +72,11 @@ spec:
               mountPath: /host-cpu-info
             - name: proc-mem-info
               mountPath: /host-mem-info
+            - name: forge-certs
+              mountPath: /opt/forge
+            - name: host-resolv-conf
+              mountPath: /host-resolv.conf
+              readOnly: true
       containers:
         - name: forge-dpu-agent
           securityContext:
@@ -80,10 +84,10 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
             - run
-            - "--hbn-config-mode=nvue-rest"
+            - "nvue-rest"
             - "--agent-platform-type=containerized"
-            - "--dhcp-grpc-server={{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
-            - "--fmds-grpc-server={{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
+            - "--dhcp-grpc-server=http://carbide-dpf-cluster-{{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
+            - "--fmds-grpc-server=http://carbide-dpf-cluster-{{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
             {{- if not (empty .Values.dhcp_server.interface_prepend) }}
             - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
             {{ end }}
@@ -118,13 +122,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: IGNORE_MGMT_VRF
+              value: "1"
             - name: NVUE_HTTPS_ADDRESS
-              value: {{ .Values.hbn.nvue_https_address }}
+              value: carbide-dpf-cluster-{{ .Values.hbn.nvue_https_address }}.dpf-operator-system.svc.cluster.local:8765
             - name: NVUE_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.hbn.nvue_credentials_secret_name }}
-                  key: {{ .Values.hbn.nvue_username_key }}
+              value: "carbide"
             - name: NVUE_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -158,6 +161,10 @@ spec:
         - name: proc-mem-info
           hostPath:
             path: /proc/meminfo
+        - name: host-resolv-conf
+          hostPath:
+            path: /etc/resolv.conf
+            type: File
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

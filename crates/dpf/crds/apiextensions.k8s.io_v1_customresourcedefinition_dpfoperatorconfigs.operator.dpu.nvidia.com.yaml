@@ -1087,6 +1087,14 @@ spec:
                         minimum: 1
                         type: integer
                     type: object
+                  zeroTrustInstallTimeout:
+                    default: 45m
+                    description: |-
+                      ZeroTrustInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
+                      If the installation exceeds this timeout, the DPU will transition to an error state.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                 required:
                 - bfbPVCName
                 type: object

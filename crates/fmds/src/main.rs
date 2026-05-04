@@ -17,17 +17,49 @@
 
 use std::sync::Arc;
 
+use axum::extract::Request;
 use clap::Parser;
 use fmds::cfg::Options;
 use fmds::grpc_server::FmdsGrpcServer;
+use fmds::nic_init;
 use fmds::rest_server::get_fmds_router;
 use fmds::state::FmdsState;
 use forge_tls::client_config::ClientCert;
 use rpc::fmds::fmds_config_service_server::FmdsConfigServiceServer;
 use rpc::forge_tls_client::ForgeClientConfig;
+use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tracing::Level;
+use tracing::metadata::LevelFilter;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::util::SubscriberInitExt;
+
+pub fn subscriber() -> impl SubscriberInitExt {
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("tower=warn".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("sqlx=info".parse().unwrap())
+        .add_directive("tokio_util::codec=warn".parse().unwrap())
+        .add_directive("h2=warn".parse().unwrap())
+        .add_directive("hickory_resolver::error=info".parse().unwrap())
+        .add_directive("hickory_proto::xfer=info".parse().unwrap())
+        .add_directive("hickory_resolver::name_server=info".parse().unwrap())
+        .add_directive("hickory_proto=info".parse().unwrap())
+        .add_directive("netlink_proto=warn".parse().unwrap());
+    let stdout_formatter = logfmt::layer();
+    Box::new(tracing_subscriber::registry().with(stdout_formatter.with_filter(env_filter)))
+}
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+    subscriber()
+        .try_init()
+        .expect("tracing_subscriber setup failed");
+    tracing::error!("Starting fmds...");
     let options = Options::parse();
 
     if options.version {
@@ -39,6 +71,10 @@ async fn main() -> eyre::Result<()> {
         version = carbide_version::version!(),
         "Starting carbide-fmds"
     );
+
+    let interface_cidr: ipnetwork::IpNetwork = options.interface_cidr.parse()?;
+    nic_init::assign_address(&options.interface_name, interface_cidr).await?;
+    nic_init::setup_metadata_routing(&options.interface_name, interface_cidr).await?;
 
     // Build ForgeClientConfig for phone_home if cert paths are provided
     let forge_client_config = match (&options.root_ca, &options.client_cert, &options.client_key) {
@@ -73,7 +109,20 @@ async fn main() -> eyre::Result<()> {
         // metadata API versioned path format.
         let router = axum::Router::new()
             .nest("/latest", get_fmds_router(rest_state.clone()))
-            .nest("/2009-04-04", get_fmds_router(rest_state));
+            .nest("/2009-04-04", get_fmds_router(rest_state))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(|request: &Request<_>| {
+                        // Captures URI and Method automatically in every log within this span
+                        tracing::info_span!(
+                            "http-request",
+                            method = %request.method(),
+                            uri = %request.uri(),
+                        )
+                    })
+                    .on_request(DefaultOnRequest::new().level(Level::INFO))
+                    .on_response(DefaultOnResponse::new().level(Level::INFO)),
+            );
 
         let addr: std::net::SocketAddr = rest_address.parse().expect("invalid REST address");
         let server = axum_server::Server::bind(addr);

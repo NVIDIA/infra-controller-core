@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
+use carbide_utils::HostPortPair;
 use eyre::Report;
 use forge_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
 use forge_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
@@ -30,7 +31,6 @@ use sqlx::{Pool, Postgres};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
-use utils::HostPortPair;
 
 use crate::api_server::StartArgs;
 use crate::vault::Vault;

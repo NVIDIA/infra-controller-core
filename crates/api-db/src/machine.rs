@@ -22,6 +22,7 @@ use std::net::IpAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 
+use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::{DateTime, Utc};
@@ -41,8 +42,9 @@ use model::machine::network::{
 use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, DpuInfo, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    Dpf, DpuInfo, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, ManagedHostState,
+    ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -194,7 +196,14 @@ pub async fn advance(
     let version = version.unwrap_or_else(|| machine.state.version.increment());
 
     // Store history of machine state changes.
-    crate::machine_state_history::persist(txn, &machine.id, state, version).await?;
+    crate::state_history::persist(
+        txn,
+        crate::state_history::StateHistoryTableId::Machine,
+        &machine.id,
+        state,
+        version,
+    )
+    .await?;
 
     let _id: (String,) = sqlx::query_as(
             "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
@@ -257,16 +266,14 @@ pub async fn find(
     }
 
     if search_config.only_maintenance {
-        builder.push(" AND m.health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance' ");
+        builder.push(
+            " AND m.health_reports->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance' ",
+        );
     }
 
     if search_config.only_quarantine {
         builder.push(" AND m.network_config->>'quarantine_state' IS NOT NULL ");
     }
-
-    if search_config.for_update {
-        builder.push(" FOR UPDATE OF machines");
-    };
 
     if let Some(id) = search_config.instance_type_id {
         builder.push(" AND m.instance_type_id = ");
@@ -277,6 +284,11 @@ pub async fn find(
         builder.push(" AND m.rack_id = ");
         builder.push_bind(rack_id);
     }
+
+    if search_config.for_update {
+        builder.push(" ORDER BY m.id ");
+        builder.push(" FOR UPDATE OF machines ");
+    };
 
     let all_machines: Vec<Machine> = builder
         .build_query_as()
@@ -332,6 +344,7 @@ pub async fn find_ids_by_instance_type_id(
     builder.push_bind(instance_type_id);
 
     if for_update {
+        builder.push(" ORDER BY id ");
         builder.push(" FOR UPDATE ");
     }
 
@@ -684,6 +697,26 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Returns the `use_admin_network` flag from the host that owns the
+/// given DPA interface.
+pub async fn get_host_use_admin_network_for_dpa_interface(
+    conn: impl DbReader<'_>,
+    dpa_interface_id: &DpaInterfaceId,
+) -> Result<bool, DatabaseError> {
+    let query = r#"
+        SELECT COALESCE((h.network_config->>'use_admin_network')::bool, true)
+        FROM dpa_interfaces da
+        JOIN machines h ON h.id = da.machine_id
+        WHERE da.id = $1
+        LIMIT 1"#;
+    let flag: Option<bool> = sqlx::query_scalar(query)
+        .bind(dpa_interface_id)
+        .fetch_optional(conn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(flag.unwrap_or(true))
+}
+
 pub async fn find_dpus_by_host_machine_id(
     txn: &mut PgConnection,
     host_machine_id: &MachineId,
@@ -819,42 +852,6 @@ pub async fn update_nvlink_status_observation(
     Ok(())
 }
 
-async fn update_health_report(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    column_name: &str,
-    health_report: &HealthReport,
-) -> Result<(), DatabaseError> {
-    let query = format!(
-        "UPDATE machines SET {column_name} = $1::json WHERE id = $2 AND
-            (
-                ({column_name}->>'observed_at' IS NULL)
-                OR (({column_name}->>'observed_at')::timestamp <= $3::timestamp)
-            ) RETURNING id"
-    );
-    let observed_at = health_report.observed_at.unwrap_or_else(chrono::Utc::now);
-    let _id: (MachineId,) = match sqlx::query_as(&query)
-        .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id)
-        .bind(observed_at)
-        .fetch_one(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::new("update health report", e))
-    {
-        Ok(result) => result,
-        Err(e) if e.is_not_found() => {
-            // This function is intended to be able to capture why the update sometimes fails in unit-test
-            // even though all prerequisite data is present.
-            // It compiles to a no-op in production environments.
-            debug_failed_machine_status_update(txn, machine_id, column_name, health_report).await;
-            return Err(e);
-        }
-        Err(e) => return Err(e),
-    };
-
-    Ok(())
-}
-
 #[cfg(test)]
 async fn debug_failed_machine_status_update(
     txn: &mut PgConnection,
@@ -899,15 +896,16 @@ pub async fn update_dpu_agent_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(txn, machine_id, "dpu_agent_health_report", health_report).await
-}
-
-pub async fn update_hardware_health_report(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    health_report: &HealthReport,
-) -> Result<(), DatabaseError> {
-    update_health_report(txn, machine_id, "hardware_health_report", health_report).await
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::DPU_AGENT_SOURCE.to_string();
+    crate::health_report::insert_health_report(
+        txn,
+        "machines",
+        machine_id,
+        HealthReportApplyMode::Merge,
+        &health_report,
+    )
+    .await
 }
 
 pub async fn update_machine_validation_health_report(
@@ -915,11 +913,25 @@ pub async fn update_machine_validation_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::MACHINE_VALIDATION_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::MACHINE_VALIDATION_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "machine_validation_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }
@@ -929,11 +941,25 @@ pub async fn update_site_explorer_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::SITE_EXPLORER_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::SITE_EXPLORER_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "site_explorer_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }
@@ -943,16 +969,30 @@ pub async fn update_sku_validation_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::SKU_VALIDATION_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::SKU_VALIDATION_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "sku_validation_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }
 
-pub async fn insert_health_report_override(
+pub async fn insert_health_report(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     mode: HealthReportApplyMode,
@@ -964,7 +1004,7 @@ pub async fn insert_health_report_override(
         // if a merge with the same source already exists -- but I'm not sure what
         // it's used for, since others seem to do a remove + insert. Do we need
         // to support this still? Might be nice to explain it somewhere.
-        let column_name = "health_report_overrides";
+        let column_name = "health_reports";
         let path = match mode {
             HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
             HealthReportApplyMode::Replace => "replace".to_string(),
@@ -995,7 +1035,7 @@ pub async fn insert_health_report_override(
     }
 }
 
-pub async fn remove_health_report_override(
+pub async fn remove_health_report(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     mode: HealthReportApplyMode,
@@ -1065,34 +1105,59 @@ pub async fn force_cleanup(
     Ok(())
 }
 
-/// Updates the desired network configuration for a host
+/// Updates the `network_config` on the target machine row (host or
+/// DPU), and bumps the `network_config_version` on *every* machine
+/// row in the same "machine group" (host + every DPU attached to it)
+/// to the same new version, so all rows in the group stay version-equal.
+///
+/// The caller can pass any machine ID in the group; group membership is
+/// computed by the `machine_group_member_ids` Postgres function, which
+/// walks `machine_interfaces`. For zero-DPU hosts, the group is just the
+/// target itself.
 pub async fn try_update_network_config(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     expected_version: ConfigVersion,
     new_state: &ManagedHostNetworkConfig,
 ) -> Result<bool, DatabaseError> {
-    // TODO: We currently need to persist the state on the DPU since it exists
-    // earlier than the host. But we might want to replicate it to the host machine,
-    // as we do with `controller_state`.
-
     let next_version = expected_version.increment();
 
-    let query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
+    // First, do our usual "optimistic" lock update on the target row, which
+    // writes content and bumps to the next_version (which is conditional on
+    // the row currently being at `expected_version`).
+    let target_query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4
             RETURNING id";
-    let query_result: Result<MachineId, _> = sqlx::query_as(query)
+    let target_result: Result<MachineId, _> = sqlx::query_as(target_query)
         .bind(next_version)
         .bind(sqlx::types::Json(new_state))
         .bind(machine_id)
         .bind(expected_version)
-        .fetch_one(txn)
+        .fetch_one(&mut *txn)
         .await;
 
-    match query_result {
-        Ok(_machine_id) => Ok(true),
+    match target_result {
+        Ok(_) => {
+            // ..and if the version bumped, THEN bump every other machine row
+            // in the "machine group" to the same new version. This is where
+            // we pull in the `machine_group_member_ids` Postgres function.
+            let group_query = r#"
+                UPDATE machines
+                SET network_config_version = $1
+                WHERE id != $2
+                  AND id IN (SELECT id FROM machine_group_member_ids($2))
+            "#;
+
+            sqlx::query(group_query)
+                .bind(next_version)
+                .bind(machine_id)
+                .execute(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::query(group_query, e))?;
+            Ok(true)
+        }
         Err(sqlx::Error::RowNotFound) => Ok(false),
-        Err(e) => Err(DatabaseError::query(query, e)),
+        Err(e) => Err(DatabaseError::query(target_query, e)),
     }
 }
 
@@ -1125,8 +1190,13 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     }
 
     // Update the machine state and health history to account for the rename
-    crate::machine_state_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
-        .await?;
+    crate::state_history::update_object_ids(
+        txn,
+        crate::state_history::StateHistoryTableId::Machine,
+        current_machine_id,
+        stable_machine_id,
+    )
+    .await?;
     crate::health_history::update_object_ids(
         txn,
         crate::health_history::HealthHistoryTableId::Machine,
@@ -1221,6 +1291,7 @@ pub async fn create(
         Some(data) => data.dpf_enabled.unwrap_or(false), // EM entry exists
         None => true,                                    // EM entry does not exist
     };
+    let host_profile = HostProfile::from_expected_machine(expected_machine_data);
 
     // Host and DPU machines are created in same `discover_machine` call. Update same
     // state in both machines.
@@ -1254,8 +1325,8 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf)
-                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14) RETURNING id"#;
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf, host_profile)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14, $15) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
         .bind(state_version)
@@ -1274,6 +1345,7 @@ pub async fn create(
             enabled: dpf_enabled,
             used_for_ingestion: false,
         }))
+        .bind(sqlx::types::Json(&host_profile))
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1674,7 +1746,7 @@ pub async fn find_machine_ids(
     qb.push(" WHERE TRUE");
 
     if search_config.only_maintenance {
-        qb.push(" AND health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance'");
+        qb.push(" AND health_reports->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance'");
     }
 
     if search_config.only_quarantine {
@@ -1714,9 +1786,9 @@ pub async fn find_machine_ids(
     }
 
     if let Some(ovrrd_str) = &search_config.only_with_health_alert {
-        qb.push(" AND health_report_overrides->'merges' ? ");
+        qb.push(" AND health_reports->'merges' ? ");
         qb.push_bind(ovrrd_str.clone());
-        qb.push(" AND jsonb_array_length(health_report_overrides->'merges'->");
+        qb.push(" AND jsonb_array_length(health_reports->'merges'->");
         qb.push_bind(ovrrd_str);
         qb.push("->'alerts') > 0");
     }
@@ -1742,6 +1814,7 @@ pub async fn find_machine_ids(
     }
 
     if search_config.for_update {
+        qb.push(" ORDER BY id ");
         qb.push(" FOR UPDATE");
     }
 

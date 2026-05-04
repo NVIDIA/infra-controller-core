@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashSet;
+use std::fmt::Write;
 
 use prettytable::{Row, Table};
 use rpc::Metadata;
@@ -55,6 +56,31 @@ pub(crate) async fn display_metadata(
             ));
         }
     }
+    Ok(())
+}
+
+pub(crate) fn write_metadata_in_nice_format(
+    output: &mut String,
+    width: usize,
+    metadata: Option<&Metadata>,
+) -> std::fmt::Result {
+    if let Some(metadata) = metadata {
+        writeln!(output, "METADATA: ")?;
+        writeln!(output, "\tNAME: {}", metadata.name)?;
+        writeln!(output, "\tDESCRIPTION: {}", metadata.description)?;
+        writeln!(output, "\tLABELS:")?;
+        for label in metadata.labels.iter() {
+            writeln!(
+                output,
+                "\t\t{}:{}",
+                label.key,
+                label.value.as_deref().unwrap_or_default()
+            )?;
+        }
+    } else {
+        writeln!(output, "{:<width$}: None", "METADATA")?;
+    }
+
     Ok(())
 }
 
@@ -125,7 +151,7 @@ pub(crate) fn apply_remove_labels(
 /// strings for display in list views (e.g. the machine
 /// list table). Returns an empty vec if metadata is
 /// None or has no labels.
-pub(crate) fn get_nice_labels_from_rpc_metadata(metadata: Option<&Metadata>) -> Vec<String> {
+pub(crate) fn fmt_labels_as_kv_pairs(metadata: Option<&Metadata>) -> Vec<String> {
     metadata
         .map(|m| {
             m.labels

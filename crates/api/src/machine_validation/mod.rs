@@ -21,10 +21,10 @@ use std::default::Default;
 use std::io;
 use std::sync::Arc;
 
+use carbide_utils::periodic_timer::PeriodicTimer;
 use db::ObjectFilter;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use utils::periodic_timer::PeriodicTimer;
 
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;

@@ -23,6 +23,7 @@ use std::sync::Arc;
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_site_explorer::errors::SiteExplorerError;
+use carbide_utils::models::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -36,7 +37,6 @@ use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManag
 use rpc::forge::forge_server::Forge;
 use rpc::{BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
-use utils::models::arch::CpuArchitecture;
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
@@ -68,6 +68,8 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
+        force_dpu_nic_mode: Arc::new(false.into()),
+        allow_zero_dpu_hosts: false,
         ..Default::default()
     };
     let machine_creator = MachineCreator::new(

@@ -52,15 +52,10 @@ use nv_redfish::resource::ResourceNameRef;
 use nv_redfish::service_root::{Product, Vendor};
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 
-pub async fn explore_root<B: Bmc>(bmc: Arc<B>) -> Result<ServiceRoot<B>, Error<B>> {
-    nv_redfish::ServiceRoot::new(bmc)
-        .await
-        .map_err(Error::nv_redfish("service_root"))
-}
-
 #[derive(PartialEq, Eq)]
 pub enum ErrorClass {
-    HttpNotFound,
+    NotFound,
+    InternalServerError,
 }
 
 pub type ErrorClassifier<'a, B> = &'a (dyn Fn(&<B as Bmc>::Error) -> Option<ErrorClass> + Sync);
@@ -72,17 +67,7 @@ pub struct Config<'a, B: Bmc> {
 }
 
 pub async fn nv_generate_exploration_report<B: Bmc>(
-    bmc: Arc<B>,
-    config: &Config<'_, B>,
-) -> Result<EndpointExplorationReport, Error<B>> {
-    let root = ServiceRoot::new(bmc)
-        .await
-        .map_err(Error::nv_redfish("service_root"))?;
-    nv_generate_exploration_report_from_root(root, config).await
-}
-
-pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
-    mut root: ServiceRoot<B>,
+    mut root: Arc<ServiceRoot<B>>,
     config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
     let chassis_explore_config = chassis::Config {
@@ -107,7 +92,7 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
     let explored_inventories = ExploredInventories::explore(&root).await?;
 
     if explored_chassis.is_bluefield2() {
-        root = root.restrict_expand();
+        root = root.as_ref().clone().restrict_expand().into();
     }
 
     let mut systems_iter = root
@@ -138,9 +123,11 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
         .next()
         .ok_or_else(Error::bmc_not_provided("at least one manager"))?;
 
+    let is_bluefield_system = system.id().into_inner() == "Bluefield";
     let system_explore_config = computer_system::Config {
-        need_oem_nvidia_bluefield: system.id().into_inner() == "Bluefield",
-        retry_404_on_eth_interfaces: system.id().into_inner() == "Bluefield",
+        need_oem_nvidia_bluefield: is_bluefield_system,
+        ignore_500_on_bios_fetch: is_bluefield_system,
+        retry_404_on_eth_interfaces: is_bluefield_system,
         explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;

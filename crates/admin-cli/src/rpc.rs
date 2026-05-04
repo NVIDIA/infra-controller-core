@@ -287,7 +287,10 @@ impl ApiClient {
     }
 
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
-        Ok(self.0.find_rack_ids().await?)
+        Ok(self
+            .0
+            .find_rack_ids(rpc::RackSearchFilter::default())
+            .await?)
     }
 
     pub async fn get_all_switches(
@@ -423,7 +426,7 @@ impl ApiClient {
         report: ::rpc::health::HealthReport,
         replace: bool,
     ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::InsertHealthReportOverrideRequest {
+        let request = ::rpc::forge::InsertMachineHealthReportRequest {
             machine_id: Some(id),
             health_report_entry: Some(rpc::HealthReportEntry {
                 report: Some(report),
@@ -434,7 +437,51 @@ impl ApiClient {
                 } as i32,
             }),
         };
-        Ok(self.0.insert_health_report_override(request).await?)
+        match self.0.insert_machine_health_report(request.clone()).await {
+            Ok(()) => Ok(()),
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                // Fall back to the deprecated alias for older API servers
+                // that don't have the renamed RPC yet.
+                #[allow(deprecated)]
+                Ok(self.0.insert_health_report_override(request).await?)
+            }
+            Err(status) => Err(status.into()),
+        }
+    }
+
+    pub async fn machine_list_health_reports(
+        &self,
+        machine_id: MachineId,
+    ) -> CarbideCliResult<rpc::ListHealthReportResponse> {
+        match self.0.list_machine_health_reports(machine_id).await {
+            Ok(response) => Ok(response),
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                // Fall back to the deprecated alias for older API servers.
+                #[allow(deprecated)]
+                Ok(self.0.list_health_report_overrides(machine_id).await?)
+            }
+            Err(status) => Err(status.into()),
+        }
+    }
+
+    pub async fn machine_remove_health_report(
+        &self,
+        machine_id: MachineId,
+        source: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::RemoveMachineHealthReportRequest {
+            machine_id: Some(machine_id),
+            source,
+        };
+        match self.0.remove_machine_health_report(request.clone()).await {
+            Ok(()) => Ok(()),
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                // Fall back to the deprecated alias for older API servers.
+                #[allow(deprecated)]
+                Ok(self.0.remove_health_report_override(request).await?)
+            }
+            Err(status) => Err(status.into()),
+        }
     }
 
     pub async fn admin_power_control(
@@ -569,6 +616,7 @@ impl ApiClient {
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
+        host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -653,6 +701,8 @@ impl ApiClient {
             // Patch doesn't expose `--dpu-mode` yet; preserve the existing
             // server-side value.
             dpu_mode: expected_machine.dpu_mode,
+            host_lifecycle_profile: host_lifecycle_profile
+                .or(expected_machine.host_lifecycle_profile),
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -688,6 +738,11 @@ impl ApiClient {
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
                     dpu_mode: machine.dpu_mode.map(|m| m as i32),
+                    host_lifecycle_profile: machine.host_lifecycle_profile.map(|hlp| {
+                        ::rpc::forge::HostLifecycleProfile {
+                            disable_lockdown: hlp.disable_lockdown,
+                        }
+                    }),
                 })
                 .collect(),
         };
@@ -1548,10 +1603,12 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::RackMaintenanceOnDemandResponse> {
         let request = rpc::RackMaintenanceOnDemandRequest {
             rack_id: Some(rack_id),
-            machine_ids,
-            switch_ids,
-            power_shelf_ids,
-            activities,
+            scope: Some(rpc::RackMaintenanceScope {
+                machine_ids,
+                switch_ids,
+                power_shelf_ids,
+                activities,
+            }),
         };
         Ok(self.0.on_demand_rack_maintenance(request).await?)
     }

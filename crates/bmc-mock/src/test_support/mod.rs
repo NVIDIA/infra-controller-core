@@ -51,26 +51,27 @@ pub type TestBmc = HttpBmc<AxumRouterHttpClient>;
 
 #[derive(Clone)]
 pub struct TestBmcHandle {
-    pub bmc: Arc<TestBmc>,
+    pub service_root: Arc<nv_redfish::ServiceRoot<TestBmc>>,
     pub state: BmcState,
 }
 
-fn test_bmc((router, state): (axum::Router, BmcState)) -> TestBmcHandle {
+async fn test_bmc((router, state): (axum::Router, BmcState)) -> TestBmcHandle {
     let client = AxumRouterHttpClient::new(router);
     let endpoint = Url::parse("https://bmc-mock.local").expect("valid URL");
     let credentials = BmcCredentials::new("root".to_string(), "password".to_string());
+    let bmc = Arc::new(HttpBmc::new(
+        client,
+        endpoint,
+        credentials,
+        CacheSettings::with_capacity(32),
+    ));
     TestBmcHandle {
-        bmc: Arc::new(HttpBmc::new(
-            client,
-            endpoint,
-            credentials,
-            CacheSettings::with_capacity(32),
-        )),
+        service_root: nv_redfish::ServiceRoot::new(bmc).await.unwrap().into(),
         state,
     }
 }
 
-pub fn wiwynn_gb200_bmc() -> TestBmcHandle {
+pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::WiwynnGB200Nvl,
@@ -81,10 +82,12 @@ pub fn wiwynn_gb200_bmc() -> TestBmcHandle {
         )),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
+        false,
     ))
+    .await
 }
 
-pub fn liteon_powershelf_bmc() -> TestBmcHandle {
+pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::LiteOnPowerShelf,
@@ -92,10 +95,12 @@ pub fn liteon_powershelf_bmc() -> TestBmcHandle {
         )),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
+        false,
     ))
+    .await
 }
 
-pub fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
+pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::NvidiaSwitchNd5200Ld,
@@ -103,10 +108,12 @@ pub fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
         )),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
+        false,
     ))
+    .await
 }
 
-pub fn dell_poweredge_r750_bmc() -> TestBmcHandle {
+pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::DellPowerEdgeR750,
@@ -114,10 +121,12 @@ pub fn dell_poweredge_r750_bmc() -> TestBmcHandle {
         )),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
+        false,
     ))
+    .await
 }
 
-pub fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBmcHandle {
+pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBmcHandle {
     test_bmc(machine_router(
         MachineInfo::Dpu(DpuMachineInfo::new(
             HostHardwareType::DellPowerEdgeR750,
@@ -125,7 +134,9 @@ pub fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBmcHandl
         )),
         Arc::new(NoopCallbacks),
         "test-dpu-id".to_string(),
+        false,
     ))
+    .await
 }
 
 #[cfg(test)]
@@ -148,6 +159,7 @@ mod test {
                 )),
                 Arc::new(NoopCallbacks),
                 "test-host-id".to_string(),
+                false,
             )
             .0,
         );

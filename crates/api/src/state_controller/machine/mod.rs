@@ -116,7 +116,7 @@ where
 {
     let machine_state = get_measurement_machine_state(&mut *db_reader, *machine_id)
         .await
-        .map_err(StateHandlerError::DBError)?;
+        .map_err(StateHandlerError::from)?;
 
     let ek_cert_verification_status =
         ek_cert_verification_status::get_by_machine_id(&mut *db_reader, *machine_id)

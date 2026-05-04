@@ -60,6 +60,41 @@ pub(crate) struct MetadataDetail {
     pub metadata_version: String,
 }
 
+/// Reusable template for rendering aggregate health details in entity detail
+/// pages. Render with `{{ health_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "health_detail.html")]
+pub(crate) struct HealthDetail {
+    pub health_reports_url: String,
+    pub health_reports_link_text: &'static str,
+    pub health: health_report::HealthReport,
+    pub health_sources: Vec<String>,
+}
+
+impl HealthDetail {
+    pub(crate) fn new(
+        health_reports_url: String,
+        health_reports_link_text: &'static str,
+        health: Option<rpc::health::HealthReport>,
+        health_sources: Vec<rpc::forge::HealthSourceOrigin>,
+    ) -> Self {
+        HealthDetail {
+            health_reports_url,
+            health_reports_link_text,
+            health: health
+                .map(|health| {
+                    health_report::HealthReport::try_from(health)
+                        .unwrap_or_else(health_report::HealthReport::malformed_report)
+                })
+                .unwrap_or_else(health_report::HealthReport::missing_report),
+            health_sources: health_sources
+                .into_iter()
+                .map(|source| source.source)
+                .collect(),
+        }
+    }
+}
+
 /// Reusable template for rendering a color-coded state bubble.
 /// Render with `{{ state_display|safe }}`.
 #[derive(Template)]
@@ -78,6 +113,74 @@ pub(crate) struct StateSlaDetail {
     pub state_sla: String,
     pub time_in_state_above_sla: bool,
     pub state_reason: Option<rpc::forge::ControllerStateReason>,
+}
+
+/// Reusable template for rendering lifecycle fields.
+/// Render with `{{ lifecycle_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "lifecycle_detail.html")]
+pub(crate) struct LifecycleDetail {
+    pub state_display: StateDisplay,
+    pub json_state: Option<String>,
+    pub version: String,
+    pub time_in_state: String,
+    pub state_sla: String,
+    pub time_in_state_above_sla: bool,
+    pub state_reason: Option<rpc::forge::ControllerStateReason>,
+}
+
+impl LifecycleDetail {
+    pub fn new(
+        state: String,
+        version: String,
+        state_reason: Option<forgerpc::ControllerStateReason>,
+        sla: Option<forgerpc::StateSla>,
+    ) -> Self {
+        let time_in_state_above_sla = sla
+            .as_ref()
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or_default();
+        let json_state = verify_json(&state);
+        Self {
+            state_display: StateDisplay {
+                state,
+                time_in_state_above_sla,
+            },
+            json_state,
+            time_in_state: config_version::since_state_change_humanized(&version),
+            version,
+            state_sla: format_state_sla(sla.as_ref()),
+            time_in_state_above_sla,
+            state_reason,
+        }
+    }
+}
+
+impl From<forgerpc::LifecycleStatus> for LifecycleDetail {
+    fn from(lifecycle: forgerpc::LifecycleStatus) -> Self {
+        LifecycleDetail::new(
+            lifecycle.state,
+            lifecycle.version,
+            lifecycle.state_reason,
+            lifecycle.sla,
+        )
+    }
+}
+
+fn verify_json(state: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(state)
+        .ok()
+        .map(|_| state.to_string())
+}
+
+fn format_state_sla(sla: Option<&forgerpc::StateSla>) -> String {
+    sla.and_then(|sla| sla.sla)
+        .map(|sla| {
+            config_version::format_duration(
+                chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
+            )
+        })
+        .unwrap_or_default()
 }
 
 mod action_status;
@@ -412,7 +515,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/{machine_id}/set-dpu-first-boot-order",
                 post(machine::set_dpu_first_boot_order),
             )
-            .route("/machine/{machine_id}/health", get(health::health))
+            .route("/machine/{machine_id}/health", get(health::machine_health))
             .route(
                 "/machine/{machine_id}/health-history",
                 get(health_history::show_health_history),
@@ -443,6 +546,15 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/rack", get(rack::show_html))
             .route("/rack.json", get(rack::show_json))
             .route("/rack/{rack_id}", get(rack::detail))
+            .route("/rack/{rack_id}/health", get(health::rack_health))
+            .route(
+                "/rack/{rack_id}/health/add-report",
+                post(health::add_rack_health_report),
+            )
+            .route(
+                "/rack/{rack_id}/health/remove-report",
+                post(health::remove_rack_health_report),
+            )
             .route(
                 "/rack/{rack_id}/state-history",
                 get(state_history::show_rack_state_history),
@@ -463,12 +575,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(state_history::show_switch_state_history_json),
             )
             .route(
-                "/machine/{machine_id}/health/override/add",
-                post(health::add_override),
+                "/machine/{machine_id}/health/add-report",
+                post(health::add_machine_health_report),
             )
             .route(
-                "/machine/{machine_id}/health/override/remove",
-                post(health::remove_override),
+                "/machine/{machine_id}/health/remove-report",
+                post(health::remove_machine_health_report),
             )
             .route(
                 "/machine/{machine_id}/attestation-results",

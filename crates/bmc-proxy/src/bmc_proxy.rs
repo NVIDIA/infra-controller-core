@@ -15,6 +15,7 @@ use carbide_authn::SpiffeContext;
 use carbide_authn::middleware::{
     AuthContext, Authorization, CertDescriptionMiddleware, ConnectionAttributes, Principal,
 };
+use carbide_utils::HostPortPair;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialReader, Credentials,
 };
@@ -34,7 +35,6 @@ use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 use tokio_rustls::{TlsAcceptor, rustls};
 use tokio_util::sync::CancellationToken;
 use tower_http::add_extension::AddExtensionLayer;
-use utils::HostPortPair;
 
 use crate::config::{AuthConfig, TlsConfig};
 

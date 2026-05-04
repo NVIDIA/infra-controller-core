@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 pub(crate) mod common;
 mod compute_allocation;
 mod connected_device;
@@ -103,10 +104,10 @@ mod redfish_actions;
 mod resource_pool;
 mod route_servers;
 mod service_health_metrics;
+mod set_primary_dpu;
 mod site_explorer;
 mod sku;
 mod spdm;
-mod state_controller;
 mod static_address_management;
 mod storage;
 mod switch;

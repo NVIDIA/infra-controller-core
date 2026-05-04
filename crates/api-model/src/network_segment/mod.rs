@@ -33,7 +33,7 @@ use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::errors::ModelError;
 use crate::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::network_segment_state_history::NetworkSegmentStateHistory;
+use crate::state_history::StateHistoryRecord;
 
 mod slas;
 
@@ -342,7 +342,7 @@ pub struct NetworkSegment {
 
     pub prefixes: Vec<NetworkPrefix>,
     /// History of state changes.
-    pub history: Vec<NetworkSegmentStateHistory>,
+    pub history: Vec<StateHistoryRecord>,
 
     pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
     pub vni: Option<i32>,
@@ -476,7 +476,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
         let prefixes = prefixes_json.0.into_iter().flatten().collect();
 
         let history = if let Some(column) = row.columns().iter().find(|c| c.name() == "history") {
-            let value: sqlx::types::Json<Vec<Option<NetworkSegmentStateHistory>>> =
+            let value: sqlx::types::Json<Vec<Option<StateHistoryRecord>>> =
                 row.try_get(column.ordinal())?;
             value.0.into_iter().flatten().collect()
         } else {
@@ -594,7 +594,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
         let mut history = Vec::with_capacity(src.history.len());
 
         for state in src.history {
-            history.push(rpc::forge::NetworkSegmentStateHistory::try_from(state)?);
+            history.push(state.into());
         }
 
         let flags: Vec<i32> = {

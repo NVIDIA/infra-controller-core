@@ -332,9 +332,15 @@ async fn test_network_segment_max_history_length(
             .await
             .unwrap()
         );
-        db::network_segment_state_history::persist(&mut txn, segment_id, &state, next_version)
-            .await
-            .unwrap();
+        db::state_history::persist(
+            &mut txn,
+            db::state_history::StateHistoryTableId::NetworkSegment,
+            &segment_id,
+            &state,
+            next_version,
+        )
+        .await
+        .unwrap();
         version = db::network_segment::find_by(
             txn.as_mut(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),

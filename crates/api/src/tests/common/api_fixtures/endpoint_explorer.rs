@@ -109,6 +109,14 @@ impl EndpointExplorer for MockEndpointExplorer {
         Ok(())
     }
 
+    async fn redfish_get_power_state(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<libredfish::PowerState, EndpointExplorationError> {
+        Ok(libredfish::PowerState::On)
+    }
+
     async fn redfish_power_control(
         &self,
         _address: SocketAddr,
@@ -197,15 +205,6 @@ impl EndpointExplorer for MockEndpointExplorer {
         Ok(())
     }
 
-    async fn copy_bfb_to_dpu_rshim(
-        &self,
-        _bmc_ip_address: SocketAddr,
-        _interface: &MachineInterfaceSnapshot,
-        _is_bf2: bool,
-    ) -> Result<(), EndpointExplorationError> {
-        Ok(())
-    }
-
     async fn create_bmc_user(
         &self,
         _address: SocketAddr,
@@ -240,12 +239,5 @@ impl EndpointExplorer for MockEndpointExplorer {
         _interface: &MachineInterfaceSnapshot,
     ) -> Result<Option<bool>, EndpointExplorationError> {
         Ok(None)
-    }
-
-    async fn probe_redfish_endpoint(
-        &self,
-        _address: SocketAddr,
-    ) -> Result<(), EndpointExplorationError> {
-        Ok(())
     }
 }

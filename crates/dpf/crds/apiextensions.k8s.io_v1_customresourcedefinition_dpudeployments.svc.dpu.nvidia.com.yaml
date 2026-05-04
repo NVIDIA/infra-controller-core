@@ -62,6 +62,32 @@ spec:
                       BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the
                       DPUDeployment.
                     type: string
+                  dpuSetStrategy:
+                    description: DPUSetStrategy is the strategy to use for the DPUSets
+                      created by the DPUDeployment.
+                    properties:
+                      rollingUpdate:
+                        description: Rolling update config params. Present only if
+                          StrategyType = RollingUpdate.
+                        properties:
+                          maxUnavailable:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: |-
+                              MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.
+
+                              Deprecated: This field is deprecated and will be removed with v26.4.0.
+                            x-kubernetes-int-or-string: true
+                        type: object
+                      type:
+                        default: OnDelete
+                        description: Can be "OnDelete" or "RollingUpdate".
+                        enum:
+                        - OnDelete
+                        - RollingUpdate
+                        type: string
+                    type: object
                   dpuSets:
                     description: DPUSets contains configuration for each DPUSet that
                       is going to be created by the DPUDeployment

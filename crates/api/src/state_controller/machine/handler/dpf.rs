@@ -153,7 +153,7 @@ fn waiting_for_ready_exit_state(
             instance_state: InstanceState::DPUReprovision { .. },
         } => {
             let all_dpu_ids = state.dpu_snapshots.iter().map(|x| &x.id).collect();
-            ReprovisionState::PoweringOffHost.next_state_with_all_dpus_updated(
+            ReprovisionState::WaitingForNetworkConfig.next_state_with_all_dpus_updated(
                 &state.managed_state,
                 &state.dpu_snapshots,
                 all_dpu_ids,
@@ -171,6 +171,17 @@ async fn handle_dpf_provisioning(
     state: &ManagedHostStateSnapshot,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let primary_dpu_id = state
+        .host_snapshot
+        .interfaces
+        .iter()
+        .find(|iface| iface.primary_interface)
+        .and_then(|iface| iface.attached_dpu_machine_id)
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: state.host_snapshot.id.to_string(),
+            missing: "primary_dpu",
+        })?;
+
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
             .hardware_info
@@ -183,8 +194,8 @@ async fn handle_dpf_provisioning(
             dpu_bmc_ip: bmc_ip(dpu)?.to_string(),
             host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
             serial_number: serial_number.to_string(),
-            host_machine_id: state.host_snapshot.id.to_string(),
             dpu_machine_id: dpu.id.to_string(),
+            is_primary: dpu.id == primary_dpu_id,
         };
         dpf_sdk.register_dpu_device(device_info).await?;
     }
@@ -198,7 +209,6 @@ async fn handle_dpf_provisioning(
         node_id: dpf_id(&state.host_snapshot)?,
         host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
         device_ids,
-        host_machine_id: state.host_snapshot.id.to_string(),
     };
     dpf_sdk.register_dpu_node(node_info).await?;
 
@@ -218,30 +228,6 @@ async fn handle_dpf_reboot(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    // Custom BFB: wait for all DPU agents to complete discovery before rebooting
-    // the host. This indicates cloud-init has completed on every DPU.
-    // Remove when switching to a vanilla BFB.
-
-    // BUG ALERT: This is a bug. This might work fine for M1 for initial ingestion, but will fail for reprovisioning.
-    // Quickest fix might be clearing discovery_time on reprovisioning.
-    if !ctx.services.site_config.dpf.v2
-        && let Some(pending) = state
-            .dpu_snapshots
-            .iter()
-            .find(|d| d.last_discovery_time.is_none())
-    {
-        return update_phase_detail_or_wait(
-            state,
-            &dpu_snapshot.id,
-            waiting_phase_detail,
-            current_phase,
-            &format!(
-                "Waiting for DPU {} scout discovery to complete before reboot",
-                pending.id
-            ),
-        );
-    }
-
     let reboot_already_requested = state
         .host_snapshot
         .last_reboot_requested
@@ -329,16 +315,6 @@ async fn handle_dpf_waiting_for_ready(
             waiting_phase_detail,
             &current_phase,
             "Waiting for DPU to reach Ready phase",
-        );
-    }
-    // also wait for dpu scout discovery to complete
-    if !ctx.services.site_config.dpf.v2 && dpu_snapshot.last_discovery_time.is_none() {
-        return update_phase_detail_or_wait(
-            state,
-            &dpu_snapshot.id,
-            waiting_phase_detail,
-            &current_phase,
-            "Waiting for DPU scout discovery to complete",
         );
     }
 

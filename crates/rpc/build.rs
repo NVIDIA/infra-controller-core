@@ -101,6 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FabricManagerConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.FabricManagerStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceIpv6Config", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceInterfaceIpv6Config", "#[derive(serde::Serialize, serde::Deserialize)]")
@@ -487,6 +488,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("MachineValidationRun", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedHostNic", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedHostNic", "#[derive(serde::Deserialize)]")
+        .type_attribute("HostLifecycleProfile", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedSwitch", "#[derive(serde::Serialize)]")
@@ -832,6 +834,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.PlacementInRack",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.ForgeAgentControlResponse.ScoutFirmwareUpgradeTask", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.ForgeAgentControlResponse.FileArtifact", "#[derive(serde::Serialize, serde::Deserialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

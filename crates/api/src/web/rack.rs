@@ -32,27 +32,16 @@ use crate::api::Api;
 #[derive(Template)]
 #[template(path = "rack_show.html")]
 struct Racks {
-    racks: Vec<RackRecord>,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct RackRecord {
-    id: String,
-    rack_state: String,
-    compute_trays: String,
-    power_shelves: String,
-    switches: String,
+    racks: Vec<rpc::forge::Rack>,
 }
 
 #[derive(Template)]
 #[template(path = "rack_detail.html")]
 struct RackDetail {
     id: String,
-    rack_state: String,
-    state_version: String,
-    time_in_state: String,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    lifecycle_detail: super::LifecycleDetail,
     version: String,
+    health_detail: super::HealthDetail,
     associated_machines: Vec<String>,
     associated_switches: Vec<String>,
     associated_power_shelves: Vec<String>,
@@ -77,31 +66,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let racks = racks
-        .racks
-        .into_iter()
-        .map(|rack| RackRecord {
-            id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
-            rack_state: rack.rack_state,
-            compute_trays: format!(
-                "{} / {}",
-                rack.compute_trays.len(),
-                rack.expected_compute_trays.len()
-            ),
-            power_shelves: format!(
-                "{} / {}",
-                rack.power_shelves.len(),
-                rack.expected_power_shelves.len()
-            ),
-            switches: format!(
-                "{} / {}",
-                rack.switches.len(),
-                rack.expected_nvlink_switches.len()
-            ),
-        })
-        .collect();
-
-    let display = Racks { racks };
+    let display = Racks { racks: racks.racks };
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -118,7 +83,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 }
 
 pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Status> {
-    let request = tonic::Request::new(rpc::forge::RackSearchFilter {});
+    let request = tonic::Request::new(rpc::forge::RackSearchFilter::default());
 
     let rack_ids = api.find_rack_ids(request).await?.into_inner().rack_ids;
 
@@ -227,19 +192,15 @@ pub async fn detail(
         }
     };
 
-    let rack_state = maybe_rack
-        .as_ref()
-        .map(|r| r.rack_state.clone())
-        .unwrap_or_default();
-
     let version = maybe_rack
         .as_ref()
         .map(|r| r.version.clone())
         .unwrap_or_default();
 
-    let time_in_state = maybe_rack
+    let lifecycle = maybe_rack
         .as_ref()
-        .map(|r| config_version::since_state_change_humanized(&r.version))
+        .and_then(|r| r.status.as_ref())
+        .and_then(|s| s.lifecycle.clone())
         .unwrap_or_default();
 
     let metadata_detail = super::MetadataDetail {
@@ -250,15 +211,24 @@ pub async fn detail(
         metadata_version: version.clone(),
     };
 
+    let rack_status = maybe_rack.as_ref().and_then(|rack| rack.status.as_ref());
+    let health_url = format!("/admin/rack/{rack_id}/health");
+    let health_detail = super::HealthDetail::new(
+        health_url,
+        "Go to Rack health reports",
+        rack_status.and_then(|status| status.health.clone()),
+        rack_status
+            .map(|status| status.health_sources.clone())
+            .unwrap_or_default(),
+    );
+
     let history = fetch_rack_state_history(&api, &rack_id).await;
 
     let display = RackDetail {
         id: rack_id.to_string(),
-        rack_state,
-        state_version: version.clone(),
-        time_in_state,
-        state_reason: None,
+        lifecycle_detail: lifecycle.into(),
         version,
+        health_detail,
         associated_machines,
         associated_switches,
         associated_power_shelves,
