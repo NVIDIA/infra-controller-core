@@ -197,7 +197,21 @@ async fn handle_dpf_provisioning(
             dpu_machine_id: dpu.id.to_string(),
             is_primary: dpu.id == primary_dpu_id,
         };
-        dpf_sdk.register_dpu_device(device_info).await?;
+        if let Err(err) = dpf_sdk.register_dpu_device(device_info).await {
+            return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::DpfProvisioning {
+                        err: format!(
+                            "DPUDevice creation failed. Force-delete again to clean old values. Wait until DPU CR are deleted. {err}"
+                        ),
+                    },
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+                },
+                machine_id: dpu.id,
+                retry_count: 0,
+            }));
+        }
     }
 
     let device_ids: Vec<String> = state
@@ -210,7 +224,21 @@ async fn handle_dpf_provisioning(
         host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
         device_ids,
     };
-    dpf_sdk.register_dpu_node(node_info).await?;
+    if let Err(err) = dpf_sdk.register_dpu_node(node_info).await {
+        return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning {
+                    err: format!(
+                        "DPUNode creation failed. Force-delete again to clean old values. Wait until DPU CR are deleted. {err}"
+                    ),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+            machine_id: state.host_snapshot.id,
+            retry_count: 0,
+        }));
+    }
 
     let next =
         transition_all_dpus_to_dpf_state(DpfState::WaitingForReady { phase_detail: None }, state)?;

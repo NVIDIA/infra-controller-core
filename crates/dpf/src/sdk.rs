@@ -1432,24 +1432,6 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
         let node_name = &dpu_node_cr_name(node_id);
         let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace).await?;
 
-        for name in dpu_device_names {
-            let dpu_cr_name = dpu_cr_name(name, node_id);
-            let dpu_cr = DpuRepository::get(&*self.repo, &dpu_cr_name, &self.namespace).await?;
-
-            if dpu_cr.is_some() {
-                // Move the DPU to the Error phase so the operator stops reconciling it
-                // before we drop the DPUNode and DPUDevice CRs below. Best-effort: a
-                // failed patch must not block the deletes that follow.
-                let patch = json!({ "status": { "phase": "Error" } });
-                if let Err(e) =
-                    DpuRepository::patch_status(&*self.repo, &dpu_cr_name, &self.namespace, patch)
-                        .await
-                {
-                    tracing::warn!("Failed to patch DPU {} to Error phase: {}", dpu_cr_name, e);
-                }
-            }
-        }
-
         if let Some(node) = node {
             let dpus = node.spec.dpus.unwrap_or_default();
 
