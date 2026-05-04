@@ -59,7 +59,6 @@ fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        v2: true,
         ..Default::default()
     }
 }
@@ -93,7 +92,7 @@ async fn reset_host_to_waiting_for_ready(
             controller_state = $1, \
             controller_state_version = $2, \
             controller_state_outcome = NULL, \
-            health_report_overrides = '{\"merges\": {}, \"replace\": null}'::jsonb, \
+            health_reports = '{\"merges\": {}, \"replace\": null}'::jsonb, \
             last_reboot_requested = NULL, \
             last_reboot_time = NULL \
          WHERE id = $3",

@@ -41,6 +41,7 @@ struct RackDetail {
     id: String,
     lifecycle_detail: super::LifecycleDetail,
     version: String,
+    health_detail: super::HealthDetail,
     associated_machines: Vec<String>,
     associated_switches: Vec<String>,
     associated_power_shelves: Vec<String>,
@@ -82,7 +83,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 }
 
 pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Status> {
-    let request = tonic::Request::new(rpc::forge::RackSearchFilter {});
+    let request = tonic::Request::new(rpc::forge::RackSearchFilter::default());
 
     let rack_ids = api.find_rack_ids(request).await?.into_inner().rack_ids;
 
@@ -210,12 +211,24 @@ pub async fn detail(
         metadata_version: version.clone(),
     };
 
+    let rack_status = maybe_rack.as_ref().and_then(|rack| rack.status.as_ref());
+    let health_url = format!("/admin/rack/{rack_id}/health");
+    let health_detail = super::HealthDetail::new(
+        health_url,
+        "Go to Rack health reports",
+        rack_status.and_then(|status| status.health.clone()),
+        rack_status
+            .map(|status| status.health_sources.clone())
+            .unwrap_or_default(),
+    );
+
     let history = fetch_rack_state_history(&api, &rack_id).await;
 
     let display = RackDetail {
         id: rack_id.to_string(),
         lifecycle_detail: lifecycle.into(),
         version,
+        health_detail,
         associated_machines,
         associated_switches,
         associated_power_shelves,

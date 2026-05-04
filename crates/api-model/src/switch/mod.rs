@@ -107,12 +107,19 @@ pub struct SwitchStatus {
     pub health_status: String, // "ok", "warning", "critical"
 }
 
+fn default_continue_after_firmware_upgrade() -> bool {
+    true
+}
+
 /// Set by an external entity to request switch reprovisioning. When the switch is in Ready state,
 /// the state controller checks this flag and transitions to ReProvisioning::Start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SwitchReprovisionRequest {
     pub requested_at: DateTime<Utc>,
     pub initiator: String,
+    /// Continue through rack-managed post-firmware phases such as NVOS/NMXC.
+    #[serde(default = "default_continue_after_firmware_upgrade")]
+    pub continue_after_firmware_upgrade: bool,
 }
 
 pub use crate::rack::{
@@ -214,9 +221,8 @@ impl<'r> FromRow<'r, PgRow> for Switch {
         let fabric_manager_status: Option<sqlx::types::Json<FabricManagerStatus>> =
             row.try_get("fabric_manager_status").ok().flatten();
 
-        // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
-            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
+            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_reports")
             .map(|j| j.0)
             .unwrap_or_default();
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;

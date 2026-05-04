@@ -73,6 +73,10 @@ pub trait PeriodicCollector<B: Bmc>: Send + 'static {
 
     /// Returns the type identifier for this collector
     fn collector_type(&self) -> &'static str;
+
+    fn stop(&mut self) -> impl std::future::Future<Output = ()> + Send {
+        async {}
+    }
 }
 
 pub type EventStream<'a> = BoxStream<'a, Result<CollectorEvent, HealthError>>;
@@ -389,6 +393,7 @@ impl Collector {
                 tokio::select! {
                     _ = cancel_token_clone.cancelled() => {
                         tracing::info!(endpoint = ?endpoint.addr, "collector cancelled");
+                        runner.stop().await;
                         break;
                     }
                     _ = async {

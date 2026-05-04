@@ -80,7 +80,7 @@ With an authenticated session, Site Explorer queries a comprehensive set of Redf
 Serial numbers are trimmed of whitespace. If `system.serial_number` is missing, the chassis serial number is used as a fallback.
 
 **Key files:**
-- `crates/site-explorer/src/redfish.rs` — `RedfishClient`: `probe_redfish_endpoint()`, `create_redfish_client()`, inventory queries
+- `crates/site-explorer/src/redfish.rs` — `RedfishClient`: `get_redfish_vendor()`, `create_redfish_client()`, inventory queries
 - `crates/site-explorer/src/bmc_endpoint_explorer.rs` — `BmcEndpointExplorer` orchestrates credential lookup and exploration
 - `crates/api-model/src/bmc_info.rs` — `BmcInfo` model (IP, port, MAC, firmware version)
 
@@ -120,7 +120,7 @@ Once all DPUs are matched and validated, the host enters an "ingestable" state a
 
 ## 4. DPU Provisioning
 
-After pairing, the DPU must be provisioned with NICo software. This is orchestrated via Temporal workflows (in `carbide-rest`) with Redfish power control (in `ncx-infra-controller-core`).
+After pairing, the DPU must be provisioned with NICo software. This is orchestrated via Temporal workflows (in `carbide-rest`) with Redfish power control (in `infra-controller-core`).
 
 ### Boot Configuration
 

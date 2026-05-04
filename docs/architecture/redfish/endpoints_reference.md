@@ -1,6 +1,6 @@
 # Redfish Endpoints Reference
 
-This page documents all Redfish endpoints used by NCX Infra Controller (NICo), organized by resource group. Each section includes endpoint tables, required response fields with their importance to NICo, and vendor-specific notes.
+This page documents all Redfish endpoints used by NVIDIA Infra Controller (NICo), organized by resource group. Each section includes endpoint tables, required response fields with their importance to NICo, and vendor-specific notes.
 
 Field importance levels:
 - **Critical** — NICo cannot function correctly without this field. Pairing, identification, or core workflows fail.
@@ -14,7 +14,7 @@ Field importance levels:
 
 ## Service Root
 
-**Code**: `get_service_root()` in libredfish; `probe_redfish_endpoint()` in `site_explorer/redfish.rs`
+**Code**: `get_service_root()` in libredfish; `get_redfish_vendor()` in `site_explorer/redfish.rs`
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|

@@ -27,6 +27,9 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_ib_fabric::IbFabricMonitor;
+use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
+use carbide_ib_fabric::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
 use carbide_ipmi::IPMITool;
 use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::config::NvLinkConfig;
@@ -78,7 +81,7 @@ use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportEntry, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
+    HealthReportEntry, InsertMachineHealthReportRequest, RemoveMachineHealthReportRequest,
     VpcVirtualizationType,
 };
 use rpc_instance::RpcInstance;
@@ -96,17 +99,15 @@ use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, ComputeAllocationEnforcement, DpaConfig,
     DpaInterfaceStateControllerConfig, DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig,
-    IBFabricConfig, IbFabricDefinition, IbPartitionStateControllerConfig, ListenMode,
-    MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
-    MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, PowerManagerOptions, PowerShelfStateControllerConfig,
-    RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
-    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
+    IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
+    MachineValidationConfig, MeasuredBootMetricsCollectorConfig, MqttAuthConfig,
+    NetworkSecurityGroupConfig, NetworkSegmentStateControllerConfig, PowerManagerOptions,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SpdmConfig,
+    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
+    VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::dpf::DpfOperations;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
-use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
-use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
 use crate::rack::rms_client::test_support::RmsSim;
@@ -1240,6 +1241,8 @@ pub fn get_config() -> CarbideConfig {
         external_static_pxe_url: None,
         supernic_firmware_profiles: HashMap::default(),
         component_manager: None,
+        initial_objects_file: None,
+        config_ctx: None,
     }
 }
 
@@ -1424,7 +1427,7 @@ pub async fn create_test_env_with_overrides(
         config.ib_fabrics.clone(),
         test_meter.meter(),
         ib_fabric_manager.clone(),
-        config.clone(),
+        config.host_health,
         work_lock_manager_handle.clone(),
     );
 
@@ -2270,12 +2273,12 @@ pub async fn simulate_hardware_health_report(
     health_report: health_report::HealthReport,
 ) {
     use rpc::forge::forge_server::Forge;
-    use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest};
+    use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest};
     use tonic::Request;
 
     let _ = env
         .api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             machine_id: Some(*host_machine_id),
             health_report_entry: Some(HealthReportEntry {
                 report: Some(health_report.into()),
@@ -2296,7 +2299,7 @@ pub async fn send_health_report_entry(
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             health_report_entry: Some(HealthReportEntry {
                 report: Some(entry.0.into()),
@@ -2313,7 +2316,7 @@ pub async fn remove_health_report_entry(env: &TestEnv, machine_id: &MachineId, s
     use tonic::Request;
     let _ = env
         .api
-        .remove_health_report_override(Request::new(RemoveHealthReportOverrideRequest {
+        .remove_machine_health_report(Request::new(RemoveMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             source,
         }))

@@ -56,6 +56,17 @@ pub struct MachineValidationFilter {
     pub contexts: Option<Vec<String>>,
 }
 
+impl From<rpc::forge_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
+    fn from(filter: rpc::forge_agent_control_response::MachineValidationFilter) -> Self {
+        Self {
+            tags: filter.tags,
+            allowed_tests: filter.allowed_tests,
+            run_unverfied_tests: filter.run_unverfied_tests,
+            contexts: filter.contexts.map(|contexts| contexts.items),
+        }
+    }
+}
+
 pub struct MachineValidationManager {}
 
 impl MachineValidationManager {

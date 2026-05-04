@@ -92,6 +92,12 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
     fn collector_type(&self) -> &'static str {
         "logs_collector"
     }
+
+    async fn stop(&mut self) {
+        if let Some(data_sink) = &self.data_sink {
+            data_sink.handle_event(&self.event_context, &CollectorEvent::CollectorRemoved);
+        }
+    }
 }
 
 impl<B: Bmc + 'static> LogsCollector<B> {
