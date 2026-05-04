@@ -69,7 +69,6 @@ tracing-subscriber = { features = [
   "local-time",
 ], workspace = true }
 urlencoding = { workspace = true }
-version-compare = { workspace = true }
 uuid = { workspace = true }
 x509-parser = { features = ["validate"], workspace = true }
 zip = { workspace = true }

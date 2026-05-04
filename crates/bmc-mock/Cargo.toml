@@ -39,7 +39,6 @@ eyre = { workspace = true }
 flate2 = { workspace = true }
 form_urlencoded = { workspace = true }
 futures = { workspace = true }
-http-body = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 itertools = { workspace = true }

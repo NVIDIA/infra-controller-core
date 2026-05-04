@@ -52,7 +52,6 @@ reqwest = { features = ["rustls-tls"], workspace = true }
 async-ssh2-tokio = { workspace = true }
 
 # Error handling
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 
 # Logging
@@ -84,4 +83,3 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 
 [dev-dependencies]
-tokio-test = { workspace = true }
