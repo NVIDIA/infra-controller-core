@@ -560,7 +560,11 @@ async fn try_scsi_sanitize(devpath: &str) -> Result<(), CarbideClientError> {
     // the Linux kernel to create phantom partition entries. Writing one sector of zeros with
     // oflag=direct bypasses the SAS HBA cache and ensures LBA 0 is clean.
     let of_arg = format!("of={devpath}");
-    cmdrun::run_prog(DD_CLI_PROG, ["if=/dev/zero", &of_arg, "count=1", "oflag=direct"]).await?;
+    cmdrun::run_prog(
+        DD_CLI_PROG,
+        ["if=/dev/zero", &of_arg, "count=1", "oflag=direct"],
+    )
+    .await?;
     Ok(())
 }
 
@@ -906,8 +910,7 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
     };
 
     if stdin_link == "/dev/null" {
-        let (nvme_result, hdd_result) =
-            tokio::join!(all_nvme_cleanup(), all_hdd_cleanup());
+        let (nvme_result, hdd_result) = tokio::join!(all_nvme_cleanup(), all_hdd_cleanup());
 
         match nvme_result {
             Ok(_) => {
@@ -1228,7 +1231,8 @@ mod tests {
     #[test]
     fn test_hdparm_has_security_section() {
         let with_security = "ATA device, with non-removable media\nSecurity:\n\tMaster password revision code = 65534\n\tsupported\n\tnot\tlocked\n\tnot\tfrozen\n";
-        let without_security = "ATA device, with non-removable media\nCapabilities:\n\tLBA, IORDY\n";
+        let without_security =
+            "ATA device, with non-removable media\nCapabilities:\n\tLBA, IORDY\n";
 
         assert!(hdparm_has_security_section(with_security));
         assert!(!hdparm_has_security_section(without_security));
@@ -1248,8 +1252,7 @@ mod tests {
 
     #[test]
     fn test_hdparm_supports_enhanced_erase() {
-        let with_enhanced =
-            "Security:\n\tsupported\n\tnot\tfrozen\n\tsupported: enhanced erase\n";
+        let with_enhanced = "Security:\n\tsupported\n\tnot\tfrozen\n\tsupported: enhanced erase\n";
         let without_enhanced = "Security:\n\tsupported\n\tnot\tfrozen\n";
 
         assert!(hdparm_supports_enhanced_erase(with_enhanced));
