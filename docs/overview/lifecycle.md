@@ -16,7 +16,7 @@ Before ingestion, NICo validates that each machine matches its expected SKU — 
 NICo inventories UEFI and BMC firmware and updates any host that does not meet the site's baseline before making it available. Hosts that cannot be brought to baseline are quarantined automatically.
 
 **DPU provisioning**
-NICo installs the DPU OS, provisions HBN (Host-Based Networking with Containerized Cumulus), and configures all DPU firmware components (BMC, NIC, UEFI, ATF). The DPU agent starts after provisioning, periodically fetches desired configuration from NICo over gRPC, and reports applied state back.
+NICo installs the DPU OS, provisions HBN (Host-Based Networking with Containerized Cumulus), and configures all DPU firmware components (BMC, NIC, UEFI, ATF). The DPU agent starts after provisioning and maintains a persistent gRPC connection to NICo for ongoing configuration.
 
 **Attestation**
 NICo attests each host via Measured Boot PCR checking and TPM signature verification before it enters the available pool.

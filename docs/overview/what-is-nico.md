@@ -19,7 +19,7 @@ NICo fills this gap — it enables physical servers to behave like cloud instanc
 
 NICo manages the full lifecycle of bare-metal hosts — from initial rack discovery through tenant provisioning, ongoing operations, and secure reuse.
 
-Each managed host is a **host server with one or more BlueField DPUs**. The attached DPUs act as enforcement boundaries for network isolation and security; NICo provisions and manages them directly, independently of what runs on the host.
+Each managed host is a **BlueField DPU + host server pair**. The DPU acts as the enforcement boundary for network isolation and security; NICo provisions and manages it directly, independently of what runs on the host.
 
 NICo's core responsibilities:
 

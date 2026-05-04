@@ -12,7 +12,7 @@ NICo is open source under the Apache 2.0 license.
 | **Start here** | [Site Reference Architecture](manuals/site-reference-arch.md) | [Architecture Overview](architecture/overview.md) | [What is NICo?](overview/what-is-nico.md) |
 | **Then** | [Site Setup](manuals/site-setup.md) | [Redfish Workflow](architecture/redfish_workflow.md) | [Key Capabilities](overview/capabilities.md) |
 | **Then** | [Networking Requirements](manuals/networking_requirements.md) | [Redfish Endpoints Reference](architecture/redfish/endpoints_reference.md) | [Day 0/1/2 Lifecycle](overview/lifecycle.md) |
-| **Then** | [Ingesting Hosts](manuals/ingesting_machines.md) | [REST API Reference](/infra-controller/api) | [HCL](hcl.md) + [FAQs](faq.md) |
+| **Then** | [Ingesting Hosts](manuals/ingesting_machines.md) | [REST API Reference](#api) | [HCL](hcl.md) + [FAQs](faq.md) |
 
 ## Quick Links
 
