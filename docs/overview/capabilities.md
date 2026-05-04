@@ -15,7 +15,7 @@ NICo manages the BlueField DPU throughout its lifecycle:
 
 - Installs the DPU OS and provisions HBN (Host-Based Networking with Containerized Cumulus, configured via NVUE)
 - Manages all DPU firmware components: BMC, NIC, UEFI, ATF
-- Runs the DPU agent, which maintains a persistent gRPC connection to NICo and executes configuration instructions
+- Runs the DPU agent, which periodically fetches desired configuration from NICo over gRPC and executes configuration instructions
 - Disables in-band BMC access from within the host, enforcing out-of-band-only management
 
 ## Secure Multi-Tenancy and Network Isolation
