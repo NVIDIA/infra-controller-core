@@ -222,6 +222,7 @@ kubectl rollout status deployment/keycloak -n carbide-rest --timeout=300s
 ```bash
 (cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml)
 (cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/db-creds.yaml)
+(cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/certificates.yaml)
 # Wait for the three mTLS certs to be issued by carbide-rest-ca-issuer
 kubectl wait --for=condition=Ready certificate/server-interservice-cert -n temporal --timeout=120s
 kubectl wait --for=condition=Ready certificate/server-cloud-cert -n temporal --timeout=120s

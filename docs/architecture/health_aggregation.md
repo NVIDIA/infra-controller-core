@@ -228,7 +228,7 @@ If Host validation fails, a Health Alert with ID `FailedValidationTest` or `Fail
 
 In addition to that, the full test output (stdout and stderr) will be stored within carbide-core and is made available to NICo users via APIs, admin-cli and admin-ui.
 
-Details can be found in the [Machine validation manual](../manuals/machine_validation.md).
+Details can be found in the [Host Validation guide](../provisioning/host-validation.md).
 
 ### SKU validation tests
 
@@ -246,7 +246,7 @@ SKU validation runs at the same points in the host lifecycle as machine validati
 If SKU validation fails, a Health Alert with ID `SkuValidation` will be placed on the host
 to make the host un-allocatable by tenants.
 
-Details can be found in the [SKU validation manual](../manuals/sku_validation.md).
+Details can be found in the [SKU Validation guide](../provisioning/sku-validation.md).
 
 ## Out of band health monitoring
 

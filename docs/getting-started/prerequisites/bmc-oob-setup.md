@@ -62,7 +62,7 @@ Before ingesting hosts, you must also configure the credentials NICo will set on
 - **Host UEFI password** — per-device UEFI password for managed hosts
 - **DPU UEFI password** — per-device UEFI password for managed DPUs
 
-These are configured via the admin-cli after NICo is deployed. See [Ingesting Hosts](../../provisioning/ingesting-hosts.md) for the credential setup commands.
+These are configured via `carbide-admin-cli` after NICo is deployed. See [Ingesting Hosts](../../provisioning/ingesting-hosts.md) for the credential setup commands.
 
 ## BMC Redfish Requirements
 

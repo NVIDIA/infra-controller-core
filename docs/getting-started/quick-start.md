@@ -404,28 +404,28 @@ kubectl run -i --rm --restart=Never --image=curlimages/curl curl-test \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### Set up carbide-cli and create your first site
+### Set up carbidecli and create your first site
 
 NICo has two CLIs for different purposes:
 
 | CLI | Talks to | Used for |
 |---|---|---|
-| `carbide-cli` | NICo REST (REST API) | Site management, org bootstrap, instance operations |
-| `admin-cli` | NICo Core (gRPC API) | Host ingestion, credentials, expected machines, TPM approval |
+| `carbidecli` | NICo REST (REST API) | Site management, org bootstrap, instance operations |
+| `carbide-admin-cli` | NICo Core (gRPC API) | Host ingestion, credentials, expected machines, TPM approval |
 
-`carbide-cli` is built from the NCX REST repo. `admin-cli` is built from the NCX Core repo (`crates/admin-cli`).
+`carbidecli` is built from the NCX REST repo. `carbide-admin-cli` is built from the NCX Core repo (`crates/admin-cli`).
 
 **1. Build and install the CLI:**
 
 ```bash
 cd "$NCX_REPO"
-make carbide-cli        # installs to $(go env GOPATH)/bin/carbide-cli
+make carbide-cli        # installs to $(go env GOPATH)/bin/carbidecli
 ```
 
 **2. Generate the default config file:**
 
 ```bash
-carbide-cli init         # writes ~/.carbide/config.yaml
+carbidecli init          # writes ~/.carbide/config.yaml
 ```
 
 **3. Port-forward `carbide-rest-api` to localhost:**
@@ -467,8 +467,8 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 **6. Create your first site:**
 
 ```bash
-carbide-cli site create --name mysite --description 'first site'
-carbide-cli site list
+carbidecli site create --name mysite --description 'first site'
+carbidecli site list
 ```
 
 ### Overall health check
@@ -514,7 +514,7 @@ cargo build --release -p carbide-admin-cli
 # Binary: target/release/carbide-admin-cli
 ```
 
-Alternatively, use the containerized version bundled in the `carbide-api` pod (available at `/opt/carbide/forge-admin-cli` inside the container). In the examples below, `admin-cli` refers to `carbide-admin-cli`.
+Alternatively, use the containerized version bundled in the `carbide-api` pod (available at `/opt/carbide/forge-admin-cli` inside the container).
 
 The `<api-url>` in the commands below is the NICo Core gRPC API endpoint — this is the `carbide-api` hostname configured in [Step 3c](#3c-configure-ncx-core-site-deployment), not the REST API used in Step 5. The format is typically `https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`. You can also retrieve it from the LoadBalancer VIP:
 
@@ -527,9 +527,9 @@ kubectl get svc carbide-api -n forge-system -o jsonpath='{.status.loadBalancer.i
 Configure the credentials NICo will apply to BMCs and UEFI after ingestion:
 
 ```bash
-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='<password>'
-admin-cli -c <api-url> host generate-host-uefi-password
-admin-cli -c <api-url> credential add-uefi --kind=host --password='<password>'
+carbide-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='<password>'
+carbide-admin-cli -c <api-url> host generate-host-uefi-password
+carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='<password>'
 ```
 
 ### Upload the expected machines manifest
@@ -552,7 +552,7 @@ Prepare an `expected_machines.json` with the BMC MAC address, factory default cr
 Upload it:
 
 ```bash
-admin-cli -c <api-url> credential em replace-all --filename expected_machines.json
+carbide-admin-cli -c <api-url> em replace-all --filename expected_machines.json
 ```
 
 ### Approve the host for ingestion
@@ -560,7 +560,7 @@ admin-cli -c <api-url> credential em replace-all --filename expected_machines.js
 NICo uses Measured Boot with TPM v2.0 to enforce cryptographic identity:
 
 ```bash
-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
+carbide-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
 NICo will now discover the host via Redfish, pair it with its DPU(s), provision the DPU, and bring the host to a ready state. For more details, see [Ingesting Hosts](../provisioning/ingesting-hosts.md).

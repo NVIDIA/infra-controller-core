@@ -51,7 +51,7 @@ navigation:
           contents:
             - page: Reference Installation
               path: getting-started/installation-options/reference-install.md
-          slug: building-nico-containers
+          slug: installation-options
 
     - section: Provisioning (Day 0 Operations)
       contents:
