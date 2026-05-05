@@ -27,7 +27,8 @@ use super::metrics::{
     metric, number_data_point,
 };
 use super::resource::Resource;
-use crate::sink::{CollectorEvent, EventContext, SensorHealthData};
+use crate::sink::otlp::OtlpMetricItem;
+use crate::sink::{CollectorEvent, EventContext};
 
 fn severity_text_to_number(severity: &str) -> i32 {
     match severity.to_uppercase().as_str() {
@@ -122,6 +123,7 @@ fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogR
             })
         }
         CollectorEvent::Metric(_)
+        | CollectorEvent::PushedMetric(_)
         | CollectorEvent::MetricCollectionStart
         | CollectorEvent::MetricCollectionEnd
         | CollectorEvent::CollectorRemoved => None,
@@ -167,34 +169,47 @@ pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportL
     ExportLogsServiceRequest { resource_logs }
 }
 
-/// group metric samples by endpoint and build an ExportMetricsServiceRequest.
-/// every sample maps to an OTLP `Gauge` point; Sum/Histogram is a follow-up.
-pub fn build_metrics_export_request(
-    batch: &[(EventContext, SensorHealthData)],
+/// group metric items by endpoint and build an ExportMetricsServiceRequest.
+/// every item maps to an OTLP `Gauge` point; Sum/Histogram is a follow-up.
+pub(crate) fn build_metrics_export_request(
+    batch: &[(EventContext, OtlpMetricItem)],
 ) -> ExportMetricsServiceRequest {
-    let observed_nanos = SystemTime::now()
+    let fallback_nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64;
 
     let mut by_endpoint: HashMap<String, (Vec<KeyValue>, Vec<OtlpMetric>)> = HashMap::new();
 
-    for (context, sample) in batch {
+    for (context, item) in batch {
+        let (name, unit, value, labels, time_nanos) = match item {
+            OtlpMetricItem::Sensor(s) => (
+                s.metric_type.clone(),
+                s.unit.clone(),
+                s.value,
+                &s.labels,
+                fallback_nanos,
+            ),
+            OtlpMetricItem::Pushed(p) => (
+                p.name.clone(),
+                p.unit.clone(),
+                p.value,
+                &p.labels,
+                p.timestamp_nanos,
+            ),
+        };
+
         let data_point = NumberDataPoint {
-            attributes: sample
-                .labels
-                .iter()
-                .map(|(k, v)| kv(k, v.clone()))
-                .collect(),
-            time_unix_nano: observed_nanos,
-            value: Some(number_data_point::Value::AsDouble(sample.value)),
+            attributes: labels.iter().map(|(k, v)| kv(k, v.clone())).collect(),
+            time_unix_nano: time_nanos,
+            value: Some(number_data_point::Value::AsDouble(value)),
             ..Default::default()
         };
 
         let otlp_metric = OtlpMetric {
-            name: sample.metric_type.clone(),
+            name,
             description: String::new(),
-            unit: sample.unit.clone(),
+            unit,
             data: Some(metric::Data::Gauge(OtlpGauge {
                 data_points: vec![data_point],
             })),

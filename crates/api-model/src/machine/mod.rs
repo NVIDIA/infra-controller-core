@@ -35,7 +35,6 @@ use config_version::{ConfigVersion, Versioned};
 use duration_str::deserialize_duration_chrono;
 use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
-use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
 use rpc::forge::HealthSourceOrigin;
 use rpc::forge_agent_control_response as fac;
@@ -738,20 +737,6 @@ pub enum MachineLastRebootRequestedMode {
     PowerOff,
     PowerOn,
     GracefulShutdown,
-}
-
-impl From<SystemPowerControl> for MachineLastRebootRequestedMode {
-    fn from(value: SystemPowerControl) -> Self {
-        match value {
-            SystemPowerControl::On => Self::PowerOn,
-            SystemPowerControl::GracefulShutdown => Self::PowerOff,
-            SystemPowerControl::ForceOff => Self::PowerOff,
-            SystemPowerControl::GracefulRestart => Self::Reboot,
-            SystemPowerControl::ForceRestart => Self::Reboot,
-            SystemPowerControl::ACPowercycle => Self::Reboot,
-            SystemPowerControl::PowerCycle => Self::Reboot,
-        }
-    }
 }
 
 impl Display for MachineLastRebootRequestedMode {
@@ -2038,7 +2023,7 @@ pub struct BiosConfigInfo {
     pub retry_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum BiosConfigState {
     WaitForBiosJobScheduled,
@@ -2062,7 +2047,7 @@ pub struct SetBootOrderInfo {
     pub retry_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
@@ -2087,7 +2072,7 @@ pub struct SecureEraseBossContext {
     pub secure_erase_boss_state: SecureEraseBossState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SecureEraseBossState {
     UnlockHost,
@@ -2110,7 +2095,7 @@ pub struct CreateBossVolumeContext {
     pub create_boss_volume_state: CreateBossVolumeState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum CreateBossVolumeState {
     CreateBossVolume,
@@ -2940,6 +2925,25 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             switch_id: row.try_get("switch_id")?,
             association_type: row.try_get("association_type")?,
         })
+    }
+}
+
+// TODO: reconcile with site_explorer::PowerState. They are almost
+// identical but here we have Reset enum item.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum PowerState {
+    Off,
+    On,
+    PoweringOff,
+    PoweringOn,
+    Paused,
+    Reset,
+    Unknown,
+}
+
+impl Display for PowerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
 

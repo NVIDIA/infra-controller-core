@@ -263,8 +263,8 @@ tower-test = "0.4"
 
 [profile.release]
 debug = "line-tables-only"
-debug-assertions = true # Add some extra assurance during development
-overflow-checks = true  # Add some extra assurance during development
+debug-assertions = true    # Add some extra assurance during development
+overflow-checks = true     # Add some extra assurance during development
 
 [workspace.lints.clippy]
 cloned_instead_of_copied = "warn"

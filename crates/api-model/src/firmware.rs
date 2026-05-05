@@ -131,24 +131,6 @@ pub enum FirmwareComponentType {
     Unknown,
 }
 
-impl From<FirmwareComponentType> for libredfish::model::update_service::ComponentType {
-    fn from(fct: FirmwareComponentType) -> libredfish::model::update_service::ComponentType {
-        use libredfish::model::update_service::ComponentType;
-        match fct {
-            FirmwareComponentType::Bmc => ComponentType::BMC,
-            FirmwareComponentType::Uefi => ComponentType::UEFI,
-            FirmwareComponentType::Cec => ComponentType::Unknown,
-            FirmwareComponentType::Nic => ComponentType::Unknown,
-            FirmwareComponentType::CpldMb => ComponentType::CPLDMB,
-            FirmwareComponentType::CpldPdb => ComponentType::CPLDPDB,
-            FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
-            FirmwareComponentType::CombinedBmcUefi => ComponentType::Unknown,
-            FirmwareComponentType::Gpu => ComponentType::Unknown,
-            FirmwareComponentType::Unknown => ComponentType::Unknown,
-        }
-    }
-}
-
 impl fmt::Display for FirmwareComponentType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

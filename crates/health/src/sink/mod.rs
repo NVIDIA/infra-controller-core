@@ -32,7 +32,8 @@ mod tracing;
 pub use composite::CompositeDataSink;
 pub use events::{
     Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
-    HealthReportSuccess, LogRecord, Probe, ReportSource, SensorHealthContext, SensorHealthData,
+    HealthReportSuccess, LogRecord, Probe, PushedMetricSample, PushedMetricSource, ReportSource,
+    SensorHealthContext, SensorHealthData,
 };
 pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;

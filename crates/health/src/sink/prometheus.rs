@@ -207,6 +207,31 @@ impl DataSink for PrometheusSink {
                 }
             }
             CollectorEvent::CollectorRemoved => self.remove_collector_metrics(context),
+            CollectorEvent::PushedMetric(sample) => {
+                match self.get_or_create_stream_metrics(context) {
+                    Ok(stream_metrics) => {
+                        stream_metrics.record(
+                            GaugeReading::new(
+                                sample.key.clone(),
+                                sample.name.clone(),
+                                sample.name.clone(),
+                                sample.unit.clone(),
+                                sample.value,
+                            )
+                            .with_labels(sample.labels.clone()),
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            ?error,
+                            endpoint_key = context.endpoint_key(),
+                            collector = context.collector_type,
+                            metric = sample.name,
+                            "Failed to record Prometheus pushed metric sample"
+                        );
+                    }
+                }
+            }
             CollectorEvent::Log(_)
             | CollectorEvent::Firmware(_)
             | CollectorEvent::HealthReport(_) => {}

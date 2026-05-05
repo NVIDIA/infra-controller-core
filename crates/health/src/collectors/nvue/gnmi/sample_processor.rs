@@ -23,11 +23,9 @@ use std::time::Instant;
 use super::client::{typed_value_to_f64, typed_value_to_string};
 use super::proto::{self, PathElem};
 use super::subscriber::GnmiStreamMetrics;
-use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
+use crate::sink::{CollectorEvent, DataSink, EventContext, PushedMetricSample, PushedMetricSource};
 
 pub(crate) const NVUE_GNMI_SAMPLE_STREAM_ID: &str = "nvue_gnmi";
-
-/// process NVUE gNMI SAMPLE notifications and emit them as `CollectorEvent::Metric`
 pub(crate) struct GnmiSampleProcessor {
     pub(crate) data_sink: Option<Arc<dyn DataSink>>,
     pub(crate) event_context: EventContext,
@@ -60,15 +58,21 @@ impl GnmiSampleProcessor {
             .last_notification_timestamp
             .set(now_unix_secs());
 
+        let timestamp_nanos = notification.timestamp.max(0) as u64;
+
         let start = Instant::now();
-        let entity_count = self.process_notification(notification);
+        let entity_count = self.process_notification(notification, timestamp_nanos);
         stream_metrics
             .notification_processing_seconds
             .observe(start.elapsed().as_secs_f64());
         stream_metrics.monitored_entities.set(entity_count as f64);
     }
 
-    fn process_notification(&self, notification: &proto::Notification) -> usize {
+    fn process_notification(
+        &self,
+        notification: &proto::Notification,
+        timestamp_nanos: u64,
+    ) -> usize {
         let prefix_elems: &[PathElem] = notification
             .prefix
             .as_ref()
@@ -93,15 +97,15 @@ impl GnmiSampleProcessor {
 
             if let Some(iface) = find_elem_key_ref(&combined, "interface", "name") {
                 entities.insert(("interface", iface));
-                self.process_interface_metric(&combined, iface, val);
+                self.process_interface_metric(&combined, iface, val, timestamp_nanos);
             } else if let Some(comp) = find_elem_key_ref(&combined, "component", "name") {
                 entities.insert(("component", comp));
-                self.process_component_metric(&combined, comp, val);
+                self.process_component_metric(&combined, comp, val, timestamp_nanos);
             } else if let Some(sensor_id) = find_elem_key_ref(&combined, "leak-sensor", "id")
                 && leaf_matches(&combined, &["state", "state"])
             {
                 entities.insert(("sensor", sensor_id));
-                self.process_leak_sensor_metric(val, sensor_id);
+                self.process_leak_sensor_metric(val, sensor_id, timestamp_nanos);
             }
         }
 
@@ -113,6 +117,7 @@ impl GnmiSampleProcessor {
         elems: &[&PathElem],
         iface_name: &str,
         val: &proto::TypedValue,
+        ts: u64,
     ) {
         if leaf_matches(elems, &["state", "oper-status"]) {
             let v = oper_status_to_f64(typed_value_to_string(val).as_deref());
@@ -121,8 +126,8 @@ impl GnmiSampleProcessor {
                 iface_name,
                 v,
                 "state",
-                "interface_name",
-                iface_name,
+                ("interface_name", iface_name),
+                ts,
             );
         } else if leaf_matches(elems, &["state", "counters", "in-errors"])
             && let Some(v) = typed_value_to_f64(val)
@@ -132,8 +137,8 @@ impl GnmiSampleProcessor {
                 iface_name,
                 v,
                 "count",
-                "interface_name",
-                iface_name,
+                ("interface_name", iface_name),
+                ts,
             );
         } else if leaf_matches(elems, &["state", "counters", "out-errors"])
             && let Some(v) = typed_value_to_f64(val)
@@ -143,8 +148,8 @@ impl GnmiSampleProcessor {
                 iface_name,
                 v,
                 "count",
-                "interface_name",
-                iface_name,
+                ("interface_name", iface_name),
+                ts,
             );
         } else if leaf_matches(elems, &["phy-diag", "state", "effective-ber"])
             && let Some(v) = typed_value_to_f64(val)
@@ -154,8 +159,8 @@ impl GnmiSampleProcessor {
                 iface_name,
                 v,
                 "ratio",
-                "interface_name",
-                iface_name,
+                ("interface_name", iface_name),
+                ts,
             );
         } else if leaf_matches(elems, &["phy-diag", "state", "symbol-ber"])
             && let Some(v) = typed_value_to_f64(val)
@@ -165,8 +170,8 @@ impl GnmiSampleProcessor {
                 iface_name,
                 v,
                 "ratio",
-                "interface_name",
-                iface_name,
+                ("interface_name", iface_name),
+                ts,
             );
         } else if leaf_matches(
             elems,
@@ -178,8 +183,8 @@ impl GnmiSampleProcessor {
                 iface_name,
                 v,
                 "count",
-                "interface_name",
-                iface_name,
+                ("interface_name", iface_name),
+                ts,
             );
         }
     }
@@ -189,6 +194,7 @@ impl GnmiSampleProcessor {
         elems: &[&PathElem],
         comp_name: &str,
         val: &proto::TypedValue,
+        ts: u64,
     ) {
         if leaf_matches(elems, &["healthz", "state", "status"]) {
             let v = component_health_to_f64(typed_value_to_string(val).as_deref());
@@ -197,8 +203,8 @@ impl GnmiSampleProcessor {
                 comp_name,
                 v,
                 "state",
-                "component_name",
-                comp_name,
+                ("component_name", comp_name),
+                ts,
             );
         } else if leaf_matches(elems, &["state", "temperature", "instant"])
             && let Some(v) = typed_value_to_f64(val)
@@ -208,21 +214,21 @@ impl GnmiSampleProcessor {
                 comp_name,
                 v,
                 "celsius",
-                "component_name",
-                comp_name,
+                ("component_name", comp_name),
+                ts,
             );
         }
     }
 
-    fn process_leak_sensor_metric(&self, val: &proto::TypedValue, sensor_id: &str) {
+    fn process_leak_sensor_metric(&self, val: &proto::TypedValue, sensor_id: &str, ts: u64) {
         let v = leak_sensor_to_f64(typed_value_to_string(val).as_deref());
         self.emit_data_metric(
             "leak_sensor_state",
             sensor_id,
             v,
             "state",
-            "sensor_id",
-            sensor_id,
+            ("sensor_id", sensor_id),
+            ts,
         );
     }
 
@@ -232,8 +238,8 @@ impl GnmiSampleProcessor {
         entity_id: &str,
         value: f64,
         unit: &str,
-        entity_label_name: &'static str,
-        entity_label_value: &str,
+        entity_label: (&'static str, &str),
+        timestamp_nanos: u64,
     ) {
         let Some(sink) = &self.data_sink else { return };
 
@@ -242,23 +248,18 @@ impl GnmiSampleProcessor {
         key.push(':');
         key.push_str(entity_id);
 
-        // only the domain-specific entity label; endpoint identity (ip, mac,
-        // serial_number, collector_type) is added by PrometheusSink from EventContext
-        let labels = vec![(
-            Cow::Borrowed(entity_label_name),
-            entity_label_value.to_string(),
-        )];
+        let labels = vec![(Cow::Borrowed(entity_label.0), entity_label.1.to_string())];
 
         sink.handle_event(
             &self.event_context,
-            &CollectorEvent::Metric(Box::new(SensorHealthData {
+            &CollectorEvent::PushedMetric(Box::new(PushedMetricSample {
                 key,
-                name: NVUE_GNMI_SAMPLE_STREAM_ID.to_string(),
-                metric_type: metric_type.to_string(),
-                unit: unit.to_string(),
+                name: metric_type.to_string(),
                 value,
+                unit: unit.to_string(),
                 labels,
-                context: None,
+                timestamp_nanos,
+                source: PushedMetricSource::NvueGnmi,
             })),
         );
     }
@@ -465,7 +466,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 1);
     }
 
@@ -498,7 +499,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 1);
     }
 
@@ -543,7 +544,7 @@ mod tests {
         };
 
         // same interface, so entity count is 1 even with multiple updates
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 1);
     }
 
@@ -587,7 +588,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 2);
     }
 
@@ -615,7 +616,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 1);
     }
 
@@ -643,7 +644,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 1);
     }
 
@@ -673,7 +674,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 0);
     }
 
@@ -706,7 +707,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 1);
     }
 
@@ -753,7 +754,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 1);
     }
 
@@ -784,7 +785,7 @@ mod tests {
             ..Default::default()
         };
 
-        let count = proc.process_notification(&notification);
+        let count = proc.process_notification(&notification, 0);
         assert_eq!(count, 1);
     }
 

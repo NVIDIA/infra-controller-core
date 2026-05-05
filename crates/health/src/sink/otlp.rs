@@ -21,15 +21,21 @@ use prometheus::Counter;
 
 use super::dedup_queue::DedupQueue;
 use super::event_mapper::RedfishEventMapper;
-use super::{CollectorEvent, DataSink, EventContext, SensorHealthData};
+use super::{CollectorEvent, DataSink, EventContext, PushedMetricSample, SensorHealthData};
 use crate::HealthError;
 use crate::config::OtlpSinkConfig;
 use crate::metrics::MetricsManager;
 use crate::otlp::drain::OtlpDrainTask;
 use crate::otlp::metrics_drain::OtlpMetricsDrainTask;
 
+#[derive(Clone, Debug)]
+pub(crate) enum OtlpMetricItem {
+    Sensor(SensorHealthData),
+    Pushed(PushedMetricSample),
+}
+
 pub(crate) type OtlpQueue = DedupQueue<String, (EventContext, CollectorEvent)>;
-pub(crate) type OtlpMetricsQueue = DedupQueue<String, (EventContext, SensorHealthData)>;
+pub(crate) type OtlpMetricsQueue = DedupQueue<String, (EventContext, OtlpMetricItem)>;
 
 #[cfg(not(feature = "bench-hooks"))]
 pub(crate) struct OtlpSink {
@@ -56,7 +62,6 @@ pub(crate) fn is_otlp_log_relevant(event: &CollectorEvent) -> bool {
         CollectorEvent::Metric(_)
             | CollectorEvent::MetricCollectionStart
             | CollectorEvent::MetricCollectionEnd
-            | CollectorEvent::CollectorRemoved
     )
 }
 
@@ -135,10 +140,6 @@ impl OtlpSink {
     pub fn pop_for_bench(&self) -> Option<(EventContext, CollectorEvent)> {
         self.queue.pop().map(|(_key, value)| value)
     }
-
-    pub fn pop_metric_for_bench(&self) -> Option<(EventContext, SensorHealthData)> {
-        self.metrics_queue.pop().map(|(_key, value)| value)
-    }
 }
 
 impl DataSink for OtlpSink {
@@ -147,15 +148,28 @@ impl DataSink for OtlpSink {
     }
 
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        if let CollectorEvent::Metric(sample) = event {
-            let key = format!("{}|{}", context.endpoint_key, sample.key);
-            if self
-                .metrics_queue
-                .save_latest(key, (context.clone(), (**sample).clone()))
-            {
-                self.metrics_replaced_total.inc();
+        match event {
+            CollectorEvent::Metric(sample) => {
+                let key = format!("{}|{}", context.endpoint_key, sample.key);
+                if self.metrics_queue.save_latest(
+                    key,
+                    (context.clone(), OtlpMetricItem::Sensor((**sample).clone())),
+                ) {
+                    self.metrics_replaced_total.inc();
+                }
+                return;
             }
-            return;
+            CollectorEvent::PushedMetric(sample) => {
+                let key = format!("{}|{}", context.endpoint_key, sample.key);
+                if self.metrics_queue.save_latest(
+                    key,
+                    (context.clone(), OtlpMetricItem::Pushed((**sample).clone())),
+                ) {
+                    self.metrics_replaced_total.inc();
+                }
+                return;
+            }
+            _ => {}
         }
 
         if !is_otlp_log_relevant(event) {

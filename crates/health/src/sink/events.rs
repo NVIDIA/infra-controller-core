@@ -133,11 +133,30 @@ pub struct HealthReport {
 }
 
 #[derive(Clone, Debug)]
+pub enum PushedMetricSource {
+    NvueGnmi,
+}
+
+/// metric sample from a push-based source that provides its own timestamp.
+/// if your source is polled and timestamped at poll time, use `SensorHealthData` instead.
+#[derive(Clone, Debug)]
+pub struct PushedMetricSample {
+    pub key: String,
+    pub name: String,
+    pub value: f64,
+    pub unit: String,
+    pub labels: Vec<MetricLabel>,
+    pub timestamp_nanos: u64,
+    pub source: PushedMetricSource,
+}
+
+#[derive(Clone, Debug)]
 pub enum CollectorEvent {
     MetricCollectionStart,
     Metric(Box<SensorHealthData>),
     MetricCollectionEnd,
     CollectorRemoved,
+    PushedMetric(Box<PushedMetricSample>),
     Log(Box<LogRecord>),
     Firmware(FirmwareInfo),
     HealthReport(Arc<HealthReport>),

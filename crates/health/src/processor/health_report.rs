@@ -242,7 +242,8 @@ impl EventProcessor for HealthReportProcessor {
             CollectorEvent::CollectorRemoved => {
                 self.windows.remove(&Self::stream_key(context));
             }
-            CollectorEvent::Log(_)
+            CollectorEvent::PushedMetric(_)
+            | CollectorEvent::Log(_)
             | CollectorEvent::Firmware(_)
             | CollectorEvent::HealthReport(_) => {}
         }

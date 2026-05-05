@@ -77,6 +77,18 @@ impl DataSink for TracingSink {
                     "Firmware info event"
                 );
             }
+            CollectorEvent::PushedMetric(sample) => {
+                tracing::info!(
+                    endpoint = %context.endpoint_key(),
+                    collector = %context.collector_type,
+                    metric = %sample.name,
+                    key = %sample.key,
+                    unit = %sample.unit,
+                    value = sample.value,
+                    source = ?sample.source,
+                    "Pushed metric event"
+                );
+            }
             CollectorEvent::HealthReport(report) => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),

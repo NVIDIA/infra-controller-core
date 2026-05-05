@@ -18,11 +18,12 @@
 use std::net::SocketAddr;
 
 use libredfish::RoleId;
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
-use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
+use model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, LockdownStatus, NicMode,
+};
 
 use super::metrics::SiteExplorationMetrics;
 

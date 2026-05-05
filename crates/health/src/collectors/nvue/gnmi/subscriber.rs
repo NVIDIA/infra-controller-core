@@ -179,13 +179,12 @@ pub fn spawn_gnmi_collector(
     collector_registry: Arc<CollectorRegistry>,
     data_sink: Option<Arc<dyn DataSink>>,
 ) -> Result<Collector, HealthError> {
-    let switch_id = endpoint
-        .metadata
-        .as_ref()
-        .and_then(|m| m.serial_number().map(str::to_string))
-        .unwrap_or_else(|| endpoint.addr.mac.to_string());
-    let switch_ip = endpoint.addr.ip.to_string();
     let sample_event_context = EventContext::from_endpoint(endpoint, NVUE_GNMI_SAMPLE_STREAM_ID);
+    let switch_id = match sample_event_context.serial_number() {
+        Some(serial) => serial.to_string(),
+        None => endpoint.addr.mac.to_string(),
+    };
+    let switch_ip = endpoint.addr.ip.to_string();
 
     let (username, password) = match endpoint.credentials() {
         crate::endpoint::BmcCredentials::UsernamePassword { username, password } => {
@@ -220,9 +219,16 @@ pub fn spawn_gnmi_collector(
 
     let sample_stream_metrics = GnmiStreamMetrics::new(registry, &prefix, "", sample_const_labels)?;
 
+    let paths = nvue_subscribe_paths(&gnmi_config.paths);
+    if paths.is_empty() {
+        return Err(HealthError::GnmiError(
+            "no gNMI subscription paths enabled".into(),
+        ));
+    }
+
     let sample_config = GnmiStreamConfig {
         client,
-        paths: nvue_subscribe_paths(&gnmi_config.paths),
+        paths,
         sample_interval_nanos: gnmi_config.sample_interval.as_nanos() as u64,
     };
 
@@ -243,6 +249,8 @@ pub fn spawn_gnmi_collector(
     }))
 }
 
+// note: does not emit MetricCollectionStart/End sentinels, so PrometheusSink
+// cannot sweep stale gauges for this stream. tracked as part of #989.
 async fn gnmi_sample_task(
     cancel_token: CancellationToken,
     config: GnmiStreamConfig,

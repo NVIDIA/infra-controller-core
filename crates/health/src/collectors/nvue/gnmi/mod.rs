@@ -24,7 +24,6 @@ pub(crate) mod subscriber;
 // clippy flags the shared "Eid" prefix but we can't control generated code.
 #[allow(clippy::enum_variant_names)]
 pub mod proto {
-    #[allow(clippy::enum_variant_names)]
     pub mod gnmi_ext {
         tonic::include_proto!("gnmi_ext");
     }

@@ -560,6 +560,18 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/power-shelf.json", get(power_shelf::show_json))
             .route("/power-shelf/{power_shelf_id}", get(power_shelf::detail))
             .route(
+                "/power-shelf/{power_shelf_id}/health",
+                get(health::power_shelf_health),
+            )
+            .route(
+                "/power-shelf/{power_shelf_id}/health/add-report",
+                post(health::add_power_shelf_health_report),
+            )
+            .route(
+                "/power-shelf/{power_shelf_id}/health/remove-report",
+                post(health::remove_power_shelf_health_report),
+            )
+            .route(
                 "/power-shelf/{power_shelf_id}/state-history",
                 get(state_history::show_power_shelf_state_history),
             )
@@ -590,6 +602,15 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/switch", get(switch::show_html))
             .route("/switch.json", get(switch::show_json))
             .route("/switch/{switch_id}", get(switch::detail))
+            .route("/switch/{switch_id}/health", get(health::switch_health))
+            .route(
+                "/switch/{switch_id}/health/add-report",
+                post(health::add_switch_health_report),
+            )
+            .route(
+                "/switch/{switch_id}/health/remove-report",
+                post(health::remove_switch_health_report),
+            )
             .route(
                 "/switch/{switch_id}/state-history",
                 get(state_history::show_switch_state_history),
