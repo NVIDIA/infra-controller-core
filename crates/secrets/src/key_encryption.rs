@@ -37,10 +37,10 @@ use aes_gcm::aead::{Aead, KeyInit};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use p256::SecretKey;
+use p256::elliptic_curve::Generate;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
-use rand::TryRngCore;
-use rand::rngs::OsRng as AesOsRng;
-use rand_core::OsRng;
+use rand::rngs::SysRng;
+use rand_core::TryRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -133,7 +133,7 @@ pub fn encrypt(
     let cipher = Aes256Gcm::new_from_slice(encryption_secret)
         .map_err(|e| KeyEncryptionError::Encrypt(e.to_string()))?;
     let mut nonce = [0u8; 12];
-    AesOsRng.try_fill_bytes(&mut nonce).map_err(|e| {
+    SysRng.try_fill_bytes(&mut nonce).map_err(|e| {
         KeyEncryptionError::Encrypt(format!("OS RNG failed while generating AES-GCM nonce: {e}"))
     })?;
     let ciphertext = cipher
@@ -176,7 +176,9 @@ pub fn key_id_from_public_key(public_key: &str) -> String {
 /// The public PEM matches `p256::PublicKey::from_public_key_pem` (same as carbide-api JWKS).
 /// Returns (private_key_pem_bytes, public_key_pem).
 pub fn generate_es256_key_pair() -> Result<(Vec<u8>, String), KeyEncryptionError> {
-    let secret_key = SecretKey::random(&mut OsRng);
+    let secret_key = SecretKey::try_generate_from_rng(&mut SysRng).map_err(|e| {
+        KeyEncryptionError::KeyGen(format!("Could not generate SecretKey from system RNG: {e}"))
+    })?;
     let private_pem = secret_key
         .to_pkcs8_pem(LineEnding::LF)
         .map_err(|e| KeyEncryptionError::KeyGen(e.to_string()))?;

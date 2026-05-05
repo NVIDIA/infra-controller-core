@@ -17,7 +17,7 @@
 
 use std::borrow::Cow;
 
-use rand::Rng;
+use rand::{Rng, RngExt};
 use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
