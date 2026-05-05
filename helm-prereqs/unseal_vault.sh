@@ -17,11 +17,12 @@
 # =============================================================================
 # unseal_vault.sh — initialize and unseal a 3-pod HashiCorp Vault HA cluster
 #
-# Run AFTER `helmfile sync -l name=vault` and BEFORE `helm install carbide-prereqs`.
+# Run AFTER `helmfile sync -l name=vault` and BEFORE the Infra Controller prereqs
+# Helm release (`helm install carbide-prereqs`).
 #
 # On first run: initializes Vault (5 shares, threshold 3) and stores keys/token
 #   as K8s secrets: vault-cluster-keys, vaultunsealkeys, vaultroottoken
-#   Also copies root token to forge-system/carbide-vault-token for carbide-prereqs.
+#   Also copies root token to forge-system/carbide-vault-token for Infra Controller prereqs.
 #
 # On subsequent runs: reads existing vault-cluster-keys secret and re-unseals
 #   any pods that are sealed (e.g. after a node restart).
@@ -97,25 +98,67 @@ KEY_3="$(kubectl -n "${NAMESPACE}" get secret vault-cluster-keys -o json \
     | base64 -d \
     | jq -r '.unseal_keys_b64[2]')"
 
+vault_status_json() {
+    local POD="$1"
+    kubectl exec -n "${NAMESPACE}" "${POD}" -c vault -- \
+        vault status -tls-skip-verify -format=json 2>/dev/null || true
+}
+
+vault_status_field() {
+    local STATUS_JSON="$1"
+    local FIELD="$2"
+    if [[ -z "${STATUS_JSON}" ]]; then
+        return 0
+    fi
+    echo "${STATUS_JSON}" \
+        | jq -r --arg field "${FIELD}" \
+            'if type == "object" and has($field) then .[$field] else empty end' \
+            2>/dev/null || true
+}
+
+wait_for_pod_unsealed() {
+    local POD="$1"
+    local POD_STATUS POD_SEALED
+
+    for _i in $(seq 1 12); do
+        POD_STATUS="$(vault_status_json "${POD}")"
+        POD_SEALED="$(vault_status_field "${POD_STATUS}" sealed)"
+        if [[ "${POD_SEALED}" == "false" ]]; then
+            echo "${POD} unsealed"
+            return 0
+        fi
+        sleep 5
+    done
+
+    echo "ERROR: ${POD} is still sealed after unseal attempts."
+    echo "Current ${POD} status:"
+    kubectl exec -n "${NAMESPACE}" "${POD}" -c vault -- \
+        vault status -tls-skip-verify || true
+    exit 1
+}
+
 unseal_pod() {
     local POD="$1"
     local POD_STATUS POD_SEALED
-    POD_STATUS="$(kubectl exec -n "${NAMESPACE}" "${POD}" -c vault -- \
-        vault status -tls-skip-verify -format=json 2>/dev/null)" || true
-    POD_SEALED="$(echo "${POD_STATUS}" | jq -r '.sealed')"
+    POD_STATUS="$(vault_status_json "${POD}")"
+    POD_SEALED="$(vault_status_field "${POD_STATUS}" sealed)"
+
+    if [[ -z "${POD_SEALED}" ]]; then
+        echo "ERROR: Unable to retrieve Vault sealed status from ${POD}."
+        exit 1
+    fi
 
     if [[ "${POD_SEALED}" == "true" ]]; then
         echo "Unsealing ${POD}..."
         kubectl exec -n "${NAMESPACE}" "${POD}" -c vault -- \
-            vault operator unseal -tls-skip-verify "${KEY_1}"
+            vault operator unseal -tls-skip-verify "${KEY_1}" >/dev/null
         sleep 5
         kubectl exec -n "${NAMESPACE}" "${POD}" -c vault -- \
-            vault operator unseal -tls-skip-verify "${KEY_2}"
+            vault operator unseal -tls-skip-verify "${KEY_2}" >/dev/null
         sleep 5
         kubectl exec -n "${NAMESPACE}" "${POD}" -c vault -- \
-            vault operator unseal -tls-skip-verify "${KEY_3}"
-        sleep 5
-        echo "${POD} unsealed"
+            vault operator unseal -tls-skip-verify "${KEY_3}" >/dev/null
+        wait_for_pod_unsealed "${POD}"
     else
         echo "${POD} is already unsealed. Skipping."
     fi
@@ -153,7 +196,7 @@ kubectl delete secret vaultroottoken --namespace "${NAMESPACE}" --ignore-not-fou
 kubectl create secret generic vaultroottoken --namespace "${NAMESPACE}" --type=Opaque \
     --from-literal=token="${ROOT_TOKEN}"
 
-# Set up forge-system namespace with Helm ownership so carbide-prereqs can adopt it
+# Set up forge-system namespace with Helm ownership so the Infra Controller prereqs release can adopt it.
 kubectl create namespace forge-system 2>/dev/null || true
 kubectl label namespace forge-system \
     app.kubernetes.io/managed-by=Helm --overwrite
@@ -167,7 +210,7 @@ echo "Copying root token to forge-system/carbide-vault-token..."
 kubectl delete secret carbide-vault-token --namespace forge-system --ignore-not-found
 kubectl create secret generic carbide-vault-token --namespace forge-system --type=Opaque \
     --from-literal=token="${ROOT_TOKEN}"
-# Add Helm ownership so carbide-prereqs can manage the secret
+# Add Helm ownership so the Infra Controller prereqs release can manage the secret.
 kubectl label secret carbide-vault-token -n forge-system \
     app.kubernetes.io/managed-by=Helm --overwrite
 kubectl annotate secret carbide-vault-token -n forge-system \
