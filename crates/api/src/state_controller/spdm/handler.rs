@@ -20,6 +20,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use itertools::Itertools;
@@ -515,7 +516,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                             &mut txn,
                             &object_id.0,
                             device_id,
-                            &ca_certificate,
+                            &ca_certificate.into_model(),
                         )
                         .await?;
                         Ok(StateHandlerOutcome::transition(get_device_state_snapshot(
@@ -645,7 +646,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                             &mut txn,
                             &object_id.0,
                             device_id,
-                            &evidence,
+                            &evidence.into_model(),
                         )
                         .await?;
                         Ok(StateHandlerOutcome::transition(get_device_state_snapshot(
