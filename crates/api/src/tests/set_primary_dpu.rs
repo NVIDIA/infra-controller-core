@@ -17,6 +17,7 @@
 
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use ipnetwork::IpNetwork;
+use model::metadata::Metadata;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
 
@@ -69,7 +70,8 @@ async fn test_set_primary_dpu_rejects_zero_dpu_host(
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("test vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata::new_with_default_name())
                 .tonic_request(),
         )
         .await?

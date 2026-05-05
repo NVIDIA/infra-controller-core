@@ -847,10 +847,14 @@ impl TestEnv {
         Option<u32>,
         NetworkSegmentId,
     ) {
-        let vpc_details =
-            VpcCreationRequest::builder("test vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
-                .network_virtualization_type(vtype1)
-                .tonic_request();
+        let vpc_details = VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            .metadata(Metadata {
+                name: "test vpc".to_string(),
+                description: "".to_string(),
+                labels: Default::default(),
+            })
+            .network_virtualization_type(vtype1)
+            .tonic_request();
 
         let vpc = self.api.create_vpc(vpc_details).await.unwrap().into_inner();
 
@@ -867,10 +871,13 @@ impl TestEnv {
         self.run_network_segment_controller_iteration().await;
         self.run_network_segment_controller_iteration().await;
 
-        let peer_vpc_details =
-            VpcCreationRequest::builder("test peer vpc", "e65a9d69-39d2-4872-a53e-e5cb87c84e75")
-                .network_virtualization_type(vtype2)
-                .tonic_request();
+        let peer_vpc_details = VpcCreationRequest::builder("e65a9d69-39d2-4872-a53e-e5cb87c84e75")
+            .metadata(Metadata {
+                name: "test peer vpc".to_string(),
+                ..Default::default()
+            })
+            .network_virtualization_type(vtype2)
+            .tonic_request();
 
         let peer_vpc = self
             .api
@@ -904,7 +911,12 @@ impl TestEnv {
 
     pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
         self.create_vpc_and_tenant_segment_with_vpc_details(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93").rpc(),
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .rpc(),
         )
         .await
     }
@@ -914,7 +926,12 @@ impl TestEnv {
         segment_count: usize,
     ) -> Vec<NetworkSegmentId> {
         self.create_vpc_and_tenant_segments_with_vpc_details(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93").rpc(),
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .rpc(),
             segment_count,
         )
         .await
@@ -924,7 +941,11 @@ impl TestEnv {
         let vpc = self
             .api
             .create_vpc(
-                VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                    .metadata(Metadata {
+                        name: "test vpc 1".to_string(),
+                        ..Default::default()
+                    })
                     .tonic_request(),
             )
             .await

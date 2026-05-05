@@ -37,16 +37,6 @@ pub(crate) async fn create(
     log_request_data(&request);
     let vpc_creation_request = request.get_ref();
 
-    if let Some(metadata) = &vpc_creation_request.metadata
-        && !vpc_creation_request.name.is_empty()
-        && metadata.name != vpc_creation_request.name
-    {
-        return Err(CarbideError::InvalidArgument(
-            "VPC name must be specified under metadata only.".to_string(),
-        )
-        .into());
-    }
-
     let mut txn = api.txn_begin().await?;
 
     // Grab the tenant details and a row-lock if found so we can coordinate around the tenant record.

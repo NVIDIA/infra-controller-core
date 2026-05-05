@@ -898,7 +898,6 @@ impl ApiClient {
         let vpc = match self
             .0
             .create_vpc(VpcCreationRequest {
-                name: name.to_string(),
                 vni: None,
                 routing_profile_type: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
@@ -1668,12 +1667,10 @@ impl ApiClient {
         &self,
         vpc_id: VpcId,
         version: String,
-        name: String,
         metadata: Option<rpc::Metadata>,
         network_security_group_id: Option<String>,
     ) -> CarbideCliResult<rpc::Vpc> {
         let request = rpc::VpcUpdateRequest {
-            name,
             id: Some(vpc_id),
             if_version_match: Some(version),
             metadata,
