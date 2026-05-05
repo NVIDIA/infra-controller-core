@@ -256,11 +256,10 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         bmc_mac_address: MacAddress,
-        vendor: RedfishVendor,
         username: &str,
-    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+    ) -> Result<Credentials, EndpointExplorationError> {
         tracing::info!(
-            %bmc_ip_address, %bmc_mac_address, %vendor, %username,
+            %bmc_ip_address, %bmc_mac_address,
             "Attempting sitewide BMC root credentials fallback for possible reingested hardware"
         );
 
@@ -287,15 +286,11 @@ impl BmcEndpointExplorer {
             .await?;
 
         tracing::info!(
-            %bmc_ip_address, %bmc_mac_address, %vendor,
+            %bmc_ip_address, %bmc_mac_address,
             "Sitewide BMC root credentials succeeded - stored per-BMC vault entry"
         );
 
-        let report = self
-            .generate_exploration_report(bmc_ip_address, credentials, None, Some(vendor))
-            .await?;
-
-        Ok(report)
+        Ok(credentials)
     }
 
     // Handle switch NVOS admin credentials setup
@@ -688,11 +683,18 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         .await?
                     }
                     Err(EndpointExplorationError::Unauthorized { .. }) => {
-                        self.try_sitewide_bmc_root_credentials(
+                        let bmc_credentials = self
+                            .try_sitewide_bmc_root_credentials(
+                                bmc_ip_address,
+                                bmc_mac_address,
+                                bmc_cred_data.username,
+                            )
+                            .await?;
+                        self.generate_exploration_report(
                             bmc_ip_address,
-                            bmc_mac_address,
-                            vendor,
-                            bmc_cred_data.username,
+                            bmc_credentials,
+                            None,
+                            Some(vendor),
                         )
                         .await?
                     }
