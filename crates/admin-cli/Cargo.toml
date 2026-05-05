@@ -66,13 +66,13 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = [
-  "env-filter",
-  "local-time",
+    "env-filter",
+    "local-time",
 ], workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
 x509-parser = { features = ["validate"], workspace = true }
-zip = { workspace = true }
+zip = { workspace = true, default-features = false, features = ["deflate"] }
 
 [build-dependencies]
 clap = { workspace = true }
