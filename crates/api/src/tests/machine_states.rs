@@ -565,10 +565,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
                 message: "test nvme failure".to_string(),
             },
         ),
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
 
     env.api
@@ -609,10 +606,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
                 message: "test nvme failure".to_string(),
             },
         ),
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
     env.api
         .cleanup_machine_completed(clean_failed_req)
@@ -640,11 +634,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     // Now the host cleans up successfully.
     let clean_succeeded_req = tonic::Request::new(rpc::MachineCleanupInfo {
         machine_id: mh.id.into(),
-        nvme: None,
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
     env.api
         .cleanup_machine_completed(clean_succeeded_req)
@@ -661,6 +651,54 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     assert!(matches!(
         host.current_state(),
         ManagedHostState::WaitingForCleanup { .. }
+    ));
+}
+
+#[crate::sqlx_test]
+async fn test_hdd_clean_failed_state_host(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+
+    let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
+        machine_id: mh.id.into(),
+        hdd: Some(
+            rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
+                result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
+                message: "test hdd failure".to_string(),
+            },
+        ),
+        ..Default::default()
+    });
+
+    env.api
+        .cleanup_machine_completed(clean_failed_req)
+        .await
+        .unwrap();
+
+    update_time_params(
+        &env.pool,
+        &host,
+        1,
+        Some(host.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
+    )
+    .await;
+    // let state machine check the failure condition.
+    env.run_machine_state_controller_iteration().await;
+
+    let host = mh.host().db_machine(&mut txn).await;
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: model::machine::FailureCause::NVMECleanFailed { .. },
+                ..
+            },
+            retry_count: 0,
+            ..
+        }
     ));
 }
 

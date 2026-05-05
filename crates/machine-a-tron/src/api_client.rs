@@ -462,7 +462,7 @@ impl ApiClient {
                 result: 0,
                 message: "".to_string(),
             }),
-            result: 0,
+            ..Default::default()
         };
 
         self.0
