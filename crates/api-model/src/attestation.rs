@@ -52,7 +52,6 @@ pub mod spdm {
 
     use config_version::ConfigVersion;
     use itertools::Itertools;
-    use libredfish::model::component_integrity::{CaCertificate, Evidence};
     use nras::{NrasError, NrasVerifierClient, ProcessedAttestationOutcome, RawAttestationOutcome};
     use serde::{Deserialize, Serialize};
     use sqlx::Row;
@@ -208,6 +207,33 @@ pub mod spdm {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub struct SpdmMachineDeviceMetadata {
         pub firmware_version: Option<String>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct CaCertificate {
+        pub certificate_string: String,
+        pub certificate_type: String,
+        pub certificate_usage_types: Vec<String>,
+        pub id: String,
+        pub name: String,
+        #[serde(rename = "SPDM")]
+        pub spdm: SlotInfo,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Evidence {
+        pub hashing_algorithm: String,
+        pub signed_measurements: String,
+        pub signing_algorithm: String,
+        pub version: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct SlotInfo {
+        pub slot_id: u16,
     }
 
     impl<'r> sqlx::FromRow<'r, PgRow> for SpdmDeviceAttestation {
