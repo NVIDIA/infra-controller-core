@@ -22,15 +22,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use forge_secrets::credentials::{CredentialManager, Credentials};
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::expected_entity::{BmcCredentialsData, ExpectedEntity};
 use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
-use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
+use model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, LockdownStatus, NicMode,
+};
 
 use super::EndpointExplorer;
 use super::config::SiteExplorerExploreMode;
@@ -326,7 +328,7 @@ impl BmcEndpointExplorer {
         mode: NicMode,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
-            .set_nic_mode(bmc_ip_address, credentials, mode)
+            .set_nic_mode(bmc_ip_address, credentials, mode.into_libredfish())
             .await
     }
 

@@ -18,6 +18,7 @@
 mod implementation;
 
 pub mod auth;
+pub mod conv;
 pub mod error;
 #[cfg(feature = "test-support")]
 pub mod test_support;

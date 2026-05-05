@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::conv::machine_last_reboot_requested_mode;
 use chrono::Utc;
 use libredfish::model::BootProgress;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
@@ -67,7 +68,7 @@ pub async fn host_power_control_with_location(
     ctx.pending_db_writes
         .push(MachineWriteOp::UpdateRebootRequestedTime {
             machine_id: machine.id,
-            mode: action.into(),
+            mode: machine_last_reboot_requested_mode(action),
             time: Utc::now(),
         });
 
