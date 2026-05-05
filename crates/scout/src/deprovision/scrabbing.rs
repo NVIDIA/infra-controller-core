@@ -554,6 +554,7 @@ async fn try_ata_secure_erase(devpath: &str) -> Result<(), CarbideClientError> {
 }
 
 async fn try_scsi_sanitize(devpath: &str) -> Result<(), CarbideClientError> {
+    // The supported SAS fleet uses SEDs; use crypto erase intentionally rather than --block.
     cmdrun::run_prog(SG_SANITIZE_CLI_PROG, ["-Q", "-w", "-C", devpath]).await?;
     // Some drives leave LBA 0 as random bytes after a crypto erase rather than zeroing it.
     // Random data can accidentally match the AHDI (Atari HDD) partition signature, causing
@@ -562,7 +563,13 @@ async fn try_scsi_sanitize(devpath: &str) -> Result<(), CarbideClientError> {
     let of_arg = format!("of={devpath}");
     cmdrun::run_prog(
         DD_CLI_PROG,
-        ["if=/dev/zero", &of_arg, "count=1", "oflag=direct"],
+        [
+            "if=/dev/zero",
+            &of_arg,
+            "bs=4096",
+            "count=1",
+            "oflag=direct",
+        ],
     )
     .await?;
     Ok(())
@@ -592,7 +599,7 @@ async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError
 }
 
 async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
-    let mut sata_devicepaths: Vec<String> = Vec::new();
+    let mut block_devicepaths: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir("/sys/block") {
         for entry in entries {
             let entry = match entry {
@@ -602,12 +609,12 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
             let devname = entry.file_name().to_string_lossy().to_string();
             let devpath = format!("/dev/{devname}");
             if SD_DEV_RE.is_match(&devpath) {
-                sata_devicepaths.push(devpath);
+                block_devicepaths.push(devpath);
             }
         }
     }
 
-    let device_count = sata_devicepaths.len();
+    let device_count = block_devicepaths.len();
     if device_count == 0 {
         tracing::info!("No SATA/SAS block devices found to clean");
         return Ok(());
@@ -616,7 +623,7 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
     tracing::info!(device_count, "Starting HDD/SAS cleanup");
     let start_time = std::time::Instant::now();
 
-    let cleanup_futures: Vec<_> = sata_devicepaths
+    let cleanup_futures: Vec<_> = block_devicepaths
         .into_iter()
         .map(|devpath| {
             let device = devpath.clone();
