@@ -39,6 +39,8 @@ use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
 
+const BMC_AUTH_RETRY_DURATION: Duration = Duration::from_secs(3);
+
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct BmcEndpointExplorer {
     redfish_client: RedfishClient,
@@ -276,7 +278,7 @@ impl BmcEndpointExplorer {
         // Some BMCs (notably HPE iLO) enforce a brief auth-failure throttle
         // after an attempt fails. Wait long enough to clear it
         // before validating with the sitewide credentials.
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        tokio::time::sleep(BMC_AUTH_RETRY_DURATION).await;
 
         self.redfish_client
             .validate_bmc_credentials(bmc_ip_address, credentials.clone())
