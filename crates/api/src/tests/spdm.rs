@@ -85,7 +85,7 @@ pub mod tests {
 
         for object_id in &object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -96,7 +96,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
             if device_id == "ERoT_BMC_0" {
@@ -118,7 +118,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -137,7 +137,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -156,7 +156,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -172,7 +172,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -191,7 +191,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -300,7 +300,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -361,7 +361,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -382,7 +382,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -451,7 +451,7 @@ pub mod tests {
 
         for object_id in &object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -462,7 +462,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
             if device_id == "ERoT_BMC_0" {
@@ -484,7 +484,7 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
+            let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
 
@@ -508,15 +508,19 @@ pub mod tests {
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
-            let attestation_state = get_state_from_db(&mut txn, &machine_id, device_id)
-                .await
-                .expect("Failed getting attestation state from the DB");
+            let (attestation_state, completed_at) =
+                get_state_from_db(&mut txn, &machine_id, device_id)
+                    .await
+                    .expect("Failed getting attestation state from the DB");
 
             assert!(
                 matches!(attestation_state, SpdmAttestationState::Cancelled),
                 "expected Cancelled, got: {:?}",
                 attestation_state
             );
+
+            // make sure the completed_at field has been populated also
+            assert!(completed_at.is_some());
         }
 
         Ok(())
@@ -526,17 +530,21 @@ pub mod tests {
         txn: &mut PgConnection,
         machine_id: &MachineId,
         device_id: &str,
-    ) -> Result<SpdmAttestationState, sqlx::Error> {
+    ) -> Result<(SpdmAttestationState, Option<chrono::DateTime<chrono::Utc>>), sqlx::Error> {
         let query = r#"
-            SELECT state
+            SELECT state, completed_at
             FROM spdm_machine_devices_attestation
             WHERE machine_id = $1 AND device_id = $2
         "#;
 
-        sqlx::query_as(query)
+        let query_result: (
+            sqlx::types::Json<SpdmAttestationState>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ) = sqlx::query_as(query)
             .bind(machine_id)
             .bind(device_id)
             .fetch_one(txn)
-            .await
+            .await?;
+        Ok((query_result.0.0, query_result.1))
     }
 }

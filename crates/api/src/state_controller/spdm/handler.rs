@@ -90,11 +90,16 @@ impl StateHandler for SpdmAttestationStateHandler {
         // record metrics irrespective of the state of the machine
         self.record_metrics(snapshot, ctx);
 
-        if snapshot.cancelled_at.is_some() {
-            return Ok(StateHandlerOutcome::transition(
-                SpdmAttestationState::Cancelled,
-            ));
-        }
+        let transition_to_cancelled;
+        let controller_state = if snapshot.cancelled_at.is_some()
+            && controller_state != &SpdmAttestationState::Cancelled
+        {
+            transition_to_cancelled = true;
+            &SpdmAttestationState::Cancelled
+        } else {
+            transition_to_cancelled = false;
+            controller_state
+        };
 
         let SpdmObjectId(machine_id, device_id) = object_id;
 
@@ -303,7 +308,14 @@ impl StateHandler for SpdmAttestationStateHandler {
             SpdmAttestationState::Cancelled => {
                 let mut txn = ctx.services.db_pool.begin().await?;
                 db::attestation::spdm::set_completed_at(&mut txn, machine_id, device_id).await?;
-                Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
+                if transition_to_cancelled {
+                    Ok(
+                        StateHandlerOutcome::transition(SpdmAttestationState::Cancelled)
+                            .with_txn(txn),
+                    )
+                } else {
+                    Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
+                }
             }
         }
     }
