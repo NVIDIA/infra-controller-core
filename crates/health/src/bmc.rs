@@ -31,7 +31,7 @@ use tokio::sync::Mutex;
 use crate::HealthError;
 use crate::endpoint::BmcEndpoint;
 
-/// BMC client wrapper that refreshes endpoint credentials and retries once on auth failures.
+/// BMC client wrapper that refreshes endpoint credentials after auth failures.
 pub struct AuthRefreshingBmc {
     inner: HttpBmc<ReqwestClient>,
     endpoint: Arc<BmcEndpoint>,
@@ -64,7 +64,7 @@ impl AuthRefreshingBmc {
         tracing::warn!(
             error = ?error,
             endpoint = ?self.endpoint.addr,
-            "Authentication failed, refreshing BMC credentials and retrying once"
+            "Authentication failed, refreshing BMC credentials"
         );
 
         let credentials = self.endpoint.refresh().await.map_err(|refresh_error| {
@@ -77,17 +77,25 @@ impl AuthRefreshingBmc {
         Ok(())
     }
 
-    async fn refresh_if_auth(
+    async fn refresh_auth_if_needed(
         &self,
         error: HealthError,
         observed_generation: u64,
-    ) -> Result<(), HealthError> {
-        if is_auth_error(&error) {
-            self.refresh_credentials(&error, Some(observed_generation))
+    ) -> HealthError {
+        if is_auth_error(&error)
+            && let Err(refresh_error) = self
+                .refresh_credentials(&error, Some(observed_generation))
                 .await
-        } else {
-            Err(error)
+        {
+            tracing::error!(
+                error = ?refresh_error,
+                original_error = ?error,
+                endpoint = ?self.endpoint.addr,
+                "Failed to refresh BMC credentials after authentication error"
+            );
         }
+
+        error
     }
 }
 
@@ -102,18 +110,14 @@ impl Bmc for AuthRefreshingBmc {
         let credential_generation = self.credential_generation.load(Ordering::Acquire);
         match self
             .inner
-            .expand(id, query.clone())
+            .expand(id, query)
             .await
             .map_err(HealthError::from)
         {
             Ok(value) => Ok(value),
-            Err(error) => {
-                self.refresh_if_auth(error, credential_generation).await?;
-                self.inner
-                    .expand(id, query)
-                    .await
-                    .map_err(HealthError::from)
-            }
+            Err(error) => Err(self
+                .refresh_auth_if_needed(error, credential_generation)
+                .await),
         }
     }
 
@@ -124,10 +128,9 @@ impl Bmc for AuthRefreshingBmc {
         let credential_generation = self.credential_generation.load(Ordering::Acquire);
         match self.inner.get(id).await.map_err(HealthError::from) {
             Ok(value) => Ok(value),
-            Err(error) => {
-                self.refresh_if_auth(error, credential_generation).await?;
-                self.inner.get(id).await.map_err(HealthError::from)
-            }
+            Err(error) => Err(self
+                .refresh_auth_if_needed(error, credential_generation)
+                .await),
         }
     }
 
@@ -139,18 +142,14 @@ impl Bmc for AuthRefreshingBmc {
         let credential_generation = self.credential_generation.load(Ordering::Acquire);
         match self
             .inner
-            .filter(id, query.clone())
+            .filter(id, query)
             .await
             .map_err(HealthError::from)
         {
             Ok(value) => Ok(value),
-            Err(error) => {
-                self.refresh_if_auth(error, credential_generation).await?;
-                self.inner
-                    .filter(id, query)
-                    .await
-                    .map_err(HealthError::from)
-            }
+            Err(error) => Err(self
+                .refresh_auth_if_needed(error, credential_generation)
+                .await),
         }
     }
 
@@ -206,15 +205,12 @@ impl Bmc for AuthRefreshingBmc {
         uri: &str,
     ) -> Result<BoxTryStream<T, Self::Error>, Self::Error> {
         let credential_generation = self.credential_generation.load(Ordering::Acquire);
-        let stream = match self.inner.stream(uri).await.map_err(HealthError::from) {
-            Ok(stream) => stream,
-            Err(error) => {
-                self.refresh_if_auth(error, credential_generation).await?;
-                self.inner.stream(uri).await.map_err(HealthError::from)?
-            }
-        };
-
-        Ok(Box::pin(stream.map_err(HealthError::from)))
+        match self.inner.stream(uri).await.map_err(HealthError::from) {
+            Ok(stream) => Ok(Box::pin(stream.map_err(HealthError::from))),
+            Err(error) => Err(self
+                .refresh_auth_if_needed(error, credential_generation)
+                .await),
+        }
     }
 }
 
