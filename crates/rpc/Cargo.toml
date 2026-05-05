@@ -36,6 +36,7 @@ carbide-tls = { path = "../tls" }
 carbide-health-report = { path = "../health-report" }
 carbide-secrets = { path = "../secrets" }
 carbide-network = { path = "../network" }
+carbide-utils = { path = "../utils" }
 tonic-client-wrapper = { path = "../tonic-client-wrapper", default-features = false }
 dns-record = { path = "../dns-record" }
 carbide-uuid = { path = "../uuid" }

@@ -1176,6 +1176,7 @@ dependencies = [
  "carbide-measured-boot",
  "carbide-network",
  "carbide-rpc",
+ "carbide-rpc-utils",
  "carbide-secrets",
  "carbide-ssh",
  "carbide-tls",
@@ -1227,6 +1228,7 @@ dependencies = [
  "carbide-http-connector",
  "carbide-network",
  "carbide-rpc",
+ "carbide-rpc-utils",
  "carbide-systemd",
  "carbide-tls",
  "carbide-utils",
@@ -1332,6 +1334,7 @@ dependencies = [
  "carbide-prost-builder",
  "carbide-redfish",
  "carbide-rpc",
+ "carbide-rpc-utils",
  "carbide-secrets",
  "carbide-site-explorer",
  "carbide-sqlx-testing",
@@ -1725,8 +1728,8 @@ name = "carbide-dhcp-server"
 version = "0.1.0"
 dependencies = [
  "carbide-rpc",
+ "carbide-rpc-utils",
  "carbide-tls",
- "carbide-utils",
  "carbide-uuid",
  "chrono",
  "clap",
@@ -2449,6 +2452,7 @@ dependencies = [
  "carbide-network",
  "carbide-secrets",
  "carbide-tls",
+ "carbide-utils",
  "carbide-uuid",
  "chrono",
  "clap",
@@ -2487,6 +2491,26 @@ dependencies = [
  "tryhard",
  "uuid",
  "x509-parser",
+]
+
+[[package]]
+name = "carbide-rpc-utils"
+version = "0.0.0"
+dependencies = [
+ "byte-unit",
+ "carbide-health-report",
+ "carbide-rpc",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "eyre",
+ "ipnetwork",
+ "itertools 0.14.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tonic 0.14.2",
+ "tracing",
 ]
 
 [[package]]
@@ -2722,30 +2746,18 @@ name = "carbide-utils"
 version = "0.0.0"
 dependencies = [
  "byte-unit",
- "carbide-health-report",
  "carbide-network",
- "carbide-rpc",
- "carbide-uuid",
  "chrono",
  "clap",
- "config-version",
- "eyre",
- "humantime",
  "ipnetwork",
- "itertools 0.14.0",
  "opentelemetry",
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
- "prettytable-rs",
  "prometheus",
  "serde",
- "serde_json",
- "serde_yaml",
  "sqlx",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.2",
- "tracing",
 ]
 
 [[package]]

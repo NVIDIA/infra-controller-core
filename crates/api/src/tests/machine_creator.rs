@@ -23,7 +23,7 @@ use std::sync::Arc;
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_site_explorer::errors::SiteExplorerError;
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
 use mac_address::MacAddress;

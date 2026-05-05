@@ -65,6 +65,7 @@ pub mod forge_tls_client;
 pub mod network;
 pub mod protos;
 pub mod secrets;
+pub mod utils;
 
 #[cfg(feature = "cli")]
 pub mod admin_cli;

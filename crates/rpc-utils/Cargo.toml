@@ -15,38 +15,28 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-utils"
+name = "carbide-rpc-utils"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[features]
-sqlx = ["carbide-network/sqlx", "dep:sqlx"]
-test-support = [
-  "dep:opentelemetry_sdk",
-  "dep:prometheus",
-  "dep:opentelemetry-prometheus"
-]
-
 [dependencies]
-carbide-network = { path = "../network" }
+carbide-rpc = { path = "../rpc" }
+carbide-health-report = { path = "../health-report" }
+carbide-uuid = { path = "../uuid" }
+config-version = { path = "../config-version" }
 
 byte-unit = { workspace = true }
 chrono = { workspace = true }
-clap = { workspace = true }
-thiserror = { workspace = true }
-tokio = { workspace = true }
+eyre = { workspace = true }
 ipnetwork = { workspace = true }
-sqlx = { workspace = true, features = ["postgres"], optional = true }
-opentelemetry = { workspace = true }
-opentelemetry-prometheus = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
-prometheus = { workspace = true, optional = true }
-serde = { workspace = true, features = ["derive"] }
+itertools = { workspace = true }
+serde = { workspace = true, features = ["derive"]  }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
 
 [lints]
 workspace = true

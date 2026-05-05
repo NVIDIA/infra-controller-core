@@ -22,7 +22,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use carbide_utils::managed_host_display::to_time;
+use carbide_rpc_utils::managed_host_display::to_time;
 use carbide_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use itertools::Itertools;
