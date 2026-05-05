@@ -45,10 +45,10 @@ use crate::protos::forge::forge_client::ForgeClient;
 use crate::protos::nmx_c::nmx_controller_client::NmxControllerClient;
 use crate::{forge_resolver, protos};
 
-/// Joins an error's full source chain with `: `. Needed because `Display` for std
-/// errors doesn't walk `source()`, so wrappers like `tonic::Status` hide the real
-/// cause (e.g. TLS handshake failures appear as a generic "client error (Connect)").
+/// Formats an error as `"{top}: {root}"` using the deepest source in its chain,
+/// since `Display` alone doesn't walk `source()` and would hide the root cause.
 fn format_error_chain<E: std::error::Error + ?Sized>(err: &E) -> String {
+    // Bound the walk so a cyclic or pathologically deep `source()` chain can't hang us.
     let max_depth = 16;
     let out = err.to_string();
     let source = std::iter::successors(err.source(), |e| e.source())
