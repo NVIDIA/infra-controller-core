@@ -82,6 +82,7 @@ pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
         )),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
+        false,
     ))
     .await
 }
@@ -94,6 +95,7 @@ pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
         )),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
+        false,
     ))
     .await
 }
@@ -106,6 +108,7 @@ pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
         )),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
+        false,
     ))
     .await
 }
@@ -118,6 +121,7 @@ pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
         )),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
+        false,
     ))
     .await
 }
@@ -130,6 +134,7 @@ pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBm
         )),
         Arc::new(NoopCallbacks),
         "test-dpu-id".to_string(),
+        false,
     ))
     .await
 }
@@ -154,6 +159,7 @@ mod test {
                 )),
                 Arc::new(NoopCallbacks),
                 "test-host-id".to_string(),
+                false,
             )
             .0,
         );

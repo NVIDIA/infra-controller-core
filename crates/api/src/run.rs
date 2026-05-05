@@ -14,9 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use carbide_utils::HostPortPair;
 use eyre::WrapErr;
 use forge_secrets::credentials::{CredentialReader, CredentialWriter};
 use forge_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
@@ -24,7 +25,6 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
-use utils::HostPortPair;
 
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
@@ -34,14 +34,23 @@ use crate::{CarbideError, dynamic_settings, setup};
 
 pub async fn run(
     debug: u8,
-    config_str: String,
-    site_config_str: Option<String>,
+    config_str: PathBuf,
+    site_config_str: Option<PathBuf>,
     credential_config: CredentialConfig,
     skip_logging_setup: bool,
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
-    let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
+    let carbide_config = setup::parse_carbide_config(&config_str, site_config_str.as_deref())?;
+
+    // If `CarbideConfig.initial_objects_file` is set, load it into an
+    // `InitialObjectsConfig` so that `start_api` can reconcile its contents
+    // against the database on first startup.
+    let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
+        Some(setup::parse_initial_objects_config(path)?)
+    } else {
+        None
+    };
 
     // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes.
     // deny_prefixes are IPv4-only; only check against IPv4 site fabric prefixes.
@@ -239,6 +248,7 @@ pub async fn run(
     setup::start_api(
         &mut join_set,
         carbide_config,
+        initial_objects,
         metrics.meter,
         dynamic_settings,
         redfish_pool,

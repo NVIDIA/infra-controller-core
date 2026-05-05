@@ -20,12 +20,12 @@ use std::fmt;
 use std::fmt::Display;
 use std::time::Duration;
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use serde::Serialize;
 
-use crate::nvl_partition_monitor::NmxmPartitionOperationType;
+use crate::NmxmPartitionOperationType;
 
 /// Metrics that are gathered in a single nvl partition monitor run
 #[derive(Clone, Debug)]

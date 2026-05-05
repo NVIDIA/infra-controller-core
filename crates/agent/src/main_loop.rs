@@ -30,6 +30,7 @@ use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_systemd::systemd;
+use carbide_utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
@@ -40,7 +41,6 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::log::error;
-use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
 use crate::command_line::HbnConfigMode;
@@ -57,7 +57,7 @@ use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
-use crate::util::{UrlResolver, get_host_boot_timestamp};
+use crate::util::get_host_boot_timestamp;
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
     ethernet_virtualization, extension_services, hbn, health, instance_metadata_endpoint, lldp,
@@ -262,42 +262,11 @@ pub async fn setup_and_run(
 
     let periodic_config_reader = periodic_config_fetcher.reader();
 
-    let service_addrs = if !agent_config.machine.is_fake_dpu {
-        let mut url_resolver = UrlResolver::try_new()?;
-
-        let pxe_ips = url_resolver
-            .resolve("carbide-pxe.forge")
-            .await
-            .wrap_err("DNS resolver for carbide-pxe")?;
-
-        // This log should be removed after some time.
-        tracing::info!(?pxe_ips, "Pxe server resolved");
-
-        let ntpservers = match url_resolver.resolve("carbide-ntp.forge").await {
-            Ok(x) => {
-                // This log should be removed after some time.
-                tracing::info!(?x, "NTP servers resolved.");
-                x
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "NTP servers couldn't be resolved. Dhcp-server won't send NTP server IPs in dhcpoffer/ack.");
-                vec![]
-            }
-        };
-
-        let nameservers = url_resolver.nameservers();
-        ServiceAddresses {
-            pxe_ips,
-            ntpservers,
-            nameservers,
-        }
-    } else {
-        ServiceAddresses {
-            pxe_ips: vec![IpAddr::from([127, 0, 0, 1])],
-            ntpservers: vec![],
-            nameservers: vec![IpAddr::from([127, 0, 0, 1])],
-        }
-    };
+    let service_addrs = ServiceAddresses::build(
+        &options.agent_platform_type,
+        agent_config.machine.is_fake_dpu,
+    )
+    .await?;
 
     let inventory_updater_config = MachineInventoryUpdaterConfig {
         dpu_agent_version: build_version.clone(),
@@ -1071,7 +1040,7 @@ fn effective_virtualization_type(
     // table for the VPC this DPU is in).
     //
     // This may be unset, which means to just use
-    // EthernetVirtualizerWithNvue.
+    // EthernetVirtualizer.
     let virtualization_type_from_remote = conf
         .network_virtualization_type
         .map(rpc::VpcVirtualizationType::try_from)
@@ -1080,7 +1049,7 @@ fn effective_virtualization_type(
 
     // And now see if the remote virtualization type should be overwritten
     // by runtime options. If it's not, and the remote value was also unset,
-    // then just use EthernetVirtualizerWithNvue.
+    // then just use EthernetVirtualizer.
     let virtualization_type = options
         .override_network_virtualization_type // dev
         .or(virtualization_type_from_remote)

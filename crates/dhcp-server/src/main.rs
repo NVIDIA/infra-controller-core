@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use cache::CacheEntry;
+use carbide_utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
@@ -46,7 +47,6 @@ use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
-use utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 
 use crate::util::get_socket;
 
@@ -635,6 +635,7 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
 
+    use carbide_utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
     use chrono::{DateTime, Utc};
     use dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode};
     use dhcproto::{Decodable, Decoder, Encodable};
@@ -643,7 +644,6 @@ mod test {
     use tokio::net::UdpSocket;
     use tokio::sync::Mutex;
     use tokio_util::sync::CancellationToken;
-    use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 
     use crate::command_line::{Args, ServerMode};
     use crate::errors::DhcpError;

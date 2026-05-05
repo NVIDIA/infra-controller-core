@@ -357,8 +357,8 @@ exporters:
     endpoint: otel-receiver.forge:443
     tls:
       ca_file: /opt/forge/forge_root.pem
-      cert_file: /etc/ssl/certs/forge-dpu-otel-agent.pem
-      key_file: /etc/ssl/private/forge-dpu-otel-agent.key
+      cert_file: /opt/forge/machine_cert.pem
+      key_file: /opt/forge/machine_cert.key
       reload_interval: 1h
     retry_on_failure:
       enabled: true

@@ -32,13 +32,12 @@ use libmlx::device::discovery::discover_device;
 use libmlx::lockdown::cmd::cmds::handle_lockdown as handle_mlx_lockdown;
 use once_cell::sync::Lazy;
 use rpc::forge::ForgeAgentControlResponse;
-use rpc::forge::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
-use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use rpc::forge_agent_control_response::Action;
 use rpc::protos::mlx_device::{
     FirmwareFlashReport as FirmwareFlashReportPb, LockStatus, MlxObservation, MlxObservationReport,
     PublishMlxObservationReportRequest,
 };
-use rpc::{ForgeScoutErrorReport, forge as rpc_forge};
+use rpc::{ForgeScoutErrorReport, forge as rpc_forge, forge_agent_control_response as fac};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
 use tryhard::{RetryFutureConfig, RetryPolicy};
@@ -55,6 +54,7 @@ mod machine_validation;
 mod mlx_device;
 mod register;
 mod stream;
+mod tpm;
 
 struct DevEnv {
     in_qemu: bool,
@@ -201,25 +201,18 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
             Ok(action) => action,
             Err(e) => {
                 report_scout_error(config, None, Some(machine_interface_id), &e).await?;
-                rpc_forge::ForgeAgentControlResponse {
-                    action: Action::Noop as i32,
-                    data: None,
-                }
+                rpc_forge::ForgeAgentControlResponse::noop()
             }
         };
-        let action = Action::try_from(controller_response.action)
-            .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
-        match handle_action(
-            controller_response,
-            &machine_id,
-            machine_interface_id,
-            config,
-        )
-        .await
-        {
-            Ok(_) => tracing::info!("Successfully served {}", action.as_str_name()),
-            Err(e) => tracing::info!("Failed to serve {}: Err {}", action.as_str_name(), e),
-        };
+        if let Some(action) = controller_response.action {
+            let action_str = action.as_str_name().to_owned();
+            match handle_action(action, &machine_id, machine_interface_id, config).await {
+                Ok(_) => tracing::info!("Successfully served {}", action_str),
+                Err(e) => tracing::info!("Failed to serve {}: Err {}", action_str, e),
+            };
+        } else {
+            tracing::warn!("API response did not contain an action, skipping.");
+        }
 
         // Ensure the first scout API query has run before we establish
         // a Scout stream connection. There's no technical reason requiring
@@ -278,50 +271,34 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
         Ok(controller_response) => controller_response,
         Err(e) => {
             report_scout_error(config, None, Some(machine_interface_id), &e).await?;
-            ForgeAgentControlResponse {
-                action: Action::Noop as i32,
-                data: None,
-            }
+            ForgeAgentControlResponse::noop()
         }
     };
     let action = match subcmd {
-        Command::AutoDetect(AutoDetect { .. }) => controller_response,
-        Command::Deprovision(_) => ForgeAgentControlResponse {
-            action: Action::Reset as i32,
-            data: None,
-        },
-        Command::Discovery(_) => ForgeAgentControlResponse {
-            action: Action::Discovery as i32,
-            data: None,
-        },
-        Command::Reset(_) => ForgeAgentControlResponse {
-            action: Action::Reset as i32,
-            data: None,
-        },
-        Command::Logerror(_) => ForgeAgentControlResponse {
-            action: Action::Logerror as i32,
-            data: None,
-        },
-        Command::MachineValidation(data) => ForgeAgentControlResponse {
-            action: Action::MachineValidation as i32,
-            data: Some(ForgeAgentControlExtraInfo {
-                pair: [
-                    KeyValuePair {
-                        key: "Context".to_string(),
-                        value: data.context.clone(),
-                    },
-                    KeyValuePair {
-                        key: "ValidationId".to_string(),
-                        value: data.validataion_id.to_string(),
-                    },
-                    KeyValuePair {
-                        key: "IsEnabled".to_string(),
-                        value: "true".to_string(),
-                    },
-                ]
-                .to_vec(),
-            }),
-        },
+        Command::AutoDetect(AutoDetect { .. }) => {
+            let Some(action) = controller_response.action else {
+                tracing::warn!("ForgeAgentControlResponse from server has no action: ignoring");
+                return Ok(());
+            };
+            action
+        }
+        Command::Deprovision(_) => Action::reset(),
+        Command::Discovery(_) => Action::discovery(),
+        Command::Reset(_) => Action::reset(),
+        Command::Logerror(_) => Action::log_error(),
+        Command::MachineValidation(data) => {
+            fac::Action::MachineValidation(fac::MachineValidation {
+                is_enabled: true,
+                context: data.context.clone(),
+                validation_id: Some(data.validataion_id),
+                filter: Some(fac::MachineValidationFilter {
+                    tags: Vec::new(),
+                    allowed_tests: Vec::new(),
+                    run_unverfied_tests: None,
+                    contexts: None,
+                }),
+            })
+        }
         // This will have already been caught above and
         // handled, but we need to have it here to make
         // sure we match everything. Maybe this could
@@ -334,18 +311,15 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
 }
 
 async fn handle_action(
-    controller_response: rpc_forge::ForgeAgentControlResponse,
+    action: Action,
     machine_id: &MachineId,
     machine_interface_id: uuid::Uuid,
     config: &Options,
 ) -> Result<(), CarbideClientError> {
-    let action = Action::try_from(controller_response.action)
-        .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
-
     match action {
-        Action::Discovery => {
+        fac::Action::Discovery(_) => {
             // This is temporary. All cleanup must be done when API call Reset.
-            deprovision::run_no_api().await?;
+            deprovision::run_no_api(&config.tpm_path).await?;
             let retry = registration::DiscoveryRetry {
                 secs: config.discovery_retry_secs,
                 max: config.discovery_retries_max,
@@ -362,55 +336,46 @@ async fn handle_action(
 
             discovery::completed(config, machine_id).await?;
         }
-        Action::Reset => {
+        fac::Action::Reset(_) => {
             deprovision::run(config, machine_id).await?;
         }
-        Action::Rebuild => {
+        fac::Action::Rebuild(_) => {
             unimplemented!("Rebuild not written yet");
         }
-        Action::Noop => {}
-        Action::Logerror => match logerror_to_carbide(config, machine_interface_id).await {
+        fac::Action::Noop(_) => {}
+        fac::Action::LogError(_) => match logerror_to_carbide(config, machine_interface_id).await {
             Ok(()) => (),
             Err(e) => tracing::info!("Forge Scout logerror_to_carbide error: {}", e),
         },
-        Action::Retry => {
+        fac::Action::Retry(_) => {
             panic!(
                 "Retrieved Retry action, which should be handled internally by query_api_with_retries"
             );
         }
-        Action::Measure => {
+        fac::Action::Measure(_) => {
             initial_setup(config).await.map_err(|e| {
                 CarbideClientError::GenericError(format!(
                     "Could not perform attestation at the request of forge agent control: {e}"
                 ))
             })?;
         }
-        Action::MachineValidation => {
+        fac::Action::MachineValidation(machine_validation) => {
             tracing::info!("Machine validation");
-            let mut context = "Discovery".to_string();
-            let mut id = "".to_string();
-            let mut is_enabled = false;
-            let mut machine_validation_filter =
-                ::machine_validation::MachineValidationFilter::default();
-            for item in controller_response.data.unwrap().pair {
-                if item.key == "Context" {
-                    context = item.value;
-                } else if item.key == "ValidationId" {
-                    id = item.value;
-                } else if item.key == "IsEnabled" {
-                    is_enabled = item.value.parse().unwrap_or(true);
-                } else if item.key == "MachineValidationFilter" {
-                    machine_validation_filter =
-                        serde_json::from_str(&item.value).unwrap_or_default();
-                }
-            }
-            let mut ret: Result<(), CarbideClientError> = Ok(());
-            if is_enabled {
-                ret = match machine_validation::run(
+            let id = machine_validation.validation_id.ok_or_else(|| {
+                CarbideClientError::GenericError(
+                    "machine validation action missing validation_id".to_string(),
+                )
+            })?;
+            let machine_validation_filter = machine_validation
+                .filter
+                .map(Into::into)
+                .unwrap_or_default();
+            let ret = if machine_validation.is_enabled {
+                match machine_validation::run(
                     config,
                     machine_id,
-                    id.clone(),
-                    context,
+                    id,
+                    machine_validation.context,
                     machine_validation_filter,
                 )
                 .await
@@ -420,49 +385,32 @@ async fn handle_action(
                         Ok(())
                     }
                     Err(err) => Err(err),
-                };
-            }
-            machine_validation::completed(config, machine_id, id, None).await?;
+                }
+            } else {
+                Ok(())
+            };
+            machine_validation::completed(config, machine_id, &id, None).await?;
             return ret;
         }
-        Action::MlxAction => {
-            handle_mlxreport_action(config, machine_id, controller_response.data).await;
+        fac::Action::MlxAction(mlx_action) => {
+            handle_mlxreport_action(config, machine_id, mlx_action).await;
             return Ok(());
         }
-        Action::FirmwareUpgrade => {
-            handle_firmware_upgrade_action(config, machine_id, controller_response.data).await?;
+        fac::Action::FirmwareUpgrade(firmware_upgrade) => {
+            handle_firmware_upgrade_action(config, machine_id, firmware_upgrade.task).await?;
         }
     }
     Ok(())
 }
 
-// handle_firmware_upgrade_action processes a firmware upgrade task received
-// from carbide-api via ForgeAgentControl. The task data is a JSON-serialized
-// FirmwareUpgradeTask in the "firmware_upgrade_task" key-value pair.
 async fn handle_firmware_upgrade_action(
     config: &Options,
     machine_id: &MachineId,
-    data: Option<ForgeAgentControlExtraInfo>,
+    task: Option<fac::ScoutFirmwareUpgradeTask>,
 ) -> Result<(), CarbideClientError> {
-    let extra = data.ok_or_else(|| {
-        CarbideClientError::GenericError("firmware upgrade action missing extra data".to_string())
+    let task = task.ok_or_else(|| {
+        CarbideClientError::GenericError("firmware upgrade action missing task".to_string())
     })?;
-
-    let task_json = extra
-        .pair
-        .iter()
-        .find(|kv| kv.key == "firmware_upgrade_task")
-        .map(|kv| &kv.value)
-        .ok_or_else(|| {
-            CarbideClientError::GenericError(
-                "firmware upgrade action missing firmware_upgrade_task key".to_string(),
-            )
-        })?;
-
-    let task: firmware_upgrade::FirmwareUpgradeTask =
-        serde_json::from_str(task_json).map_err(|e| {
-            CarbideClientError::GenericError(format!("failed to parse firmware upgrade task: {e}"))
-        })?;
 
     let http_client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
         CarbideClientError::GenericError(format!("failed to build HTTP client: {e}"))
@@ -484,7 +432,7 @@ async fn handle_firmware_upgrade_action(
         result.exit_code,
     );
 
-    report_firmware_upgrade_status(config, machine_id, &result).await?;
+    report_firmware_upgrade_status(config, machine_id, task.upgrade_task_id, &result).await?;
 
     if !result.success {
         return Err(CarbideClientError::GenericError(format!(
@@ -498,6 +446,7 @@ async fn handle_firmware_upgrade_action(
 async fn report_firmware_upgrade_status(
     config: &Options,
     machine_id: &MachineId,
+    upgrade_task_id: String,
     result: &firmware_upgrade::FirmwareUpgradeResult,
 ) -> Result<(), CarbideClientError> {
     let mut client = client::create_forge_client(config).await?;
@@ -508,6 +457,7 @@ async fn report_firmware_upgrade_status(
         stdout: truncate(&result.stdout, MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE),
         stderr: truncate(&result.stderr, MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE),
         error: truncate(&result.error, MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE),
+        upgrade_task_id,
     });
     client.report_scout_firmware_upgrade_status(request).await?;
     Ok(())
@@ -544,41 +494,40 @@ fn truncate(value: &str, limit: usize) -> String {
 async fn handle_mlxreport_action(
     config: &Options,
     machine_id: &MachineId,
-    data: Option<ForgeAgentControlExtraInfo>,
+    mlx_action: fac::MlxAction,
 ) {
-    let Some(ed) = data else {
-        tracing::error!("handle_mlxreport_action Did not expect extra data to be empty");
-        return;
-    };
+    let commands = mlx_action
+        .device_actions
+        .iter()
+        .filter_map(|device_action| match DpaCommand::try_from(device_action) {
+            Ok(command) => Some((device_action.pci_name.clone(), command)),
+            Err(e) => {
+                tracing::error!(
+                    "handle_mlxreport_action error decoding command {e} for dev: {:#?}",
+                    device_action.pci_name
+                );
+                None
+            }
+        })
+        .collect();
 
-    // The Extra data is an array of key value pairs.
-    // The key is the pci_name of a DPA NIC.
-    // The value is a json encoded DpaCommand.
-    // The DpaCommand can be Unlock/Lock, which don't have any other
-    // data (currently - may be we will send the lock/unlock key)
-    // The DpaCommand can also be ApplyProfile, in which case it
-    // will have the profile name.
+    handle_mlxreport_commands(config, machine_id, commands).await;
+}
 
+async fn handle_mlxreport_commands(
+    config: &Options,
+    machine_id: &MachineId,
+    commands: Vec<(String, DpaCommand<'static>)>,
+) {
     let mut report = MlxObservationReport {
         machine_id: Some(*machine_id),
         timestamp: Some(Utc::now().into()),
         observations: Vec::new(),
     };
 
-    for kv in ed.pair {
-        let dev_pci_name = kv.key;
-        let action = kv.value;
-
+    for (dev_pci_name, dpa_cmd) in commands {
         if dev_pci_name.is_empty() {
             tracing::error!("handle_mlxreport_action dev_pci_name empty");
-            continue;
-        }
-
-        if action.is_empty() {
-            tracing::error!(
-                "handle_mlxreport_action action empty for dev: {:#?}",
-                dev_pci_name
-            );
             continue;
         }
 
@@ -587,20 +536,6 @@ async fn handle_mlxreport_action(
             Err(s) => {
                 tracing::error!(
                     "handle_mlxreport_action Error from discover_device::from_str {s} for dev: {:#?}",
-                    dev_pci_name
-                );
-                continue;
-            }
-        };
-
-        // The action is a structure with an OpCode (like Lock/Unlock/ApplyProfile)
-        // and an additional optional string (for ApplyProfile)
-
-        let dpa_cmd: DpaCommand<'_> = match serde_json::from_str(&action) {
-            Ok(dpc) => dpc,
-            Err(e) => {
-                tracing::error!(
-                    "handle_mlxreport_action Error decodeing DpaCommand {e} for dev: {:#?}",
                     dev_pci_name
                 );
                 continue;
@@ -792,14 +727,17 @@ async fn query_api(
     let request = tonic::Request::new(query);
     let mut client = client::create_forge_client(config).await?;
     let response = client.forge_agent_control(request).await?.into_inner();
-    let action = Action::try_from(response.action)
-        .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
+    let action_str = response
+        .action
+        .as_ref()
+        .map(|a| a.as_str_name())
+        .unwrap_or_default();
 
     tracing::info!(
         "Received ForgeAgentControlResponse (attempt:{}.{}, action:{})",
         action_attempt,
         query_attempt,
-        action.as_str_name()
+        action_str,
     );
     Ok(response)
 }
@@ -848,10 +786,8 @@ async fn query_api_with_retries(
         .await?;
 
         action_attempt += 1;
-        let action = Action::try_from(controller_response.action)
-            .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
 
-        if action != Action::Retry {
+        if !matches!(controller_response.action, Some(Action::Retry(_))) {
             return Ok(controller_response);
         }
 

@@ -4,7 +4,7 @@ In various cases, it might be necessary to force-delete knowledge about hosts fr
 the database and to restart the discovery process for those hosts. The following are
 use-cases where force-delete can be helpful:
 
-- If a host managed by NCX Infra Controller (NICo) has entered an erroneous state from which it can not
+- If a host managed by NVIDIA Infra Controller (NICo) has entered an erroneous state from which it can not
 automatically recover.
 - If a non backward compatible software update requires the host to go through the discovery phase again.
 
@@ -23,7 +23,7 @@ The following steps can be used to force-delete knowledge about a NICo host:
 
 ### 1. Obtain access to `carbide-admin-cli`
 
-See carbide-admin-cli access on a Carbide cluster.
+See carbide-admin-cli access on a NICo deployment.
 
 ### 2. Execute the `carbide-admin-cli machine force-delete` command
 
@@ -63,7 +63,7 @@ The following steps can be used to reinstall the host OS on a NICo host:
 
 ### 1. Obtain access to the `carbide-admin-cli` tool
 
-See carbide-admin-cli access on a Carbide cluster.
+See carbide-admin-cli access on a NICo deployment.
 
 ### 3. Execute the `carbide-admin-cli instance reboot --custom-pxe` command
 

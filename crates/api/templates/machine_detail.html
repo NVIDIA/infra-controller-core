@@ -60,39 +60,8 @@
 <h3>Metadata</h3>
 {{ metadata_detail|safe }}
 
-<h3>Health</h3>
+{{ health_detail|safe }}
 <table class="detailsview">
-	<tr><th>Health Reports</th>
-		<td>
-			{% if !is_host %}
-				<a href="/admin/machine/{{ host_id }}/health">Go to ManagedHost health reports</a>
-			{% else %}
-				<a href="/admin/machine/{{ id }}/health">Go to ManagedHost health reports</a>
-			{% endif %}
-		</td>
-	</tr>
-	<tr><th>Report Source</th><td>{{ health.source }}</td></tr>
-	<tr><th>Report Observed At</th><td>{{ health.observed_at|option_fmt }}</td></tr>
-	<tr>
-		<th>Health Probe Alerts</th>
-		<td>
-			<a href="/admin/machine/{{ id }}/health">
-				{{ health.alerts|health_alerts_fmt(true, true)|safe }}
-			</a>
-		</td>
-	</tr>
-	<tr>
-		<th>Health Alert Classifications</th>
-		<td>{{ health.alerts|health_alert_classifications_fmt|safe }}</td>
-	</tr>
-	<tr>
-		<th>Health Overrides</th>
-		<td>
-			<a href="/admin/machine/{{ id }}/health">
-				{{ health_overrides|join("\n")|linebreaksbr|safe }}
-			</a>
-		</td>
-	</tr>
 	<tr>
 		<th>Attestation Results</th>
 		<td>
@@ -121,7 +90,7 @@
 		<th>Maintenance Action</th>
 		<td>
 			<p>
-				<i>Maintenance mode is replaced by Health Overrides. Consider using a <a href="/admin/machine/{{ id }}/health">Health Override</a> instead of entering Maintenance Mode.</i>
+				<i>Maintenance mode is replaced by Health Reports. Consider using a <a href="/admin/machine/{{ id }}/health">Health Report</a> instead of entering Maintenance Mode.</i>
 			</p>
 			<form id="maintenance_action" method="POST" action="/admin/machine/{{ id }}/maintenance">
 				{% if maintenance_reference.is_empty() %}

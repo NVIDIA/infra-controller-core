@@ -1,6 +1,6 @@
 # Overview
 
-NCX Infra Controller (NICo) is a collection of services that provides site-local, zero-trust bare-metal lifecycle management with DPU-enforced isolation, allowing for deployment of multi-tenant AI infrastructure at scale. NICo enables zero-touch automation and ensures the integrity and separation of workloads at the bare-metal layer.
+NVIDIA Infra Controller (NICo) is a collection of services that provides site-local, zero-trust bare-metal lifecycle management with DPU-enforced isolation, allowing for deployment of multi-tenant AI infrastructure at scale. NICo enables zero-touch automation and ensures the integrity and separation of workloads at the bare-metal layer.
 
 ## NICo Operational Principles
 
@@ -86,19 +86,21 @@ NICo requires persistent, durable storage to maintain state for the following co
 
 #### Site Management
 
-- Site Agent: Maintains a northbound Temporal connection to NICo REST (Cloud or centrally deployed or on-Site) to sync data with REST layer DB cache and delegate gRPC requests to NICo Core.
-- Admin CLI: Provides an admin level command line interface into NICo Core using the gRPC API
+- **Site Agent**: Maintains a northbound Temporal connection to NICo REST (Cloud, centrally deployed, or on-site) to sync data with the REST layer DB cache and delegate gRPC requests to NICo Core.
+- **Admin CLI**: Provides an admin-level command-line interface into NICo Core using the gRPC API.
+
+<Note> The REST API is the primary way to interact with NICo and should be used for all state-modifying operations (creating/modifying tenants, VPCs, instances, etc). The admin CLI is a convenience tool for administrative tasks and should not be relied upon for production workflows. </Note>
 
 #### NICo REST
 
 A collection of microservices that comprise the resource allocation and management backend for
-NCX Infra Controller, exposed as a REST API. This is the primary interface for end-users to interact with NICo.
+NICo, exposed as a REST API. This is the primary interface for end-users to interact with NICo.
 
-The REST layer can be deployed in the datacenter with NCX Infra Controller Core, or deployed anywhere
-in Cloud with Site Agent connecting from the datacenter. Multiple NCX Infra Controller Cores running
-in different datacenters can also connect to NCX Infra Controller REST through respective Site Agents.
+The REST layer can be deployed in the datacenter with Infra Controller Core, or deployed anywhere
+in Cloud with Site Agent connecting from the datacenter. Multiple Infra Controller Cores running
+in different datacenters can also connect to Infra Controller REST through respective Site Agents.
 
-For details on NICo REST, please refer to [NICo REST Github Repository](https://github.com/NVIDIA/ncx-infra-controller-rest) and [NICo REST API Schema](https://nvidia.github.io/ncx-infra-controller-rest/).
+For details on NICo REST, please refer to [NICo REST Github Repository](https://github.com/NVIDIA/infra-controller-rest) and [NICo REST API Schema](https://nvidia.github.io/infra-controller-rest/).
 
 ### Managed Hosts
 

@@ -17,8 +17,8 @@
 
 use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use askama::Template;
@@ -49,7 +49,31 @@ use tower_http::normalize_path::NormalizePath;
 use crate::CarbideError;
 use crate::api::Api;
 use crate::auth::AuthContext;
-use crate::cfg::file::CarbideConfig;
+use crate::cfg::file::{CarbideConfig, ToolLink};
+
+/// Process-global tool list. Static because `base.html` is rendered
+/// by more than 70 page structs and threading a field through all of them
+/// (and through every test fixture) is far more invasive than a
+/// write-once `OnceLock` read via the `Base` trait.
+static TOOLS: OnceLock<Vec<ToolLink>> = OnceLock::new();
+
+/// Initialize the global tool list. Call once during startup
+/// before serving any web requests. Subsequent calls are ignored.
+pub fn init_tools(tools: Vec<ToolLink>) {
+    let _ = TOOLS.set(tools);
+}
+
+/// Implemented by every page struct whose template extends `base.html`.
+/// Exposes the global tool list to the shared "Tools" sidebar via
+/// `Self::tools()`.
+pub trait Base {
+    /// Configured external tool links rendered in the admin UI's
+    /// "Tools" sidebar. Empty when no tools are configured or
+    /// when `init_tools` has not been called (e.g. unit tests).
+    fn tools() -> &'static [ToolLink] {
+        TOOLS.get().map(Vec::as_slice).unwrap_or(&[])
+    }
+}
 
 /// Reusable template for rendering metadata (name, description, labels, version)
 /// in entity detail pages. Render with `{{ metadata_detail|safe }}`.
@@ -58,6 +82,41 @@ use crate::cfg::file::CarbideConfig;
 pub(crate) struct MetadataDetail {
     pub metadata: rpc::forge::Metadata,
     pub metadata_version: String,
+}
+
+/// Reusable template for rendering aggregate health details in entity detail
+/// pages. Render with `{{ health_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "health_detail.html")]
+pub(crate) struct HealthDetail {
+    pub health_reports_url: String,
+    pub health_reports_link_text: &'static str,
+    pub health: health_report::HealthReport,
+    pub health_sources: Vec<String>,
+}
+
+impl HealthDetail {
+    pub(crate) fn new(
+        health_reports_url: String,
+        health_reports_link_text: &'static str,
+        health: Option<rpc::health::HealthReport>,
+        health_sources: Vec<rpc::forge::HealthSourceOrigin>,
+    ) -> Self {
+        HealthDetail {
+            health_reports_url,
+            health_reports_link_text,
+            health: health
+                .map(|health| {
+                    health_report::HealthReport::try_from(health)
+                        .unwrap_or_else(health_report::HealthReport::malformed_report)
+                })
+                .unwrap_or_else(health_report::HealthReport::missing_report),
+            health_sources: health_sources
+                .into_iter()
+                .map(|source| source.source)
+                .collect(),
+        }
+    }
 }
 
 /// Reusable template for rendering a color-coded state bubble.
@@ -480,7 +539,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/{machine_id}/set-dpu-first-boot-order",
                 post(machine::set_dpu_first_boot_order),
             )
-            .route("/machine/{machine_id}/health", get(health::health))
+            .route("/machine/{machine_id}/health", get(health::machine_health))
             .route(
                 "/machine/{machine_id}/health-history",
                 get(health_history::show_health_history),
@@ -501,6 +560,18 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/power-shelf.json", get(power_shelf::show_json))
             .route("/power-shelf/{power_shelf_id}", get(power_shelf::detail))
             .route(
+                "/power-shelf/{power_shelf_id}/health",
+                get(health::power_shelf_health),
+            )
+            .route(
+                "/power-shelf/{power_shelf_id}/health/add-report",
+                post(health::add_power_shelf_health_report),
+            )
+            .route(
+                "/power-shelf/{power_shelf_id}/health/remove-report",
+                post(health::remove_power_shelf_health_report),
+            )
+            .route(
                 "/power-shelf/{power_shelf_id}/state-history",
                 get(state_history::show_power_shelf_state_history),
             )
@@ -511,6 +582,15 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/rack", get(rack::show_html))
             .route("/rack.json", get(rack::show_json))
             .route("/rack/{rack_id}", get(rack::detail))
+            .route("/rack/{rack_id}/health", get(health::rack_health))
+            .route(
+                "/rack/{rack_id}/health/add-report",
+                post(health::add_rack_health_report),
+            )
+            .route(
+                "/rack/{rack_id}/health/remove-report",
+                post(health::remove_rack_health_report),
+            )
             .route(
                 "/rack/{rack_id}/state-history",
                 get(state_history::show_rack_state_history),
@@ -522,6 +602,15 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/switch", get(switch::show_html))
             .route("/switch.json", get(switch::show_json))
             .route("/switch/{switch_id}", get(switch::detail))
+            .route("/switch/{switch_id}/health", get(health::switch_health))
+            .route(
+                "/switch/{switch_id}/health/add-report",
+                post(health::add_switch_health_report),
+            )
+            .route(
+                "/switch/{switch_id}/health/remove-report",
+                post(health::remove_switch_health_report),
+            )
             .route(
                 "/switch/{switch_id}/state-history",
                 get(state_history::show_switch_state_history),
@@ -531,12 +620,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(state_history::show_switch_state_history_json),
             )
             .route(
-                "/machine/{machine_id}/health/override/add",
-                post(health::add_override),
+                "/machine/{machine_id}/health/add-report",
+                post(health::add_machine_health_report),
             )
             .route(
-                "/machine/{machine_id}/health/override/remove",
-                post(health::remove_override),
+                "/machine/{machine_id}/health/remove-report",
+                post(health::remove_machine_health_report),
             )
             .route(
                 "/machine/{machine_id}/attestation-results",
@@ -813,6 +902,8 @@ struct Index {
     carbide_config: CarbideConfig,
     bmc_proxy: String,
 }
+
+impl Base for Index {}
 
 pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     let request = tonic::Request::new(forgerpc::DpuAgentUpgradePolicyRequest { new_policy: None });

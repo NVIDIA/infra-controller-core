@@ -1,6 +1,6 @@
 # Networking integrations
 
-NCX Infra Controller (NICo) integrates with various network virtualization solutions that allow the bare metal instances of tenants to communicate on isolated partitions. Any instances that are not part of the same partition are not able to participate in communication - irrespective of whether these instances are owned by the same tenant or a different tenant.
+NVIDIA Infra Controller (NICo) integrates with various network virtualization solutions that allow the bare metal instances of tenants to communicate on isolated partitions. Any instances that are not part of the same partition are not able to participate in communication - irrespective of whether these instances are owned by the same tenant or a different tenant.
 
 Networking integrations in NICo achieve this through the following patterns:
 
@@ -57,7 +57,7 @@ To implement these workflows, the following patterns had been developed and prov
 There needs to be a mechanism that periodically compares the expected networking configuration with the desired networking configuration. If they are not in-sync, the respective components needs to take all the required actions to bring the configurations in sync.
 
 1. For networking technologies where an external service is used to control partitioning (NVLink, InfiniBand), the `Monitor` background tasks are used to achieve this goal. If they detect a configuration mismatch, they perform API calls to the external networking service to resolve the problem.
-2. For other integrations, an external agent can pull the desired configuration for any host, perform (potentially local) configuration changes, before reporting the new state back to Carbide. This approach is taken for DPUs.
+2. For other integrations, an external agent can pull the desired configuration for any host, perform (potentially local) configuration changes, before reporting the new state back to NICo. This approach is taken for DPUs.
 
 ### Instance lifecycle and "tenant feedback"
 

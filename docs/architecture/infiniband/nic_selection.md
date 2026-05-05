@@ -1,6 +1,6 @@
 # Infiniband NIC and port selection
 
-NCX Infra Controller (NICo) supports multiple Infiniband enabled Network Interface Cards (NICs).
+NVIDIA Infra Controller (NICo) supports multiple Infiniband enabled Network Interface Cards (NICs).
 Each of those NICs might feature 1-2 physical ports, where each port allows
 to connect the NIC to an Infiniband switch that is part of a certain Infiniband fabric.
 
@@ -73,7 +73,7 @@ use the independent devices.
 ### NICo machine hardware enumeration
 
 When NICo discovers a machine that is intended to be managed by the NICo site controller,
-it enumerates its hardware details using the [forge-scout](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/crates/scout) tool.
+it enumerates its hardware details using the [forge-scout](https://github.com/NVIDIA/infra-controller-core/tree/main/crates/scout) tool.
 
 The tool reports all discovered hardware information (e.g. the number and type
 of CPUs, GPUs, and network interfaces), and this information gets persisted
@@ -465,11 +465,9 @@ GUIDs are different. Since the PCI slots are assumed to be deterministic
 for Machines with the same hardware configuration, tenants can assume their selection
 always affects the exact same piece of hardware.
 
-### Forge Metadata Service (FMDS)
+### NICo Metadata Service (FMDS)
 
-**This will be renamed to something else (likely just NICo Metadata Service as we move from the old code name**
-
-The Forge Metadata Service (FMDS) provides the Tenant's software
+The NICo Metadata Service (FMDS) provides the Tenant's software
 running on instance the capability to identify the infiniband configuration at
 runtime. It also provides the ability to execute a configuration script
 which configures the local Infiniband interfaces for the operating mode that the
@@ -484,7 +482,7 @@ allows them to send their traffic successfully to the connected Infiniband switc
 
 To perform this job, FMDS returns the applied instance configuration -
 which is the desired `InstanceInfinibandConfig` plus the configuration data that
-Forge allocates on behalf the tenant. This would be mostly the GUIDs.
+NICo allocates on behalf the tenant. This would be mostly the GUIDs.
 
 Putting it together, the tenant machine would retrieve the following data via
 FMDS, in a format that is still TBD:

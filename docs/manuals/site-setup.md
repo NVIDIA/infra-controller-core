@@ -1,6 +1,6 @@
 # Site Setup Guide
 
-This page outlines the software dependencies for a Kubernetes-based install of NCX Infra Controller (NICo). It includes the *validated baseline* of software dependencies,
+This page outlines the software dependencies for a Kubernetes-based install of NVIDIA Infra Controller (NICo). It includes the *validated baseline* of software dependencies,
 as well as the *order of operations* for site bringup, including what you must configure if you already operate some of the common services yourself.
 
 **Important Notes**
@@ -110,11 +110,11 @@ This section provides a high-level order of operations for installing components
 
    - **Temporal**: server up; register namespaces
 
-3.  Carbide core (forge‑system)
+3.  NICo core (forge‑system)
 
    - carbide-api and supporting services (DHCP/PXE/DNS/NTP as required)
 
-4.  Carbide REST components
+4.  NICo REST components
 
     - Deploy cloud‑api, cloud‑workflow (cloud‑worker & site‑worker), and cloud‑cert‑manager (credsmgr)
 
@@ -169,7 +169,7 @@ You must provide the following:
     - Cluster internal certs (service DNS SANs)
     - Any externally‑facing FQDNs you choose
 
-- Approver flows should allow your teams to create Certificate resources for the NVCarbide namespaces.
+- Approver flows should allow your teams to create Certificate resources for the NICo namespaces.
 
 **If you deploy the reference version**:
 
@@ -245,7 +245,7 @@ Vault is used by the following components:
     password `<POSTGRES_PASSWORD>`.
 
 -   Enable **TLS** (recommended) or allow secure network policy between
-    DB and the NVCarbide namespaces.
+    DB and the NICo namespaces.
 
 -   Create extensions (the apps expect these):
 
@@ -297,7 +297,7 @@ Vault is used by the following components:
 
 **If you already have Temporal**
 
--   Ensure the `frontend gRPC endpoint` is reachable from NVCarbide
+-   Ensure the `frontend gRPC endpoint` is reachable from NICo
     workloads and present the proper `mTLS`/CA if you require TLS.
 
 -   Register namespaces:

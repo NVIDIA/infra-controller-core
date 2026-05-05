@@ -20,6 +20,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
+use carbide_utils::HostPortPair;
 use forge_secrets::credentials::Credentials;
 pub use nv_redfish::bmc_http::reqwest::BmcError;
 use nv_redfish::bmc_http::reqwest::{
@@ -29,7 +30,6 @@ use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
 use nv_redfish::oem::hpe::ilo_service_ext::ManagerType as HpeManagerType;
 use nv_redfish::{Error as NvError, ServiceRoot as NvServiceRoot};
 use reqwest::header::HeaderMap;
-use utils::HostPortPair;
 
 pub type RedfishBmc = HttpBmc<RedfishReqwestClient>;
 pub type ServiceRoot = NvServiceRoot<RedfishBmc>;
@@ -97,7 +97,7 @@ impl NvRedfishClientPool {
         }
     }
 
-    pub fn cached_root(
+    fn cached_root(
         &self,
         bmc_address: SocketAddr,
         credentials: Credentials,

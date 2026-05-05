@@ -17,10 +17,10 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use carbide_utils::HostPortPair;
 use forge_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
-use utils::HostPortPair;
 
 use crate::utils::LOCALHOST_CERTS;
 
@@ -281,9 +281,11 @@ pub async fn start(
         )
     };
 
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut tmp, carbide_config_str.as_bytes())?;
     carbide::run(
         0,
-        carbide_config_str,
+        tmp.path().to_path_buf(),
         None,
         credential_config,
         true,

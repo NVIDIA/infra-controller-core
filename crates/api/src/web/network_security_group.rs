@@ -29,7 +29,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use serde::{Deserialize, Deserializer, de};
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 100;
@@ -618,3 +618,6 @@ pub async fn delete(
 
     Redirect::to("/admin/network-security-group").into_response()
 }
+
+impl super::Base for NetworkSecurityGroupShow {}
+impl super::Base for NetworkSecurityGroupDetailDisplay {}

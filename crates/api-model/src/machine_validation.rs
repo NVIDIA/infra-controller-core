@@ -18,13 +18,13 @@ use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use uuid::Uuid;
 
 use crate::machine::MachineValidationFilter;
 
@@ -194,7 +194,7 @@ pub struct MachineValidationStatus {
 
 #[derive(Debug, Clone)]
 pub struct MachineValidation {
-    pub id: Uuid,
+    pub id: MachineValidationId,
     pub machine_id: MachineId,
     pub name: String,
     pub start_time: Option<DateTime<Utc>>,
@@ -281,7 +281,7 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
         let status = value.status.unwrap_or_default();
         let start_time = Some(value.start_time.unwrap_or_default().into());
         rpc::forge::MachineValidationRun {
-            validation_id: Some(value.id.into()),
+            validation_id: Some(value.id),
             name: value.name,
             start_time,
             end_time,
@@ -469,7 +469,7 @@ impl TryFrom<rpc::forge::MachineValidationTest> for MachineValidationTest {
 impl From<MachineValidationResult> for rpc::forge::MachineValidationResult {
     fn from(value: MachineValidationResult) -> Self {
         rpc::forge::MachineValidationResult {
-            validation_id: Some(value.validation_id.into()),
+            validation_id: Some(value.validation_id),
             command: value.command,
             args: value.args,
             std_out: value.stdout,
@@ -487,7 +487,7 @@ impl From<MachineValidationResult> for rpc::forge::MachineValidationResult {
 
 #[derive(Debug, Clone)]
 pub struct MachineValidationResult {
-    pub validation_id: Uuid,
+    pub validation_id: MachineValidationId,
     pub name: String,
     pub description: String,
     pub stdout: String,
@@ -523,8 +523,9 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationResult {
 impl TryFrom<rpc::forge::MachineValidationResult> for MachineValidationResult {
     type Error = RpcDataConversionError;
     fn try_from(value: rpc::forge::MachineValidationResult) -> Result<Self, Self::Error> {
-        let val_id = Uuid::try_from(value.validation_id.unwrap_or_default())
-            .map_err(|_| RpcDataConversionError::MissingArgument("validation_id"))?;
+        let val_id = value
+            .validation_id
+            .ok_or(RpcDataConversionError::MissingArgument("validation_id"))?;
         let start_time = match value.start_time {
             Some(time) => {
                 DateTime::from_timestamp(time.seconds, time.nanos.try_into().unwrap()).unwrap()

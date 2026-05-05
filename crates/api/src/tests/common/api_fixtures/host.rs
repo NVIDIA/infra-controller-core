@@ -22,8 +22,9 @@ use db::{ObjectColumnFilter, network_prefix};
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineState::UefiSetup;
 use model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};
-use rpc::forge::forge_agent_control_response::Action;
+use rpc::forge::forge_agent_control_response::LegacyAction;
 use rpc::forge::forge_server::Forge;
+use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use strum::IntoEnumIterator;
@@ -154,7 +155,8 @@ pub async fn host_uefi_setup(env: &TestEnv, host_machine_id: &MachineId) {
         }
 
         let response = forge_agent_control(env, *host_machine_id).await;
-        assert_eq!(response.action, Action::Noop as i32);
+        assert!(matches!(response.action, Some(Action::Noop(_))));
+        assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
     }
 
     panic!(

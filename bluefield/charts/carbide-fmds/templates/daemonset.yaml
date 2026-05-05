@@ -47,8 +47,6 @@ spec:
       initContainers:
         - name: wait-for-certs
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          args:
-            - "--grpc-address=$(POD_IP):50052"
           command:
             - /busybox/sh
             - -c
@@ -69,6 +67,9 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
             - "--grpc-address=$(POD_IP):50052"
+            - "--root-ca=/opt/forge/forge_root.pem"
+            - "--client-cert=/opt/forge/machine_cert.pem"
+            - "--client-key=/opt/forge/machine_cert.key"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:

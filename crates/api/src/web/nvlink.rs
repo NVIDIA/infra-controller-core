@@ -28,7 +28,7 @@ use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
-//use super::filters;
+use super::Base;
 use crate::api::Api;
 
 #[derive(serde::Serialize, Template)]
@@ -381,3 +381,6 @@ async fn fetch_logical_partitions(
 
     Ok(show_partitions)
 }
+
+impl super::Base for LogicalPartitionShow {}
+impl super::Base for LogicalPartitionDetail {}

@@ -29,13 +29,13 @@ use carbide_host_support::hardware_enumeration::{
     enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
 };
 use carbide_host_support::registration::register_machine;
+use carbide_utils::models::arch::CpuArchitecture;
 pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
 use tokio::fs;
-use utils::models::arch::CpuArchitecture;
 use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
@@ -198,6 +198,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         Some(AgentCommand::InitContainer) => {
             download_cert().await?;
             enumerate_and_save_hardware()?;
+            util::save_host_nameservers()?;
         }
 
         // One-off health check.
@@ -410,6 +411,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                         .transpose()?,
                     network_security_groups,
                     bgp_leaf_session_password: opts.bgp_leaf_session_password,
+                    is_dpu_os: true,
+                    fmds_gateway_vlan: None,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;

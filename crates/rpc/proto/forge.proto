@@ -134,18 +134,18 @@ service Forge {
   // forge-dpu-agent -> carbide-api
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
-  // Lists all overrides that have been placed on a Machine health status
-  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportResponse);
-  // Adds a new override for a Machines health status
-  rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Removes a health report override
-  rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Lists all overrides that have been placed on a Rack health status
-  rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportResponse);
-  // Adds a new health report override for a Rack
-  rpc InsertRackHealthReportOverride(InsertRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Removes a health report override for a Rack
-  rpc RemoveRackHealthReportOverride(RemoveRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Machine
+  rpc ListMachineHealthReports(common.MachineId) returns (ListHealthReportResponse);
+  // Adds a health report source for a Machine
+  rpc InsertMachineHealthReport(InsertMachineHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Machine
+  rpc RemoveMachineHealthReport(RemoveMachineHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Rack
+  rpc ListRackHealthReports(ListRackHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Rack
+  rpc InsertRackHealthReport(InsertRackHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Rack
+  rpc RemoveRackHealthReport(RemoveRackHealthReportRequest) returns (google.protobuf.Empty);
   // Lists all health report sources for a Switch
   rpc ListSwitchHealthReports(ListSwitchHealthReportsRequest) returns (ListHealthReportResponse);
   // Adds a health report source for a Switch
@@ -158,6 +158,22 @@ service Forge {
   rpc InsertPowerShelfHealthReport(InsertPowerShelfHealthReportRequest) returns (google.protobuf.Empty);
   // Removes a health report source for a Power Shelf
   rpc RemovePowerShelfHealthReport(RemovePowerShelfHealthReportRequest) returns (google.protobuf.Empty);
+
+  // Deprecated aliases for the machine health report RPCs.
+  // These exist so older clients (admin-cli binaries, scripts pinned to the
+  // previous proto names, ForgeScope, etc) keep working. They delegate
+  // one-for-one to the canonical names above. Drop once we're confident
+  // nothing in the wild still calls them.
+  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportResponse) {
+    option deprecated = true;
+  }
+  rpc InsertHealthReportOverride(InsertMachineHealthReportRequest) returns (google.protobuf.Empty) {
+    option deprecated = true;
+  }
+  rpc RemoveHealthReportOverride(RemoveMachineHealthReportRequest) returns (google.protobuf.Empty) {
+    option deprecated = true;
+  }
+
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
   // Looks up a DNS record for DNS names assigned by Forge
@@ -1287,6 +1303,9 @@ message RuntimeConfig {
   bool dpf_enabled = 49;
 
   bool rack_validation_enabled = 50;
+
+  string compile_time_helm_version = 51;
+  string compile_time_docker_version = 52;
 }
 
 message EchoRequest {
@@ -2106,6 +2125,8 @@ message SwitchSearchFilter {
   optional string controller_state = 3;
   // Filter by BMC MAC address via machine_interfaces
   optional string bmc_mac = 4;
+  // Filter by NVOS MAC address via expected_switches.nvos_mac_addresses
+  optional string nvos_mac = 5;
 }
 
 message SwitchesByIdsRequest {
@@ -2161,6 +2182,8 @@ message ExpectedRack {
   // The rack profile ID. Determines expected counts of compute trays, switches, and power shelves.
   common.RackProfileId rack_profile_id = 2;
   // Metadata that will be associated with the rack.
+  // This includes things like chassis and location attributes,
+  // which has some "well known" definitions in api-model::rack.
   Metadata metadata = 3;
 }
 
@@ -4280,7 +4303,8 @@ message ForgeAgentControlRequest {
 }
 
 message ForgeAgentControlResponse {
-  enum Action {
+  // Legacy action enum. New clients will use `action` oneof below.
+  enum LegacyAction {
     NOOP = 0; // No operation. Do nothing
     RESET = 1; // Wipe the machine, prepare for next tenant
     DISCOVERY = 2; // Run full discovery
@@ -4292,8 +4316,9 @@ message ForgeAgentControlResponse {
     MLX_ACTION = 8; // MlxAction for DPA NICs
     FIRMWARE_UPGRADE = 9; // Firmware upgrade through scout
   }
-  Action action = 1;
+  LegacyAction legacy_action = 1;
 
+  // Legacy untyped action payload. New clients should use typed_action below.
   message ForgeAgentControlExtraInfo {
     message KeyValuePair {
       string key = 1;
@@ -4303,6 +4328,108 @@ message ForgeAgentControlResponse {
   }
 
   optional ForgeAgentControlExtraInfo data = 2;
+
+  message Noop {
+  }
+
+  message Reset {
+  }
+
+  message Discovery {
+  }
+
+  message Rebuild {
+  }
+
+  message Retry {
+  }
+
+  message Measure {
+  }
+
+  message LogError {
+  }
+
+  message MachineValidation {
+    bool is_enabled = 1;
+    string context = 2;
+    common.MachineValidationId validation_id = 3;
+    MachineValidationFilter filter = 4;
+  }
+
+  message MachineValidationFilter {
+    repeated string tags = 1;
+    repeated string allowed_tests = 2;
+    optional bool run_unverfied_tests = 3;
+    optional common.StringList contexts = 4;
+  }
+
+  message MlxAction {
+    repeated MlxDeviceAction device_actions = 1;
+  }
+
+  message MlxDeviceAction {
+    string pci_name = 1;
+
+    oneof command {
+      MlxDeviceNoop noop = 2;
+      MlxDeviceLock lock = 3;
+      MlxDeviceUnlock unlock = 4;
+      MlxDeviceApplyProfile apply_profile = 5;
+      MlxDeviceApplyFirmware apply_firmware = 6;
+    }
+  }
+
+  message MlxDeviceNoop {
+  }
+
+  message MlxDeviceLock {
+    string key = 1;
+  }
+
+  message MlxDeviceUnlock {
+    string key = 1;
+  }
+
+  message MlxDeviceApplyProfile {
+    optional mlx_device.SerializableMlxConfigProfile serialized_profile = 1;
+  }
+
+  message MlxDeviceApplyFirmware {
+    optional mlx_device.FirmwareFlasherProfile profile = 1;
+  }
+
+  message FirmwareUpgrade {
+    ScoutFirmwareUpgradeTask task = 1;
+  }
+
+  message ScoutFirmwareUpgradeTask {
+    string upgrade_task_id = 1;
+    string component_type = 2;
+    string target_version = 3;
+    FileArtifact script = 4;
+    uint32 execution_timeout_seconds = 5;
+    uint32 artifact_download_timeout_seconds = 6;
+    repeated FileArtifact file_artifacts = 7;
+  }
+
+  message FileArtifact {
+    string url = 1;
+    string sha256 = 2;
+  }
+
+  oneof action {
+    Noop noop = 3;
+    Reset reset = 4;
+    Discovery discovery = 5;
+    Rebuild rebuild = 6;
+    Retry retry = 7;
+    Measure measure = 8;
+    LogError log_error = 9;
+    MachineValidation machine_validation = 10;
+    MlxAction mlx_action = 11;
+    FirmwareUpgrade firmware_upgrade = 12;
+  }
 }
 
 message MachineDiscoveryInfo {
@@ -4524,27 +4651,26 @@ message HealthReportEntry {
   HealthReportApplyMode mode = 2;
 }
 
-message InsertHealthReportOverrideRequest {
+// Request to insert a health report source for a Machine.
+message InsertMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   HealthReportEntry health_report_entry = 2;
 }
 
-// Request to insert a health report override for a Rack.
-// Same as InsertHealthReportOverrideRequest but with rack_id instead of machine_id.
-message InsertRackHealthReportOverrideRequest {
+// Request to insert a health report source for a Rack.
+message InsertRackHealthReportRequest {
   common.RackId rack_id = 1;
   HealthReportEntry health_report_entry = 2;
 }
 
-// Request to remove a health report override for a Rack.
-// Same as RemoveHealthReportOverrideRequest but with rack_id instead of machine_id.
-message RemoveRackHealthReportOverrideRequest {
+// Request to remove a health report source for a Rack.
+message RemoveRackHealthReportRequest {
   common.RackId rack_id = 1;
   string source = 2;
 }
 
-// Request to list health report overrides for a Rack.
-message ListRackHealthReportOverridesRequest {
+// Request to list health report sources for a Rack.
+message ListRackHealthReportsRequest {
   optional common.RackId rack_id = 1;
 }
 
@@ -4586,7 +4712,8 @@ message ListHealthReportResponse {
   repeated HealthReportEntry health_report_entries = 1;
 }
 
-message RemoveHealthReportOverrideRequest {
+// Request to remove a health report source for a Machine.
+message RemoveMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   string source = 2;
 }
@@ -5264,6 +5391,15 @@ enum DpuMode {
   NO_DPU = 3;
 }
 
+// Per-host lifecycle profile for settings that affect state-machine progression.
+// When the outer field is unset on ExpectedMachine, the server preserves the
+// existing DB value (patch semantics).
+message HostLifecycleProfile {
+  // If true, do not lock down the server as part of host lifecycle management. If unset or false, preserve
+  // the default behavior of locking down the server after configuring the BIOS.
+  optional bool disable_lockdown = 1;
+}
+
 message ExpectedMachine {
   string bmc_mac_address = 1;
   string bmc_username = 2;
@@ -5291,6 +5427,9 @@ message ExpectedMachine {
   // default" -- the site-wide `force_dpu_nic_mode` config flag still applies
   // when no per-host override is set, so existing deployments keep working.
   optional DpuMode dpu_mode = 16;
+  // Per-host lifecycle profile. When unset in a patch/update request, the
+  // existing DB value is preserved via COALESCE.
+  optional HostLifecycleProfile host_lifecycle_profile = 17;
 }
 
 message ExpectedMachineRequest {
@@ -5364,6 +5503,7 @@ message ScoutFirmwareUpgradeStatusRequest {
   string stdout = 4;
   string stderr = 5;
   string error = 6;
+  string upgrade_task_id = 7;
 }
 
 // enum MachineValidationState {
@@ -5377,7 +5517,7 @@ message ScoutFirmwareUpgradeStatusRequest {
 message MachineValidationCompletedRequest {
   common.MachineId machine_id = 1;
   optional string machine_validation_error = 2;
-  common.UUID validation_id = 3;
+  common.MachineValidationId validation_id = 3;
 }
 
 message MachineValidationCompletedResponse {
@@ -5394,7 +5534,7 @@ message MachineValidationResult {
   int32 exit_code = 8;
   google.protobuf.Timestamp start_time = 10;
   google.protobuf.Timestamp end_time = 11;
-  common.UUID validation_id = 12;
+  common.MachineValidationId validation_id = 12;
   optional string test_id = 13;
 }
 
@@ -5409,7 +5549,7 @@ message MachineValidationResultList {
 message MachineValidationGetRequest {
   optional common.MachineId machine_id = 1;
   bool include_history = 2;
-  optional common.UUID validation_id = 3;
+  optional common.MachineValidationId validation_id = 3;
 }
 
 message MachineValidationStatus {
@@ -5438,7 +5578,7 @@ message MachineValidationStatus {
   uint32 completed_tests = 5;
 }
 message MachineValidationRun {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
   common.MachineId machine_id = 2;
   google.protobuf.Timestamp start_time = 3;
   google.protobuf.Timestamp end_time = 4;
@@ -5507,7 +5647,7 @@ message MachineValidationOnDemandRequest {
 }
 
 message MachineValidationOnDemandResponse {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
 }
 
 message FirmwareUpgradeActivity {
@@ -5516,6 +5656,12 @@ message FirmwareUpgradeActivity {
   // Firmware components to update (e.g. "BMC", "CPLD", "BIOS").
   // When empty, all components are updated.
   repeated string components = 2;
+}
+
+message NvosUpdateActivity {
+  // Rack firmware entry containing the switch system image to install.
+  // When empty, the default rack firmware for the rack hardware type is used.
+  string rack_firmware_id = 1;
 }
 
 message ConfigureNmxClusterActivity {
@@ -5533,6 +5679,7 @@ message MaintenanceActivityConfig {
     FirmwareUpgradeActivity firmware_upgrade = 1;
     ConfigureNmxClusterActivity configure_nmx_cluster = 2;
     PowerSequenceActivity power_sequence = 3;
+    NvosUpdateActivity nvos_update = 4;
   }
 }
 
@@ -5732,7 +5879,7 @@ message MachineValidationTestEnableDisableTestResponse {
 }
 
 message MachineValidationRunRequest {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
   google.protobuf.Duration duration_to_complete = 2;
   uint32 total = 3;
 }
@@ -6611,6 +6758,8 @@ message RackList {
 }
 
 message RackSearchFilter {
+  // Supports filtering on key, value, or key and value.
+  optional Label label = 1;
 }
 
 message RackIdList {

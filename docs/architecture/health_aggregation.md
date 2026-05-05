@@ -2,9 +2,9 @@
 
 [summary]: #summary
 
-NICo integrates a variety of tools to continuously assess and report the health of any host under its management. It also allows site operators to configure and extend the set of health checks via runtime configurations and extension APIs.
+NVIDIA Infra Controller (NICo) integrates a variety of tools to continuously assess and report the health of any host under its management. It also allows site operators to configure and extend the set of health checks via runtime configurations and extension APIs.
 
-The health information that is obtained by these tools is rolled up within Carbide-Core into an "aggregated host health".
+The health information that is obtained by these tools is rolled up within NICo Core into an "aggregated host health".
 The aggregated host health information is used for multiple purposes:
 1. For NICo internal decision making - e.g. "is this host usable as a bare metal instance by a tenant" and "is the host allowed to transition between 2 states".
 2. The aggregated host health information is made available to NICo API users. Site administrators can use the information to assess host health and external fleet health automation systems can use it to trigger remediation workflows.
@@ -252,7 +252,7 @@ Details can be found in the [SKU validation manual](../manuals/sku_validation.md
 
 ### BMC health monitoring
 
-The [`carbide-hw-health`](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/health) service periodically queries all Host and DPU BMCs in the system for health information. It emits the captured health datapoints as metrics on a metrics endpoint that can be scraped by a standard telemetry system (prometheus/otel).
+The [`carbide-hw-health`](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/health) service periodically queries all Host and DPU BMCs in the system for health information. It emits the captured health datapoints as metrics on a metrics endpoint that can be scraped by a standard telemetry system (prometheus/otel).
 
 Health metrics fetched from BMCs include:
 - Fan speeds
@@ -267,7 +267,7 @@ ranges or by interpreting the `health_ok` values provided by BMCs.
 
 ### BMC inventory monitoring
 
-The Site Explorer process within Carbide Core periodically queries all Host and DPU BMCs in order to record certain BMC properties (e.g. components within a host and firmware versions).
+The Site Explorer process within NICo Core periodically queries all Host and DPU BMCs in order to record certain BMC properties (e.g. components within a host and firmware versions).
 
 In certain conditions the scraping process will place a health alert on the host:
 - If the host BMC is not reachable
@@ -275,7 +275,7 @@ In certain conditions the scraping process will place a health alert on the host
 
 ### dpu-agent based health monitoring
 
-[`dpu-agent`](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/agent) collects health information directly on the DPU and sends a health-**rollup** towards `carbide-core`. The agent monitors a variety of health conditions, including
+[`dpu-agent`](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/agent) collects health information directly on the DPU and sends a health-**rollup** towards `carbide-core`. The agent monitors a variety of health conditions, including
 - whether BGP sessions are established to peers according to the current configuration of the DPU
 - whether all required services on the DPU are running
 - whether the DPU is configured in restricted mode

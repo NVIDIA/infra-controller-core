@@ -25,6 +25,7 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
 use crate::api::Api;
 use crate::web::filters;
 
@@ -244,3 +245,5 @@ pub async fn show_expected_machine_raw_json(AxumState(api): AxumState<Arc<Api>>)
 
     (StatusCode::OK, Json(result)).into_response()
 }
+
+impl super::Base for ExpectedMachines {}

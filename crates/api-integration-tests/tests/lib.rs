@@ -21,8 +21,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{self, Duration};
 
+use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
-use ::utils::HostPortPair;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,

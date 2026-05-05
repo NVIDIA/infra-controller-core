@@ -2,7 +2,7 @@
 
 ## What's New
 
-The Release Instance API for NCX Infra Controller (NICo) now supports **issue reporting** and **automated repair workflows**. When releasing an instance, you can report problems to help improve system reliability.
+The Release Instance API for NVIDIA Infra Controller (NICo) now supports **issue reporting** and **automated repair workflows**. When releasing an instance, you can report problems to help improve system reliability.
 
 ### Key Features
 - **Report Issues**: Hardware, Network, Performance, or Other problems
@@ -90,7 +90,7 @@ The breakfix integration follows this automated repair cycle:
 
 ## Repair Status Labels
 
-Repair systems use machine metadata labels to communicate repair outcomes back to Forge:
+Repair systems use machine metadata labels to communicate repair outcomes back to NICo:
 
 ### Critical Label: `repair_status`
 | Value | Meaning | Result |

@@ -74,7 +74,7 @@ pub(crate) async fn add(
     log_request_data(&request);
 
     let request = request.into_inner();
-    if utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+    if carbide_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
         return Err(
             CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
         );
@@ -169,7 +169,7 @@ pub(crate) async fn update(
     log_request_data(&request);
 
     let request = request.into_inner();
-    if utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+    if carbide_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
         return Err(
             CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
         );
@@ -361,7 +361,7 @@ fn sanitize_expected_machine_and_get_ids(
         .map_err(CarbideError::from)?;
 
     // Validate duplicates in fallback DPU serial numbers
-    if utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+    if carbide_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
         return Err(CarbideError::InvalidArgument(
             "duplicate dpu serial number found".to_string(),
         ));

@@ -162,6 +162,7 @@ fn default_host_mock() -> Router {
         )),
         callbacks,
         String::default(),
+        false,
     )
     .0
 }

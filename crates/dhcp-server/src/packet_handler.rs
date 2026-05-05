@@ -18,6 +18,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_utils::models::dhcp::{HostConfig, InterfaceInfo};
 use dhcproto::v4::relay::{RelayAgentInformation, RelayCode, RelayInfo};
 use dhcproto::v4::{Decodable, Decoder, DhcpOption, Message, MessageType, OptionCode};
 use dhcproto::{Encodable, Encoder};
@@ -26,7 +27,6 @@ use lru::LruCache;
 use rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
-use utils::models::dhcp::{HostConfig, InterfaceInfo};
 
 use crate::cache::CacheEntry;
 use crate::errors::DhcpError;
@@ -574,15 +574,16 @@ mod test {
         tree.insert("interface_mtu_12000".to_string(), interface_mtu_12000);
         expected.insert("interface_mtu_12000".to_string(), 12000);
 
-        let host_config: utils::models::dhcp::HostConfig = utils::models::dhcp::HostConfig {
-            host_interface_id:
-                <carbide_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
-                    "959888da-cdc8-4079-8d23-8a09832447ce",
-                )
-                .ok()
-                .unwrap(),
-            host_ip_addresses: tree.clone(),
-        };
+        let host_config: carbide_utils::models::dhcp::HostConfig =
+            carbide_utils::models::dhcp::HostConfig {
+                host_interface_id:
+                    <carbide_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
+                        "959888da-cdc8-4079-8d23-8a09832447ce",
+                    )
+                    .ok()
+                    .unwrap(),
+                host_ip_addresses: tree.clone(),
+            };
 
         for (circuit_id, expected_mtu) in expected.iter() {
             println!("Checking circuit_id: {}", circuit_id);

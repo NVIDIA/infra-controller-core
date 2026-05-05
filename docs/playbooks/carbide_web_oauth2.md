@@ -1,8 +1,8 @@
-# Azure Set-up
+# Azure Setup
 
 For managing client secrets and redirect URIs registered in the Entra portal.
 
-# Carbide Web
+# NICo Web
 
 The oauth2 in carbide-web has defaults for most settings:
 

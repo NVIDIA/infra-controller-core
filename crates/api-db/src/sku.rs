@@ -378,7 +378,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
             .map(|v| v.sockets)
             .sum::<u32>(),
         gpu_components.values().map(|v| v.count).sum::<u32>(),
-        ::utils::sku::capacity_string(total_mem)
+        ::carbide_utils::sku::capacity_string(total_mem)
     );
     let num_ib_devices = ib_components.iter().map(|c| c.count).sum::<u32>();
     if num_ib_devices != 0 {
@@ -509,7 +509,7 @@ pub fn generate_base_sku_from_hardware(
         chassis.model,
         cpus.iter().map(|v| v.count).sum::<u32>(),
         gpus.iter().map(|v| v.count).sum::<u32>(),
-        ::utils::sku::capacity_string(total_mem)
+        ::carbide_utils::sku::capacity_string(total_mem)
     );
     let num_ib_devices = infiniband_devices.iter().map(|c| c.count).sum::<u32>();
     if num_ib_devices != 0 {

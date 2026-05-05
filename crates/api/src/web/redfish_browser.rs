@@ -28,7 +28,7 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
-use super::Oauth2Layer;
+use super::{Base, Oauth2Layer};
 use crate::api::Api;
 use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
 use crate::web::redfish_actions::RedfishActionsTable;
@@ -225,3 +225,5 @@ async fn find_machine_id(
 pub mod filters {
     pub use super::super::filters::*;
 }
+
+impl super::Base for RedfishBrowser {}

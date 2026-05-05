@@ -15,29 +15,14 @@
 		<td>{{ id }}</td>
 	</tr>
 	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
-	{% if let Some(power_state) = power_state %}
-	<tr>
-		<th>Power State</th>
-		<td>{{ power_state }}</td>
-	</tr>
-	{% endif %}
-	{% if let Some(health_status) = health_status %}
-	<tr>
-		<th>Health Status</th>
-		<td>
-			{% if health_status == "ok" || health_status == "OK" %}
-				<span class="bubble success">{{ health_status }}</span>
-			{% else if health_status == "critical" || health_status == "Critical" %}
-				<span class="bubble error">{{ health_status }}</span>
-			{% else %}
-				<span class="bubble warning">{{ health_status }}</span>
-			{% endif %}
-		</td>
-	</tr>
-	{% endif %}
 </table>
 
 {{ lifecycle_detail|safe }}
+
+<h2>Metadata</h2>
+{{ metadata_detail|safe }}
+
+{{ health_detail|safe }}
 
 <h2>Configuration</h2>
 <table class="detailsview">
@@ -59,25 +44,29 @@
 	</tr>
 </table>
 
-<h2>Metadata</h2>
-{{ metadata_detail|safe }}
-
-<h2>Health</h2>
+<h2>Status</h2>
 <table class="detailsview">
+	{% if let Some(power_state) = power_state %}
+	<tr>
+		<th>Power State</th>
+		<td>{{ power_state }}</td>
+	</tr>
+	{% endif %}
 	{% if let Some(health_status) = health_status %}
 	<tr>
 		<th>Health Status</th>
-		<td>{{ health_status }}</td>
-	</tr>
-	{% else %}
-	<tr>
-		<td colspan="2" class="text-muted">No health data available.</td>
+		<td>
+			{% if health_status == "ok" || health_status == "OK" %}
+				<span class="bubble success">{{ health_status }}</span>
+			{% else if health_status == "critical" || health_status == "Critical" %}
+				<span class="bubble error">{{ health_status }}</span>
+			{% else %}
+				<span class="bubble warning">{{ health_status }}</span>
+			{% endif %}
+		</td>
 	</tr>
 	{% endif %}
 </table>
-
-<h2>Maintenance and Quarantine</h2>
-<p>TBD</p>
 
 <h2>BMC</h2>
 <table class="detailsview">
