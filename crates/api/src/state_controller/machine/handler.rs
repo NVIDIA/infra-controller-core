@@ -6829,7 +6829,9 @@ impl HostUpgradeState {
                     .await
             }
             HostReprovisionState::WaitingForScoutUpgrade {
-                component_type,
+                firmware_type,
+                final_version,
+                power_drains_needed,
                 deadline,
                 result,
                 ..
@@ -6840,11 +6842,16 @@ impl HostUpgradeState {
                             "Scout firmware upgrade succeeded for {}",
                             state.host_snapshot.id
                         );
+                        let next_reprov_state = HostReprovisionState::ResetForNewFirmware {
+                            final_version: final_version.to_string(),
+                            firmware_type: *firmware_type,
+                            firmware_number: None,
+                            power_drains_needed: *power_drains_needed,
+                            delay_until: None,
+                            last_power_drain_operation: None,
+                        };
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
-                            HostReprovisionState::CheckingFirmwareRepeatV2 {
-                                firmware_type: None,
-                                firmware_number: None,
-                            },
+                            next_reprov_state,
                             state.managed_state.get_host_repro_retry_count(),
                         )))
                     } else {
@@ -6860,7 +6867,7 @@ impl HostUpgradeState {
                         );
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             HostReprovisionState::FailedFirmwareUpgrade {
-                                firmware_type: *component_type,
+                                firmware_type: *firmware_type,
                                 report_time: Some(Utc::now()),
                                 reason: Some(reason),
                             },
@@ -6875,7 +6882,7 @@ impl HostUpgradeState {
                     );
                     Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         HostReprovisionState::FailedFirmwareUpgrade {
-                            firmware_type: *component_type,
+                            firmware_type: *firmware_type,
                             report_time: Some(Utc::now()),
                             reason: Some(format!(
                                 "Scout firmware upgrade timed out (deadline {deadline})"
@@ -7175,7 +7182,7 @@ impl HostUpgradeState {
                     let task = rpc::forge_agent_control_response::ScoutFirmwareUpgradeTask {
                         upgrade_task_id: upgrade_task_id.clone(),
                         component_type: firmware_type.to_string(),
-                        target_version: to_install.version,
+                        target_version: to_install.version.clone(),
                         script: Some(FileArtifact {
                             url: to_pxe_url(&scout_config.script.filename),
                             sha256: scout_config.script.sha256.clone(),
@@ -7206,8 +7213,9 @@ impl HostUpgradeState {
                         scenario.actual_new_state(
                             HostReprovisionState::WaitingForScoutUpgrade {
                                 upgrade_task_id,
-                                component_type: firmware_type,
-                                target_version: task.target_version.clone(),
+                                firmware_type,
+                                final_version: to_install.version,
+                                power_drains_needed: to_install.power_drains_needed,
                                 started_at,
                                 deadline,
                                 // Safety: The #[derive(Serialize)] impl does not fail

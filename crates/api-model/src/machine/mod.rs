@@ -1726,8 +1726,10 @@ pub enum HostReprovisionState {
     WaitingForRackFirmwareUpgrade,
     WaitingForScoutUpgrade {
         upgrade_task_id: String,
-        component_type: FirmwareComponentType,
-        target_version: String,
+        firmware_type: FirmwareComponentType,
+        final_version: String,
+        #[serde(default)]
+        power_drains_needed: Option<u32>,
         started_at: DateTime<Utc>,
         /// Absolute deadline; the API declares failure past this time.
         /// Derived from scout's execution/download timeouts plus slack.
