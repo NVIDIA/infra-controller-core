@@ -24,13 +24,6 @@ use sqlx::{FromRow, Row};
 
 use crate::machine::{DpuInitState, ManagedHostState, ManagedHostStateSnapshot};
 
-// If power state is Paused and Reset, state machine can't take any decision on it.
-// Ignore power manager with a log and moved to state machine.
-pub enum UsablePowerState {
-    Usable(PowerState),
-    NotUsable(libredfish::PowerState),
-}
-
 /// Representing DPU state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(rename_all = "snake_case")]

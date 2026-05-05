@@ -22,6 +22,7 @@ use nv_redfish::bmc_http::reqwest::BmcError;
 use prometheus::{Gauge, GaugeVec, Opts};
 
 pub mod api_client;
+pub mod bmc;
 pub mod collectors;
 pub mod config;
 pub mod discovery;

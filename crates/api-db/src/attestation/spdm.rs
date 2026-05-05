@@ -18,11 +18,10 @@
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use itertools::Itertools;
-use libredfish::model::component_integrity::{CaCertificate, Evidence};
 use model::attestation::spdm::{
-    AttestationState, SpdmAttestationStatus, SpdmMachineAttestation, SpdmMachineDetails,
-    SpdmMachineDeviceAttestation, SpdmMachineDeviceMetadata, SpdmMachineSnapshot,
-    SpdmMachineStateSnapshot, SpdmObjectId, SpdmObjectId_,
+    AttestationState, CaCertificate, Evidence, SpdmAttestationStatus, SpdmMachineAttestation,
+    SpdmMachineDetails, SpdmMachineDeviceAttestation, SpdmMachineDeviceMetadata,
+    SpdmMachineSnapshot, SpdmMachineStateSnapshot, SpdmObjectId, SpdmObjectId_,
 };
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use sqlx::PgConnection;

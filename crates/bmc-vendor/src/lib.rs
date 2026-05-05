@@ -19,8 +19,6 @@
 
 use std::fmt;
 
-use libredfish::model::service_root::RedfishVendor;
-
 #[derive(
     Clone,
     Copy,
@@ -140,25 +138,5 @@ impl BMCVendor {
 
     pub fn is_unknown(&self) -> bool {
         *self == Self::Unknown
-    }
-}
-
-impl From<RedfishVendor> for BMCVendor {
-    fn from(r: RedfishVendor) -> BMCVendor {
-        match r {
-            RedfishVendor::AMI
-            | RedfishVendor::NvidiaDpu
-            | RedfishVendor::NvidiaGBx00
-            | RedfishVendor::NvidiaGH200
-            | RedfishVendor::NvidiaGBSwitch
-            | RedfishVendor::P3809 => BMCVendor::Nvidia,
-            RedfishVendor::Dell => BMCVendor::Dell,
-            RedfishVendor::Hpe => BMCVendor::Hpe,
-            RedfishVendor::Lenovo => BMCVendor::Lenovo,
-            RedfishVendor::LenovoAMI => BMCVendor::LenovoAMI,
-            RedfishVendor::LiteOnPowerShelf => BMCVendor::Liteon,
-            RedfishVendor::Supermicro => BMCVendor::Supermicro,
-            RedfishVendor::Unknown => BMCVendor::Unknown,
-        }
     }
 }

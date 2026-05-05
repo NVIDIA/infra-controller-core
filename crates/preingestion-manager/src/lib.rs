@@ -27,6 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_firmware::FirmwareDownloader;
+use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
 use carbide_utils::periodic_timer::PeriodicTimer;
 use chrono::{DateTime, Utc};
@@ -2370,7 +2371,7 @@ async fn initiate_update(
     let redfish_component_type: libredfish::model::update_service::ComponentType =
         match to_install.install_only_specified {
             false => libredfish::model::update_service::ComponentType::Unknown,
-            true => (*firmware_type).into(),
+            true => firmware_type.into_libredfish(),
         };
     let task = if to_install.get_filename(firmware_number).ends_with("bfb") {
         let _ = redfish_client

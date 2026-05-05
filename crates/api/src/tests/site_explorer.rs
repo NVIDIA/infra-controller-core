@@ -4912,8 +4912,8 @@ async fn test_get_machine_position_info_no_endpoint(
 async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use libredfish::model::oem::nvidia_dpu::NicMode;
     use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
+    use model::site_explorer::NicMode;
 
     let env = common::api_fixtures::create_test_env(pool).await;
 

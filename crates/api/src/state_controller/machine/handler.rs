@@ -25,6 +25,9 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
+use carbide_redfish::libredfish::conv::{
+    IntoLibredfish, IntoModel, machine_last_reboot_requested_mode,
+};
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -41,7 +44,7 @@ use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::HostPrivilegeLevel;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
-use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
+use libredfish::{Boot, EnabledDisabled, Redfish, RedfishError, SystemPowerControl};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
@@ -68,10 +71,10 @@ use model::machine::{
     InstanceState, LockdownInfo, LockdownState, Machine, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState, ManagedHostState,
     ManagedHostStateSnapshot, MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport,
-    PerformPowerOperation, PowerDrainState, ReprovisionState, RetryInfo, SecureEraseBossContext,
-    SecureEraseBossState, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    StateMachineArea, UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
-    dpf_based_dpu_provisioning_possible, get_display_ids,
+    PerformPowerOperation, PowerDrainState, PowerState, ReprovisionState, RetryInfo,
+    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
+    SetSecureBootState, StateMachineArea, UefiSetupInfo, UefiSetupState, UnlockHostState,
+    ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::resource_pool::common::CommonPools;
@@ -7524,12 +7527,7 @@ impl HostUpgradeState {
                         operation: "power off",
                         error: e,
                     })?;
-                let status = redfish_client.get_power_state().await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get power state",
-                        error: e,
-                    }
-                })?;
+                let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::Off {
                     return Err(StateHandlerError::GenericError(eyre!(
                         "Host {} did not turn off when requested",
@@ -7564,12 +7562,7 @@ impl HostUpgradeState {
                         operation: "power on",
                         error: e,
                     })?;
-                let status = redfish_client.get_power_state().await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get power state",
-                        error: e,
-                    }
-                })?;
+                let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::On {
                     return Err(StateHandlerError::GenericError(eyre!(
                         "Host {} did not turn on when requested",
@@ -7685,7 +7678,7 @@ impl HostUpgradeState {
         let redfish_component_type: libredfish::model::update_service::ComponentType =
             match to_install.install_only_specified {
                 false => libredfish::model::update_service::ComponentType::Unknown,
-                true => (*component_type).into(),
+                true => component_type.into_libredfish(),
             };
         let address = address.to_string();
 
@@ -8531,7 +8524,7 @@ fn get_next_state_boss_job_failure(
                     failure,
                     power_state,
                 } => match power_state {
-                    libredfish::PowerState::Off => (
+                    PowerState::Off => (
                         ManagedHostState::WaitingForCleanup {
                             cleanup_state: CleanupState::SecureEraseBoss {
                                 secure_erase_boss_context: SecureEraseBossContext {
@@ -8543,14 +8536,14 @@ fn get_next_state_boss_job_failure(
                                     secure_erase_boss_state:
                                         SecureEraseBossState::HandleJobFailure {
                                             failure: failure.to_string(),
-                                            power_state: libredfish::PowerState::On,
+                                            power_state: PowerState::On,
                                         },
                                 },
                             },
                         },
                         *power_state,
                     ),
-                    libredfish::PowerState::On => (
+                    PowerState::On => (
                         ManagedHostState::WaitingForCleanup {
                             cleanup_state: CleanupState::SecureEraseBoss {
                                 secure_erase_boss_context: SecureEraseBossContext {
@@ -8590,7 +8583,7 @@ fn get_next_state_boss_job_failure(
                     failure,
                     power_state,
                 } => match power_state {
-                    libredfish::PowerState::Off => (
+                    PowerState::Off => (
                         ManagedHostState::WaitingForCleanup {
                             cleanup_state: CleanupState::CreateBossVolume {
                                 create_boss_volume_context: CreateBossVolumeContext {
@@ -8602,14 +8595,14 @@ fn get_next_state_boss_job_failure(
                                     create_boss_volume_state:
                                         CreateBossVolumeState::HandleJobFailure {
                                             failure: failure.to_string(),
-                                            power_state: libredfish::PowerState::On,
+                                            power_state: PowerState::On,
                                         },
                                 },
                             },
                         },
                         *power_state,
                     ),
-                    libredfish::PowerState::On => (
+                    PowerState::On => (
                         ManagedHostState::WaitingForCleanup {
                             cleanup_state: CleanupState::CreateBossVolume {
                                 create_boss_volume_context: CreateBossVolumeContext {
@@ -8704,7 +8697,7 @@ fn handle_boss_controller_job_error(
                 secure_erase_jid: None,
                 secure_erase_boss_state: SecureEraseBossState::HandleJobFailure {
                     failure: err.to_string(),
-                    power_state: libredfish::PowerState::Off,
+                    power_state: PowerState::Off,
                 },
                 iteration: Some(iterations),
             },
@@ -8716,7 +8709,7 @@ fn handle_boss_controller_job_error(
                 create_boss_volume_jid: None,
                 create_boss_volume_state: CreateBossVolumeState::HandleJobFailure {
                     failure: err.to_string(),
-                    power_state: libredfish::PowerState::Off,
+                    power_state: PowerState::Off,
                 },
                 iteration: Some(iterations),
             },
@@ -8941,7 +8934,7 @@ async fn handle_boss_job_failure(
             })?;
 
     match expected_power_state {
-        libredfish::PowerState::Off => {
+        PowerState::Off => {
             if current_power_state != libredfish::PowerState::Off {
                 handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceOff).await?;
 
@@ -8961,7 +8954,7 @@ async fn handle_boss_job_failure(
 
             Ok(StateHandlerOutcome::transition(next_state))
         }
-        libredfish::PowerState::On => {
+        PowerState::On => {
             let basetime = mh_snapshot
                 .host_snapshot
                 .last_reboot_requested
@@ -9081,7 +9074,7 @@ pub async fn handler_host_power_control_with_location(
             ctx.pending_db_writes
                 .push(MachineWriteOp::UpdateRebootRequestedTime {
                     machine_id: dpu_snapshot.id,
-                    mode: action.into(),
+                    mode: machine_last_reboot_requested_mode(action),
                     time: Utc::now(),
                 });
         }
@@ -9176,7 +9169,7 @@ async fn do_ipmi_restart(
     ctx.pending_db_writes
         .push(MachineWriteOp::UpdateRebootRequestedTime {
             machine_id: machine.id,
-            mode: action.into(),
+            mode: machine_last_reboot_requested_mode(action),
             time: Utc::now(),
         });
 
@@ -9454,12 +9447,7 @@ async fn handle_instance_host_platform_config(
             power_on,
             power_on_retry_count,
         } => {
-            let power_state = redfish_client.get_power_state().await.map_err(|e| {
-                StateHandlerError::RedfishError {
-                    operation: "get_power_state",
-                    error: e,
-                }
-            })?;
+            let power_state = get_power_state(redfish_client.as_ref()).await?;
 
             // Phase 1: Power OFF (power_on=false means we need to power off first)
             if !power_on {
@@ -9997,7 +9985,7 @@ fn bios_config_enter_handle_failure(
         bios_job_id: info.bios_job_id.clone(),
         bios_config_state: BiosConfigState::HandleBiosJobFailure {
             failure,
-            power_state: libredfish::PowerState::Off,
+            power_state: PowerState::Off,
         },
         retry_count: info.retry_count + 1,
     })
@@ -10137,7 +10125,7 @@ async fn advance_bios_config_job(
             })?;
 
             match power_state {
-                libredfish::PowerState::Off => {
+                PowerState::Off => {
                     if current_power_state != libredfish::PowerState::Off {
                         handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceOff)
                             .await?;
@@ -10161,12 +10149,12 @@ async fn advance_bios_config_job(
                         bios_job_id: info.bios_job_id.clone(),
                         bios_config_state: BiosConfigState::HandleBiosJobFailure {
                             failure: failure.clone(),
-                            power_state: libredfish::PowerState::On,
+                            power_state: PowerState::On,
                         },
                         retry_count: info.retry_count,
                     }))
                 }
-                libredfish::PowerState::On => {
+                PowerState::On => {
                     if current_power_state != libredfish::PowerState::On {
                         let basetime = mh_snapshot
                             .host_snapshot
@@ -10381,7 +10369,7 @@ async fn set_host_boot_order(
                             set_boot_order_jid: None,
                             set_boot_order_state: SetBootOrderState::HandleJobFailure {
                                 failure: format!("Job {} lookup failed: {}", job_id, e),
-                                power_state: libredfish::PowerState::Off,
+                                power_state: PowerState::Off,
                             },
                             retry_count: set_boot_order_info.retry_count,
                         }));
@@ -10404,7 +10392,7 @@ async fn set_host_boot_order(
                             set_boot_order_jid: None,
                             set_boot_order_state: SetBootOrderState::HandleJobFailure {
                                 failure: format!("Job {} failed: {job_state:#?}", job_id),
-                                power_state: libredfish::PowerState::Off,
+                                power_state: PowerState::Off,
                             },
                             retry_count: set_boot_order_info.retry_count,
                         }));
@@ -10442,7 +10430,7 @@ async fn set_host_boot_order(
             })?;
 
             match power_state {
-                libredfish::PowerState::Off => {
+                PowerState::Off => {
                     if current_power_state != libredfish::PowerState::Off {
                         handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceOff)
                             .await?;
@@ -10472,12 +10460,12 @@ async fn set_host_boot_order(
                         set_boot_order_jid: None,
                         set_boot_order_state: SetBootOrderState::HandleJobFailure {
                             failure: failure.clone(),
-                            power_state: libredfish::PowerState::On,
+                            power_state: PowerState::On,
                         },
                         retry_count: set_boot_order_info.retry_count,
                     }))
                 }
-                libredfish::PowerState::On => {
+                PowerState::On => {
                     // BMC should be back, power the host back on
                     if current_power_state != libredfish::PowerState::On {
                         // Wait for the BMC to come back online after reset before powering on
@@ -10596,6 +10584,17 @@ async fn set_host_boot_order(
             )))
         }
     }
+}
+
+async fn get_power_state(redfish_client: &dyn Redfish) -> Result<PowerState, StateHandlerError> {
+    redfish_client
+        .get_power_state()
+        .await
+        .map_err(|e| StateHandlerError::RedfishError {
+            operation: "get_power_state",
+            error: e,
+        })
+        .map(IntoModel::into_model)
 }
 
 #[cfg(test)]
