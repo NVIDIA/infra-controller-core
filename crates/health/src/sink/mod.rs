@@ -197,6 +197,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_prometheus_sink_removes_collector_metrics() {
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
+        let sink = PrometheusSink::new(metrics_manager.clone(), "test_sink")
+            .expect("sink should initialize");
+
+        let context = EventContext {
+            endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
+            addr: BmcAddr {
+                ip: "10.0.0.1".parse().expect("valid ip"),
+                port: Some(443),
+                mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
+            },
+            collector_type: "sensor_collector",
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+                machine_serial: None,
+            })),
+            rack_id: None,
+        };
+
+        let metric_event = CollectorEvent::Metric(
+            SensorHealthData {
+                key: "metric_key".to_string(),
+                name: "hw_sensor".to_string(),
+                metric_type: "temperature".to_string(),
+                unit: "celsius".to_string(),
+                value: 42.0,
+                labels: vec![(Cow::Borrowed("sensor"), "temp1".to_string())],
+                context: None,
+            }
+            .into(),
+        );
+
+        sink.handle_event(&context, &metric_event);
+        let export_before_remove = metrics_manager
+            .export_all()
+            .expect("metrics export should work");
+        assert!(export_before_remove.contains("test_sink_hw_sensor_temperature_celsius"));
+
+        sink.handle_event(&context, &CollectorEvent::CollectorRemoved);
+
+        let export_after_remove = metrics_manager
+            .export_all()
+            .expect("metrics export should work");
+        assert!(!export_after_remove.contains("test_sink_hw_sensor_temperature_celsius"));
+        assert!(!export_after_remove.contains("endpoint_key=\"42:9e:b1:bd:9d:dd\""));
+    }
+
+    #[tokio::test]
     async fn test_prometheus_sink_sweeps_stale_metrics_per_collection_window() {
         let metrics_manager =
             Arc::new(MetricsManager::new("test").expect("should create metrics manager"));

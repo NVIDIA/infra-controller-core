@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::path::PathBuf;
+
 use clap::{ArgAction, Parser};
 
 #[derive(Parser)]
@@ -51,10 +53,10 @@ pub struct Daemon {
     /// configuration. And the field `database_url` in the site specific configuration
     /// will take precedence over the same field in the global configuration.
     #[clap(long)]
-    pub config_path: String,
+    pub config_path: PathBuf,
     /// Path to the configuration file which contains per-site overwrites
     #[clap(long)]
-    pub site_config_path: Option<String>,
+    pub site_config_path: Option<PathBuf>,
 }
 
 #[derive(Parser)]

@@ -4,100 +4,88 @@ This document defines the combined state machines for **Machine** (each compute 
 
 ## Combined State Diagram (Machine, Switch, Rack)
 
-```plantuml
-@startuml
-state "Machine (Each compute tray runs this)" as Machine {
-    [*] --> M_Created: site-op inserts expected machine and site explorer explores
-    M_Created -[dotted]-> M_Ready: Via various intermediate ingestion states    
-    M_Ready --> M_Assigned : instance requested
-    M_Assigned -[dotted]-> M_Ready :  Via various instance creation
-    M_Ready --> M_HostReprovision : reprovision (non-NVL node only)
-    state M_HostReprovision {
-        [*] --> M_HostReprovision_CheckingFirmware
-        state "CheckingFirmware" as M_HostReprovision_CheckingFirmware
-        state "FailedFirmwareUpgrade" as M_HostReprovision_FailedFirmwareUpgrade
-        M_HostReprovision_CheckingFirmware --> M_HostReprovision_FailedFirmwareUpgrade : firmware upgrade failed
-        M_HostReprovision_FailedFirmwareUpgrade --> M_HostReprovision_CheckingFirmware : auto-retry (within MAX_FIRMWARE_UPGRADE_RETRIES)\nor new Host Reprovision request received
+```mermaid
+stateDiagram-v2
+    state "Machine (Each compute tray runs this)" as Machine {
+        [*] --> M_Created : site-op inserts expected machine and site explorer explores
+        M_Created --> M_Ready : Via various intermediate ingestion states
+        M_Ready --> M_Assigned : instance requested
+        M_Assigned --> M_Ready : Via various instance creation
+        M_Ready --> M_HostReprovision : reprovision (non-NVL node only)
+        state M_HostReprovision {
+            [*] --> M_HostReprovision_CheckingFirmware
+            state "CheckingFirmware" as M_HostReprovision_CheckingFirmware
+            state "FailedFirmwareUpgrade" as M_HostReprovision_FailedFirmwareUpgrade
+            M_HostReprovision_CheckingFirmware --> M_HostReprovision_FailedFirmwareUpgrade : firmware upgrade failed
+            M_HostReprovision_FailedFirmwareUpgrade --> M_HostReprovision_CheckingFirmware : auto-retry (within MAX_FIRMWARE_UPGRADE_RETRIES) or new Host Reprovision request received
+        }
+        M_HostReprovision --> M_Ready : Done
+        M_Assigned --> M_Failed : Failure
+        M_Failed --> M_ForceDeletion : Admin
+        M_ForceDeletion --> [*]
     }
-    M_HostReprovision --> M_Ready : Done
-    M_Assigned --> M_Failed : Failure
-    M_Failed --> M_ForceDeletion : Admin
-    M_ForceDeletion --> [*]
-}
 
-state "Switch (Each switch runs this)" as Switch {
-
-    [*] --> S_Created : site-op inserts expected switch and site explorer explores
-    S_Created --> S_Configuring : init complete
-    state S_Configuring {
-        [*] --> S_Configuring_RotateOsPassword
-        state "RotateOsPassword" as S_Configuring_RotateOsPassword
+    state "Switch (Each switch runs this)" as Switch {
+        [*] --> S_Created : site-op inserts expected switch and site explorer explores
+        S_Created --> S_Configuring : init complete
+        state S_Configuring {
+            [*] --> S_Configuring_RotateOsPassword
+            state "RotateOsPassword" as S_Configuring_RotateOsPassword
+        }
+        S_Configuring_RotateOsPassword --> S_Validating : rotate password done
+        state S_Validating {
+            [*] --> S_Validating_ValidateComplete
+            state "ValidateComplete" as S_Validating_ValidateComplete
+        }
+        S_Validating_ValidateComplete --> S_BomValidating : validation complete
+        state S_BomValidating {
+            [*] --> S_BomValidating_BomValidateComplete
+            state "BomValidateComplete" as S_BomValidating_BomValidateComplete
+        }
+        S_BomValidating_BomValidateComplete --> S_Ready : BOM validation complete
+        S_Ready --> S_Deleting : marked for deletion
+        S_Ready --> S_ReProvisioning : reprovision requested
+        S_ReProvisioning --> S_Ready : firmware upgrade Completed
+        S_ReProvisioning --> S_Error : firmware upgrade Failed
+        S_Error --> S_Deleting : marked for deletion
+        S_Deleting --> [*] : final delete
+        S_Initializing --> S_Failed : Failure
+        S_Configuring --> S_Failed : Failure
+        S_Validating --> S_Failed : Failure
+        S_BomValidating --> S_Failed : Failure
     }
-    S_Configuring_RotateOsPassword --> S_Validating : rotate password done
-    state S_Validating {
-        [*] --> S_Validating_ValidateComplete
-        state "ValidateComplete" as S_Validating_ValidateComplete
+
+    state "Rack (collection of machines switches power shelf)" as Rack {
+        [*] --> R_Created : site-op enters expected rack and site explorer creates rack when a machine/switch is created with same rackid
+        R_Created --> R_Discovering : All expected machines and switches are added, machines and nvswitches start discovering
+        R_Discovering --> R_Maintenance : when all machines (M_Ready) and switches (S_Ready) rack sends S_ReProvisioning and M_HostReprovision, Issue Provision to compute and switch to BKG
+        state R_Maintenance {
+            [*] --> R_Maintenance_RMS_Firmware_Updates
+            state "RMS: Firmware Updates" as R_Maintenance_RMS_Firmware_Updates
+            state "RMS: Configure NMX Cluster" as R_Maintenance_RMS_Configure_NMX_Cluster
+            R_Maintenance_RMS_Firmware_Updates --> R_Maintenance_RMS_Configure_NMX_Cluster
+        }
+        R_Maintenance --> R_Validation : Validate Rack
+        state R_Validation {
+            [*] --> R_Validation_ValidateComplete
+            state "ValidateComplete" as R_Validation_ValidateComplete
+        }
+        R_Validation_ValidateComplete --> R_Ready : On completion of validation and when all trays in rack = M_Ready and S_Ready
+        R_Ready --> R_Maintenance : Issue Rack-Reprovision to New Version
+        R_Ready --> R_Discovering : Tray replaced (rack topology change)
+        R_Validation --> R_Failure : Failure
+        R_Maintenance --> R_Failure : Timeout and Failures
     }
-    S_Validating_ValidateComplete --> S_BomValidating : validation complete
-    state S_BomValidating {
-        [*] --> S_BomValidating_BomValidateComplete
-        state "BomValidateComplete" as S_BomValidating_BomValidateComplete
-    }
-    S_BomValidating_BomValidateComplete --> S_Ready : BOM validation complete
-    S_Ready --> S_Deleting : marked for deletion
-    S_Ready --> S_ReProvisioning : reprovision requested
-    S_ReProvisioning --> S_Ready : firmware upgrade Completed
-    S_ReProvisioning --> Error : firmware upgrade Failed
-    Error --> S_Deleting : marked for deletion
-    S_Deleting --> [*] : final delete
-    S_ReProvisioning   --> S_Ready : Done
-    S_Initializing      --> S_Failed : Failure
-    S_Configuring     --> S_Failed : Failure
-    S_Validating    --> S_Failed : Failure
-    S_BomValidating --> S_Failed : Failure
-}
 
-state "Rack (collection of machines switches power shelf)" as Rack {
-    [*]                --> R_Created : site-op enters expected rack {rack-id and rack type etc} and site explorer creates rack when a machine/switch is created with same rackid. Waits until all expected machines and switches are added
-    R_Created          --> R_Discovering : All expected machines and switches are added\nmachines, nvswitches start discovering
-    R_Discovering      --> R_Maintenance : when all machines (M_Ready) and switches (S_Ready)\nrack sends S_ReProvisioning, M_HostReprovision\nIssue Provision to compute, switch to BKG
-    R_Discovering        : Rack waits here till every node \n in this rack reaches ready
-    state R_Maintenance {
-        [*] --> R_Maintenance_RMS_Firmware_Updates
-        state "RMS:Firmware Updates" as R_Maintenance_RMS_Firmware_Updates
-        state "RMS:Configure NMX Cluster" as R_Maintenance_RMS_Configure_NMX_Cluster
-        R_Maintenance_RMS_Firmware_Updates --> R_Maintenance_RMS_Configure_NMX_Cluster
-        R_Maintenance        : Rack waits here till every node \n in this rack reaches ready
-    }
-    R_Maintenance      --> R_Validation : Validate Rack
-    state R_Validation {
-        [*] --> R_Validation_ValidateComplete
-        state "ValidateComplete" as R_Validation_ValidateComplete
-    }
-    R_Validation_ValidateComplete --> R_Ready : On completion of validation and when all trays in rack = \n M_Ready && S_Ready
-    R_Ready            --> R_Maintenance : Issue Rack-Reprovision \n to New Version
-    R_Ready            --> R_Discovering : Tray replaced\n(rack topology change)
-    R_Validation       --> R_Failure : Failure
-    R_Maintenance      --> R_Failure : Timeout and Failures
-}
-
-' ========================================
-' Transitions
-'
-R_Created --> S_Created : Check for newly created switches
-R_Created --> M_Created : Check for newly created compute machines
-
-R_Discovering --> S_Ready : Check for all switch ready
-R_Discovering --> M_Ready : Check for all computes ready
-
-R_Maintenance --> S_Ready : request switch Reprovision
-R_Maintenance --> M_Ready : request compute Reprovision
-
-R_Maintenance --> M_HostReprovision : request to exit switch Reprovision state
-R_Maintenance --> S_ReProvisioning : request to exit compute Reprovision state
-
-R_Ready --> M_Created : Tray replaced (topology change)\nnew machine created
-@enduml
+    R_Created --> S_Created : Check for newly created switches
+    R_Created --> M_Created : Check for newly created compute machines
+    R_Discovering --> S_Ready : Check for all switch ready
+    R_Discovering --> M_Ready : Check for all computes ready
+    R_Maintenance --> S_Ready : request switch Reprovision
+    R_Maintenance --> M_Ready : request compute Reprovision
+    R_Maintenance --> M_HostReprovision : request to exit switch Reprovision state
+    R_Maintenance --> S_ReProvisioning : request to exit compute Reprovision state
+    R_Ready --> M_Created : Tray replaced (topology change) new machine created
 ```
 
 ---

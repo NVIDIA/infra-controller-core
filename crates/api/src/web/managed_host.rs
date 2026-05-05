@@ -32,7 +32,7 @@ use model::{self, machine};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const UNKNOWN: &str = "Unknown";
@@ -721,3 +721,5 @@ fn mem_to_size(mem: &str) -> isize {
 fn short_state(s: &str) -> &str {
     s.split(' ').next().unwrap_or_default()
 }
+
+impl super::Base for ManagedHostShow {}

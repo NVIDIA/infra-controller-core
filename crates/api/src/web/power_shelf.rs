@@ -26,7 +26,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 fn capitalize(s: &str) -> String {
@@ -127,6 +127,7 @@ struct PowerShelfDetail {
     voltage: String,
     bmc_info: Option<rpc::forge::BmcInfo>,
     metadata_detail: super::MetadataDetail,
+    health_detail: super::HealthDetail,
 }
 
 impl PowerShelfDetail {
@@ -143,6 +144,16 @@ impl PowerShelfDetail {
             .and_then(|s| s.lifecycle.clone())
             .unwrap_or_default();
         let power_state = shelf.status.as_ref().and_then(|s| s.power_state.clone());
+        let health_detail = super::HealthDetail::new(
+            format!("/admin/power-shelf/{id}/health"),
+            "Go to Power Shelf health reports",
+            shelf.status.as_ref().and_then(|s| s.health.clone()),
+            shelf
+                .status
+                .as_ref()
+                .map(|s| s.health_sources.clone())
+                .unwrap_or_default(),
+        );
         let metadata_detail = super::MetadataDetail {
             metadata: shelf.metadata.unwrap_or_default(),
             metadata_version: shelf.version,
@@ -163,6 +174,7 @@ impl PowerShelfDetail {
                 .unwrap_or_else(|| "N/A".to_string()),
             bmc_info: shelf.bmc_info,
             metadata_detail,
+            health_detail,
         }
     }
 }
@@ -253,3 +265,6 @@ async fn fetch_power_shelves(api: &Api) -> Result<rpc::forge::PowerShelfList, to
     }
     Ok(rpc::forge::PowerShelfList { power_shelves })
 }
+
+impl super::Base for PowerShelfShow {}
+impl super::Base for PowerShelfDetail {}

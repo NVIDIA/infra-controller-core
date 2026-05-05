@@ -24,7 +24,9 @@ use serde::{Deserialize, Serialize};
 use crate::redfish::update_service::UpdateServiceConfig;
 use crate::{hw, redfish};
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
-use crate::HostHardwareType;
+use crate::{
+    DUMMY_FACTORY_DPU_PASSWORD, DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HostHardwareType,
+};
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
 /// state we get from carbide like IP addresses or machine ID's.) Intended to be immutable and
@@ -280,6 +282,19 @@ impl HostMachineInfo {
                 panic!("discovery_info requested for {}", self.hw_type)
             }
         }
+    }
+
+    pub fn factory_default_account(&self) -> redfish::account_service::Account {
+        // TODO: need to be updated for each individual system.
+        let id = match self.hw_type {
+            HostHardwareType::NvidiaDgxH100 => "2",
+            _ => DUMMY_FACTORY_USERNAME,
+        };
+        redfish::account_service::Account::administrator(
+            id,
+            DUMMY_FACTORY_USERNAME,
+            DUMMY_FACTORY_PASSWORD,
+        )
     }
 
     fn dell_poweredge_r750(&self) -> hw::dell_poweredge_r750::DellPowerEdgeR750<'_> {
@@ -586,6 +601,17 @@ impl MachineInfo {
         match self {
             Self::Host(h) => h.discovery_info(),
             Self::Dpu(dpu) => dpu.bluefield3().discovery_info(),
+        }
+    }
+
+    pub fn factory_default_account(&self) -> redfish::account_service::Account {
+        match self {
+            MachineInfo::Host(h) => h.factory_default_account(),
+            MachineInfo::Dpu(_) => redfish::account_service::Account::administrator(
+                "root",
+                DUMMY_FACTORY_USERNAME,
+                DUMMY_FACTORY_DPU_PASSWORD,
+            ),
         }
     }
 }

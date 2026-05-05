@@ -34,7 +34,6 @@ tokio = { features = ["full"], workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-futures = { default-features = false, workspace = true }
 carbide-tls = { path = "../tls" }
 carbide-rpc = { path = "../rpc" }
 carbide-utils = { path = "../utils" }

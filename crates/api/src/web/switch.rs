@@ -26,7 +26,7 @@ use carbide_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -151,6 +151,7 @@ struct SwitchDetail {
     health_status: Option<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
     metadata_detail: super::MetadataDetail,
+    health_detail: super::HealthDetail,
 }
 
 impl SwitchDetail {
@@ -161,13 +162,16 @@ impl SwitchDetail {
             .map(|id| id.to_string())
             .unwrap_or_default();
         let config = switch.config.unwrap_or_default();
-        let lifecycle = switch
-            .status
-            .as_ref()
-            .and_then(|s| s.lifecycle.clone())
-            .unwrap_or_default();
-        let power_state = switch.status.as_ref().and_then(|s| s.power_state.clone());
-        let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
+        let status = switch.status.as_ref();
+        let lifecycle = status.and_then(|s| s.lifecycle.clone()).unwrap_or_default();
+        let power_state = status.and_then(|s| s.power_state.clone());
+        let health_status = status.and_then(|s| s.health_status.clone());
+        let health_detail = super::HealthDetail::new(
+            format!("/admin/switch/{id}/health"),
+            "Go to Switch health reports",
+            status.and_then(|s| s.health.clone()),
+            status.map(|s| s.health_sources.clone()).unwrap_or_default(),
+        );
         let metadata_detail = super::MetadataDetail {
             metadata: switch.metadata.unwrap_or_default(),
             metadata_version: switch.version,
@@ -194,6 +198,7 @@ impl SwitchDetail {
             health_status,
             bmc_info: switch.bmc_info,
             metadata_detail,
+            health_detail,
         }
     }
 }
@@ -247,3 +252,6 @@ async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<rpc::forge::S
 
     Ok(response.switches.into_iter().next())
 }
+
+impl super::Base for SwitchShow {}
+impl super::Base for SwitchDetail {}

@@ -697,6 +697,7 @@ dependencies = [
  "bytes",
  "cookie",
  "futures-util",
+ "headers",
  "http",
  "http-body",
  "http-body-util",
@@ -718,20 +719,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "axum-response-cache"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5dbbbc20d408c8a051c946bd796d58d7ad6f323f53f307934b086d36b18eb893"
-dependencies = [
- "axum 0.8.6",
- "cached",
- "http",
- "tower 0.5.2",
- "tracing",
- "tracing-futures",
 ]
 
 [[package]]
@@ -1006,7 +993,6 @@ dependencies = [
  "mac_address",
  "serde_json",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -1016,6 +1002,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "axum 0.8.6",
+ "axum-extra",
  "axum-server",
  "bmc-vendor",
  "bytes",
@@ -1028,7 +1015,6 @@ dependencies = [
  "flate2",
  "form_urlencoded",
  "futures",
- "http-body",
  "http-body-util",
  "hyper",
  "itertools 0.14.0",
@@ -1181,39 +1167,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cached"
-version = "0.56.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "801927ee168e17809ab8901d9f01f700cd7d8d6a6527997fee44e4b0327a253c"
-dependencies = [
- "ahash 0.8.12",
- "cached_proc_macro",
- "cached_proc_macro_types",
- "hashbrown 0.15.5",
- "once_cell",
- "thiserror 2.0.17",
- "web-time",
-]
-
-[[package]]
-name = "cached_proc_macro"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9225bdcf4e4a9a4c08bf16607908eb2fbf746828d5e0b5e019726dbf6571f201"
-dependencies = [
- "darling 0.20.11",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "cached_proc_macro_types"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ade8366b8bd5ba243f0a58f036cc0ca8a2f069cff1a2351ef1cac6b083e16fc0"
-
-[[package]]
 name = "carbide-admin-cli"
 version = "0.0.1"
 dependencies = [
@@ -1253,7 +1206,6 @@ dependencies = [
  "tracing-subscriber",
  "urlencoding",
  "uuid",
- "version-compare 0.2.1",
  "x509-parser",
  "zip",
 ]
@@ -1369,6 +1321,7 @@ dependencies = [
  "carbide-firmware",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-ib-fabric",
  "carbide-ipmi",
  "carbide-ipxe-renderer",
  "carbide-libmlx",
@@ -1463,6 +1416,7 @@ dependencies = [
  "state-controller",
  "strum 0.26.3",
  "temp-dir",
+ "tempfile",
  "tera",
  "thiserror 2.0.17",
  "time",
@@ -1734,9 +1688,6 @@ dependencies = [
  "carbide-tls",
  "eyre",
  "rand 0.9.2",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
  "tonic 0.14.2",
  "tracing",
 ]
@@ -2001,6 +1952,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "ipnetwork",
+ "logfmt",
  "netlink-packet-route",
  "nonzero_ext",
  "prost 0.14.1",
@@ -2008,7 +1960,9 @@ dependencies = [
  "tokio",
  "tonic 0.14.2",
  "tonic-prost",
+ "tower-http",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -2117,6 +2071,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-ib-fabric"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-health-report",
+ "carbide-rpc",
+ "carbide-secrets",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "duration-str",
+ "eyre",
+ "figment",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-timeout",
+ "hyper-util",
+ "opentelemetry",
+ "rand 0.9.2",
+ "rustls 0.23.34",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "carbide-ipmi"
 version = "0.0.1"
 dependencies = [
@@ -2166,7 +2157,6 @@ dependencies = [
 name = "carbide-libmlx"
 version = "0.0.1"
 dependencies = [
- "anyhow",
  "async-ssh2-tokio",
  "backon",
  "base64 0.22.1",
@@ -2189,7 +2179,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
- "tokio-test",
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
@@ -2207,7 +2196,6 @@ dependencies = [
  "carbide-rpc",
  "carbide-tls",
  "carbide-uuid",
- "carbide-version",
  "chrono",
  "getopts",
  "regex",
@@ -2239,7 +2227,6 @@ dependencies = [
  "futures",
  "lazy_static",
  "mac_address",
- "rand 0.9.2",
  "ratatui",
  "rcgen",
  "reqwest",
@@ -2265,7 +2252,6 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "chrono",
- "futures",
  "futures-util",
  "reqwest",
  "serde",
@@ -2377,7 +2363,6 @@ dependencies = [
  "carbide-firmware",
  "carbide-redfish",
  "carbide-secrets",
- "carbide-site-explorer",
  "carbide-ssh",
  "carbide-utils",
  "chrono",
@@ -2409,7 +2394,6 @@ version = "0.0.1"
 dependencies = [
  "axum 0.8.6",
  "axum-client-ip",
- "axum-response-cache",
  "axum-template",
  "base64 0.22.1",
  "bytes",
@@ -2424,7 +2408,6 @@ dependencies = [
  "metrics-exporter-prometheus",
  "mime",
  "pin-project-lite",
- "rand 0.9.2",
  "serde",
  "tempfile",
  "tera",
@@ -2531,7 +2514,6 @@ dependencies = [
  "http",
  "lazy_static",
  "once_cell",
- "prost-types 0.14.1",
  "pwhash",
  "regex",
  "reqwest",
@@ -2547,7 +2529,6 @@ dependencies = [
  "tracing",
  "tryhard",
  "tss-esapi",
- "uname",
  "uuid",
  "x509-parser",
 ]
@@ -2599,7 +2580,6 @@ dependencies = [
  "carbide-network",
  "carbide-redfish",
  "carbide-secrets",
- "carbide-ssh",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2639,7 +2619,6 @@ name = "carbide-ssh"
 version = "0.0.0"
 dependencies = [
  "async-ssh2-tokio",
- "humantime",
  "russh",
  "tempfile",
  "thiserror 2.0.17",
@@ -2786,7 +2765,6 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "thiserror 2.0.17",
- "tonic 0.14.2",
  "uuid",
 ]
 
@@ -4903,6 +4881,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "headers"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3314d5adb5d94bcdf56771f2e50dbbc80bb4bdf88967526706205ac9eff24eb"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "headers-core",
+ "http",
+ "httpdate",
+ "mime",
+ "sha1",
+]
+
+[[package]]
+name = "headers-core"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54b4a22553d4242c49fddb9ba998a99962b5cc6f22cb5a3482bec22522403ce4"
+dependencies = [
+ "http",
+]
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5956,7 +5958,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "getopts",
  "http",
  "reqwest",
  "serde",
@@ -5966,7 +5967,6 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -6907,7 +6907,6 @@ dependencies = [
 name = "nvue-client"
 version = "0.0.0"
 dependencies = [
- "eyre",
  "reqwest",
  "serde",
  "serde_json",
@@ -9520,7 +9519,6 @@ dependencies = [
 name = "spancounter"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "tracing",
  "tracing-subscriber",
 ]
@@ -10801,16 +10799,6 @@ checksum = "8b1581020d7a273442f5b45074a6a57d5757ad0a47dac0e9f0bd57b81936f3db"
 dependencies = [
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "tracing-futures"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
-dependencies = [
- "pin-project",
- "tracing",
 ]
 
 [[package]]

@@ -846,7 +846,7 @@ pub async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
     };
     tracing::info!("stdin is {}", stdin_link);
 
-    crate::tpm::clear_tpm_platform_hierarchy(tpm_path)?;
+    crate::tpm::clear_tpm(tpm_path)?;
 
     if stdin_link == "/dev/null" {
         match all_nvme_cleanup().await {

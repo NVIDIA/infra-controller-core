@@ -40,6 +40,19 @@ deny_prefixes = [
   # add MANAGED_HOST_IPMI_POOL_2 and more as needed, one in each line terminated by ','
 ]
 
+# External tool links shown in the admin web UI's "Tools" sidebar.
+# Each entry needs a unique `name` (used as a stable id) plus a
+# `display_name` and `url`. Omit the section entirely to hide it.
+# [[web_ui_sidebar_tools]]
+# name = "grafana"
+# display_name = "Grafana"
+# url = "https://grafana-ENVIORNMENT_NAME.example.com"
+#
+# [[web_ui_sidebar_tools]]
+# name = "argocd"
+# display_name = "Argo CD"
+# url = "https://argocd-ENVIORNMENT_NAME.example.com"
+
 [site_explorer]
 run_interval = "30s"
 

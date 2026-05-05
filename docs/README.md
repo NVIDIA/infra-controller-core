@@ -86,8 +86,10 @@ NICo requires persistent, durable storage to maintain state for the following co
 
 #### Site Management
 
-- Site Agent: Maintains a northbound Temporal connection to NICo REST (Cloud or centrally deployed or on-Site) to sync data with REST layer DB cache and delegate gRPC requests to NICo Core.
-- Admin CLI: Provides an admin level command line interface into NICo Core using the gRPC API
+- **Site Agent**: Maintains a northbound Temporal connection to NICo REST (Cloud, centrally deployed, or on-site) to sync data with the REST layer DB cache and delegate gRPC requests to NICo Core.
+- **Admin CLI**: Provides an admin-level command-line interface into NICo Core using the gRPC API.
+
+<Note> The REST API is the primary way to interact with NICo and should be used for all state-modifying operations (creating/modifying tenants, VPCs, instances, etc). The admin CLI is a convenience tool for administrative tasks and should not be relied upon for production workflows. </Note>
 
 #### NICo REST
 

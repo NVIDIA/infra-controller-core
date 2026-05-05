@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod bfb_rshim_copier;
 mod config;
 mod errors;
 mod metrics;
@@ -27,7 +28,6 @@ use std::time::Duration;
 
 use carbide_firmware::FirmwareDownloader;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
-use carbide_site_explorer::EndpointExplorer;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use chrono::{DateTime, Utc};
 pub use config::PreingestionManagerConfig;
@@ -50,6 +50,7 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::bfb_rshim_copier::BfbRshimCopier;
 use crate::errors::{PreingestionManagerError, PreingestionManagerResult};
 use crate::metrics::PreingestionMetrics;
 
@@ -84,7 +85,7 @@ struct PreingestionManagerStatic {
     upgrade_script_state: Arc<UpdateScriptManager>,
     credential_reader: Option<Arc<dyn CredentialReader>>,
     work_lock_manager_handle: WorkLockManagerHandle,
-    endpoint_explorer: Arc<dyn EndpointExplorer>,
+    bfb_rshim_copier: Arc<BfbRshimCopier>,
     bfb_copy_state: Arc<BfbCopyManager>,
     bfb_copy_limiter: Arc<Semaphore>,
 }
@@ -105,13 +106,14 @@ impl PreingestionManager {
         upload_limiter: Option<Arc<Semaphore>>,
         credential_reader: Option<Arc<dyn CredentialReader>>,
         work_lock_manager_handle: WorkLockManagerHandle,
-        endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> PreingestionManager {
         let hold_period = config
             .run_interval
             .saturating_add(std::time::Duration::from_secs(60));
 
         let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
+
+        let bfb_rshim_copier = Arc::new(BfbRshimCopier::new(credential_reader.clone()));
 
         PreingestionManager {
             static_info: Arc::new(PreingestionManagerStatic {
@@ -121,7 +123,7 @@ impl PreingestionManager {
                 upgrade_script_state: Default::default(),
                 credential_reader,
                 work_lock_manager_handle,
-                endpoint_explorer,
+                bfb_rshim_copier,
                 bfb_copy_state: Default::default(),
                 bfb_copy_limiter: Arc::new(Semaphore::new(config.max_concurrent_bfb_copies)),
                 config,
@@ -1899,7 +1901,7 @@ impl PreingestionManagerStatic {
             BfbPlatformPowercyclePhase::WaitingForDpuBmc => {
                 let dpu_addr = std::net::SocketAddr::new(address, 443);
                 match self
-                    .endpoint_explorer
+                    .redfish_client_pool
                     .probe_redfish_endpoint(dpu_addr)
                     .await
                 {
@@ -1972,6 +1974,11 @@ impl PreingestionManagerStatic {
         };
 
         let is_bf2 = endpoint.report.identify_dpu() == Some(model::DpuModel::BlueField2);
+        let bmc_credential_key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot {
+                bmc_mac_address: interface.mac_address,
+            },
+        };
 
         db.with_txn(|txn| {
             db::explored_endpoints::set_preingestion_bfb_copy_in_progress(address, host_bmc_ip, txn)
@@ -1982,7 +1989,7 @@ impl PreingestionManagerStatic {
         self.bfb_copy_state.started(address.to_string());
 
         let bfb_copy_state = self.bfb_copy_state.clone();
-        let endpoint_explorer = self.endpoint_explorer.clone();
+        let bfb_rshim_copier = self.bfb_rshim_copier.clone();
         let bmc_addr = std::net::SocketAddr::new(address, 22);
 
         tokio::spawn(async move {
@@ -1990,8 +1997,8 @@ impl PreingestionManagerStatic {
 
             tracing::info!(%address, is_bf2, "starting BFB copy to DPU rshim");
 
-            let result = endpoint_explorer
-                .copy_bfb_to_dpu_rshim(bmc_addr, &interface, is_bf2)
+            let result = bfb_rshim_copier
+                .copy_bfb_to_dpu_rshim(bmc_addr, &bmc_credential_key, is_bf2)
                 .await;
 
             match result {

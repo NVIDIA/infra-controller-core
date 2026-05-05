@@ -15,15 +15,14 @@
 		<td>{{ id }}</td>
 	</tr>
 	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
-	{% if let Some(power_state) = power_state %}
-	<tr>
-		<th>Power State</th>
-		<td>{{ power_state }}</td>
-	</tr>
-	{% endif %}
 </table>
 
 {{ lifecycle_detail|safe }}
+
+<h2>Metadata</h2>
+{{ metadata_detail|safe }}
+
+{{ health_detail|safe }}
 
 <h2>Configuration</h2>
 <table class="detailsview">
@@ -41,8 +40,15 @@
 	</tr>
 </table>
 
-<h2>Metadata</h2>
-{{ metadata_detail|safe }}
+<h2>Status</h2>
+<table class="detailsview">
+	{% if let Some(power_state) = power_state %}
+	<tr>
+		<th>Power State</th>
+		<td>{{ power_state }}</td>
+	</tr>
+	{% endif %}
+</table>
 
 <h2>BMC</h2>
 <table class="detailsview">

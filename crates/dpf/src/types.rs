@@ -38,6 +38,7 @@ impl BmcPasswordProvider for String {
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
 pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
 pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
+pub const OTEL_SERVICE_NAME: &str = "carbide-otel";
 
 /// Configuration for creating DPF operator resources (BFB, DPUFlavor,
 /// DPUDeployment, service templates, etc.) during initialization.
@@ -52,9 +53,6 @@ pub struct InitDpfResourcesConfig {
     /// Service templates and configs for M4 DPUDeployment.
     /// When empty, `default_services()` is used automatically.
     pub services: Vec<ServiceDefinition>,
-    /// Rendered bf.cfg template content for the DPU configuration ConfigMap.
-    /// When set, a ConfigMap is created during initialization.
-    pub bfcfg_template: Option<String>,
 }
 
 impl Default for InitDpfResourcesConfig {
@@ -64,7 +62,6 @@ impl Default for InitDpfResourcesConfig {
             deployment_name: "dpu-deployment".to_string(),
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
-            bfcfg_template: None,
         }
     }
 }
@@ -224,12 +221,11 @@ pub struct DpuDeviceInfo {
     pub host_bmc_ip: String,
     /// Serial number of the DPU.
     pub serial_number: String,
-    /// Caller-defined identifier for the host machine.
-    /// Passed through to the labeler for resource labels.
-    pub host_machine_id: String,
     /// Caller-defined identifier for the DPU machine.
     /// Passed through to the labeler for resource labels.
     pub dpu_machine_id: String,
+    /// is _primary dpu?
+    pub is_primary: bool,
 }
 
 /// Information about a DPU node (host with DPUs).
@@ -242,9 +238,6 @@ pub struct DpuNodeInfo {
     pub host_bmc_ip: String,
     /// Identifiers of each device attached to this node.
     pub device_ids: Vec<String>,
-    /// Caller-defined identifier for the host machine.
-    /// Passed through to the labeler for contextual node labels.
-    pub host_machine_id: String,
 }
 
 /// Phase of DPU lifecycle.

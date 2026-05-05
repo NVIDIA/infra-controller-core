@@ -67,6 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.ComputeAllocationId", "::carbide_uuid::compute_allocation::ComputeAllocationId")
         .extern_path(".common.OperatingSystemId", "::carbide_uuid::operating_system::OperatingSystemId")
         .extern_path(".common.IpxeTemplateId", "::carbide_uuid::ipxe_template::IpxeTemplateId")
+        .extern_path(".common.MachineValidationId", "::carbide_uuid::machine_validation::MachineValidationId")
         .extern_path(".measured_boot.MeasurementSystemProfileId", "::carbide_uuid::measured_boot::MeasurementSystemProfileId")
         .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::carbide_uuid::measured_boot::MeasurementSystemProfileAttrId")
         .extern_path(".measured_boot.MeasurementBundleId", "::carbide_uuid::measured_boot::MeasurementBundleId")
@@ -488,6 +489,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("MachineValidationRun", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedHostNic", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedHostNic", "#[derive(serde::Deserialize)]")
+        .type_attribute("HostLifecycleProfile", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedSwitch", "#[derive(serde::Serialize)]")
@@ -833,6 +835,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.PlacementInRack",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.ForgeAgentControlResponse.ScoutFirmwareUpgradeTask", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.ForgeAgentControlResponse.FileArtifact", "#[derive(serde::Serialize, serde::Deserialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

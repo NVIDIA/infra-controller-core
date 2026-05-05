@@ -29,7 +29,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use serde::{Deserialize, Deserializer, de};
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 100;
@@ -376,3 +376,6 @@ pub async fn show_detail(
     // Away we go
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for InstanceTypeShow {}
+impl super::Base for InstanceTypeDetailDisplay {}

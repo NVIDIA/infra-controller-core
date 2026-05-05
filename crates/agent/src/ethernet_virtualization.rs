@@ -339,8 +339,18 @@ pub async fn update_nvue(
     };
 
     let hostname = hostname().wrap_err("gethostname error")?;
+    let is_dpu_os = matches!(update_flavor, NvueUpdateFlavor::StartupFile { .. });
     let conf = nvue::NvueConfig {
         is_fnn: false,
+        is_dpu_os,
+        fmds_gateway_vlan: if !is_dpu_os {
+            nc.tenant_interfaces
+                .iter()
+                .find(|i| i.function_type == rpc::InterfaceFunctionType::Physical as i32)
+                .map(|i| i.vlan_id as u16)
+        } else {
+            None
+        },
         vpc_virtualization_type,
         site_global_vpc_vni: nc.site_global_vpc_vni,
         use_admin_network: nc.use_admin_network,
@@ -2849,6 +2859,8 @@ mod tests {
             ct_vrf_loopback: "FNN".to_string(),
             l3_domains: vec![],
             network_security_groups,
+            is_dpu_os: true,
+            fmds_gateway_vlan: None,
         };
         let startup_yaml = nvue::build(conf)?;
 

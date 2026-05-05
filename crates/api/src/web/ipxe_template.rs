@@ -26,6 +26,8 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
+
 fn ipxe_template_scope_fmt(scope: &i32) -> Cow<'static, str> {
     rpc::forge::IpxeTemplateScope::try_from(*scope)
         .map(|scope| Cow::Owned(format!("{scope:?}")))
@@ -138,3 +140,6 @@ pub async fn detail(
     let detail: IpxeTemplateDetail = tmpl.into();
     (StatusCode::OK, Html(detail.render().unwrap())).into_response()
 }
+
+impl super::Base for IpxeTemplateShow {}
+impl super::Base for IpxeTemplateDetail {}

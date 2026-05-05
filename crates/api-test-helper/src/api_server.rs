@@ -281,9 +281,11 @@ pub async fn start(
         )
     };
 
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut tmp, carbide_config_str.as_bytes())?;
     carbide::run(
         0,
-        carbide_config_str,
+        tmp.path().to_path_buf(),
         None,
         credential_config,
         true,

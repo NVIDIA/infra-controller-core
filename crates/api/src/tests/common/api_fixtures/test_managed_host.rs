@@ -25,8 +25,9 @@ use model::machine::{
     InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
     ReprovisionState,
 };
-use rpc::forge::forge_agent_control_response::Action;
+use rpc::forge::forge_agent_control_response::LegacyAction;
 use rpc::forge::forge_server::Forge;
+use rpc::forge_agent_control_response::Action;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
@@ -111,16 +112,22 @@ impl TestManagedHost {
 
     pub async fn machine_validation_completed(&self) {
         let response = self.host().forge_agent_control().await;
-        assert_eq!(response.action, Action::MachineValidation as i32);
-        let uuid = &response.data.unwrap().pair[1].value;
+        let Some(Action::MachineValidation(machine_validation)) = response.action else {
+            panic!("expected typed machine validation action");
+        };
+        assert_eq!(
+            response.legacy_action,
+            LegacyAction::MachineValidation as i32
+        );
+        let validation_id = machine_validation
+            .validation_id
+            .expect("machine validation action missing validation_id");
         self.api
             .machine_validation_completed(Request::new(
                 rpc::forge::MachineValidationCompletedRequest {
                     machine_id: self.id.into(),
                     machine_validation_error: None,
-                    validation_id: Some(rpc::Uuid {
-                        value: uuid.to_owned(),
-                    }),
+                    validation_id: Some(validation_id),
                 },
             ))
             .await

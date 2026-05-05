@@ -28,7 +28,7 @@ use rpc::forge::RedfishAction;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
-use super::Oauth2Layer;
+use super::{Base, Oauth2Layer};
 use crate::api::Api;
 use crate::auth::AuthContext;
 use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
@@ -270,3 +270,5 @@ pub mod filters {
             .collect::<Result<Vec<_>, _>>()
     }
 }
+
+impl super::Base for RedfishBrowser {}

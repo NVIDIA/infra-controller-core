@@ -36,6 +36,7 @@ use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -616,6 +617,7 @@ impl ApiClient {
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
+        host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -700,6 +702,8 @@ impl ApiClient {
             // Patch doesn't expose `--dpu-mode` yet; preserve the existing
             // server-side value.
             dpu_mode: expected_machine.dpu_mode,
+            host_lifecycle_profile: host_lifecycle_profile
+                .or(expected_machine.host_lifecycle_profile),
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -735,6 +739,11 @@ impl ApiClient {
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
                     dpu_mode: machine.dpu_mode.map(|m| m as i32),
+                    host_lifecycle_profile: machine.host_lifecycle_profile.map(|hlp| {
+                        ::rpc::forge::HostLifecycleProfile {
+                            disable_lockdown: hlp.disable_lockdown,
+                        }
+                    }),
                 })
                 .collect(),
         };
@@ -1535,12 +1544,8 @@ impl ApiClient {
         &self,
         machine_id: Option<MachineId>,
         history: bool,
-        arg_validation_id: Option<String>,
+        validation_id: Option<MachineValidationId>,
     ) -> CarbideCliResult<rpc::MachineValidationResultList> {
-        let mut validation_id: Option<::rpc::common::Uuid> = None;
-        if let Some(value) = arg_validation_id {
-            validation_id = Some(::rpc::common::Uuid { value })
-        }
         let request = rpc::MachineValidationGetRequest {
             machine_id,
             include_history: history,

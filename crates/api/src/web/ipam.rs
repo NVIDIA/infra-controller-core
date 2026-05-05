@@ -28,6 +28,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -882,3 +883,11 @@ pub async fn overlay_segment_html(
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for IpamDhcp {}
+impl super::Base for IpamDns {}
+impl super::Base for IpamUnderlay {}
+impl super::Base for IpamUnderlaySegment {}
+impl super::Base for IpamOverlay {}
+impl super::Base for IpamOverlayPrefix {}
+impl super::Base for IpamOverlaySegment {}
