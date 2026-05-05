@@ -17,7 +17,9 @@
 
 pub mod measured_boot;
 
+pub mod digest_crate_shim;
 pub mod tpm_ca_cert;
+
 use carbide_uuid::machine::MachineId;
 use db::{ObjectFilter, Transaction};
 pub use measured_boot::*;

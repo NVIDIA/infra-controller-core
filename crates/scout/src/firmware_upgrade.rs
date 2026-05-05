@@ -251,7 +251,7 @@ async fn sha256_file(path: &Path) -> Result<String, Box<dyn std::error::Error>> 
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 #[cfg(test)]
@@ -281,7 +281,7 @@ mod tests {
     }
 
     fn sha256_hex(data: &str) -> String {
-        format!("{:x}", Sha256::digest(data.as_bytes()))
+        hex::encode(Sha256::digest(data.as_bytes()))
     }
 
     fn script_artifact(base: &str, path: &str, content: &str) -> FileArtifact {
