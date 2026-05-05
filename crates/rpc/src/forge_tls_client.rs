@@ -49,14 +49,19 @@ use crate::{forge_resolver, protos};
 /// errors doesn't walk `source()`, so wrappers like `tonic::Status` hide the real
 /// cause (e.g. TLS handshake failures appear as a generic "client error (Connect)").
 fn format_error_chain<E: std::error::Error + ?Sized>(err: &E) -> String {
-    use std::fmt::Write;
-    let mut out = err.to_string();
-    let mut source = err.source();
-    while let Some(e) = source {
-        let _ = write!(out, ": {e}");
-        source = e.source();
+    let max_depth = 16;
+    let out = err.to_string();
+    let source = std::iter::successors(err.source(), |e| e.source())
+        .take(max_depth)
+        .last()
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| out.clone());
+
+    if out != source {
+        format!("{out}: {source}")
+    } else {
+        out
     }
-    out
 }
 
 pub type NmxCClientT = NmxControllerClient<
