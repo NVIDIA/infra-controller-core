@@ -27,8 +27,9 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
-use axum_extra::extract::Host;
+use axum_extra::TypedHeader;
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
+use axum_extra::headers::Host;
 use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, Request, StatusCode, Uri};
@@ -759,7 +760,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
 }
 
 pub async fn auth_oauth2(
-    Host(hostname): Host,
+    TypedHeader::<Host>(hostname): TypedHeader<Host>,
     headers: HeaderMap,
     mut req: Request<AxumBody>,
     next: Next,
@@ -768,7 +769,7 @@ pub async fn auth_oauth2(
     // does not apply for the a page hosted on localhost:1079. Instead the cookie
     // must be for localhost.
 
-    let Some(hostname) = Uri::try_from(hostname)
+    let Some(hostname) = Uri::try_from(hostname.hostname())
         .ok()
         .and_then(|uri| uri.host().map(|host| host.to_owned()))
     else {

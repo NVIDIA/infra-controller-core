@@ -23,8 +23,9 @@ use axum::Extension;
 use axum::extract::{Query, State as AxumState};
 use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum_extra::extract::Host;
+use axum_extra::TypedHeader;
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
+use axum_extra::headers::Host;
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use http::HeaderMap;
@@ -57,12 +58,13 @@ pub struct AuthRequest {
 
 pub async fn callback(
     AxumState(_state): AxumState<Arc<Api>>,
-    Host(hostname): Host,
+    TypedHeader::<Host>(hostname): TypedHeader<Host>,
     request_headers: HeaderMap,
     Query(query): Query<AuthRequest>,
     Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
 ) -> AuthCallbackResponse {
     use AuthCallbackError::*;
+    let hostname = hostname.hostname().to_owned();
 
     let Some(oauth2_layer) = oauth2_layer else {
         return EmptyOauth2Layer.into();

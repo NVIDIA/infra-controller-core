@@ -605,7 +605,10 @@ mod tests {
         let std_listener = listener.into_std().unwrap();
 
         let server = tokio::spawn(async move {
-            axum_server::Server::from_tcp(std_listener)
+            axum_server::from_tcp(std_listener)
+                // Safety: This only fails if the socket is blocking, but it started as a tokio
+                // TcpListener which sets non-blocking by default.
+                .expect("BUG: Could not bind to listener")
                 .serve(router.into_make_service())
                 .await
                 .unwrap();

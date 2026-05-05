@@ -357,6 +357,8 @@ async fn post_phone_home(State(state): State<Arc<FmdsState>>) -> (StatusCode, St
 
 #[cfg(test)]
 mod tests {
+    use std::net::SocketAddr;
+
     use axum::http;
     use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
     use http_body_util::{BodyExt, Full};
@@ -393,10 +395,9 @@ mod tests {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
         let server_port = listener.local_addr().unwrap().port();
-        let std_listener = listener.into_std().unwrap();
 
         let server = tokio::spawn(async move {
-            axum_server::Server::from_tcp(std_listener)
+            axum_server::Server::<SocketAddr>::from_listener(listener)
                 .serve(router.into_make_service())
                 .await
                 .unwrap();

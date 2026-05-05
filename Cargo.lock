@@ -604,9 +604,9 @@ dependencies = [
 
 [[package]]
 name = "axum"
-version = "0.8.6"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a18ed336352031311f4e0b4dd2ff392d4fbb370777c9d18d7fc9d7359f73871"
+checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core 0.5.5",
  "axum-macros",
@@ -638,11 +638,11 @@ dependencies = [
 
 [[package]]
 name = "axum-client-ip"
-version = "1.1.3"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f08a543641554404b42acd0d2494df12ca2be034d7b8ee4dbbf7446f940a2ef"
+checksum = "a8ba1af5b620232acf37f2eb6d22151ea465491e0b4c25f552d1990f64ec5a67"
 dependencies = [
- "axum 0.8.6",
+ "axum 0.8.9",
  "client-ip",
  "serde",
 ]
@@ -688,14 +688,15 @@ dependencies = [
 
 [[package]]
 name = "axum-extra"
-version = "0.10.3"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9963ff19f40c6102c76756ef0a46004c0d58957d87259fc9208ff8441c12ab96"
+checksum = "5136e6c5e7e7978fe23e9876fb924af2c0f84c72127ac6ac17e7c46f457d362c"
 dependencies = [
- "axum 0.8.6",
+ "axum 0.8.9",
  "axum-core 0.5.5",
  "bytes",
  "cookie",
+ "futures-core",
  "futures-util",
  "headers",
  "http",
@@ -703,8 +704,6 @@ dependencies = [
  "http-body-util",
  "mime",
  "pin-project-lite",
- "rustversion",
- "serde_core",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -712,9 +711,9 @@ dependencies = [
 
 [[package]]
 name = "axum-macros"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "604fde5e028fea851ce1d8570bbdc034bec850d157f7569d10f347d06808c05c"
+checksum = "7aa268c23bfbbd2c4363b9cd302a4f504fb2a9dfe7e3451d66f35dd392e20aca"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -723,12 +722,13 @@ dependencies = [
 
 [[package]]
 name = "axum-server"
-version = "0.7.2"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "495c05f60d6df0093e8fb6e74aa5846a0ad06abaf96d76166283720bf740f8ab"
+checksum = "b1df331683d982a0b9492b38127151e6453639cd34926eb9c07d4cd8c6d22bfc"
 dependencies = [
  "arc-swap",
  "bytes",
+ "either",
  "fs-err",
  "http",
  "http-body",
@@ -736,7 +736,6 @@ dependencies = [
  "hyper-util",
  "pin-project-lite",
  "rustls 0.23.34",
- "rustls-pemfile",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.4",
@@ -749,7 +748,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3df50f7d669bfc3a8c348f08f536fe37e7acfbeded3cfdffd2ad3d76725fc40c"
 dependencies = [
- "axum 0.8.6",
+ "axum 0.8.9",
  "serde",
  "tera",
  "thiserror 2.0.17",
@@ -974,7 +973,7 @@ dependencies = [
 name = "bmc-explorer"
 version = "0.1.0"
 dependencies = [
- "axum 0.8.6",
+ "axum 0.8.9",
  "bmc-mock",
  "bmc-vendor",
  "carbide-api-model",
@@ -1010,7 +1009,7 @@ name = "bmc-mock"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
- "axum 0.8.6",
+ "axum 0.8.9",
  "axum-extra",
  "axum-server",
  "bmc-vendor",
@@ -1225,7 +1224,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "async-trait",
- "axum 0.8.6",
+ "axum 0.8.9",
  "axum-server",
  "backon",
  "blake3",
@@ -1319,7 +1318,7 @@ dependencies = [
  "askama_escape",
  "asn1-rs",
  "async-trait",
- "axum 0.8.6",
+ "axum 0.8.9",
  "axum-extra",
  "base64 0.22.1",
  "bmc-explorer",
@@ -1640,7 +1639,7 @@ dependencies = [
 name = "carbide-bmc-proxy"
 version = "0.0.0"
 dependencies = [
- "axum 0.8.6",
+ "axum 0.8.9",
  "axum-extra",
  "bytes",
  "carbide-api-db",
@@ -1846,7 +1845,7 @@ name = "carbide-dpu-fmds-shared"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "axum 0.8.6",
+ "axum 0.8.9",
  "carbide-dpu-agent-utils",
  "carbide-rpc",
  "governor",
@@ -1962,7 +1961,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
- "axum 0.8.6",
+ "axum 0.8.9",
  "axum-server",
  "carbide-dpu-agent-utils",
  "carbide-dpu-fmds-shared",
@@ -2241,7 +2240,7 @@ dependencies = [
 name = "carbide-machine-a-tron"
 version = "0.0.0"
 dependencies = [
- "axum 0.8.6",
+ "axum 0.8.9",
  "base64 0.22.1",
  "bmc-mock",
  "carbide-network",
@@ -2422,7 +2421,7 @@ dependencies = [
 name = "carbide-pxe"
 version = "0.0.1"
 dependencies = [
- "axum 0.8.6",
+ "axum 0.8.9",
  "axum-client-ip",
  "axum-template",
  "base64 0.22.1",
@@ -2551,7 +2550,7 @@ dependencies = [
 name = "carbide-scout"
 version = "0.0.1"
 dependencies = [
- "axum 0.8.6",
+ "axum 0.8.9",
  "carbide-host-support",
  "carbide-libmlx",
  "carbide-machine-validation",
@@ -3086,9 +3085,9 @@ checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
 name = "client-ip"
-version = "0.1.1"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31211fc26899744f5b22521fdc971e5f3875991d8880537537470685a0e9552d"
+checksum = "39d2056bf065c8b4bce5a8898d40e175211ff4410add2a84d695845d3937c729"
 dependencies = [
  "http",
 ]
@@ -5243,9 +5242,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.7.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb3aa54a13a0dfe7fbe3a59e0c76093041720fdc77b110cc0fc260fafb4dc51e"
+checksum = "6299f016b246a94207e63da54dbe807655bf9e00044f73ded42c3ac5305fbcca"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -5258,7 +5257,6 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "pin-utils",
  "smallvec",
  "tokio",
  "want",
@@ -5298,14 +5296,13 @@ dependencies = [
 
 [[package]]
 name = "hyper-util"
-version = "0.1.17"
+version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c6995591a8f1380fcb4ba966a252a4b29188d51d2b89e3a252f5305be65aea8"
+checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-channel",
- "futures-core",
  "futures-util",
  "http",
  "http-body",
@@ -10663,7 +10660,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb7613188ce9f7df5bfe185db26c5814347d110db17920415cf2fbcad85e7203"
 dependencies = [
  "async-trait",
- "axum 0.8.6",
+ "axum 0.8.9",
  "base64 0.22.1",
  "bytes",
  "h2",

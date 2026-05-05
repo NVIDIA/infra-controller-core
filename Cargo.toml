@@ -70,14 +70,6 @@ nv-redfish = { version = "0.8.1" }
 # newer sqlx version.
 ipnetwork = "0.20.0"
 
-# pinning axum:
-# Tonic does not support axum 0.8 or later. Until it does, pin axum to 0.7 and the related crates to the corresponding
-# (working) versions.
-axum = "0.8.4"
-axum-extra = "0.10"                 # Pin this until we can update axum
-axum-client-ip = "1.1.3"
-axum-template = { version = "3.0" }
-
 ########
 # MARK: - Versions common for the rest of the codebase
 ########
@@ -90,8 +82,12 @@ askama_escape = "0.10"
 asn1-rs = "0.7.0"
 async-ssh2-tokio = "0.12.0"
 async-trait = "0.1.88"
+axum = "0.8.9"
+axum-client-ip = "1.3.1"
+axum-extra = "0.12"
 axum-response-cache = "0.4"
-axum-server = "0.7"
+axum-server = "0.8"
+axum-template = { version = "3.0" }
 backon = "1.5.2"
 base64 = "0.22.1"
 blake3 = "1.4"
