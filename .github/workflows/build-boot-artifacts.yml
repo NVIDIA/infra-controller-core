@@ -306,8 +306,6 @@ jobs:
           ENV_ARGS="$ENV_ARGS -e CACHE_DIRECTORY=/workspace/cache"
           ENV_ARGS="$ENV_ARGS -e APT_CACHE_DIR=/workspace/apt"
           ENV_ARGS="$ENV_ARGS -e LOGNAME=root"
-          ENV_ARGS="$ENV_ARGS -e KEA_BIN_PATH=/usr/bin"
-          ENV_ARGS="$ENV_ARGS -e KEA_INCLUDE_PATH=/usr/include/kea"
           ENV_ARGS="$ENV_ARGS -e REPO_ROOT=/workspace"
           ENV_ARGS="$ENV_ARGS -e VERSION=${{ inputs.version }}"
           ENV_ARGS="$ENV_ARGS -e FORGE_CA=prod"
