@@ -36,7 +36,7 @@ use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup() {
     api_test_helper::setup_logging()
 }

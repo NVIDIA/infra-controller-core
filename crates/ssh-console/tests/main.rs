@@ -382,7 +382,7 @@ async fn test_ssh_console_log_rotation() -> eyre::Result<()> {
     Ok(())
 }
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup_test_logging() {
     api_test_helper::setup_logging()
 }
