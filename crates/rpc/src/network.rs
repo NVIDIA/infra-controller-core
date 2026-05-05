@@ -24,6 +24,7 @@ impl From<rpc::VpcVirtualizationType> for VpcVirtualizationType {
         match v {
             rpc::VpcVirtualizationType::EthernetVirtualizer => Self::EthernetVirtualizer,
             // ETHERNET_VIRTUALIZER_WITH_NVUE is equivalent to EthernetVirtualizer
+            #[allow(deprecated)]
             rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue => Self::EthernetVirtualizer,
             rpc::VpcVirtualizationType::Fnn => Self::Fnn,
             // Following are deprecated.
@@ -54,6 +55,7 @@ pub fn vpc_virtualization_type_try_from_rpc(
         }
         // If we get proto enum field 2, which is ETHERNET_VIRTUALIZER_WITH_NVUE,
         // just map it to EthernetVirtualizer.
+        #[allow(deprecated)]
         x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
             VpcVirtualizationType::EthernetVirtualizer
         }
@@ -72,6 +74,7 @@ mod test {
 
     #[test]
     fn from_rpc_etv_with_nvue_maps_to_etv() {
+        #[allow(deprecated)]
         let vtype: VpcVirtualizationType =
             rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into();
         assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
