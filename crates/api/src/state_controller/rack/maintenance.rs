@@ -24,6 +24,7 @@ use db::{
     switch as db_switch,
 };
 use librms::protos::rack_manager as rms;
+use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{
     ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo, FirmwareUpgradeDeviceStatus,
     FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope, NvosUpdateJob, NvosUpdateState,
@@ -185,6 +186,7 @@ fn resolve_nvos_artifact_from_firmware(
 async fn resolve_default_nvos_artifact(
     id: &RackId,
     rack_profile_id: Option<&RackProfileId>,
+    conn: &mut sqlx::PgConnection,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<Option<ResolvedNvosArtifact>, StateHandlerError> {
     let desired_hw_type = desired_rack_hardware_type(id, rack_profile_id, ctx);
@@ -194,16 +196,9 @@ async fn resolve_default_nvos_artifact(
         hardware_types.push(RackHardwareType::any());
     }
 
-    let mut conn = ctx.services.db_pool.acquire().await.map_err(|e| {
-        StateHandlerError::GenericError(eyre::eyre!(
-            "failed to acquire db connection for NVOS lookup: {}",
-            e
-        ))
-    })?;
-
     for rack_hardware_type in hardware_types {
         let firmware_rows = db_rack_firmware::list_all(
-            &mut conn,
+            conn,
             RackFirmwareSearchFilter {
                 only_available: true,
                 rack_hardware_type: Some(rack_hardware_type),
@@ -229,7 +224,13 @@ async fn resolve_requested_or_default_nvos_artifact(
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<Option<ResolvedNvosArtifact>, StateHandlerError> {
     let Some(rack_firmware_id) = rack_firmware_id else {
-        return resolve_default_nvos_artifact(id, rack_profile_id, ctx).await;
+        let mut conn = ctx.services.db_pool.acquire().await.map_err(|e| {
+            StateHandlerError::GenericError(eyre::eyre!(
+                "failed to acquire db connection for NVOS lookup: {}",
+                e
+            ))
+        })?;
+        return resolve_default_nvos_artifact(id, rack_profile_id, conn.as_mut(), ctx).await;
     };
 
     let firmware = match db_rack_firmware::find_by_id(&ctx.services.db_pool, rack_firmware_id).await
@@ -1259,15 +1260,6 @@ pub async fn handle_maintenance(
 
                 let all: Vec<_> = job.all_devices().collect();
                 let total = all.len();
-                let completed = all.iter().filter(|d| d.status == "completed").count();
-                let failed = all.iter().filter(|d| d.status == "failed").count();
-                let terminal = completed + failed;
-                let default_nvos_artifact =
-                    if terminal == total && failed == 0 && implicit_nvos_update_requested(scope) {
-                        resolve_default_nvos_artifact(id, rack_profile_id, ctx).await?
-                    } else {
-                        None
-                    };
 
                 let mut txn = ctx.services.db_pool.begin().await?;
 
@@ -1355,6 +1347,72 @@ pub async fn handle_maintenance(
                         .await?;
                     }
                 }
+
+                let scoped_machines: std::collections::HashSet<_> =
+                    scope.machine_ids.iter().collect();
+                let scoped_switches: std::collections::HashSet<_> =
+                    scope.switch_ids.iter().collect();
+                let machine_search = |state: &str| MachineSearchConfig {
+                    rack_id: Some(id.clone()),
+                    include_dpus: true,
+                    include_predicted_host: true,
+                    controller_state: Some(state.into()),
+                    ..Default::default()
+                };
+                let in_machine_scope = |m: &&carbide_uuid::machine::MachineId| {
+                    scope.is_full_rack() || scoped_machines.contains(*m)
+                };
+                let machine_failed =
+                    db_machine::find_machine_ids(txn.as_mut(), machine_search("error"))
+                        .await?
+                        .iter()
+                        .filter(in_machine_scope)
+                        .count();
+                let machine_completed =
+                    db_machine::find_machine_ids(txn.as_mut(), machine_search("ready"))
+                        .await?
+                        .iter()
+                        .filter(in_machine_scope)
+                        .count();
+
+                let rack_switch_ids = db_switch::find_ids(
+                    txn.as_mut(),
+                    model::switch::SwitchSearchFilter {
+                        rack_id: Some(id.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                let mut switch_failed = 0usize;
+                let mut switch_completed = 0usize;
+                for switch_id in &rack_switch_ids {
+                    if !scope.is_full_rack() && !scoped_switches.contains(switch_id) {
+                        continue;
+                    }
+                    let Some(switch) = db_switch::find_by_id(txn.as_mut(), switch_id).await? else {
+                        continue;
+                    };
+                    match &switch.controller_state.value {
+                        model::switch::SwitchControllerState::Error { .. } => switch_failed += 1,
+                        model::switch::SwitchControllerState::Ready
+                        | model::switch::SwitchControllerState::ReProvisioning {
+                            reprovisioning_state:
+                                model::switch::ReProvisioningState::WaitingForNVOSUpgrade,
+                        } => switch_completed += 1,
+                        _ => {}
+                    }
+                }
+
+                let failed = machine_failed + switch_failed;
+                let completed = machine_completed + switch_completed;
+                let terminal = completed + failed;
+                let default_nvos_artifact =
+                    if terminal == total && failed == 0 && implicit_nvos_update_requested(scope) {
+                        resolve_default_nvos_artifact(id, rack_profile_id, txn.as_mut(), ctx)
+                            .await?
+                    } else {
+                        None
+                    };
 
                 if terminal < total {
                     db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
@@ -1633,14 +1691,36 @@ pub async fn handle_maintenance(
                 }
 
                 let total = job.all_switches().count();
-                let completed = job
-                    .all_switches()
-                    .filter(|switch| switch.status == "completed")
-                    .count();
-                let failed = job
-                    .all_switches()
-                    .filter(|switch| switch.status == "failed")
-                    .count();
+
+                let scoped_switches: std::collections::HashSet<_> =
+                    scope.switch_ids.iter().collect();
+                let rack_switch_ids = db_switch::find_ids(
+                    txn.as_mut(),
+                    model::switch::SwitchSearchFilter {
+                        rack_id: Some(id.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                let mut failed = 0usize;
+                let mut completed = 0usize;
+                for switch_id in &rack_switch_ids {
+                    if !scope.is_full_rack() && !scoped_switches.contains(switch_id) {
+                        continue;
+                    }
+                    let Some(switch) = db_switch::find_by_id(txn.as_mut(), switch_id).await? else {
+                        continue;
+                    };
+                    match &switch.controller_state.value {
+                        model::switch::SwitchControllerState::Error { .. } => failed += 1,
+                        model::switch::SwitchControllerState::Ready
+                        | model::switch::SwitchControllerState::ReProvisioning {
+                            reprovisioning_state:
+                                model::switch::ReProvisioningState::WaitingForNMXCConfigure,
+                        } => completed += 1,
+                        _ => {}
+                    }
+                }
 
                 if failed > 0 {
                     db_rack::update_nvos_update_job(txn.as_mut(), id, Some(&job)).await?;
@@ -1905,10 +1985,61 @@ pub async fn handle_maintenance(
                     drop(txn);
                     return transition_to_rack_error(id, state, cause, ctx).await;
                 }
+
+                let total = switch_inventory.switches.len();
+                let scoped_switches: std::collections::HashSet<_> =
+                    scope.switch_ids.iter().collect();
+                let rack_switch_ids = db_switch::find_ids(
+                    txn.as_mut(),
+                    model::switch::SwitchSearchFilter {
+                        rack_id: Some(id.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                let mut failed = 0usize;
+                let mut completed = 0usize;
+                for switch_id in &rack_switch_ids {
+                    if !scope.is_full_rack() && !scoped_switches.contains(switch_id) {
+                        continue;
+                    }
+                    let Some(switch) = db_switch::find_by_id(txn.as_mut(), switch_id).await? else {
+                        continue;
+                    };
+                    match &switch.controller_state.value {
+                        model::switch::SwitchControllerState::Error { .. } => failed += 1,
+                        model::switch::SwitchControllerState::Ready => completed += 1,
+                        _ => {}
+                    }
+                }
+
+                if failed > 0 {
+                    if state.config.maintenance_requested.is_some() {
+                        state.config.maintenance_requested = None;
+                        db_rack::update(txn.as_mut(), id, &state.config).await?;
+                    }
+                    return Ok(StateHandlerOutcome::transition(RackState::Error {
+                        cause: format!(
+                            "ConfigureNmxCluster failed: {}/{} switches failed",
+                            failed, total
+                        ),
+                    })
+                    .with_txn(txn));
+                }
+
+                if completed < total {
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "configure_nmx_cluster: {}/{} switches completed",
+                        completed, total
+                    ))
+                    .with_txn(txn));
+                }
+
                 let next = next_state_after_configure(scope);
                 tracing::info!(
                     rack_id = %id,
-                    switch_count = switch_inventory.switches.len(),
+                    switch_count = total,
+                    completed,
                     next_state = %next,
                     "WaitForFabricStatus complete, FabricManager status persisted, advancing"
                 );
