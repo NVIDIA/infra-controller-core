@@ -135,6 +135,21 @@ impl RedfishClient {
         Ok(vendor)
     }
 
+    pub async fn validate_bmc_credentials(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_direct_redfish_client(bmc_ip_address, credentials, Some(RedfishVendor::Unknown))
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.get_systems().await.map_err(map_redfish_error)?;
+
+        Ok(())
+    }
+
     pub async fn set_bmc_root_password(
         &self,
         bmc_ip_address: SocketAddr,
