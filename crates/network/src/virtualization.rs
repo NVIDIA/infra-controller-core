@@ -22,7 +22,7 @@ use std::str::FromStr;
 use ipnetwork::IpNetwork;
 
 /// DEFAULT_NETWORK_VIRTUALIZATION_TYPE is what to default to if the Cloud API
-/// doesn't send it to Carbide (which it never does), or if the Carbide API
+/// doesn't send it to Nico (which it never does), or if the Nico API
 /// doesn't send it to the DPU agent.
 pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
     VpcVirtualizationType::EthernetVirtualizer;
@@ -166,7 +166,7 @@ impl FromStr for VpcVirtualizationType {
 /// for the purpose of FNN /30 allocations (where the host IP
 /// ends up being the 4th IP -- aka the second IP of the second
 /// /31 allocation in the /30), and will probably change with
-/// a wider refactor + intro of Carbide IP Prefix Management.
+/// a wider refactor + intro of Nico IP Prefix Management.
 pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<std::net::IpAddr> {
     match network.prefix() {
         // Single-host allocation: IPv4 /32 or IPv6 /128

@@ -41,7 +41,7 @@ pub type HardwareHash = [u8; 32];
 /// String so that we can implement the Copy trait.
 pub type HardwareIdBase32 = [u8; SWITCH_ID_HARDWARE_ID_BASE32_LENGTH];
 
-/// The `SwitchId` uniquely identifies a switch that is managed by the Forge system
+/// The `SwitchId` uniquely identifies a switch that is managed by the Nico system
 ///
 /// `SwitchId`s are derived from a hardware fingerprint, and are thereby
 /// globally unique.

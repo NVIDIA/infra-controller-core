@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 
 use super::args::{
     Args, RackMetadataCommandAddLabel, RackMetadataCommandFromExpectedRack,
@@ -29,7 +29,7 @@ pub async fn metadata(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     format: OutputFormat,
     extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         Args::Show(cmd) => metadata_show(api_client, cmd, output_file, format, extended).await,
         Args::Set(cmd) => metadata_set(api_client, cmd).await,
@@ -45,29 +45,29 @@ async fn metadata_show(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     _extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let mut racks = api_client.get_one_rack(cmd.rack.clone()).await?.racks;
     let Some(rack) = racks.pop() else {
-        return Err(CarbideCliError::GenericError(format!(
+        return Err(NicoCliError::GenericError(format!(
             "Rack with ID {} was not found",
             cmd.rack
         )));
     };
-    let metadata = rack.metadata.ok_or(CarbideCliError::Empty)?;
+    let metadata = rack.metadata.ok_or(NicoCliError::Empty)?;
     crate::metadata::display_metadata(output_file, &output_format, &metadata).await
 }
 
 async fn fetch_rack(
     api_client: &ApiClient,
-    rack_id: carbide_uuid::rack::RackId,
-) -> CarbideCliResult<rpc::forge::Rack> {
+    rack_id: nico_uuid::rack::RackId,
+) -> NicoCliResult<rpc::nico::Rack> {
     let mut racks = api_client.get_one_rack(rack_id.clone()).await?.racks;
     racks.pop().ok_or_else(|| {
-        CarbideCliError::GenericError(format!("Rack with ID {} was not found", rack_id))
+        NicoCliError::GenericError(format!("Rack with ID {} was not found", rack_id))
     })
 }
 
-async fn metadata_set(api_client: &ApiClient, cmd: RackMetadataCommandSet) -> CarbideCliResult<()> {
+async fn metadata_set(api_client: &ApiClient, cmd: RackMetadataCommandSet) -> NicoCliResult<()> {
     let rack = fetch_rack(api_client, cmd.rack).await?;
     let metadata = crate::metadata::apply_set(rack.metadata, cmd.name, cmd.description)?;
     api_client
@@ -78,7 +78,7 @@ async fn metadata_set(api_client: &ApiClient, cmd: RackMetadataCommandSet) -> Ca
 async fn metadata_add_label(
     api_client: &ApiClient,
     cmd: RackMetadataCommandAddLabel,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let rack = fetch_rack(api_client, cmd.rack).await?;
     let metadata = crate::metadata::apply_add_label(rack.metadata, cmd.key, cmd.value)?;
     api_client
@@ -89,7 +89,7 @@ async fn metadata_add_label(
 async fn metadata_remove_labels(
     api_client: &ApiClient,
     cmd: RackMetadataCommandRemoveLabels,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let rack = fetch_rack(api_client, cmd.rack).await?;
     let metadata = crate::metadata::apply_remove_labels(rack.metadata, cmd.keys)?;
     api_client
@@ -101,10 +101,10 @@ async fn metadata_remove_labels(
 async fn metadata_from_expected_rack(
     api_client: &ApiClient,
     cmd: RackMetadataCommandFromExpectedRack,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let mut racks = api_client.get_one_rack(cmd.rack.clone()).await?.racks;
     if racks.len() != 1 {
-        return Err(CarbideCliError::GenericError(format!(
+        return Err(NicoCliError::GenericError(format!(
             "Rack with ID {} was not found",
             cmd.rack
         )));
@@ -112,7 +112,7 @@ async fn metadata_from_expected_rack(
     let rack = racks.remove(0);
 
     let mut metadata = rack.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Rack does not carry Metadata that can be patched".into())
+        NicoCliError::GenericError("Rack does not carry Metadata that can be patched".into())
     })?;
 
     let expected_racks = api_client.0.get_all_expected_racks().await?.expected_racks;
@@ -120,14 +120,14 @@ async fn metadata_from_expected_rack(
         .into_iter()
         .find(|er| er.rack_id.as_ref() == Some(&cmd.rack))
         .ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "No expected Rack found for Rack with ID {}",
                 cmd.rack
             ))
         })?;
 
     let expected_rack_metadata = expected_rack.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError(format!(
+        NicoCliError::GenericError(format!(
             "No expected Rack Metadata found for Rack with ID {}",
             cmd.rack
         ))

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_utils::config::as_std_duration;
+use nico_utils::config::as_std_duration;
 use duration_str::deserialize_duration;
 use serde::{Deserialize, Serialize};
 

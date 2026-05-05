@@ -19,7 +19,7 @@
 //! `measurement journal` subcommand dispatcher + backing functions.
 
 use ::rpc::admin_cli::{
-    CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,
+    NicoCliError, NicoCliResult, ToTable, cli_output, just_print_summary,
 };
 use ::rpc::protos::measured_boot::ShowMeasurementJournalRequest;
 use measured_boot::bundle::MeasurementBundle;
@@ -38,7 +38,7 @@ use crate::rpc::ApiClient;
 pub async fn dispatch(
     cmd: CmdJournal,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         CmdJournal::Delete(local_args) => {
             cli_output(
@@ -83,24 +83,24 @@ pub async fn dispatch(
 /// delete deletes an existing journal entry.
 ///
 /// `journal delete <journal-id>`
-pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementJournal> {
+pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> NicoCliResult<MeasurementJournal> {
     let response = grpc_conn.0.delete_measurement_journal(delete).await?;
 
     MeasurementJournal::from_grpc(response.journal.as_ref())
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| NicoCliError::GenericError(e.to_string()))
 }
 
 /// show_by_id shows all info about a journal entry for the provided ID.
 ///
 /// `journal show <journal-id>`
-pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<MeasurementJournal> {
+pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> NicoCliResult<MeasurementJournal> {
     let response = grpc_conn
         .0
         .show_measurement_journal(ShowMeasurementJournalRequest::try_from(show)?)
         .await?;
 
     MeasurementJournal::from_grpc(response.journal.as_ref())
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| NicoCliError::GenericError(e.to_string()))
 }
 
 /// show_all shows all info about all journal entries.
@@ -109,7 +109,7 @@ pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<M
 pub async fn show_all(
     grpc_conn: &ApiClient,
     _show: Show,
-) -> CarbideCliResult<MeasurementJournalList> {
+) -> NicoCliResult<MeasurementJournalList> {
     Ok(MeasurementJournalList(
         grpc_conn
             .0
@@ -119,9 +119,9 @@ pub async fn show_all(
             .drain(..)
             .map(|journal| {
                 MeasurementJournal::from_grpc(Some(&journal))
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+                    .map_err(|e| NicoCliError::GenericError(e.to_string()))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementJournal>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementJournal>>>()?,
     ))
 }
 
@@ -131,7 +131,7 @@ pub async fn show_all(
 pub async fn list(
     grpc_conn: &ApiClient,
     list: List,
-) -> CarbideCliResult<MeasurementJournalRecordList> {
+) -> NicoCliResult<MeasurementJournalRecordList> {
     Ok(MeasurementJournalRecordList(
         grpc_conn
             .0
@@ -141,9 +141,9 @@ pub async fn list(
             .drain(..)
             .map(|journal| {
                 MeasurementJournalRecord::try_from(journal)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+                    .map_err(|e| NicoCliError::GenericError(e.to_string()))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementJournalRecord>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementJournalRecord>>>()?,
     ))
 }
 
@@ -158,7 +158,7 @@ pub async fn list(
 pub async fn promote(
     grpc_conn: &ApiClient,
     promote: Promote,
-) -> CarbideCliResult<MeasurementBundle> {
+) -> NicoCliResult<MeasurementBundle> {
     let journal = show_by_id(
         grpc_conn,
         Show {

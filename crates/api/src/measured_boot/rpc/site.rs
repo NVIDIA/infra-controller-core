@@ -22,8 +22,8 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::TrustedMachineId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::TrustedMachineId;
 use db::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
     insert_into_approved_profiles, list_attestation_summary,
@@ -49,7 +49,7 @@ use rpc::protos::measured_boot::{
 };
 use tonic::Status;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 
 /// handle_import_site_measurements handles the ImportSiteMeasurements
@@ -64,11 +64,11 @@ pub async fn handle_import_site_measurements(
     // make sure its good).
     let site_model = match &req.model {
         Some(site_model_pb) => SiteModel::from_pb(site_model_pb).map_err(|e| {
-            CarbideError::InvalidArgument(format!("input site model failed translation: {e}"))
+            NicoError::InvalidArgument(format!("input site model failed translation: {e}"))
         })?,
         None => {
             return Err(
-                CarbideError::InvalidArgument("site model cannot be empty".to_string()).into(),
+                NicoError::InvalidArgument("site model cannot be empty".to_string()).into(),
             );
         }
     };
@@ -76,7 +76,7 @@ pub async fn handle_import_site_measurements(
     // And now import it!
     let result = db::measured_boot::site::import(&mut txn, &site_model)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("site import failed: {e}"),
         })
         .map(|_| ImportSiteMeasurementsResponse {
@@ -95,13 +95,13 @@ pub async fn handle_export_site_measurements(
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
     let site_model = db::measured_boot::site::export(&mut api.db_reader())
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("export failed: {e}"),
         })?;
 
     Ok(ExportSiteMeasurementsResponse {
         model: Some(
-            SiteModel::to_pb(&site_model).map_err(|e| CarbideError::Internal {
+            SiteModel::to_pb(&site_model).map_err(|e| NicoError::Internal {
                 message: format!("model to pb failed: {e}"),
             })?,
         ),
@@ -119,14 +119,14 @@ pub async fn handle_add_measurement_trusted_machine(
     let approval_record = insert_into_approved_machines(
         &mut txn,
         TrustedMachineId::from_str(&req.machine_id).map_err(|_| {
-            CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
+            NicoError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
         })?,
         MeasurementApprovedType::from(approval_type),
         Some(req.pcr_registers),
         Some(req.comments),
     )
     .await
-    .map_err(|e| CarbideError::Internal {
+    .map_err(|e| NicoError::Internal {
         message: format!("failed to insert trusted machine approval: {e}"),
     })?;
 
@@ -149,7 +149,7 @@ pub async fn handle_remove_measurement_trusted_machine(
         Some(remove_measurement_trusted_machine_request::Selector::ApprovalId(approval_uuid)) => {
             remove_from_approved_machines_by_approval_id(&mut txn, approval_uuid)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("removal failed: {e}"),
                 })?
         }
@@ -158,17 +158,17 @@ pub async fn handle_remove_measurement_trusted_machine(
             remove_from_approved_machines_by_machine_id(
                 &mut txn,
                 MachineId::from_str(&machine_id).map_err(|_| {
-                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id))
+                    NicoError::from(RpcDataConversionError::InvalidMachineId(machine_id))
                 })?,
             )
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("removal failed: {e}"),
             })?
         }
         // Oops, forgot to set a selector.
         None => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "approval or machine ID selector missing".into(),
             )
             .into());
@@ -190,7 +190,7 @@ pub async fn handle_list_measurement_trusted_machines(
     let approval_records: Vec<MeasurementApprovedMachineRecordPb> =
         get_approved_machines(&api.database_connection)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("failed to fetch machine approvals: {e}"),
             })?
             .into_iter()
@@ -211,13 +211,13 @@ pub async fn handle_add_measurement_trusted_profile(
     let approval_record = insert_into_approved_profiles(
         &mut txn,
         req.profile_id
-            .ok_or(CarbideError::MissingArgument("profile_id"))?,
+            .ok_or(NicoError::MissingArgument("profile_id"))?,
         MeasurementApprovedType::from(approval_type),
         req.pcr_registers,
         req.comments,
     )
     .await
-    .map_err(|e| CarbideError::Internal {
+    .map_err(|e| NicoError::Internal {
         message: format!("failed to insert trusted profile approval: {e}"),
     })?;
 
@@ -239,7 +239,7 @@ pub async fn handle_remove_measurement_trusted_profile(
         Some(remove_measurement_trusted_profile_request::Selector::ApprovalId(approval_uuid)) => {
             remove_from_approved_profiles_by_approval_id(&mut txn, approval_uuid)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("removal failed: {e}"),
                 })?
         }
@@ -247,13 +247,13 @@ pub async fn handle_remove_measurement_trusted_profile(
         Some(remove_measurement_trusted_profile_request::Selector::ProfileId(profile_id)) => {
             remove_from_approved_profiles_by_profile_id(&mut txn, profile_id)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("removal failed: {e}"),
                 })?
         }
         // Oops, forgot to set a selector.
         None => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "approval or profile ID selector missing".into(),
             )
             .into());
@@ -275,7 +275,7 @@ pub async fn handle_list_measurement_trusted_profiles(
     let approval_records: Vec<MeasurementApprovedProfileRecordPb> =
         get_approved_profiles(&api.database_connection)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("failed to fetch profile approvals: {e}"),
             })?
             .into_iter()
@@ -291,7 +291,7 @@ pub async fn handle_list_attestation_summary(
 ) -> Result<ListAttestationSummaryResponse, Status> {
     let attestation_summary = list_attestation_summary(&api.database_connection)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("failed to fetch attestation summary: {e}"),
         })?;
 

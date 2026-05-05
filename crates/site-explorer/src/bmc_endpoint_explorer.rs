@@ -21,11 +21,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use carbide_ipmi::IPMITool;
-use carbide_redfish::libredfish::RedfishClientPool;
-use carbide_redfish::libredfish::conv::IntoLibredfish;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
-use forge_secrets::credentials::{CredentialManager, Credentials};
+use nico_ipmi::IPMITool;
+use nico_redfish::libredfish::RedfishClientPool;
+use nico_redfish::libredfish::conv::IntoLibredfish;
+use nico_redfish::nv_redfish::NvRedfishClientPool;
+use nico_secrets::credentials::{CredentialManager, Credentials};
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::expected_entity::{BmcCredentialsData, ExpectedEntity};
@@ -227,7 +227,7 @@ impl BmcEndpointExplorer {
             current_bmc_credentials
         } else {
             // use redfish to set the machine's BMC root password to
-            // match Forge's sitewide BMC root password (from the factory default).
+            // match Nico's sitewide BMC root password (from the factory default).
             // return an error if we cannot log into the machine's BMC using current credentials
             let sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
             let rotated = self
@@ -497,7 +497,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
     }
 
     // 1) Authenticate and set the BMC root account credentials
-    // 2) Authenticate and set the BMC forge-admin account credentials (TODO)
+    // 2) Authenticate and set the BMC nico-admin account credentials (TODO)
     #[tracing::instrument(skip_all, fields(object_id=%bmc_ip_address))]
     async fn explore_endpoint(
         &self,
@@ -567,7 +567,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         // Authenticate and set the BMC root account credentials
 
         // Case 1: Vault contains a path at "bmc/{bmc_mac_address}/root"
-        // This machine has its BMC set to the carbide sitewide BMC root password.
+        // This machine has its BMC set to the nico sitewide BMC root password.
         // Create the redfish client and generate the report.
         let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
@@ -1322,7 +1322,7 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
 
     if report1.machine_setup_status.is_some() != report2.machine_setup_status.is_some() {
         tracing::warn!(
-            "forge_setup_status(es) are not equal: {:?} != {:?}",
+            "nico_setup_status(es) are not equal: {:?} != {:?}",
             report1.machine_setup_status,
             report2.machine_setup_status,
         );
@@ -1330,7 +1330,7 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
         && let Some(r2) = &report2.machine_setup_status
     {
         if r1.is_done != r2.is_done {
-            tracing::warn!("forge_setup_status(es) are not equal: {r1:?} != {r2:?}",);
+            tracing::warn!("nico_setup_status(es) are not equal: {r1:?} != {r2:?}",);
         }
 
         let mut sst1_idx = (0..r1.diffs.len()).collect::<Vec<_>>();

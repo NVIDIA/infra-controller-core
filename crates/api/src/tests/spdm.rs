@@ -17,15 +17,15 @@
 pub mod tests {
     use std::collections::HashMap;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
     use config_version::ConfigVersion;
     use db::attestation::spdm::insert_devices;
     use model::attestation::spdm::{
         AttestationDeviceState, AttestationState, FetchDataDeviceStates,
         SpdmMachineAttestationHistory, SpdmMachineStateSnapshot, VerificationDeviceStates,
     };
-    use rpc::forge::forge_server::Forge;
-    use rpc::forge::{AttestationData, AttestationIdsRequest, AttestationMachineList};
+    use rpc::nico::nico_server::Nico;
+    use rpc::nico::{AttestationData, AttestationIdsRequest, AttestationMachineList};
     use sqlx::PgConnection;
     use tonic::Request;
 

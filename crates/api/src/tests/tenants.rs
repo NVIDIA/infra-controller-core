@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 use common::api_fixtures::{TestEnv, create_test_env};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{CreateTenantKeysetResponse, TenantKeysetIdentifier};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{CreateTenantKeysetResponse, TenantKeysetIdentifier};
 use tonic::Code;
 
 use crate::tests::common;
@@ -38,10 +38,10 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // Reject generally invalid metadata with just a name that is too short
     let tenant_create = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "Org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "x".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -55,13 +55,13 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // Reject metadata that is invalid specifically for a tenant
     let tenant_create = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "Org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "Name".to_string(),
                 description: "should not be stored".to_string(),
-                labels: vec![rpc::forge::Label {
+                labels: vec![rpc::nico::Label {
                     key: "aaa".to_string(),
                     value: Some("bbb".to_string()),
                 }],
@@ -77,10 +77,10 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // routing-profile name.
     let tenant_create = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "Organic".to_string(),
             routing_profile_type: Some("ADMIN".to_string()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "Name".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -99,10 +99,10 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // Now perform a good create
     let tenant_create = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "Org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "Name".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -117,7 +117,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert_eq!(tenant.organization_id, "Org");
     assert_eq!(
         tenant.metadata.unwrap(),
-        rpc::forge::Metadata {
+        rpc::nico::Metadata {
             name: "Name".to_string(),
             // Until/unless we actually start using labels and descriptions for Tenant,
             // these should come back empty
@@ -128,7 +128,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
 
     let find_tenant = env
         .api
-        .find_tenant(tonic::Request::new(rpc::forge::FindTenantRequest {
+        .find_tenant(tonic::Request::new(rpc::nico::FindTenantRequest {
             tenant_organization_id: "Org".to_string(),
         }))
         .await
@@ -144,7 +144,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert_eq!(tenant.organization_id, "Org");
     assert_eq!(
         tenant.metadata.unwrap(),
-        rpc::forge::Metadata {
+        rpc::nico::Metadata {
             name: "Name".to_string(),
             // Until/unless we actually start using labels and descriptions for Tenant,
             // these should come back empty
@@ -159,10 +159,10 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // Reject generally invalid metadata with just a name that is too short
     let update_tenant = env
         .api
-        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+        .update_tenant(tonic::Request::new(rpc::nico::UpdateTenantRequest {
             organization_id: "Org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "x".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -177,13 +177,13 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // Reject metadata that is invalid specifically for a tenant
     let update_tenant = env
         .api
-        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+        .update_tenant(tonic::Request::new(rpc::nico::UpdateTenantRequest {
             organization_id: "Org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "AnotherName".to_string(),
                 description: "should not be stored".to_string(),
-                labels: vec![rpc::forge::Label {
+                labels: vec![rpc::nico::Label {
                     key: "aaa".to_string(),
                     value: Some("bbb".to_string()),
                 }],
@@ -199,10 +199,10 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // Reject an unknown routing profile name on update.
     let update_tenant = env
         .api
-        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+        .update_tenant(tonic::Request::new(rpc::nico::UpdateTenantRequest {
             organization_id: "Org".to_string(),
             routing_profile_type: Some("ADMIN".to_string()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "AnotherName".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -225,8 +225,8 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .api
         .create_vpc(
             common::rpc_builder::VpcCreationRequest::builder("", tenant_org)
-                .metadata(rpc::forge::Metadata {
-                    name: "Forge".to_string(),
+                .metadata(rpc::nico::Metadata {
+                    name: "Nico".to_string(),
                     description: "".to_string(),
                     labels: Vec::new(),
                 })
@@ -239,10 +239,10 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // Now try to update the routing profile type and fail
     assert!(
         env.api
-            .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+            .update_tenant(tonic::Request::new(rpc::nico::UpdateTenantRequest {
                 organization_id: "Org".to_string(),
                 routing_profile_type: Some("INTERNAL".to_string()),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(rpc::nico::Metadata {
                     name: "AnotherName".to_string(),
                     description: "".to_string(),
                     labels: vec![],
@@ -260,7 +260,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
     //
     let update_tenant_err = env
         .api
-        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+        .update_tenant(tonic::Request::new(rpc::nico::UpdateTenantRequest {
             organization_id: "Org".to_string(),
             metadata: None,
             routing_profile_type: None,
@@ -276,11 +276,11 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // pass.
     let update_tenant = env
         .api
-        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+        .update_tenant(tonic::Request::new(rpc::nico::UpdateTenantRequest {
             organization_id: "Org".to_string(),
             // No change from whatever it was given on create.
             routing_profile_type: tenant.routing_profile_type,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "AnotherName".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -296,7 +296,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert_eq!(tenant.organization_id, "Org");
     assert_eq!(
         tenant.metadata.unwrap(),
-        rpc::forge::Metadata {
+        rpc::nico::Metadata {
             // Make sure the name changed.
             name: "AnotherName".to_string(),
             // Until/unless we actually start using labels and descriptions for Tenant,
@@ -320,10 +320,10 @@ async fn test_tenant(pool: sqlx::PgPool) {
 
     let tenant = env
         .api
-        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+        .update_tenant(tonic::Request::new(rpc::nico::UpdateTenantRequest {
             organization_id: "Org".to_string(),
             routing_profile_type: Some("INTERNAL".to_string()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "AnotherName".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -342,10 +342,10 @@ async fn test_tenant(pool: sqlx::PgPool) {
     // the routing profile to something other than default
     let tenant_create = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "Org2".to_string(),
             routing_profile_type: Some("INTERNAL".to_string()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "Name".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -368,10 +368,10 @@ async fn test_find_tenant_ids(pool: sqlx::PgPool) {
     for x in 0..10 {
         let _tenant_create = env
             .api
-            .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
                 organization_id: format!("fh{x}{x}abcdw"),
                 routing_profile_type: None,
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(rpc::nico::Metadata {
                     name: format!("tenant_{x}"),
                     description: "".to_string(),
                     labels: vec![],
@@ -382,7 +382,7 @@ async fn test_find_tenant_ids(pool: sqlx::PgPool) {
 
     let find_tenant = env
         .api
-        .find_tenant_organization_ids(tonic::Request::new(rpc::forge::TenantSearchFilter {
+        .find_tenant_organization_ids(tonic::Request::new(rpc::nico::TenantSearchFilter {
             tenant_organization_name: Some("tenant_3".to_string()),
         }))
         .await
@@ -397,7 +397,7 @@ async fn test_find_tenant_ids(pool: sqlx::PgPool) {
     let tenant_object = env
         .api
         .find_tenants_by_organization_ids(tonic::Request::new(
-            rpc::forge::TenantByOrganizationIdsRequest {
+            rpc::nico::TenantByOrganizationIdsRequest {
                 organization_ids: vec!["fh33abcdw".to_string()],
             },
         ))
@@ -408,7 +408,7 @@ async fn test_find_tenant_ids(pool: sqlx::PgPool) {
     assert_eq!(tenant_object.tenants.len(), 1);
     assert_eq!(
         tenant_object.tenants.first().unwrap().metadata,
-        Some(rpc::forge::Metadata {
+        Some(rpc::nico::Metadata {
             name: "tenant_3".to_string(),
             description: "".to_string(),
             labels: vec![],
@@ -417,7 +417,7 @@ async fn test_find_tenant_ids(pool: sqlx::PgPool) {
 
     let find_all_tenants = env
         .api
-        .find_tenant_organization_ids(tonic::Request::new(rpc::forge::TenantSearchFilter {
+        .find_tenant_organization_ids(tonic::Request::new(rpc::nico::TenantSearchFilter {
             tenant_organization_name: None,
         }))
         .await
@@ -443,10 +443,10 @@ async fn test_tenant_create_without_fnn(pool: sqlx::PgPool) {
     // Create a tenant without a routing profile.
     let tenant_create = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "PreFnnOrg".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "PreFnnOrg".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -463,7 +463,7 @@ async fn test_tenant_create_without_fnn(pool: sqlx::PgPool) {
     // Look up the tenant to verify the pre-FNN create path does not persist a profile.
     let find_tenant = env
         .api
-        .find_tenant(tonic::Request::new(rpc::forge::FindTenantRequest {
+        .find_tenant(tonic::Request::new(rpc::nico::FindTenantRequest {
             tenant_organization_id: "PreFnnOrg".to_string(),
         }))
         .await
@@ -477,10 +477,10 @@ async fn test_tenant_create_without_fnn(pool: sqlx::PgPool) {
     // Updating a tenant with a routing profile while FNN is disabled should fail.
     let update_tenant = env
         .api
-        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+        .update_tenant(tonic::Request::new(rpc::nico::UpdateTenantRequest {
             organization_id: "PreFnnOrg".to_string(),
             routing_profile_type: Some("INTERNAL".to_string()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "PreFnnOrg".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -500,10 +500,10 @@ async fn test_tenant_create_without_fnn(pool: sqlx::PgPool) {
     // Creating a tenant with a routing profile while FNN is disabled should fail.
     let tenant_create = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "PreFnnOrgWithProfile".to_string(),
             routing_profile_type: Some("INTERNAL".to_string()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "PreFnnOrgWithProfile".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -525,11 +525,11 @@ async fn create_keyset(
     organization_id: String,
     keyset_id: String,
     version: String,
-    keyset_content: rpc::forge::TenantKeysetContent,
+    keyset_content: rpc::nico::TenantKeysetContent,
 ) -> CreateTenantKeysetResponse {
     env.api
-        .create_tenant_keyset(tonic::Request::new(rpc::forge::CreateTenantKeysetRequest {
-            keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
+        .create_tenant_keyset(tonic::Request::new(rpc::nico::CreateTenantKeysetRequest {
+            keyset_identifier: Some(rpc::nico::TenantKeysetIdentifier {
                 organization_id,
                 keyset_id,
             }),
@@ -549,7 +549,7 @@ async fn test_tenant_create_keyset(pool: sqlx::PgPool) {
         "Org1".to_string(),
         "keyset1".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
+        rpc::nico::TenantKeysetContent {
             public_keys: vec![],
         },
     )
@@ -578,7 +578,7 @@ async fn test_tenant_find_keyset_ids(pool: sqlx::PgPool) {
         "Org1".to_string(),
         "keyset1".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
+        rpc::nico::TenantKeysetContent {
             public_keys: vec![],
         },
     )
@@ -589,13 +589,13 @@ async fn test_tenant_find_keyset_ids(pool: sqlx::PgPool) {
         "Org1".to_string(),
         "keyset2".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
+        rpc::nico::TenantKeysetContent {
             public_keys: vec![
-                rpc::forge::TenantPublicKey {
+                rpc::nico::TenantPublicKey {
                     public_key: "mypublickey1".to_string(),
                     comment: Some("comment1".to_string()),
                 },
-                rpc::forge::TenantPublicKey {
+                rpc::nico::TenantPublicKey {
                     public_key: "mypublickey2".to_string(),
                     comment: Some("comment2".to_string()),
                 },
@@ -609,7 +609,7 @@ async fn test_tenant_find_keyset_ids(pool: sqlx::PgPool) {
         "Org2".to_string(),
         "keyset3".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
+        rpc::nico::TenantKeysetContent {
             public_keys: vec![],
         },
     )
@@ -617,7 +617,7 @@ async fn test_tenant_find_keyset_ids(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset_ids(tonic::Request::new(rpc::forge::TenantKeysetSearchFilter {
+        .find_tenant_keyset_ids(tonic::Request::new(rpc::nico::TenantKeysetSearchFilter {
             tenant_org_id: Some("Org3".to_string()),
         }))
         .await
@@ -628,7 +628,7 @@ async fn test_tenant_find_keyset_ids(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset_ids(tonic::Request::new(rpc::forge::TenantKeysetSearchFilter {
+        .find_tenant_keyset_ids(tonic::Request::new(rpc::nico::TenantKeysetSearchFilter {
             tenant_org_id: Some("Org1".to_string()),
         }))
         .await
@@ -639,7 +639,7 @@ async fn test_tenant_find_keyset_ids(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::nico::TenantKeysetsByIdsRequest {
             keyset_ids: vec![TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset2".to_string(),
@@ -680,7 +680,7 @@ async fn test_tenant_find_keyset_ids(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::nico::TenantKeysetsByIdsRequest {
             keyset_ids: vec![TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset2".to_string(),
@@ -729,7 +729,7 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
         "Org1".to_string(),
         "keyset1".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
+        rpc::nico::TenantKeysetContent {
             public_keys: vec![],
         },
     )
@@ -737,8 +737,8 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
 
     let err = env
         .api
-        .delete_tenant_keyset(tonic::Request::new(rpc::forge::DeleteTenantKeysetRequest {
-            keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
+        .delete_tenant_keyset(tonic::Request::new(rpc::nico::DeleteTenantKeysetRequest {
+            keyset_identifier: Some(rpc::nico::TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset_id".to_string(),
             }),
@@ -748,8 +748,8 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
     assert_eq!(err.code(), tonic::Code::NotFound);
 
     env.api
-        .delete_tenant_keyset(tonic::Request::new(rpc::forge::DeleteTenantKeysetRequest {
-            keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
+        .delete_tenant_keyset(tonic::Request::new(rpc::nico::DeleteTenantKeysetRequest {
+            keyset_identifier: Some(rpc::nico::TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset1".to_string(),
             }),
@@ -759,7 +759,7 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset_ids(tonic::Request::new(rpc::forge::TenantKeysetSearchFilter {
+        .find_tenant_keyset_ids(tonic::Request::new(rpc::nico::TenantKeysetSearchFilter {
             tenant_org_id: Some("Org1".to_string()),
         }))
         .await
@@ -777,7 +777,7 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
         "Org1".to_string(),
         "keyset1".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
+        rpc::nico::TenantKeysetContent {
             public_keys: vec![],
         },
     )
@@ -785,7 +785,7 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::nico::TenantKeysetsByIdsRequest {
             keyset_ids: vec![TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset1".to_string(),
@@ -808,18 +808,18 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
     // Update to invalid version fails
     let err = env
         .api
-        .update_tenant_keyset(tonic::Request::new(rpc::forge::UpdateTenantKeysetRequest {
-            keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
+        .update_tenant_keyset(tonic::Request::new(rpc::nico::UpdateTenantKeysetRequest {
+            keyset_identifier: Some(rpc::nico::TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset1".to_string(),
             }),
-            keyset_content: Some(rpc::forge::TenantKeysetContent {
+            keyset_content: Some(rpc::nico::TenantKeysetContent {
                 public_keys: vec![
-                    rpc::forge::TenantPublicKey {
+                    rpc::nico::TenantPublicKey {
                         public_key: "mypublickey1".to_string(),
                         comment: Some("comment1".to_string()),
                     },
-                    rpc::forge::TenantPublicKey {
+                    rpc::nico::TenantPublicKey {
                         public_key: "mypublickey2".to_string(),
                         comment: Some("comment2".to_string()),
                     },
@@ -835,13 +835,13 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
     // Update to valid version and invalid keyset ID returns NotFound
     let err = env
         .api
-        .update_tenant_keyset(tonic::Request::new(rpc::forge::UpdateTenantKeysetRequest {
-            keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
+        .update_tenant_keyset(tonic::Request::new(rpc::nico::UpdateTenantKeysetRequest {
+            keyset_identifier: Some(rpc::nico::TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset2".to_string(),
             }),
-            keyset_content: Some(rpc::forge::TenantKeysetContent {
-                public_keys: vec![rpc::forge::TenantPublicKey {
+            keyset_content: Some(rpc::nico::TenantKeysetContent {
+                public_keys: vec![rpc::nico::TenantPublicKey {
                     public_key: "mypublickey1".to_string(),
                     comment: Some("comment1".to_string()),
                 }],
@@ -855,13 +855,13 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
 
     // Update to valid version succeeds
     env.api
-        .update_tenant_keyset(tonic::Request::new(rpc::forge::UpdateTenantKeysetRequest {
-            keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
+        .update_tenant_keyset(tonic::Request::new(rpc::nico::UpdateTenantKeysetRequest {
+            keyset_identifier: Some(rpc::nico::TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset1".to_string(),
             }),
-            keyset_content: Some(rpc::forge::TenantKeysetContent {
-                public_keys: vec![rpc::forge::TenantPublicKey {
+            keyset_content: Some(rpc::nico::TenantKeysetContent {
+                public_keys: vec![rpc::nico::TenantPublicKey {
                     public_key: "mypublickey1".to_string(),
                     comment: Some("comment1".to_string()),
                 }],
@@ -874,7 +874,7 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::nico::TenantKeysetsByIdsRequest {
             keyset_ids: vec![TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset1".to_string(),
@@ -896,18 +896,18 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
     );
 
     env.api
-        .update_tenant_keyset(tonic::Request::new(rpc::forge::UpdateTenantKeysetRequest {
-            keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
+        .update_tenant_keyset(tonic::Request::new(rpc::nico::UpdateTenantKeysetRequest {
+            keyset_identifier: Some(rpc::nico::TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset1".to_string(),
             }),
-            keyset_content: Some(rpc::forge::TenantKeysetContent {
+            keyset_content: Some(rpc::nico::TenantKeysetContent {
                 public_keys: vec![
-                    rpc::forge::TenantPublicKey {
+                    rpc::nico::TenantPublicKey {
                         public_key: "mypublickey1".to_string(),
                         comment: Some("comment1".to_string()),
                     },
-                    rpc::forge::TenantPublicKey {
+                    rpc::nico::TenantPublicKey {
                         public_key: "mypublickey2".to_string(),
                         comment: Some("comment2".to_string()),
                     },
@@ -921,7 +921,7 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::nico::TenantKeysetsByIdsRequest {
             keyset_ids: vec![TenantKeysetIdentifier {
                 organization_id: "Org1".to_string(),
                 keyset_id: "keyset1".to_string(),
@@ -957,8 +957,8 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         "Tenant1".to_string(),
         "keyset1".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
-            public_keys: vec![rpc::forge::TenantPublicKey {
+        rpc::nico::TenantKeysetContent {
+            public_keys: vec![rpc::nico::TenantPublicKey {
                 public_key: "ssh-rsa some_long_key_base64_encoded test@myname".to_string(),
                 comment: Some("some random comment".to_string()),
             }],
@@ -973,8 +973,8 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         "Tenant1".to_string(),
         "keyset2".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
-            public_keys: vec![rpc::forge::TenantPublicKey {
+        rpc::nico::TenantKeysetContent {
+            public_keys: vec![rpc::nico::TenantPublicKey {
                 public_key: "ssh-rsa my_another_key test@myname".to_string(),
                 comment: Some("some random comment".to_string()),
             }],
@@ -989,8 +989,8 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         "Tenant1".to_string(),
         "keyset3".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
-            public_keys: vec![rpc::forge::TenantPublicKey {
+        rpc::nico::TenantKeysetContent {
+            public_keys: vec![rpc::nico::TenantPublicKey {
                 public_key: "ssh-rsa my_another_keyset3 test@myname".to_string(),
                 comment: Some("some random comment".to_string()),
             }],
@@ -1005,8 +1005,8 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         "org1".to_string(),
         "keyset2".to_string(),
         "V1-T1691517639501025".to_string(),
-        rpc::forge::TenantKeysetContent {
-            public_keys: vec![rpc::forge::TenantPublicKey {
+        rpc::nico::TenantKeysetContent {
+            public_keys: vec![rpc::nico::TenantPublicKey {
                 public_key: "ssh-rsa some_long_key_base64_encoded_1 test@myname".to_string(),
                 comment: Some("some random comment".to_string()),
             }],
@@ -1029,7 +1029,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     assert!(
         env.api
             .validate_tenant_public_key(tonic::Request::new(
-                rpc::forge::ValidateTenantPublicKeyRequest {
+                rpc::nico::ValidateTenantPublicKeyRequest {
                     instance_id: tinstance.id.to_string(),
                     tenant_public_key: "mykey1".to_string()
                 },
@@ -1042,7 +1042,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     assert!(
         env.api
             .validate_tenant_public_key(tonic::Request::new(
-                rpc::forge::ValidateTenantPublicKeyRequest {
+                rpc::nico::ValidateTenantPublicKeyRequest {
                     instance_id: tinstance.id.to_string(),
                     tenant_public_key: "some_long_key_base64_encoded".to_string()
                 },
@@ -1054,7 +1054,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     assert!(
         env.api
             .validate_tenant_public_key(tonic::Request::new(
-                rpc::forge::ValidateTenantPublicKeyRequest {
+                rpc::nico::ValidateTenantPublicKeyRequest {
                     instance_id: tinstance.id.to_string(),
                     tenant_public_key: "my_another_key".to_string()
                 },
@@ -1067,7 +1067,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     assert!(
         env.api
             .validate_tenant_public_key(tonic::Request::new(
-                rpc::forge::ValidateTenantPublicKeyRequest {
+                rpc::nico::ValidateTenantPublicKeyRequest {
                     instance_id: tinstance.id.to_string(),
                     tenant_public_key: "my_another_keyset3".to_string()
                 },
@@ -1079,7 +1079,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     assert!(
         env.api
             .validate_tenant_public_key(tonic::Request::new(
-                rpc::forge::ValidateTenantPublicKeyRequest {
+                rpc::nico::ValidateTenantPublicKeyRequest {
                     instance_id: tinstance.id.to_string(),
                     tenant_public_key: "some_long_key_base64_encoded_1".to_string()
                 },
@@ -1091,7 +1091,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     assert!(
         env.api
             .validate_tenant_public_key(tonic::Request::new(
-                rpc::forge::ValidateTenantPublicKeyRequest {
+                rpc::nico::ValidateTenantPublicKeyRequest {
                     instance_id: tinstance.id.to_string(),
                     tenant_public_key: "unknown_key1".to_string()
                 },

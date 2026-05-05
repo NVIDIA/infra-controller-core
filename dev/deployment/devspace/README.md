@@ -44,8 +44,8 @@ Examples:
 LOCAL_DEV_INSTALL_POSTGRES=0 \
 LOCAL_DEV_POSTGRES_HOST=my-postgres.postgres.svc.cluster.local \
 LOCAL_DEV_POSTGRES_PORT=5432 \
-LOCAL_DEV_POSTGRES_DB=carbide \
-LOCAL_DEV_POSTGRES_USER=carbide \
+LOCAL_DEV_POSTGRES_DB=nico \
+LOCAL_DEV_POSTGRES_USER=nico \
 LOCAL_DEV_POSTGRES_PASSWORD=secret \
 dev/deployment/devspace/bootstrap-prereqs.sh
 ```
@@ -96,13 +96,13 @@ The DevSpace images also use Dockerfile-specific ignore files: [`Dockerfile.api.
 
 DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfile to decide when the image needs rebuilding.
 
-The production Helm chart is still only responsible for the product services. `machine-a-tron` is deployed separately as plain local-only Kubernetes objects in [`machine-a-tron.yaml`](machine-a-tron.yaml), with DevSpace wiring in the local image tag and certificate issuer from [`devspace.yaml`](../../../devspace.yaml). The local API site config in [`values.base.yaml`](values.base.yaml) points BMC traffic at `machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266`.
+The production Helm chart is still only responsible for the product services. `machine-a-tron` is deployed separately as plain local-only Kubernetes objects in [`machine-a-tron.yaml`](machine-a-tron.yaml), with DevSpace wiring in the local image tag and certificate issuer from [`devspace.yaml`](../../../devspace.yaml). The local API site config in [`values.base.yaml`](values.base.yaml) points BMC traffic at `machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266`.
 
 Common usage:
 
 ```bash
 devspace deploy
-devspace deploy -n forge-system
+devspace deploy -n nico-system
 devspace deploy --force-build
 ```
 
@@ -112,25 +112,25 @@ If you want to understand what DevSpace is doing for the app image, the configur
 
 ```bash
 docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
-docker build -t "carbide-api:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.api .
+docker build -t "nico-api:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.api .
 docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.machine-a-tron .
 ```
 
-DevSpace then deploys the Helm chart with the built `carbide-api` image wired into `global.image.repository` and `global.image.tag`, and applies the local-only `machine-a-tron` manifest with its image wired into the `Deployment` spec.
+DevSpace then deploys the Helm chart with the built `nico-api` image wired into `global.image.repository` and `global.image.tag`, and applies the local-only `machine-a-tron` manifest with its image wired into the `Deployment` spec.
 
 ## Re-initializing  ncx-infra-controller-core to a clean slate
 
-Once deployed, the `carbide-api` container will run and initialize its database, and the `machine-a-tron` container will run a set of mock machines, which will be discovered and ingested into the database, and run through the state machine until they reach a Ready state.
+Once deployed, the `nico-api` container will run and initialize its database, and the `machine-a-tron` container will run a set of mock machines, which will be discovered and ingested into the database, and run through the state machine until they reach a Ready state.
 
 You can start over again (purging the resources from k8s) by running:
 
 ```bash
-devspace purge -n forge-system
+devspace purge -n nico-system
 ```
 
-and it will delete the carbide-api and machine-a-tron deployments.
+and it will delete the nico-api and machine-a-tron deployments.
 
-To clear out the carbide database to start from scratch again, run the nuke-postgres.sh helper script:
+To clear out the nico database to start from scratch again, run the nuke-postgres.sh helper script:
 
 ```bash
 dev/deployment/devspace/nuke-postgres.sh
@@ -139,7 +139,7 @@ dev/deployment/devspace/nuke-postgres.sh
 and the postgres database will be reset to an empty state, allowing you to deploy again:
 
 ```bash
-devspace deploy -n forge-system
+devspace deploy -n nico-system
 ```
 
 ## Files

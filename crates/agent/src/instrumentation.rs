@@ -33,7 +33,7 @@ use tower::ServiceBuilder;
 use tracing::Span;
 
 pub mod config;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
 
 pub struct AgentMetricsState {
@@ -108,7 +108,7 @@ impl NetworkMonitorMetricsState {
         {
             let network_reachable_map = network_reachable_map.clone();
             meter
-                .u64_observable_gauge("forge_dpu_agent_network_reachable")
+                .u64_observable_gauge("nico_dpu_agent_network_reachable")
                 .with_description(
                     "Network reachability status (1 for reachable, 0 for unreachable)",
                 )
@@ -132,19 +132,19 @@ impl NetworkMonitorMetricsState {
         }
 
         let network_latency = meter
-            .f64_histogram("forge_dpu_agent_network_latency")
+            .f64_histogram("nico_dpu_agent_network_latency")
             .with_unit("ms")
             .build();
         let network_loss_percent = meter
-            .f64_histogram("forge_dpu_agent_network_loss_percentage")
+            .f64_histogram("nico_dpu_agent_network_loss_percentage")
             .with_description("Percentage of failed pings out of total 5 pings")
             .build();
         let network_monitor_error = meter
-            .u64_counter("forge_dpu_agent_network_monitor_error")
+            .u64_counter("nico_dpu_agent_network_monitor_error")
             .with_description("Network monitor errors which are unrelated to network connectivity")
             .build();
         let network_communication_error = meter
-            .u64_counter("forge_dpu_agent_network_communication_error")
+            .u64_counter("nico_dpu_agent_network_communication_error")
             .with_description("Network monitor errors related to ping dpu")
             .build();
 

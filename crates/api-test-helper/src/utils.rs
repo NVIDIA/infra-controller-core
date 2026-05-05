@@ -21,10 +21,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
-use carbide_utils::HostPortPair;
+use nico_utils::HostPortPair;
 use eyre::Report;
-use forge_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
-use forge_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
+use nico_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
+use nico_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
 use metrics_endpoint::MetricsSetup;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{Pool, Postgres};
@@ -53,9 +53,9 @@ lazy_static::lazy_static! {
 
 #[derive(Debug, Clone)]
 pub struct IntegrationTestEnvironment {
-    pub carbide_api_addrs: Vec<SocketAddr>,
+    pub nico_api_addrs: Vec<SocketAddr>,
     pub root_dir: PathBuf,
-    pub carbide_metrics_addrs: Vec<SocketAddr>,
+    pub nico_metrics_addrs: Vec<SocketAddr>,
     pub db_url: String,
     pub db_pool: Pool<Postgres>,
     pub metrics: MetricsSetup,
@@ -88,7 +88,7 @@ impl IntegrationTestEnvironment {
         // Pick free ports for addresses we need. This is still racy, as it's not guaranteed that
         // the ports will still be available when we start the servers, but it's better than
         // hardcoding them.
-        let (carbide_api_addrs, carbide_metrics_addrs, vault_addr) = {
+        let (nico_api_addrs, nico_metrics_addrs, vault_addr) = {
             let mut listeners = vec![]; // hold the listeners so that we don't get the same port twice
             let mut api_addrs = vec![];
             let mut metrics_addrs = vec![];
@@ -124,8 +124,8 @@ impl IntegrationTestEnvironment {
             vault: VaultConfig {
                 address: Some(format!("https://{vault_addr}")),
                 kv_mount_location: Some("secret".to_string()),
-                pki_mount_location: Some("forgeca".to_string()),
-                pki_role_name: Some("forge-cluster".to_string()),
+                pki_mount_location: Some("nicoca".to_string()),
+                pki_role_name: Some("nico-cluster".to_string()),
                 token: Some(vault.token.clone()),
                 vault_cacert: Some(vault.ca_cert.clone()),
             },
@@ -138,13 +138,13 @@ impl IntegrationTestEnvironment {
         sqlx::Postgres::create_database(&db_url).await?;
         let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
         Ok(Some(IntegrationTestEnvironment {
-            carbide_api_addrs,
+            nico_api_addrs,
             root_dir,
-            carbide_metrics_addrs,
+            nico_metrics_addrs,
             credential_config,
             db_url,
             db_pool,
-            metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?, // unique to each test
+            metrics: metrics_endpoint::new_metrics_setup("nico-api", "nico-system", true)?, // unique to each test
             _vault_handle: Arc::new(vault),
         }))
     }
@@ -197,11 +197,11 @@ pub async fn start_api_server(
 ) -> eyre::Result<ApiServerHandle> {
     // Destructure into vars to save typing
     let IntegrationTestEnvironment {
-        carbide_api_addrs,
+        nico_api_addrs,
         db_pool,
         db_url,
         root_dir,
-        carbide_metrics_addrs,
+        nico_metrics_addrs,
         metrics,
         credential_config,
         _vault_handle,
@@ -215,7 +215,7 @@ pub async fn start_api_server(
         env::set_var("NO_DPU_CONTAINERS", "true");
         env::set_var("NO_DPU_ARMOS_NETWORK", "true");
 
-        // Put our fake `crictl` on front of path so that forge-dpu-agent's HBN health checks succeed
+        // Put our fake `crictl` on front of path so that nico-dpu-agent's HBN health checks succeed
         if put_dev_bin_in_path {
             let dev_bin = root_dir.join("dev/bin");
             if let Some(path) = env::var_os("PATH") {
@@ -230,8 +230,8 @@ pub async fn start_api_server(
     // We should setup logging here but:
     // - try_init sets a global logger and can only be called once.
     // Error is: "a global default trace dispatcher has already been set".
-    // carbide_host_support::init_logging() calls try_init, but so does carbide-api when it starts.
-    // - Even if we could get around that (carbide_host_support::subscriber().set_default() should
+    // nico_host_support::init_logging() calls try_init, but so does nico-api when it starts.
+    // - Even if we could get around that (nico_host_support::subscriber().set_default() should
     // set a thread-specific logger), tracing will attempt to initialize the `log` crate (via tracing-log)
     // which can also only be initialized once. What a mess.
     // Error is: "attempted to set a logger after the logging system was already initialized"
@@ -250,8 +250,8 @@ pub async fn start_api_server(
         let cancel_token = cancel_token.clone();
         async move {
             api_server::start(StartArgs {
-                addr: carbide_api_addrs[addr_index],
-                metrics_addr: carbide_metrics_addrs[addr_index],
+                addr: nico_api_addrs[addr_index],
+                metrics_addr: nico_metrics_addrs[addr_index],
                 root_dir,
                 db_url,
                 bmc_proxy,
@@ -292,7 +292,7 @@ pub async fn populate_initial_vault_secrets(
     credential_manager
         .set_credentials(
             &CredentialKey::BmcCredentials {
-                credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
+                credential_type: nico_secrets::credentials::BmcCredentialType::SiteWideRoot,
             },
             &Credentials::UsernamePassword {
                 username: "root".to_string(),

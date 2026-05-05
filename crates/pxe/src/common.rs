@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 use axum_template::engine::Engine;
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::machine::MachineInterfaceId;
 use metrics_exporter_prometheus::PrometheusHandle;
-use rpc::forge::CloudInitInstructions;
+use rpc::nico::CloudInitInstructions;
 use serde::{Deserialize, Serialize};
 use tera::Tera;
 

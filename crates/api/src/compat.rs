@@ -15,34 +15,34 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::ForgeAgentControlResponse;
-use ::rpc::{forge as rpc, forge_agent_control_response as fac};
-use carbide_host_support::dpa_cmds::DpaCommand;
+use ::rpc::nico::NicoAgentControlResponse;
+use ::rpc::{nico as rpc, nico_agent_control_response as fac};
+use nico_host_support::dpa_cmds::DpaCommand;
 use model::machine::MachineValidationFilter;
-use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use rpc::nico_agent_control_response::nico_agent_control_extra_info::KeyValuePair;
 
-use crate::CarbideError;
-use crate::errors::CarbideResult;
+use crate::NicoError;
+use crate::errors::NicoResult;
 
 /// Supports building a type from a source value while also filling in all legacy fields.
 pub trait BuildAndFillLegacyFields {
     type Source;
 
-    fn build_and_fill_legacy_fields(source: Self::Source) -> CarbideResult<Self>
+    fn build_and_fill_legacy_fields(source: Self::Source) -> NicoResult<Self>
     where
         Self: Sized;
 }
 
-/// ForgeAgentControlResponse has been migrated from including extra information as key/value string
+/// NicoAgentControlResponse has been migrated from including extra information as key/value string
 /// pairs in a `data` field, to having strongly-typed values for the `action` field. There is a
-/// possibility that scout instances will still be running while we update carbide-api, so we need
-/// to "dual write" the fields in ForgeAgentControlResponse, until scout is upgraded everywhere. At
-/// that point we can delete this code and construct ForgeAgentControlResponse from an Action
+/// possibility that scout instances will still be running while we update nico-api, so we need
+/// to "dual write" the fields in NicoAgentControlResponse, until scout is upgraded everywhere. At
+/// that point we can delete this code and construct NicoAgentControlResponse from an Action
 /// directly using the From trait.
-impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
+impl BuildAndFillLegacyFields for NicoAgentControlResponse {
     type Source = fac::Action;
 
-    fn build_and_fill_legacy_fields(action: fac::Action) -> CarbideResult<Self> {
+    fn build_and_fill_legacy_fields(action: fac::Action) -> NicoResult<Self> {
         let (legacy_action, key_values) = match &action {
             fac::Action::Noop(_) => (fac::LegacyAction::Noop, None),
             fac::Action::Reset(_) => (fac::LegacyAction::Reset, None),
@@ -59,7 +59,7 @@ impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
                     is_enabled,
                 } = machine_validation;
                 let Some(validation_id) = validation_id else {
-                    return Err(CarbideError::internal("MachineValidation action is missing validation_id".to_string()));
+                    return Err(NicoError::internal("MachineValidation action is missing validation_id".to_string()));
                 };
                 // Note: Some tests are sensitive to ordering here, put ValidationId second.
                 let mut pairs = vec![
@@ -92,11 +92,11 @@ impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
                         .iter()
                         .filter_map(|action| Some((action, action.command.as_ref()?)))
                         .map(|(action, command)| {
-                            Ok::<_, CarbideError>(KeyValuePair {
+                            Ok::<_, NicoError>(KeyValuePair {
                                 key: action.pci_name.clone(),
                                 value: serde_json::to_string(
                                     &DpaCommand::try_from(command.clone()).map_err(|e| {
-                                        CarbideError::internal(format!(
+                                        NicoError::internal(format!(
                                             "Error converting MlxAction to JSON for legacy fields: {e}"
                                         ))
                                     })?,
@@ -112,7 +112,7 @@ impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
                     .task
                     .as_ref()
                     .map(|task| {
-                        Ok::<_, CarbideError>(vec![KeyValuePair {
+                        Ok::<_, NicoError>(vec![KeyValuePair {
                             key: "firmware_upgrade_task".to_string(),
                             value: serde_json::to_string(task)?,
                         }])
@@ -120,10 +120,10 @@ impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
                     .transpose()?,
             ),
         };
-        Ok(ForgeAgentControlResponse {
+        Ok(NicoAgentControlResponse {
             action: Some(action),
             legacy_action: legacy_action as i32,
-            data: key_values.map(|pair| fac::ForgeAgentControlExtraInfo { pair }),
+            data: key_values.map(|pair| fac::NicoAgentControlExtraInfo { pair }),
         })
     }
 }
@@ -132,7 +132,7 @@ impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
 mod tests {
     use ::rpc::common;
     use ::rpc::protos::mlx_device;
-    use carbide_uuid::machine_validation::MachineValidationId;
+    use nico_uuid::machine_validation::MachineValidationId;
 
     use super::*;
 
@@ -140,7 +140,7 @@ mod tests {
     fn response_from_typed_action_sets_typed_and_legacy_fields() {
         let action = fac::Action::discovery();
 
-        let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(action).unwrap();
+        let response = NicoAgentControlResponse::build_and_fill_legacy_fields(action).unwrap();
 
         assert_eq!(response.legacy_action, fac::LegacyAction::Discovery as i32);
         assert!(matches!(response.action, Some(fac::Action::Discovery(_))));
@@ -164,7 +164,7 @@ mod tests {
             }),
         });
 
-        let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(action).unwrap();
+        let response = NicoAgentControlResponse::build_and_fill_legacy_fields(action).unwrap();
         let data = response.data.expect("legacy data");
         let filter = data
             .pair
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn response_from_machine_validation_sets_typed_payload_and_legacy_pairs() {
         let validation_id = MachineValidationId::new();
-        let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(
+        let response = NicoAgentControlResponse::build_and_fill_legacy_fields(
             fac::Action::MachineValidation(fac::MachineValidation {
                 is_enabled: true,
                 context: "Discovery".to_string(),
@@ -274,7 +274,7 @@ mod tests {
             }],
         });
 
-        let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(action).unwrap();
+        let response = NicoAgentControlResponse::build_and_fill_legacy_fields(action).unwrap();
         let pair = &response.data.as_ref().expect("legacy data").pair[0];
 
         assert_eq!(response.legacy_action(), fac::LegacyAction::MlxAction);
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn response_from_mlx_action_sets_typed_payload_and_legacy_pairs() {
-        let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(
+        let response = NicoAgentControlResponse::build_and_fill_legacy_fields(
             fac::Action::MlxAction(fac::MlxAction {
                 device_actions: vec![fac::MlxDeviceAction {
                     pci_name: "04:00.0".to_string(),
@@ -356,7 +356,7 @@ mod tests {
             }),
         });
 
-        let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(action).unwrap();
+        let response = NicoAgentControlResponse::build_and_fill_legacy_fields(action).unwrap();
         let pair = &response.data.as_ref().expect("legacy data").pair[0];
 
         assert_eq!(response.legacy_action(), fac::LegacyAction::FirmwareUpgrade);
@@ -383,7 +383,7 @@ mod tests {
 
     #[test]
     fn response_from_firmware_upgrade_sets_typed_payload_and_legacy_pairs() {
-        let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(
+        let response = NicoAgentControlResponse::build_and_fill_legacy_fields(
             fac::Action::FirmwareUpgrade(fac::FirmwareUpgrade {
                 task: Some(fac::ScoutFirmwareUpgradeTask {
                     upgrade_task_id: uuid::Uuid::new_v4().to_string(),

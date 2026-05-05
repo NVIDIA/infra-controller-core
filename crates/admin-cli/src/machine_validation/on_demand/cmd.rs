@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::OnDemandOptions;
 use crate::rpc::ApiClient;
@@ -23,7 +23,7 @@ use crate::rpc::ApiClient;
 pub async fn on_demand_machine_validation(
     api_client: &ApiClient,
     args: OnDemandOptions,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     api_client
         .on_demand_machine_validation(
             args.machine,

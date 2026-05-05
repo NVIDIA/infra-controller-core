@@ -21,19 +21,19 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use diff::Result as DiffResult;
 use eyre::{OptionExt, WrapErr};
-use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
+use nico_http_connector::resolver::{NicoResolver, NicoResolverOpts};
 use hickory_resolver::Name;
 use hickory_resolver::config::ResolverConfig;
 use hyper::service::Service;
 use resolv_conf::Config;
-use rpc::forge::{
+use rpc::nico::{
     InstancePhoneHomeLastContactRequest, ManagedHostNetworkConfigRequest, VersionRequest,
 };
-use rpc::forge_tls_client::ForgeClientT;
-use rpc::{Instance, Timestamp, forge_resolver};
+use rpc::nico_tls_client::NicoClientT;
+use rpc::{Instance, Timestamp, nico_resolver};
 
 use crate::command_line::AgentPlatformType;
 use crate::ethernet_virtualization::ServiceAddresses;
@@ -93,7 +93,7 @@ pub enum StripType {}
 
 pub struct UrlResolver {
     nameservers: Vec<IpAddr>,
-    resolver: ForgeResolver,
+    resolver: NicoResolver,
 }
 
 impl UrlResolver {
@@ -116,33 +116,33 @@ impl UrlResolver {
     }
 
     fn try_get_resolver_config() -> Result<Config, eyre::Report> {
-        let forge_resolv_config =
-            forge_resolver::resolver::ForgeResolveConf::with_system_resolv_conf()?;
-        let parsed_config = forge_resolv_config.parsed_configuration();
+        let nico_resolv_config =
+            nico_resolver::resolver::NicoResolveConf::with_system_resolv_conf()?;
+        let parsed_config = nico_resolv_config.parsed_configuration();
         Ok(parsed_config)
     }
 
-    fn try_get_resolver(resolver_config: Config) -> Result<ForgeResolver, eyre::Report> {
-        let forge_resolver_config =
-            forge_resolver::resolver::into_forge_resolver_config(resolver_config)?;
+    fn try_get_resolver(resolver_config: Config) -> Result<NicoResolver, eyre::Report> {
+        let nico_resolver_config =
+            nico_resolver::resolver::into_nico_resolver_config(resolver_config)?;
 
         let hickory_resolver_config = ResolverConfig::from_parts(
-            forge_resolver_config.0.domain,
-            forge_resolver_config.0.search_domain,
-            forge_resolver_config.0.inner.into_inner(),
+            nico_resolver_config.0.domain,
+            nico_resolver_config.0.search_domain,
+            nico_resolver_config.0.inner.into_inner(),
         );
 
-        let updated_opts = ForgeResolverOpts::new()
+        let updated_opts = NicoResolverOpts::new()
             .use_mgmt_vrf()
             .timeout(Duration::from_secs(5));
         let resolver_cfg =
-            ForgeResolver::with_config_and_options(hickory_resolver_config, updated_opts);
+            NicoResolver::with_config_and_options(hickory_resolver_config, updated_opts);
 
         Ok(resolver_cfg)
     }
 
     /// Input name should be hostname, not url.
-    /// valid: carbide-pxe.forge, nvidia.com, www.nvidia.com
+    /// valid: nico-pxe.nico, nvidia.com, www.nvidia.com
     /// Invalid: https://www.nvidia.com/extra/uri
     pub async fn resolve(&mut self, name: &str) -> Result<Vec<IpAddr>, eyre::Report> {
         let ip = self
@@ -174,13 +174,13 @@ impl ServiceAddresses {
         let mut url_resolver = UrlResolver::try_new()?;
 
         let pxe_ips = url_resolver
-            .resolve("carbide-pxe.forge")
+            .resolve("nico-pxe.nico")
             .await
-            .wrap_err("DNS resolver for carbide-pxe")?;
+            .wrap_err("DNS resolver for nico-pxe")?;
         // This log should be removed after some time.
         tracing::info!(?pxe_ips, "Pxe server resolved");
 
-        let ntpservers = match url_resolver.resolve("carbide-ntp.forge").await {
+        let ntpservers = match url_resolver.resolve("nico-ntp.nico").await {
             Ok(x) => {
                 // This log should be removed after some time.
                 tracing::info!(?x, "NTP servers resolved.");
@@ -218,7 +218,7 @@ impl ServiceAddresses {
 /// and persist its nameservers, one IP per line, to [`NAMESERVERS_FILE_PATH`]
 /// on the shared `/data` volume. Called from the init-container.
 pub fn save_host_nameservers() -> Result<(), eyre::Report> {
-    let config = forge_resolver::read_resolv_conf(HOST_RESOLV_CONF_PATH)
+    let config = nico_resolver::read_resolv_conf(HOST_RESOLV_CONF_PATH)
         .wrap_err_with(|| format!("failed to read {HOST_RESOLV_CONF_PATH}"))?;
     let mut text = String::new();
     for ns in &config.nameservers {
@@ -255,7 +255,7 @@ pub fn read_saved_nameservers() -> Result<Vec<IpAddr>, eyre::Report> {
 
 // get_instance finds the instance associated with this dpu
 pub async fn get_instance(
-    client: &mut ForgeClientT,
+    client: &mut NicoClientT,
     dpu_machine_id: &MachineId,
 ) -> Result<Option<Instance>, eyre::Error> {
     let request = tonic::Request::new(*dpu_machine_id);
@@ -273,7 +273,7 @@ pub async fn get_instance(
     Ok(instances.first().cloned())
 }
 
-pub async fn get_sitename(client: &mut ForgeClientT) -> Result<Option<String>, eyre::Error> {
+pub async fn get_sitename(client: &mut NicoClientT) -> Result<Option<String>, eyre::Error> {
     let request = tonic::Request::new(VersionRequest {
         display_config: true,
     });
@@ -298,9 +298,9 @@ pub async fn get_sitename(client: &mut ForgeClientT) -> Result<Option<String>, e
 
 // Use grpc call GetPeriodicDpuConfig and return the retrieved info
 pub async fn get_periodic_dpu_config(
-    client: &mut ForgeClientT,
+    client: &mut NicoClientT,
     dpu_machine_id: &MachineId,
-) -> Result<rpc::forge::ManagedHostNetworkConfigResponse, eyre::Error> {
+) -> Result<rpc::nico::ManagedHostNetworkConfigResponse, eyre::Error> {
     let request = tonic::Request::new(ManagedHostNetworkConfigRequest {
         dpu_machine_id: Some(*dpu_machine_id),
     });
@@ -318,9 +318,9 @@ pub async fn get_periodic_dpu_config(
     Ok(resp.into_inner())
 }
 
-// phone_home returns the timestamp returned from Carbide as a string
+// phone_home returns the timestamp returned from Nico as a string
 pub async fn phone_home(
-    client: &mut ForgeClientT,
+    client: &mut NicoClientT,
     dpu_machine_id: &MachineId,
 ) -> Result<Timestamp, eyre::Error> {
     let Some(instance) = get_instance(client, dpu_machine_id).await? else {

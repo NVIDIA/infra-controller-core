@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 use rpc::TenantState;
-use rpc::forge::RemoveMachineInstanceTypeAssociationRequest;
+use rpc::nico::RemoveMachineInstanceTypeAssociationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -26,7 +26,7 @@ pub async fn remove_association(
     args: Args,
     cloud_unsafe_operation_allowed: bool,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let instance = api_client
         .0
         .find_instance_by_machine_id(args.machine_id)
@@ -39,9 +39,9 @@ pub async fn remove_association(
             match tenant.state() {
                 TenantState::Terminating | TenantState::Terminated => {
                     if !cloud_unsafe_operation_allowed {
-                        return Err(CarbideCliError::GenericError(
+                        return Err(NicoCliError::GenericError(
                                 r#"A instance is already allocated to this machine, but terminating.
-        Removing instance type will create a mismatch between cloud and carbide. If you are sure, run this command again with --cloud-unsafe-op=<username> flag before `instance-type`."#.to_string(),
+        Removing instance type will create a mismatch between cloud and nico. If you are sure, run this command again with --cloud-unsafe-op=<username> flag before `instance-type`."#.to_string(),
         ));
                     }
                     remove_association_api(api_client, &args).await?;
@@ -50,7 +50,7 @@ pub async fn remove_association(
                 _ => {}
             }
         }
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "A instance is already allocated to this machine. You can remove an instance-type association only in Teminating state.".to_string(),
         ));
     } else {
@@ -63,7 +63,7 @@ pub async fn remove_association(
 async fn remove_association_api(
     api_client: &ApiClient,
     args: &Args,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     let req: RemoveMachineInstanceTypeAssociationRequest = args.into();
     api_client
         .0

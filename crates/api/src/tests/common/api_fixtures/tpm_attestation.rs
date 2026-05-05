@@ -252,7 +252,7 @@ pub const EK_PUB_SERIALIZED: [u8; 314] = [
     37, 35, 105, 163, 200, 56, 233, 254, 7, 165, 40, 33, 189, 226, 206, 145,
 ];
 
-// attestation as it is sent from scout to carbide
+// attestation as it is sent from scout to nico
 pub const ATTEST_SERIALIZED: [u8; 129] = [
     255, 84, 67, 71, 128, 24, 0, 34, 0, 11, 86, 42, 234, 64, 215, 49, 217, 219, 109, 205, 122, 208,
     153, 128, 198, 122, 187, 249, 193, 120, 148, 109, 228, 44, 171, 165, 86, 18, 16, 178, 17, 220,
@@ -262,7 +262,7 @@ pub const ATTEST_SERIALIZED: [u8; 129] = [
     55, 215, 242, 130, 251, 89, 92, 188, 251, 113, 20, 127, 251, 198, 74, 188,
 ];
 
-// signature as it is sent from scout to carbide
+// signature as it is sent from scout to nico
 pub const SIGNATURE_SERIALIZED: [u8; 262] = [
     0, 22, 0, 11, 1, 0, 81, 47, 118, 82, 6, 100, 40, 191, 204, 125, 109, 165, 201, 104, 63, 55,
     190, 54, 157, 161, 149, 95, 179, 235, 130, 34, 255, 195, 134, 255, 28, 166, 232, 247, 140, 130,
@@ -295,13 +295,13 @@ pub const SIGNATURE_SERIALIZED_INVALID: [u8; 262] = [
     50, 240, 53, 223, 9, 213, 255, 190, 231, 214, 11, 126, 155, 19, 190,
 ];
 
-// credential as it is sent from scout to carbide
+// credential as it is sent from scout to nico
 pub const CRED_SERIALIZED: [u8; 32] = [
     47, 191, 142, 91, 237, 86, 32, 168, 119, 196, 199, 149, 110, 183, 182, 192, 193, 99, 101, 208,
     107, 198, 254, 254, 10, 146, 61, 122, 138, 2, 82, 79,
 ];
 
-// pcr values as those are sent from scout to carbide
+// pcr values as those are sent from scout to nico
 pub const PCR_VALUES: [[u8; 32]; 12] = [
     [
         164, 126, 4, 71, 192, 152, 159, 113, 199, 82, 135, 160, 29, 112, 174, 109, 44, 162, 41,

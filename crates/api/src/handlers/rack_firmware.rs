@@ -19,8 +19,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use db::{DatabaseError, ObjectColumnFilter, rack_firmware as rack_firmware_db};
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
-use rpc::forge::{
+use nico_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use rpc::nico::{
     DeviceUpdateResult, NodeJobInfo, RackFirmware, RackFirmwareApplyRequest,
     RackFirmwareApplyResponse, RackFirmwareCreateRequest, RackFirmwareDeleteRequest,
     RackFirmwareGetRequest, RackFirmwareHistoryRecords, RackFirmwareHistoryRequest,
@@ -33,7 +33,7 @@ use tokio::task::JoinSet;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
-use crate::errors::CarbideError;
+use crate::errors::NicoError;
 use crate::handlers::switch_artifacts::{SwitchSystemImageArtifact, collect_switch_system_images};
 use crate::rack::firmware_update::{
     build_firmware_update_batches, load_rack_firmware_inventory, submit_firmware_update_batches,
@@ -290,14 +290,14 @@ pub async fn create(
 
     // Validate that config_json is valid JSON
     let config: serde_json::Value = serde_json::from_str(&req.config_json)
-        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("Invalid JSON: {}", e)))?;
 
     // Extract ID from JSON - use "Id" field (UUID)
     let id = config
         .get("Id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            CarbideError::InvalidArgument(
+            NicoError::InvalidArgument(
                 "JSON must contain 'Id' field to use as identifier".into(),
             )
         })?
@@ -306,7 +306,7 @@ pub async fn create(
     // Validate token is provided
     if req.artifactory_token.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("Artifactory token is required".to_string()).into(),
+            NicoError::InvalidArgument("Artifactory token is required".to_string()).into(),
         );
     }
 
@@ -334,7 +334,7 @@ pub async fn create(
     };
 
     let switch_system_images =
-        collect_switch_system_images(&config).map_err(CarbideError::InvalidArgument)?;
+        collect_switch_system_images(&config).map_err(NicoError::InvalidArgument)?;
     if !switch_system_images.is_empty() {
         tracing::info!(
             "Parsed {} switch system images from rack firmware config {}",
@@ -350,7 +350,7 @@ pub async fn create(
         None
     } else {
         Some(
-            serde_json::to_value(parsed_components).map_err(|e| CarbideError::Internal {
+            serde_json::to_value(parsed_components).map_err(|e| NicoError::Internal {
                 message: format!("Failed to serialize parsed components: {}", e),
             })?,
         )
@@ -370,7 +370,7 @@ pub async fn create(
             },
         )
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Failed to store token in Vault: {}", e),
         })?;
 
@@ -378,11 +378,11 @@ pub async fn create(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin create", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("begin create", e)))?;
 
     let rack_hardware_type: model::rack_type::RackHardwareType = req
         .rack_hardware_type
-        .ok_or_else(|| CarbideError::MissingArgument("rack_hardware_type"))?
+        .ok_or_else(|| NicoError::MissingArgument("rack_hardware_type"))?
         .into();
 
     let mut db_config = rack_firmware_db::create(
@@ -406,7 +406,7 @@ pub async fn create(
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit create", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("commit create", e)))?;
 
     // Spawn background task to download firmware files
     if let Some(parsed_value) = &db_config.parsed_components {
@@ -439,7 +439,7 @@ pub async fn get(
 
     let db_config = rack_firmware_db::find_by_id(&api.database_connection, &req.id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     Ok(Response::new((&db_config).into()))
 }
@@ -455,13 +455,13 @@ pub async fn list(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin list", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("begin list", e)))?;
 
     let db_configs = rack_firmware_db::list_all(&mut txn, filter).await?;
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit list", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("commit list", e)))?;
 
     let configs = db_configs
         .into_iter()
@@ -482,18 +482,18 @@ pub async fn delete(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin delete", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("begin delete", e)))?;
 
     rack_firmware_db::delete(&mut txn, &req.id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit delete", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("commit delete", e)))?;
 
     // cleanup of downloaded firmware files
-    let firmware_cache_dir = PathBuf::from("/forge-boot-artifacts/blobs/internal/fw")
+    let firmware_cache_dir = PathBuf::from("/nico-boot-artifacts/blobs/internal/fw")
         .join("rack_firmware")
         .join(&req.id);
     if let Err(e) = tokio::fs::remove_dir_all(&firmware_cache_dir).await {
@@ -576,7 +576,7 @@ async fn download_firmware_files(
     );
 
     // Create firmware cache directory if it doesn't exist
-    let firmware_cache_dir = PathBuf::from("/forge-boot-artifacts/blobs/internal/fw")
+    let firmware_cache_dir = PathBuf::from("/nico-boot-artifacts/blobs/internal/fw")
         .join("rack_firmware")
         .join(firmware_id);
     tokio::fs::create_dir_all(&firmware_cache_dir)
@@ -1072,7 +1072,7 @@ pub async fn apply(
     let req = request.into_inner();
     let rack_id = req
         .rack_id
-        .ok_or_else(|| CarbideError::InvalidArgument("rack_id is required".to_string()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("rack_id is required".to_string()))?;
 
     tracing::info!(
         rack_id = %rack_id,
@@ -1084,12 +1084,12 @@ pub async fn apply(
     // Get the RackFirmware configuration from the database
     let fw_config = rack_firmware_db::find_by_id(&api.database_connection, &req.firmware_id)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Failed to get firmware configuration: {}", e),
         })?;
 
     if !fw_config.available {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "Firmware configuration '{}' is not marked as available",
             req.firmware_id
         ))
@@ -1101,9 +1101,9 @@ pub async fn apply(
         ObjectColumnFilter::One(db::rack::IdColumn, &rack_id),
     )
     .await
-    .map_err(CarbideError::from)?
+    .map_err(NicoError::from)?
     .pop()
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "rack",
         id: rack_id.to_string(),
     })?;
@@ -1120,7 +1120,7 @@ pub async fn apply(
             && let Some(rack_hw_type) = &profile.rack_hardware_type
             && *rack_hw_type != fw_config.rack_hardware_type
         {
-            return Err(CarbideError::FailedPrecondition(format!(
+            return Err(NicoError::FailedPrecondition(format!(
                 "Firmware hardware type '{}' does not match rack '{}' hardware type '{}'",
                 fw_config.rack_hardware_type, rack_id, rack_hw_type
             ))
@@ -1134,7 +1134,7 @@ pub async fn apply(
                 model::rack_type::RackHardwareClass::Prod => "prod",
             };
             if req.firmware_type != expected_fw_type {
-                return Err(CarbideError::FailedPrecondition(format!(
+                return Err(NicoError::FailedPrecondition(format!(
                     "Firmware type '{}' does not match rack '{}' hardware class '{}'",
                     req.firmware_type, rack_id, rack_hw_class
                 ))
@@ -1149,12 +1149,12 @@ pub async fn apply(
         &rack_id,
     )
     .await
-    .map_err(|e| CarbideError::Internal {
+    .map_err(|e| NicoError::Internal {
         message: format!("Failed to load rack firmware inventory: {}", e),
     })?;
 
     if inventory.machines.is_empty() && inventory.switches.is_empty() {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "Rack '{}' contains no compute or switch devices",
             rack_id
         ))
@@ -1171,15 +1171,15 @@ pub async fn apply(
     let rms_client = api
         .rms_client
         .as_ref()
-        .ok_or_else(|| CarbideError::FailedPrecondition("RMS client not configured".to_string()))?;
+        .ok_or_else(|| NicoError::FailedPrecondition("RMS client not configured".to_string()))?;
     let batches =
         build_firmware_update_batches(&rack_id, &fw_config, &req.firmware_type, &inventory, &[])
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("Failed to build firmware update requests: {}", e),
             })?;
 
     if batches.is_empty() {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "Rack '{}' contains no supported compute or switch devices",
             rack_id
         ))
@@ -1253,7 +1253,7 @@ pub async fn apply(
         .database_connection
         .acquire()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("acquire for apply history", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("acquire for apply history", e)))?;
     db::rack_firmware::record_apply_history(
         &mut conn,
         &req.firmware_id,
@@ -1262,7 +1262,7 @@ pub async fn apply(
         fw_config.rack_hardware_type,
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     Ok(Response::new(RackFirmwareApplyResponse {
         total_updates: device_results.len() as i32,
@@ -1280,13 +1280,13 @@ pub async fn get_job_status(
     let req = request.into_inner();
 
     if req.job_id.is_empty() {
-        return Err(CarbideError::InvalidArgument("job_id is required".to_string()).into());
+        return Err(NicoError::InvalidArgument("job_id is required".to_string()).into());
     }
 
     let rms_client = api
         .rms_client
         .as_ref()
-        .ok_or_else(|| CarbideError::FailedPrecondition("RMS client not configured".to_string()))?;
+        .ok_or_else(|| NicoError::FailedPrecondition("RMS client not configured".to_string()))?;
 
     let rms_request = librms::protos::rack_manager::GetFirmwareJobStatusRequest {
         metadata: None,
@@ -1296,7 +1296,7 @@ pub async fn get_job_status(
     let rms_response = rms_client
         .get_firmware_job_status(rms_request)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("RMS API error: {}", e),
         })?;
 
@@ -1337,12 +1337,12 @@ pub async fn get_history(
         .database_connection
         .acquire()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("acquire for history", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("acquire for history", e)))?;
 
     let records =
         db::rack_firmware::list_apply_history(&mut conn, firmware_id_filter, &req.rack_ids)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
     // Group results by rack_id
     let mut histories: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
@@ -1367,20 +1367,20 @@ pub async fn set_default(
     let req = request.into_inner();
 
     if req.firmware_id.is_empty() {
-        return Err(CarbideError::InvalidArgument("firmware_id is required".to_string()).into());
+        return Err(NicoError::InvalidArgument("firmware_id is required".to_string()).into());
     }
 
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin set_default", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("begin set_default", e)))?;
 
     rack_firmware_db::set_default(&mut txn, &req.firmware_id).await?;
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit set_default", e)))?;
+        .map_err(|e| NicoError::from(DatabaseError::new("commit set_default", e)))?;
 
     Ok(Response::new(()))
 }

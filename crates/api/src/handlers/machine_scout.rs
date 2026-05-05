@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge::ForgeAgentControlResponse;
-use ::rpc::{forge as rpc, forge_agent_control_response as fac};
+use ::rpc::nico::NicoAgentControlResponse;
+use ::rpc::{nico as rpc, nico_agent_control_response as fac};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, HostReprovisionState,
@@ -25,14 +25,14 @@ use model::machine::{
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::api::{Api, log_request_data};
 use crate::compat::BuildAndFillLegacyFields;
 use crate::handlers::utils::convert_and_log_machine_id;
 
 // Transitions the machine to Ready state.
-// Called by 'forge-scout discovery' once cleanup succeeds.
+// Called by 'nico-scout discovery' once cleanup succeeds.
 pub(crate) async fn cleanup_machine_completed(
     api: &Api,
     request: Request<rpc::MachineCleanupInfo>,
@@ -113,28 +113,28 @@ pub(crate) async fn cleanup_machine_completed(
     Ok(Response::new(rpc::MachineCleanupResult {}))
 }
 
-// Invoked by forge-scout whenever a certain Machine can not be properly acted on
-pub(crate) fn report_forge_scout_error(
+// Invoked by nico-scout whenever a certain Machine can not be properly acted on
+pub(crate) fn report_nico_scout_error(
     _api: &Api,
-    request: Request<rpc::ForgeScoutErrorReport>,
-) -> Result<Response<rpc::ForgeScoutErrorReportResult>, Status> {
+    request: Request<rpc::NicoScoutErrorReport>,
+) -> Result<Response<rpc::NicoScoutErrorReportResult>, Status> {
     log_request_data(&request);
     let _machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
     // `log_request_data` will already provide us the error message
     // Therefore we don't have to do anything else
-    Ok(Response::new(rpc::ForgeScoutErrorReportResult {}))
+    Ok(Response::new(rpc::NicoScoutErrorReportResult {}))
 }
 
-// Called on x86 boot by 'forge-scout auto-detect --uuid=<uuid>'.
+// Called on x86 boot by 'nico-scout auto-detect --uuid=<uuid>'.
 // Tells it whether to discover or cleanup based on current machine state.
-pub(crate) async fn forge_agent_control(
+pub(crate) async fn nico_agent_control(
     api: &Api,
-    request: Request<rpc::ForgeAgentControlRequest>,
-) -> Result<Response<rpc::ForgeAgentControlResponse>, Status> {
+    request: Request<rpc::NicoAgentControlRequest>,
+) -> Result<Response<rpc::NicoAgentControlResponse>, Status> {
     log_request_data(&request);
 
-    use rpc::forge_agent_control_response::Action;
+    use rpc::nico_agent_control_response::Action;
 
     let machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
@@ -148,7 +148,7 @@ pub(crate) async fn forge_agent_control(
     } else {
         db::machine::find_host_by_dpu_machine_id(&mut txn, &machine_id)
             .await?
-            .ok_or(CarbideError::NotFoundError {
+            .ok_or(NicoError::NotFoundError {
                 kind: "machine",
                 id: machine_id.to_string(),
             })?
@@ -163,7 +163,7 @@ pub(crate) async fn forge_agent_control(
 
     let (action, maybe_pending_txn) = if is_dpu {
         (
-            get_action_for_dpu_state(state, &machine_id).map_err(CarbideError::from)?,
+            get_action_for_dpu_state(state, &machine_id).map_err(NicoError::from)?,
             Some(txn),
         )
     } else {
@@ -326,7 +326,7 @@ pub(crate) async fn forge_agent_control(
                     machine_id = %machine.id,
                     machine_type = "Host",
                     %state,
-                    "forge agent control",
+                    "nico agent control",
                 );
                 (Action::noop(), Some(txn))
             }
@@ -336,7 +336,7 @@ pub(crate) async fn forge_agent_control(
     tracing::info!(
         machine_id = %machine.id,
         action = action.as_str_name(),
-        "forge agent control",
+        "nico agent control",
     );
 
     if let Some(txn) = maybe_pending_txn {
@@ -344,7 +344,7 @@ pub(crate) async fn forge_agent_control(
     }
 
     Ok(Response::new(
-        ForgeAgentControlResponse::build_and_fill_legacy_fields(action)?,
+        NicoAgentControlResponse::build_and_fill_legacy_fields(action)?,
     ))
 }
 

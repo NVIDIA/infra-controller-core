@@ -16,8 +16,8 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use carbide_uuid::vpc::VpcPrefixId;
+use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use nico_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -61,10 +61,10 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
     }
 }
 
-impl TryFrom<rpc::forge::NetworkPrefix> for NewNetworkPrefix {
+impl TryFrom<rpc::nico::NetworkPrefix> for NewNetworkPrefix {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::NetworkPrefix) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::nico::NetworkPrefix) -> Result<Self, Self::Error> {
         if let Some(_id) = value.id {
             return Err(RpcDataConversionError::IdentifierSpecifiedForNewObject(
                 String::from("Network Prefix"),
@@ -85,9 +85,9 @@ impl TryFrom<rpc::forge::NetworkPrefix> for NewNetworkPrefix {
     }
 }
 
-impl From<NetworkPrefix> for rpc::forge::NetworkPrefix {
+impl From<NetworkPrefix> for rpc::nico::NetworkPrefix {
     fn from(src: NetworkPrefix) -> Self {
-        rpc::forge::NetworkPrefix {
+        rpc::nico::NetworkPrefix {
             id: Some(src.id),
             prefix: src.prefix.to_string(),
             gateway: src.gateway.map(|v| v.to_string()),

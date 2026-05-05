@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
+use nico_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use ipnetwork::IpNetwork;
-use rpc::forge;
-use rpc::forge::forge_server::Forge;
+use rpc::nico;
+use rpc::nico::nico_server::Nico;
 
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -85,7 +85,7 @@ async fn test_set_primary_dpu_rejects_zero_dpu_host(
 
     let result = env
         .api
-        .set_primary_dpu(tonic::Request::new(forge::SetPrimaryDpuRequest {
+        .set_primary_dpu(tonic::Request::new(nico::SetPrimaryDpuRequest {
             host_machine_id: Some(zero_dpu_host.host_snapshot.id),
             // Any well-formed DPU id; the handler bails before reading it.
             dpu_machine_id: Some(MachineId::new(

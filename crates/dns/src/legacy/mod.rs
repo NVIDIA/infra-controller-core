@@ -17,7 +17,7 @@
 
 //! Legacy DNS Server Implementation
 //!
-//! This module provides the original carbide-dns implementation that listens
+//! This module provides the original nico-dns implementation that listens
 //! directly on a DNS port (53 or custom) and handles DNS queries using trust-dns-server.
 //! This is maintained for backward compatibility during migration to the PowerDNS backend.
 
@@ -32,8 +32,8 @@ use eyre::Report;
 use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Meter};
-use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
-use rpc::protos::forge;
+use rpc::nico_tls_client::{ApiConfig, NicoClientT, NicoTlsClient};
+use rpc::protos::nico;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info, warn};
@@ -58,13 +58,13 @@ impl LegacyDnsMetrics {
     fn new(meter: &Meter) -> Self {
         Self {
             negative_cache_hit: meter
-                .u64_counter("carbide_dns_negative_cache_hit_count")
+                .u64_counter("nico_dns_negative_cache_hit_count")
                 .build(),
             negative_cache_miss: meter
-                .u64_counter("carbide_dns_negative_cache_miss_count")
+                .u64_counter("nico_dns_negative_cache_miss_count")
                 .build(),
             negative_cache_eviction: meter
-                .u64_counter("carbide_dns_negative_cache_eviction_count")
+                .u64_counter("nico_dns_negative_cache_eviction_count")
                 .build(),
         }
     }
@@ -79,7 +79,7 @@ impl std::fmt::Debug for LegacyDnsMetrics {
 
 #[derive(Debug)]
 pub struct LegacyDnsServer {
-    forge_client: Arc<Mutex<ForgeClientT>>,
+    nico_client: Arc<Mutex<NicoClientT>>,
     negative_cache: Arc<RwLock<HashMap<CacheKey, NegativeEntry>>>,
     negative_ttl: Duration,
     metrics: LegacyDnsMetrics,
@@ -146,8 +146,8 @@ impl RequestHandler for LegacyDnsServer {
                     (code, None)
                 } else {
                     // Build the legacy DnsQuestion request
-                    let carbide_dns_request =
-                        tonic::Request::new(forge::dns_message::DnsQuestion {
+                    let nico_dns_request =
+                        tonic::Request::new(nico::dns_message::DnsQuestion {
                             q_name: Some(request_info.query.name().to_string()),
                             q_class: Some(1),
                             q_type: Some(q_type_num),
@@ -155,7 +155,7 @@ impl RequestHandler for LegacyDnsServer {
 
                     info!("Sending {} to api server", request_info.query.original());
 
-                    match Self::retrieve_record(self.forge_client.clone(), carbide_dns_request)
+                    match Self::retrieve_record(self.nico_client.clone(), nico_dns_request)
                         .await
                     {
                         Ok(ip) => {
@@ -235,12 +235,12 @@ impl RequestHandler for LegacyDnsServer {
 
 impl LegacyDnsServer {
     pub fn new(
-        forge_client: Arc<Mutex<ForgeClientT>>,
+        nico_client: Arc<Mutex<NicoClientT>>,
         negative_ttl: Duration,
         meter: &Meter,
     ) -> Self {
         Self {
-            forge_client,
+            nico_client,
             negative_cache: Arc::new(RwLock::new(HashMap::new())),
             negative_ttl,
             metrics: LegacyDnsMetrics::new(meter),
@@ -248,10 +248,10 @@ impl LegacyDnsServer {
     }
 
     async fn retrieve_record(
-        forge_client: Arc<Mutex<ForgeClientT>>,
-        request: tonic::Request<forge::dns_message::DnsQuestion>,
+        nico_client: Arc<Mutex<NicoClientT>>,
+        request: tonic::Request<nico::dns_message::DnsQuestion>,
     ) -> Result<IpAddr, tonic::Status> {
-        let mut client = forge_client.lock().await;
+        let mut client = nico_client.lock().await;
         #[allow(deprecated)]
         let response = client.lookup_record_legacy(request).await?.into_inner();
 
@@ -275,18 +275,18 @@ impl LegacyDnsServer {
             listen
         );
 
-        let forge_client_config = config.forge_client_config();
-        let api_uri = config.carbide_uri.to_string();
-        let api_config = ApiConfig::new(api_uri.as_str(), &forge_client_config);
+        let nico_client_config = config.nico_client_config();
+        let api_uri = config.nico_uri.to_string();
+        let api_config = ApiConfig::new(api_uri.as_str(), &nico_client_config);
 
-        info!("Connecting to carbide-api at {}", api_uri);
+        info!("Connecting to nico-api at {}", api_uri);
 
-        let client = Arc::new(Mutex::new(ForgeTlsClient::retry_build(&api_config).await?));
+        let client = Arc::new(Mutex::new(NicoTlsClient::retry_build(&api_config).await?));
 
         // TODO: make negative_cache_ttl configurable via Config
         let negative_ttl = Duration::from_secs(120);
 
-        let metrics_setup = new_metrics_setup("carbide-dns", "carbide", true)?;
+        let metrics_setup = new_metrics_setup("nico-dns", "nico", true)?;
 
         // Must keep meter_provider alive for the lifetime of the server,
         // otherwise SdkMeterProvider::drop() shuts down the Prometheus exporter.
@@ -336,15 +336,15 @@ impl LegacyDnsServer {
         info!(
             "Started legacy DNS server on {} version {}",
             listen,
-            carbide_version::version!()
+            nico_version::version!()
         );
 
         match server.block_until_done().await {
             Ok(()) => {
-                info!("Carbide-dns legacy server is stopping");
+                info!("Nico-dns legacy server is stopping");
             }
             Err(e) => {
-                let error_msg = format!("Carbide-dns has encountered an error: {e}");
+                let error_msg = format!("Nico-dns has encountered an error: {e}");
                 error!("{}", error_msg);
                 return Err(eyre::eyre!("{}", error_msg));
             }

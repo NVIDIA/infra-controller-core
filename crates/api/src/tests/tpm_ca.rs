@@ -18,7 +18,7 @@ pub mod tests {
 
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
     use common::api_fixtures::dpu::create_dpu_machine;
     use common::api_fixtures::host::host_discover_dhcp;
     use common::api_fixtures::tpm_attestation::{
@@ -29,8 +29,8 @@ pub mod tests {
     use model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use model::machine::machine_id::from_hardware_info;
     use model::network_segment;
-    use rpc::forge::forge_server::Forge;
-    use rpc::forge::{TpmCaCert, TpmCaCertDetail, TpmCaCertId, TpmEkCertStatus};
+    use rpc::nico::nico_server::Nico;
+    use rpc::nico::{TpmCaCert, TpmCaCertDetail, TpmCaCertId, TpmEkCertStatus};
     use sha2::{Digest, Sha256};
 
     use crate::attestation::get_ek_cert_by_machine_id;

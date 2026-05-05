@@ -18,19 +18,19 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_uuid::machine::MachineId;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 
 use crate::network_monitor::NetworkPingerType;
 
 #[derive(Parser)]
-#[clap(name = "forge-dpu-agent")]
+#[clap(name = "nico-dpu-agent")]
 pub struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
 
-    /// The path to the forge agent configuration file development overrides.
+    /// The path to the nico agent configuration file development overrides.
     /// This file will hold data in the `AgentConfig` format.
     #[clap(long)]
     pub config_path: Option<PathBuf>,
@@ -84,7 +84,7 @@ pub struct NvueOptions {
     #[clap(long, help = "Full path of NVUE's startup.yaml")]
     pub path: String,
 
-    #[clap(long, help = "Forge Native Networking mode")]
+    #[clap(long, help = "Nico Native Networking mode")]
     pub is_fnn: bool,
 
     #[clap(
@@ -492,7 +492,7 @@ mod tests {
     fn test_init_container_subcommand_parses_without_args() {
         // The init-container subcommand deliberately takes no flags: the output path
         // is fixed so devs cannot misroute hardware data away from the main container.
-        let opts = Options::try_parse_from(["forge-dpu-agent", "init-container"]).unwrap();
+        let opts = Options::try_parse_from(["nico-dpu-agent", "init-container"]).unwrap();
         assert!(matches!(opts.cmd, Some(AgentCommand::InitContainer)));
     }
 
@@ -500,7 +500,7 @@ mod tests {
     fn test_init_container_subcommand_rejects_output_file_flag() {
         // If someone tries to pass --output-file (or any other flag), parsing must fail.
         let result = Options::try_parse_from([
-            "forge-dpu-agent",
+            "nico-dpu-agent",
             "init-container",
             "--output-file",
             "/tmp/x",
@@ -513,7 +513,7 @@ mod tests {
         // `hardware --agent-platform-type=init-container` used to download certs + save.
         // That behavior moved to the InitContainer subcommand; this value must now fail.
         let result = Options::try_parse_from([
-            "forge-dpu-agent",
+            "nico-dpu-agent",
             "hardware",
             "--agent-platform-type=init-container",
         ]);
@@ -524,7 +524,7 @@ mod tests {
     fn test_hardware_subcommand_accepts_remaining_platform_types() {
         for value in ["dpu-os", "containerized"] {
             let opts = Options::try_parse_from([
-                "forge-dpu-agent",
+                "nico-dpu-agent",
                 "hardware",
                 "--agent-platform-type",
                 value,

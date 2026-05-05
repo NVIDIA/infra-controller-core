@@ -15,16 +15,16 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
+use ::rpc::admin_cli::NicoCliResult;
+use ::rpc::nico as nicorpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn add_ufm(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn add_ufm(data: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     api_client
         .0
-        .create_credential(forgerpc::CredentialCreationRequest::try_from(data)?)
+        .create_credential(nicorpc::CredentialCreationRequest::try_from(data)?)
         .await?;
     Ok(())
 }

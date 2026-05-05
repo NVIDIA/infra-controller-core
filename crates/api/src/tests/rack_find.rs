@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use common::api_fixtures::create_test_env;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
@@ -43,7 +43,7 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
 
     let rack_ids = env
         .api
-        .find_rack_ids(tonic::Request::new(rpc::forge::RackSearchFilter::default()))
+        .find_rack_ids(tonic::Request::new(rpc::nico::RackSearchFilter::default()))
         .await
         .unwrap()
         .into_inner()
@@ -52,7 +52,7 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
 
     let racks = env
         .api
-        .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+        .find_racks_by_ids(tonic::Request::new(rpc::nico::RacksByIdsRequest {
             rack_ids: vec![rack_id1.clone()],
         }))
         .await
@@ -64,7 +64,7 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
 
     let racks = env
         .api
-        .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+        .find_racks_by_ids(tonic::Request::new(rpc::nico::RacksByIdsRequest {
             rack_ids: vec![rack_id2.clone()],
         }))
         .await

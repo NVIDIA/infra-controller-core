@@ -17,7 +17,7 @@
 
 //! Handler for SwitchControllerState::BomValidating.
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use model::switch::{BomValidatingState, Switch, SwitchControllerState};
 
 use crate::state_controller::state_handler::{

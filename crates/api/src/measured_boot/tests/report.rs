@@ -27,7 +27,7 @@
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use carbide_uuid::measured_boot::MeasurementReportId;
+    use nico_uuid::measured_boot::MeasurementReportId;
     use db::db_read::PgPoolReader;
     use db::measured_boot::interface::common::pcr_register_values_to_map;
     use db::measured_boot::interface::report::{
@@ -36,7 +36,7 @@ mod tests {
     use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
     use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
     use rand::prelude::*;
-    use rpc::forge::forge_server::Forge;
+    use rpc::nico::nico_server::Nico;
 
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use crate::tests::common::api_fixtures::create_test_env;
@@ -654,8 +654,8 @@ mod tests {
         let _ = txn.commit().await;
 
         // now trim the table and verify that it has been trimmed down to 500
-        let request = tonic::Request::new(rpc::forge::TrimTableRequest {
-            target: rpc::forge::TrimTableTarget::MeasuredBoot as i32,
+        let request = tonic::Request::new(rpc::nico::TrimTableRequest {
+            target: rpc::nico::TrimTableTarget::MeasuredBoot as i32,
             keep_entries: 250,
         });
 

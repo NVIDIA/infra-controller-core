@@ -17,7 +17,7 @@
 
 /// The TAR files used here are a full crawl of a servers' Redfish tree using
 /// redfish-mockup-creator.
-/// https://gitlab-master.nvidia.com/nvmetal/libredfish/-/tree/forge/tests/mockups?ref_type=heads
+/// https://gitlab-master.nvidia.com/nvmetal/libredfish/-/tree/nico/tests/mockups?ref_type=heads
 ///
 /// There is one for each vendor we support in the libredfish repo.
 use std::collections::HashMap;

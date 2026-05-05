@@ -8,7 +8,7 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_CpuBenchmarkingFp';
+    test_id = 'nico_CpuBenchmarkingFp';
 
 UPDATE
     machine_validation_tests
@@ -20,7 +20,7 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_CpuBenchmarkingInt';
+    test_id = 'nico_CpuBenchmarkingInt';
 
 UPDATE
     machine_validation_tests
@@ -32,7 +32,7 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_MmMemBandwidth';
+    test_id = 'nico_MmMemBandwidth';
 
 UPDATE
     machine_validation_tests
@@ -44,7 +44,7 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_MmMemPeakBandwidth';
+    test_id = 'nico_MmMemPeakBandwidth';
 
 UPDATE
     machine_validation_tests
@@ -56,4 +56,4 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_MmMemLatency';
+    test_id = 'nico_MmMemLatency';

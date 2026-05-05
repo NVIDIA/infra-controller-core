@@ -17,9 +17,9 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::compute_allocation::ComputeAllocationId;
-use carbide_uuid::instance_type::InstanceTypeId;
+use ::rpc::nico as rpc;
+use nico_uuid::compute_allocation::ComputeAllocationId;
+use nico_uuid::instance_type::InstanceTypeId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use sqlx::Row;
@@ -129,7 +129,7 @@ impl TryFrom<ComputeAllocation> for rpc::ComputeAllocation {
 mod tests {
     use std::collections::HashMap;
 
-    use ::rpc::forge as rpc;
+    use ::rpc::nico as rpc;
     use config_version::ConfigVersion;
 
     use super::*;

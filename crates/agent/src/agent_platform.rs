@@ -26,7 +26,7 @@ use tempfile::NamedTempFile;
 use tracing;
 
 const DOCA_POD_CONFIG_PATH: &str = "/etc/kubelet.d";
-const DOCA_POD_CONFIG_SOURCE_BASE: &str = "/opt/forge/doca_container_configs/configs";
+const DOCA_POD_CONFIG_SOURCE_BASE: &str = "/opt/nico/doca_container_configs/configs";
 const HBN_POD_FILENAME: &str = "doca_hbn.yaml";
 
 pub async fn ensure_doca_containers() -> eyre::Result<()> {

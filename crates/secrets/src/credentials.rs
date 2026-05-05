@@ -21,7 +21,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, atomic};
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use rand::Rng;
 use rand::seq::SliceRandom;
@@ -332,8 +332,8 @@ pub enum BmcCredentialType {
     SiteWideRoot,
     // BMC Specific Root Credentials
     BmcRoot { bmc_mac_address: MacAddress },
-    // BMC Specific Forge-Admin Credentials
-    BmcForgeAdmin { bmc_mac_address: MacAddress },
+    // BMC Specific Nico-Admin Credentials
+    BmcNicoAdmin { bmc_mac_address: MacAddress },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -553,8 +553,8 @@ impl CredentialKey {
                 BmcCredentialType::BmcRoot { bmc_mac_address } => {
                     Cow::from(format!("machines/bmc/{bmc_mac_address}/root"))
                 }
-                BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => Cow::from(format!(
-                    "machines/bmc/{bmc_mac_address}/forge-admin-account"
+                BmcCredentialType::BmcNicoAdmin { bmc_mac_address } => Cow::from(format!(
+                    "machines/bmc/{bmc_mac_address}/nico-admin-account"
                 )),
             },
             CredentialKey::ExtensionService {
@@ -760,7 +760,7 @@ mod tests {
             ),
             (
                 CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::BmcForgeAdmin {
+                    credential_type: BmcCredentialType::BmcNicoAdmin {
                         bmc_mac_address: mac,
                     },
                 },

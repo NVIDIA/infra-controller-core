@@ -17,8 +17,8 @@
 
 use std::collections::HashSet;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::{self as nicorpc};
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -32,7 +32,7 @@ pub async fn show_attachments(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
     // Grab the NSG details.
@@ -68,10 +68,10 @@ pub async fn show_attachments(
         // JSON output will get simple details.
         println!(
             "{{\"network_security_group\": {}, \"attachments\": {}, \"vpc_propagation_status\": {}, \"instance_propagation_status\": {}}}",
-            serde_json::to_string_pretty(&nsg).map_err(CarbideCliError::JsonError)?,
-            serde_json::to_string_pretty(&nsg_attachments).map_err(CarbideCliError::JsonError)?,
-            serde_json::to_string_pretty(&vpcs).map_err(CarbideCliError::JsonError)?,
-            serde_json::to_string_pretty(&instances).map_err(CarbideCliError::JsonError)?,
+            serde_json::to_string_pretty(&nsg).map_err(NicoCliError::JsonError)?,
+            serde_json::to_string_pretty(&nsg_attachments).map_err(NicoCliError::JsonError)?,
+            serde_json::to_string_pretty(&vpcs).map_err(NicoCliError::JsonError)?,
+            serde_json::to_string_pretty(&instances).map_err(NicoCliError::JsonError)?,
         );
     } else {
         let mut attachments_table = Box::new(Table::new());
@@ -119,7 +119,7 @@ pub async fn show_attachments(
                             id,
                             "INSTANCE",
                             format!("INDIRECT via VPC {}", vpc.id),
-                            forgerpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone
+                            nicorpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone
                                 .as_str_name()
                         ]);
                     } else {
@@ -127,7 +127,7 @@ pub async fn show_attachments(
                             id,
                             "INSTANCE",
                             format!("INDIRECT via VPC {}", vpc.id),
-                            forgerpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
+                            nicorpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
                                 .as_str_name()
                         ]);
                     }

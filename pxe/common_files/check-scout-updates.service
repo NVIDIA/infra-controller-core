@@ -4,4 +4,4 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/forge/check-scout-updates.sh
+ExecStart=/opt/nico/check-scout-updates.sh

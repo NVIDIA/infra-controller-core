@@ -16,7 +16,7 @@
  */
 
 //!
-//! The Carbide API server library.
+//! The Nico API server library.
 
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
 #![cfg_attr(test, allow(txn_held_across_await))]
@@ -24,10 +24,10 @@
 
 // NOTE on pub vs non-pub mods:
 //
-// carbide-api is a CLI crate, not a lib. The only reason we have lib.rs is to export things so that
-// the `api-test` crate can do integration tests against carbide-api. And even that is a compromise:
+// nico-api is a CLI crate, not a lib. The only reason we have lib.rs is to export things so that
+// the `api-test` crate can do integration tests against nico-api. And even that is a compromise:
 // `api-test` should be as "black box" as possible, and we should only be exporting things like the
-// main `run()` function and some [`cfg`] types, so that api-test can run a full carbide server.
+// main `run()` function and some [`cfg`] types, so that api-test can run a full nico server.
 // Otherwise, lib.rs should be mostly private ("mod", not "pub mod" in these lines), so that we get
 // working dead-code detection: If modules here are public, rust will not find dead code for
 // anything marked `pub` within the module.
@@ -68,13 +68,13 @@ mod storage;
 mod tests;
 mod web;
 
-// Allow carbide_macros::sqlx_test to be referred as #[crate::sqlx_test]
+// Allow nico_macros::sqlx_test to be referred as #[crate::sqlx_test]
 #[cfg(test)]
-pub(crate) use carbide_macros::sqlx_test;
+pub(crate) use nico_macros::sqlx_test;
 // TODO: temporary while migrating db to its own crate
 pub use db::{DatabaseError, DatabaseResult};
 // Save typing
-pub(crate) use errors::{CarbideError, CarbideResult};
+pub(crate) use errors::{NicoError, NicoResult};
 
 // Stuff needed by main.rs and api-test
 pub use crate::{cfg::command_line::Command, cfg::command_line::Options, run::run};

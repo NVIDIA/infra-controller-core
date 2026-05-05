@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::operating_system::OperatingSystemId;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use nico_uuid::operating_system::OperatingSystemId;
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     IpxeTemplateArtifact, IpxeTemplateArtifactCacheStrategy, IpxeTemplateArtifacts,
     OperatingSystemType, TenantState,
 };
@@ -32,7 +32,7 @@ async fn test_create_operating_system_ipxe(pool: sqlx::PgPool) {
     let resp = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "test-ipxe-os".to_string(),
                 tenant_organization_id: "test-org".to_string(),
@@ -74,7 +74,7 @@ async fn test_create_operating_system_requires_name(pool: sqlx::PgPool) {
     let resp = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "".to_string(),
                 tenant_organization_id: "test-org".to_string(),
@@ -102,7 +102,7 @@ async fn test_create_operating_system_requires_variant(pool: sqlx::PgPool) {
     let resp = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "test-os".to_string(),
                 tenant_organization_id: "test-org".to_string(),
@@ -130,7 +130,7 @@ async fn test_get_operating_system(pool: sqlx::PgPool) {
     let created = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "get-test-os".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -181,7 +181,7 @@ async fn test_update_operating_system(pool: sqlx::PgPool) {
     let created = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "original-name".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -205,7 +205,7 @@ async fn test_update_operating_system(pool: sqlx::PgPool) {
     let updated = env
         .api
         .update_operating_system(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemRequest {
+            rpc::nico::UpdateOperatingSystemRequest {
                 id: Some(id),
                 name: Some("updated-name".to_string()),
                 description: Some("updated desc".to_string()),
@@ -243,7 +243,7 @@ async fn test_delete_operating_system(pool: sqlx::PgPool) {
     let created = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "delete-test-os".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -282,7 +282,7 @@ async fn test_find_operating_system_ids(pool: sqlx::PgPool) {
     let os1 = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "find-os-1".to_string(),
                 tenant_organization_id: "find-org".to_string(),
@@ -304,7 +304,7 @@ async fn test_find_operating_system_ids(pool: sqlx::PgPool) {
     let os2 = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "find-os-2".to_string(),
                 tenant_organization_id: "find-org".to_string(),
@@ -326,7 +326,7 @@ async fn test_find_operating_system_ids(pool: sqlx::PgPool) {
     let resp = env
         .api
         .find_operating_system_ids(tonic::Request::new(
-            rpc::forge::OperatingSystemSearchFilter {
+            rpc::nico::OperatingSystemSearchFilter {
                 tenant_organization_id: Some("find-org".to_string()),
             },
         ))
@@ -348,7 +348,7 @@ async fn test_find_operating_systems_by_ids(pool: sqlx::PgPool) {
     let os1 = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "by-id-os-1".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -372,7 +372,7 @@ async fn test_find_operating_systems_by_ids(pool: sqlx::PgPool) {
     let resp = env
         .api
         .find_operating_systems_by_ids(tonic::Request::new(
-            rpc::forge::OperatingSystemsByIdsRequest { ids: vec![id1] },
+            rpc::nico::OperatingSystemsByIdsRequest { ids: vec![id1] },
         ))
         .await
         .unwrap()
@@ -388,7 +388,7 @@ async fn test_list_ipxe_templates(pool: sqlx::PgPool) {
 
     let resp = env
         .api
-        .list_ipxe_templates(tonic::Request::new(rpc::forge::ListIpxeTemplatesRequest {}))
+        .list_ipxe_templates(tonic::Request::new(rpc::nico::ListIpxeTemplatesRequest {}))
         .await
         .unwrap()
         .into_inner();
@@ -410,7 +410,7 @@ async fn test_get_ipxe_template(pool: sqlx::PgPool) {
 
     let all = env
         .api
-        .list_ipxe_templates(tonic::Request::new(rpc::forge::ListIpxeTemplatesRequest {}))
+        .list_ipxe_templates(tonic::Request::new(rpc::nico::ListIpxeTemplatesRequest {}))
         .await
         .unwrap()
         .into_inner();
@@ -420,7 +420,7 @@ async fn test_get_ipxe_template(pool: sqlx::PgPool) {
 
     let resp = env
         .api
-        .get_ipxe_template(tonic::Request::new(rpc::forge::GetIpxeTemplateRequest {
+        .get_ipxe_template(tonic::Request::new(rpc::nico::GetIpxeTemplateRequest {
             id: Some(first_id),
         }))
         .await
@@ -444,7 +444,7 @@ async fn create_os_with_artifacts(
     let resp = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "artifact-test-os".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -455,7 +455,7 @@ async fn create_os_with_artifacts(
                 user_data: None,
                 ipxe_script: None,
                 ipxe_template_id: Some("ea756ddd-add3-5e42-a202-44bfc2d5aac2".parse().unwrap()),
-                ipxe_template_parameters: vec![rpc::forge::IpxeTemplateParameter {
+                ipxe_template_parameters: vec![rpc::nico::IpxeTemplateParameter {
                     name: "image_url".to_string(),
                     value: "http://example.com/image.qcow2".to_string(),
                 }],
@@ -510,7 +510,7 @@ async fn test_get_operating_system_cachable_ipxe_template_artifacts_returns_orde
     let resp = env
         .api
         .get_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
+            rpc::nico::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
         ))
         .await
         .unwrap()
@@ -530,7 +530,7 @@ async fn test_get_operating_system_cachable_ipxe_template_artifacts_not_found(po
     let resp = env
         .api
         .get_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(id) },
+            rpc::nico::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(id) },
         ))
         .await;
 
@@ -551,9 +551,9 @@ async fn test_set_artifacts_cached_url_partial_update(pool: sqlx::PgPool) {
     let resp = env
         .api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
-                updates: vec![rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                updates: vec![rpc::nico::IpxeTemplateArtifactUpdateRequest {
                     name: "kernel".to_string(),
                     cached_url: Some("http://cache.local/kernel".to_string()),
                 }],
@@ -580,7 +580,7 @@ async fn test_set_artifacts_cached_url_ordered_duplicate_names(pool: sqlx::PgPoo
     let os = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "dup-kernel-os".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -591,7 +591,7 @@ async fn test_set_artifacts_cached_url_ordered_duplicate_names(pool: sqlx::PgPoo
                 user_data: None,
                 ipxe_script: None,
                 ipxe_template_id: Some("ea756ddd-add3-5e42-a202-44bfc2d5aac2".parse().unwrap()),
-                ipxe_template_parameters: vec![rpc::forge::IpxeTemplateParameter {
+                ipxe_template_parameters: vec![rpc::nico::IpxeTemplateParameter {
                     name: "image_url".to_string(),
                     value: "http://example.com/image.qcow2".to_string(),
                 }],
@@ -627,14 +627,14 @@ async fn test_set_artifacts_cached_url_ordered_duplicate_names(pool: sqlx::PgPoo
     let resp = env
         .api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
                 updates: vec![
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "kernel".to_string(),
                         cached_url: Some("http://cache.local/kernel-a".to_string()),
                     },
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "kernel".to_string(),
                         cached_url: Some("http://cache.local/kernel-b".to_string()),
                     },
@@ -664,14 +664,14 @@ async fn test_set_artifacts_cached_url_too_many_same_name_fails(pool: sqlx::PgPo
     let resp = env
         .api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
                 updates: vec![
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "kernel".to_string(),
                         cached_url: Some("http://cache.local/kernel-1".to_string()),
                     },
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "kernel".to_string(), // no second kernel exists
                         cached_url: Some("http://cache.local/kernel-2".to_string()),
                     },
@@ -692,9 +692,9 @@ async fn test_set_artifacts_cached_url_unknown_name_fails(pool: sqlx::PgPool) {
     let resp = env
         .api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
-                updates: vec![rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                updates: vec![rpc::nico::IpxeTemplateArtifactUpdateRequest {
                     name: "does-not-exist".to_string(),
                     cached_url: Some("http://cache.local/whatever".to_string()),
                 }],
@@ -716,14 +716,14 @@ async fn test_set_artifacts_transitions_to_ready_when_all_cached_only_set(pool: 
     let _ = env
         .api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
                 updates: vec![
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "kernel".to_string(),
                         cached_url: Some("http://cache.local/kernel".to_string()),
                     },
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "initrd".to_string(),
                         cached_url: Some("http://cache.local/initrd".to_string()),
                     },
@@ -755,9 +755,9 @@ async fn test_set_artifacts_does_not_transition_to_ready_when_cached_only_incomp
     let _ = env
         .api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
-                updates: vec![rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                updates: vec![rpc::nico::IpxeTemplateArtifactUpdateRequest {
                     name: "kernel".to_string(),
                     cached_url: Some("http://cache.local/kernel".to_string()),
                 }],
@@ -784,9 +784,9 @@ async fn test_set_artifacts_cached_url_clear(pool: sqlx::PgPool) {
     // Set then clear kernel's cached_url.
     env.api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
-                updates: vec![rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                updates: vec![rpc::nico::IpxeTemplateArtifactUpdateRequest {
                     name: "kernel".to_string(),
                     cached_url: Some("http://cache.local/kernel".to_string()),
                 }],
@@ -798,9 +798,9 @@ async fn test_set_artifacts_cached_url_clear(pool: sqlx::PgPool) {
     let resp = env
         .api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
-                updates: vec![rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                updates: vec![rpc::nico::IpxeTemplateArtifactUpdateRequest {
                     name: "kernel".to_string(),
                     cached_url: None, // clear it
                 }],
@@ -821,14 +821,14 @@ async fn test_clear_cached_url_demotes_ready_to_provisioning(pool: sqlx::PgPool)
     // Set all CACHED_ONLY artifacts so the OS becomes READY.
     env.api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
                 updates: vec![
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "kernel".to_string(),
                         cached_url: Some("http://cache.local/kernel".to_string()),
                     },
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "initrd".to_string(),
                         cached_url: Some("http://cache.local/initrd".to_string()),
                     },
@@ -849,9 +849,9 @@ async fn test_clear_cached_url_demotes_ready_to_provisioning(pool: sqlx::PgPool)
     // Clear one CACHED_ONLY artifact's cached_url — status must revert.
     env.api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
-                updates: vec![rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                updates: vec![rpc::nico::IpxeTemplateArtifactUpdateRequest {
                     name: "kernel".to_string(),
                     cached_url: None,
                 }],
@@ -884,7 +884,7 @@ async fn test_create_strips_cached_url(pool: sqlx::PgPool) {
     let resp = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "strip-test".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -895,7 +895,7 @@ async fn test_create_strips_cached_url(pool: sqlx::PgPool) {
                 user_data: None,
                 ipxe_script: None,
                 ipxe_template_id: Some("ea756ddd-add3-5e42-a202-44bfc2d5aac2".parse().unwrap()),
-                ipxe_template_parameters: vec![rpc::forge::IpxeTemplateParameter {
+                ipxe_template_parameters: vec![rpc::nico::IpxeTemplateParameter {
                     name: "image_url".to_string(),
                     value: "http://example.com/image.qcow2".to_string(),
                 }],
@@ -918,7 +918,7 @@ async fn test_create_strips_cached_url(pool: sqlx::PgPool) {
     let arts = env
         .api
         .get_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
+            rpc::nico::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
         ))
         .await
         .unwrap()
@@ -937,7 +937,7 @@ async fn test_create_with_cached_only_sets_provisioning(pool: sqlx::PgPool) {
     let resp = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "provision-test".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -948,7 +948,7 @@ async fn test_create_with_cached_only_sets_provisioning(pool: sqlx::PgPool) {
                 user_data: None,
                 ipxe_script: None,
                 ipxe_template_id: Some("ea756ddd-add3-5e42-a202-44bfc2d5aac2".parse().unwrap()),
-                ipxe_template_parameters: vec![rpc::forge::IpxeTemplateParameter {
+                ipxe_template_parameters: vec![rpc::nico::IpxeTemplateParameter {
                     name: "image_url".to_string(),
                     value: "http://example.com/image.qcow2".to_string(),
                 }],
@@ -982,14 +982,14 @@ async fn test_update_strips_cached_url_from_artifacts(pool: sqlx::PgPool) {
     // First, set cached_url via the proper RPC so we can verify update strips it.
     env.api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
                 updates: vec![
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "kernel".to_string(),
                         cached_url: Some("http://cache.local/kernel".to_string()),
                     },
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "initrd".to_string(),
                         cached_url: Some("http://cache.local/initrd".to_string()),
                     },
@@ -1002,7 +1002,7 @@ async fn test_update_strips_cached_url_from_artifacts(pool: sqlx::PgPool) {
     // Now update via regular update, providing artifacts with cached_url set.
     env.api
         .update_operating_system(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemRequest {
+            rpc::nico::UpdateOperatingSystemRequest {
                 id: Some(os_id),
                 name: None,
                 description: None,
@@ -1044,7 +1044,7 @@ async fn test_update_strips_cached_url_from_artifacts(pool: sqlx::PgPool) {
     let arts = env
         .api
         .get_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
+            rpc::nico::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
         ))
         .await
         .unwrap()
@@ -1067,14 +1067,14 @@ async fn test_update_with_cached_only_artifacts_recomputes_status(pool: sqlx::Pg
     // Set all cached_urls so OS becomes READY.
     env.api
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
                 updates: vec![
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "kernel".to_string(),
                         cached_url: Some("http://cache.local/kernel".to_string()),
                     },
-                    rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    rpc::nico::IpxeTemplateArtifactUpdateRequest {
                         name: "initrd".to_string(),
                         cached_url: Some("http://cache.local/initrd".to_string()),
                     },
@@ -1096,7 +1096,7 @@ async fn test_update_with_cached_only_artifacts_recomputes_status(pool: sqlx::Pg
     // will be stripped, so status must revert to PROVISIONING.
     env.api
         .update_operating_system(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemRequest {
+            rpc::nico::UpdateOperatingSystemRequest {
                 id: Some(os_id),
                 name: None,
                 description: None,
@@ -1165,7 +1165,7 @@ async fn test_update_promotes_to_ready_when_no_cached_only_remains(pool: sqlx::P
     // Update artifacts to remove all CACHED_ONLY strategies — only CACHE_AS_NEEDED remains.
     env.api
         .update_operating_system(tonic::Request::new(
-            rpc::forge::UpdateOperatingSystemRequest {
+            rpc::nico::UpdateOperatingSystemRequest {
                 id: Some(os_id),
                 name: None,
                 description: None,
@@ -1225,10 +1225,10 @@ async fn test_update_promotes_to_ready_when_no_cached_only_remains(pool: sqlx::P
 async fn test_get_ipxe_template_not_found(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let nonexistent_id = carbide_uuid::ipxe_template::IpxeTemplateId::nil();
+    let nonexistent_id = nico_uuid::ipxe_template::IpxeTemplateId::nil();
     let resp = env
         .api
-        .get_ipxe_template(tonic::Request::new(rpc::forge::GetIpxeTemplateRequest {
+        .get_ipxe_template(tonic::Request::new(rpc::nico::GetIpxeTemplateRequest {
             id: Some(nonexistent_id),
         }))
         .await;
@@ -1247,7 +1247,7 @@ async fn test_create_operating_system_with_explicit_id(pool: sqlx::PgPool) {
     let resp = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: Some(id_proto),
                 name: "explicit-id-os".to_string(),
                 tenant_organization_id: "org1".to_string(),
@@ -1276,7 +1276,7 @@ async fn test_deleted_os_not_returned_by_find_ids(pool: sqlx::PgPool) {
     let created = env
         .api
         .create_operating_system(tonic::Request::new(
-            rpc::forge::CreateOperatingSystemRequest {
+            rpc::nico::CreateOperatingSystemRequest {
                 id: None,
                 name: "soon-deleted-os".to_string(),
                 tenant_organization_id: "del-org".to_string(),
@@ -1304,7 +1304,7 @@ async fn test_deleted_os_not_returned_by_find_ids(pool: sqlx::PgPool) {
     let resp = env
         .api
         .find_operating_system_ids(tonic::Request::new(
-            rpc::forge::OperatingSystemSearchFilter {
+            rpc::nico::OperatingSystemSearchFilter {
                 tenant_organization_id: Some("del-org".to_string()),
             },
         ))

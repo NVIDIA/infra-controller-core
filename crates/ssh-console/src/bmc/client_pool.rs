@@ -19,13 +19,13 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use futures_util::future::join_all;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Meter, ObservableGauge};
-use rpc::forge;
-use rpc::forge_api_client::ForgeApiClient;
+use rpc::nico;
+use rpc::nico_api_client::NicoApiClient;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tokio::task::JoinHandle;
@@ -40,7 +40,7 @@ use crate::shutdown_handle::{ReadyHandle, ShutdownHandle};
 use crate::ssh_server::ServerMetrics;
 
 /// Spawn a background task that connects to all BMC's in the environment, reconnecting if they fail.
-pub fn spawn(config: Arc<Config>, forge_api_client: ForgeApiClient, meter: &Meter) -> Handle {
+pub fn spawn(config: Arc<Config>, nico_api_client: NicoApiClient, meter: &Meter) -> Handle {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = oneshot::channel();
     let members: Arc<RwLock<HashMap<MachineId, ClientHandle>>> = Default::default();
@@ -49,7 +49,7 @@ pub fn spawn(config: Arc<Config>, forge_api_client: ForgeApiClient, meter: &Mete
             members: members.clone(),
             shutdown_rx,
             config,
-            forge_api_client,
+            nico_api_client,
             metrics: Arc::new(BmcPoolMetrics::new(meter, members.clone())),
         }
         .run_loop(ready_tx),
@@ -99,7 +99,7 @@ impl BmcConnectionStore {
         &self,
         machine_or_instance_id: &str,
         config: &Config,
-        forge_api_client: &ForgeApiClient,
+        nico_api_client: &NicoApiClient,
         metrics: Arc<ServerMetrics>,
     ) -> Result<BmcConnectionSubscription, GetConnectionError> {
         if let Ok(machine_id) = MachineId::from_str(machine_or_instance_id) {
@@ -135,8 +135,8 @@ impl BmcConnectionStore {
                 }) {
                 machine_id
             } else {
-                forge_api_client
-                    .find_instances_by_ids(forge::InstancesByIdsRequest {
+                nico_api_client
+                    .find_instances_by_ids(nico::InstancesByIdsRequest {
                         instance_ids: vec![instance_id],
                     })
                     .await
@@ -189,7 +189,7 @@ struct BmcPool {
     members: Arc<RwLock<HashMap<MachineId, ClientHandle>>>,
     shutdown_rx: oneshot::Receiver<()>,
     config: Arc<Config>,
-    forge_api_client: ForgeApiClient,
+    nico_api_client: NicoApiClient,
     metrics: Arc<BmcPoolMetrics>,
 }
 
@@ -319,7 +319,7 @@ impl BmcPool {
     }
 
     async fn refresh_bmcs(&mut self) -> Result<(), RefreshBmcsError> {
-        // Get all machine ID's from forge, parsing them into carbide_uuid::MachineId.
+        // Get all machine ID's from nico, parsing them into nico_uuid::MachineId.
         let machine_ids: HashSet<MachineId> = match &self.config.override_bmcs {
                 Some(override_bmcs) => {
                     override_bmcs
@@ -338,8 +338,8 @@ impl BmcPool {
                         .collect()
                 }
                 None => {
-                    self.forge_api_client
-                        .find_machine_ids(forge::MachineSearchConfig {
+                    self.nico_api_client
+                        .find_machine_ids(nico::MachineSearchConfig {
                             exclude_hosts: !self.config.hosts,
                             include_dpus: self.config.dpus,
                             ..Default::default()
@@ -367,7 +367,7 @@ impl BmcPool {
                 .copied()
                 .collect::<Vec<_>>();
             for machine_id in to_remove {
-                tracing::info!(%machine_id, "removing machine from console logging, no longer found in carbide");
+                tracing::info!(%machine_id, "removing machine from console logging, no longer found in nico");
                 guard.remove(&machine_id);
             }
 
@@ -383,12 +383,12 @@ impl BmcPool {
         // here.
         let all_connection_details = join_all(to_add.into_iter().map(|machine_id| {
             let config = self.config.clone();
-            let forge_api_client = self.forge_api_client.clone();
+            let nico_api_client = self.nico_api_client.clone();
             async move {
                 match connection::lookup(
                     &machine_id.to_string(),
                     &config,
-                    &forge_api_client,
+                    &nico_api_client,
                 )
                     .await
                 {

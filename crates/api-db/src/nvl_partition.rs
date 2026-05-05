@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::nvlink::NvLinkPartitionId;
+use nico_uuid::nvlink::NvLinkPartitionId;
 use model::nvl_partition::{NewNvlPartition, NvlPartition, NvlPartitionSnapshotPgJson};
 use sqlx::PgConnection;
 

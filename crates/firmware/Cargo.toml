@@ -1,20 +1,20 @@
 [package]
-name = "carbide-firmware"
+name = "nico-firmware"
 version = "0.0.1"
 edition.workspace = true
-description = "Carbide Firmware"
+description = "Nico Firmware"
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_firmware"
+name = "nico_firmware"
 
 [features]
 default = []
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-api-model = { path = "../api-model", default-features = false }
+nico-api-model = { path = "../api-model", default-features = false }
 
 # these are alphabetized
 eyre = { workspace = true }
@@ -28,10 +28,10 @@ tracing = { workspace = true }
 
 
 [dev-dependencies]
-carbide-macros = { path = "../macros" }
-carbide-api-db = { path = "../api-db", default-features = false }
+nico-macros = { path = "../macros" }
+nico-api-db = { path = "../api-db", default-features = false }
 sqlx = { workspace = true }
-carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+nico-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 
 [lints]
 workspace = true

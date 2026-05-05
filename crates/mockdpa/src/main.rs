@@ -16,19 +16,19 @@
  */
 
 // src/main.rs
-// mockdpa used to test Carbide <-> DPA interactions
+// mockdpa used to test Nico <-> DPA interactions
 // mockdpa subscribes to the command channel and picks up
-// commands posted by Carbide. It then sends acks on the
+// commands posted by Nico. It then sends acks on the
 // ack channel. For each macaddr, we store the last
 // config command received. When we get a heartbeat for
 // that macaddr, we reply with the stored config if we have
 // any. It's possible that we got restarted and don't have
 // any stored config when we receive the heartbeat. In that
-// case, we just echo the heartbeat message. Carbide will
+// case, we just echo the heartbeat message. Nico will
 // detect that we don't have the current config, and will
 // send the config to us again. This situation mimics
 // the DPA being powercycled and losing its config and having
-// to be reprogrammed by Carbide.
+// to be reprogrammed by Nico.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -110,7 +110,7 @@ async fn handle_host_message(mystate: &mut InterfaceState, message: SetVni, topi
             reply = rep.clone();
         }
     } else {
-        // This is not a heartbeat. Carbide is actually configuring us.
+        // This is not a heartbeat. Nico is actually configuring us.
         // Remember the config so that we can send it back in response to
         // heartbeat messages.
         let mut mguard = mystate.last_set_msg.lock().unwrap();

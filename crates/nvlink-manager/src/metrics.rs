@@ -20,7 +20,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::time::Duration;
 
-use ::carbide_utils::metrics::SharedMetricsHolder;
+use ::nico_utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use serde::Serialize;
@@ -158,19 +158,19 @@ impl NvlPartitionMonitorInstruments {
         shared_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>,
     ) -> Self {
         let iteration_latency = meter
-            .f64_histogram("carbide_nvlink_partition_monitor_iteration_latency")
+            .f64_histogram("nico_nvlink_partition_monitor_iteration_latency")
             .with_description("Time consumed for one monitor iteration")
             .with_unit("ms")
             .build();
 
         let operations_latency = meter
-            .f64_histogram("carbide_nvlink_partition_monitor_nmxm_op_latency")
+            .f64_histogram("nico_nvlink_partition_monitor_nmxm_op_latency")
             .with_description("Time consumed for one nmxm operations")
             .with_unit("ms")
             .build();
 
         let nvlink_config_apply_latency = meter
-            .f64_histogram("carbide_nvlink_partition_monitor_nvlink_config_apply_latency")
+            .f64_histogram("nico_nvlink_partition_monitor_nvlink_config_apply_latency")
             .with_description("Time since nvlink config was requested for this instance")
             .with_unit("ms")
             .build();
@@ -179,7 +179,7 @@ impl NvlPartitionMonitorInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge(
-                    "carbide_nvlink_partition_monitor_machine_status_updates_count",
+                    "nico_nvlink_partition_monitor_machine_status_updates_count",
                 )
                 .with_description("Number of machines nvlink_status_observation got updated")
                 .with_callback(move |o| {
@@ -193,7 +193,7 @@ impl NvlPartitionMonitorInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_num_logical_partitions")
+                .u64_observable_gauge("nico_nvlink_partition_monitor_num_logical_partitions")
                 .with_description("Number of logical partitions that were monitored")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -206,7 +206,7 @@ impl NvlPartitionMonitorInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_num_physical_partitions")
+                .u64_observable_gauge("nico_nvlink_partition_monitor_num_physical_partitions")
                 .with_description("Number of physical partitions that were monitored")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -217,14 +217,14 @@ impl NvlPartitionMonitorInstruments {
         }
 
         let nmxm_changes_applied = meter
-            .u64_counter("carbide_nvlink_partition_monitor_nmxm_changes_applied")
+            .u64_counter("nico_nvlink_partition_monitor_nmxm_changes_applied")
             .with_description("Number of changes requested to Nmx-M")
             .build();
 
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxm_connect_error_count")
+                .u64_observable_gauge("nico_nvlink_partition_monitor_nmxm_connect_error_count")
                 .with_description("The errors encountered while checking NMX-M")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -251,7 +251,7 @@ impl NvlPartitionMonitorInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxm_partition_count")
+                .u64_observable_gauge("nico_nvlink_partition_monitor_nmxm_partition_count")
                 .with_description("Number of partitions NMX-M is reporting")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -264,7 +264,7 @@ impl NvlPartitionMonitorInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxm_gpu_count")
+                .u64_observable_gauge("nico_nvlink_partition_monitor_nmxm_gpu_count")
                 .with_description("Number of GPUs NMX-M is reporting")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -277,7 +277,7 @@ impl NvlPartitionMonitorInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_nvlink_info_mismatches")
+                .u64_observable_gauge("nico_nvlink_partition_monitor_nvlink_info_mismatches")
                 .with_description("Number of NvLink GPU nmx_m_id mismatches between DB and NMX-M")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -290,7 +290,7 @@ impl NvlPartitionMonitorInstruments {
         {
             let metrics = shared_metrics;
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_stale_partitions_deleted")
+                .u64_observable_gauge("nico_nvlink_partition_monitor_stale_partitions_deleted")
                 .with_description("Number of stale partitions deleted from DB (not found in NMX-M)")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {

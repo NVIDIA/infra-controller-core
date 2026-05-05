@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-		<title>carbide-web | {% block title %}Base{% endblock %}</title>
-		<link href="/admin/static/carbide.css" rel="stylesheet" />
+		<title>nico-web | {% block title %}Base{% endblock %}</title>
+		<link href="/admin/static/nico.css" rel="stylesheet" />
 		<link href="/admin/static/sortable.css" rel="stylesheet" />
 		{% block head %}{% endblock %}
 	</head>
 	<body class="preload">
 		<nav>
-			<h3><a href="/admin" id="site-name">carbide-web</a></h3>
+			<h3><a href="/admin" id="site-name">nico-web</a></h3>
 			<form action="/admin/search" class="search-container">
 				<input type="search" placeholder="fm100.., 10.2.., etc" name="q" tabindex="1" title="Enter a machine id, UUID, IP address, MAC address, serial number, or shortcode">
 				<input type="submit" value="">
@@ -250,12 +250,12 @@
 			}
 
 			// Update the sidebar header label with the deployment site
-			// (e.g. "carbide • dev3" on api-dev3.frg.nvidia.com).
+			// (e.g. "nico • dev3" on api-dev3.frg.nvidia.com).
 			function setSiteHeader() {
 				const displayName = getSiteName("localDev");
 				const siteNameElement = document.getElementById("site-name");
 				if (siteNameElement) {
-					siteNameElement.innerHTML = `carbide • ${displayName}`;
+					siteNameElement.innerHTML = `nico • ${displayName}`;
 				}
 			}
 
@@ -274,7 +274,7 @@
 			function buildGrafanaLogsUrl(searchTerm) {
 				const siteName = getSiteName();
 				const grafanaBaseUrl = 'https://grafana-' + siteName + '.frg.nvidia.com';
-				const query = '{k8s_container_name="carbide-api"} |= `' + searchTerm + '` != `SPAN`';
+				const query = '{k8s_container_name="nico-api"} |= `' + searchTerm + '` != `SPAN`';
 				const panesJson = {
 					"KLl": {
 						"datasource": "P8E80F9AEF21F6940",

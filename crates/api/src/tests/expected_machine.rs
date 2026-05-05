@@ -23,13 +23,13 @@ use db::{self};
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::metadata::Metadata;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::tests::common;
-use crate::{CarbideError, DatabaseError};
+use crate::{NicoError, DatabaseError};
 
 // Test DB Functionality
 async fn get_expected_machine_1(txn: &mut PgConnection) -> Option<ExpectedMachine> {
@@ -178,7 +178,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     for (idx, expected_machine) in [
-        rpc::forge::ExpectedMachine {
+        rpc::nico::ExpectedMachine {
             bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
@@ -192,12 +192,12 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             is_dpf_enabled: Some(false),
             ..Default::default()
         },
-        rpc::forge::ExpectedMachine {
+        rpc::nico::ExpectedMachine {
             bmc_mac_address: "3A:3B:3C:3D:3E:40".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "VVG121GI".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             sku_id: Some("sku_id".to_string()),
             id: Some(::rpc::common::Uuid {
                 value: Uuid::new_v4().to_string(),
@@ -208,20 +208,20 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             dpf_enabled: true,
             ..Default::default()
         },
-        rpc::forge::ExpectedMachine {
+        rpc::nico::ExpectedMachine {
             bmc_mac_address: "3A:3B:3C:3D:3E:41".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "VVG121GI".into(),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "a".to_string(),
                 description: "desc".to_string(),
                 labels: vec![
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "k1".to_string(),
                         value: None,
                     },
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "k2".to_string(),
                         value: Some("v2".to_string()),
                     },
@@ -244,7 +244,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             .await
             .expect("unable to add expected machine ");
 
-        let expected_machine_query = rpc::forge::ExpectedMachineRequest {
+        let expected_machine_query = rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: expected_machine.bmc_mac_address.clone(),
             id: None,
         };
@@ -301,7 +301,7 @@ async fn test_delete_expected_machine(pool: sqlx::PgPool) {
         .expected_machines
         .len();
 
-    let expected_machine_query = rpc::forge::ExpectedMachineRequest {
+    let expected_machine_query = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
         id: None,
     };
@@ -327,7 +327,7 @@ async fn test_delete_expected_machine(pool: sqlx::PgPool) {
 async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_machine_request = rpc::forge::ExpectedMachineRequest {
+    let expected_machine_request = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
         id: None,
     };
@@ -340,7 +340,7 @@ async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        CarbideError::NotFoundError {
+        NicoError::NotFoundError {
             kind: "expected_machine",
             id: bmc_mac_address.to_string(),
         }
@@ -354,7 +354,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
 
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     for mut updated_machine in [
-        rpc::forge::ExpectedMachine {
+        rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE".into(),
             bmc_password: "PASS_UPDATE".into(),
@@ -363,7 +363,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             default_pause_ingestion_and_poweron: Some(true),
             ..Default::default()
         },
-        rpc::forge::ExpectedMachine {
+        rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE".into(),
             bmc_password: "PASS_UPDATE".into(),
@@ -372,20 +372,20 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             default_pause_ingestion_and_poweron: Some(false),
             ..Default::default()
         },
-        rpc::forge::ExpectedMachine {
+        rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE1".into(),
             bmc_password: "PASS_UPDATE1".into(),
             chassis_serial_number: "VVG121GN".into(),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "a".to_string(),
                 description: "desc".to_string(),
                 labels: vec![
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "k1".to_string(),
                         value: None,
                     },
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "k2".to_string(),
                         value: Some("v2".to_string()),
                     },
@@ -439,7 +439,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
 async fn test_update_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN_UPDATE".into(),
         bmc_password: "PASS_UPDATE".into(),
@@ -455,7 +455,7 @@ async fn test_update_expected_machine_error(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        CarbideError::NotFoundError {
+        NicoError::NotFoundError {
             kind: "expected_machine",
             id: bmc_mac_address.to_string(),
         }
@@ -513,7 +513,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         expected_machines: Vec::new(),
     };
 
-    let expected_machine_1 = rpc::forge::ExpectedMachine {
+    let expected_machine_1 = rpc::nico::ExpectedMachine {
         bmc_mac_address: "4A:4B:4C:4D:4E:4F".into(),
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
@@ -524,7 +524,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         ..Default::default()
     };
 
-    let expected_machine_2 = rpc::forge::ExpectedMachine {
+    let expected_machine_2 = rpc::nico::ExpectedMachine {
         bmc_mac_address: "5A:5B:5C:5D:5E:5F".into(),
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
@@ -535,7 +535,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         ..Default::default()
     };
 
-    let expected_machine_3 = rpc::forge::ExpectedMachine {
+    let expected_machine_3 = rpc::nico::ExpectedMachine {
         bmc_mac_address: "6A:6B:6C:6D:6E:6F".into(),
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
@@ -592,7 +592,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
 async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_machine_query = rpc::forge::ExpectedMachineRequest {
+    let expected_machine_query = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
         id: None,
     };
@@ -605,7 +605,7 @@ async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        CarbideError::NotFoundError {
+        NicoError::NotFoundError {
             kind: "expected_machine",
             id: bmc_mac_address.to_string(),
         }
@@ -653,7 +653,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
     let bmc_mac = host_config.bmc_mac_address;
 
     let provided_id = Uuid::new_v4();
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: bmc_mac.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
@@ -713,7 +713,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
 async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
@@ -739,7 +739,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         .await
         .expect("unable to add expected machine ");
 
-    let expected_machine_query = rpc::forge::ExpectedMachineRequest {
+    let expected_machine_query = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
         id: None,
     };
@@ -761,7 +761,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
     let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
     // Start adding an expected-machine with invalid metadata
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(false) {
-        let expected_machine = rpc::forge::ExpectedMachine {
+        let expected_machine = rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
@@ -795,7 +795,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
     }
 
     // Create one with valid metadata, and try to update it to invalid
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
@@ -817,7 +817,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
         .expect("Expected addition to succeed");
 
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(false) {
-        let expected_machine = rpc::forge::ExpectedMachine {
+        let expected_machine = rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
@@ -893,7 +893,7 @@ async fn test_with_dpu_serial_numbers(
 async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
@@ -923,7 +923,7 @@ async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
 
     let mut ee1 = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
             id: None,
         }))
@@ -941,7 +941,7 @@ async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
 
     let ee2 = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
             id: None,
         }))
@@ -957,7 +957,7 @@ async fn test_update_expected_machine_add_duplicate_dpu_serial(pool: sqlx::PgPoo
 
     let mut ee1 = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
             id: None,
         }))
@@ -985,7 +985,7 @@ async fn test_update_expected_machine_add_sku(pool: sqlx::PgPool) {
 
     let mut ee1 = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
             id: None,
         }))
@@ -1003,7 +1003,7 @@ async fn test_update_expected_machine_add_sku(pool: sqlx::PgPool) {
 
     let ee2 = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
             id: None,
         }))
@@ -1019,12 +1019,12 @@ async fn test_add_expected_machine_with_id_and_get_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let provided_id = Uuid::new_v4().to_string();
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: "AA:BB:CC:DD:EE:01".to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "SERIAL-ID".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
         }),
@@ -1037,7 +1037,7 @@ async fn test_add_expected_machine_with_id_and_get_by_id(pool: sqlx::PgPool) {
         .expect("unable to add expected machine with id");
 
     // Get by id
-    let get_req = rpc::forge::ExpectedMachineRequest {
+    let get_req = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
@@ -1063,12 +1063,12 @@ async fn test_update_expected_machine_by_id(pool: sqlx::PgPool) {
 
     // Create with id
     let provided_id = Uuid::new_v4().to_string();
-    let mut expected_machine = rpc::forge::ExpectedMachine {
+    let mut expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: "AA:BB:CC:DD:EE:02".to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "SERIAL-1".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
         }),
@@ -1088,7 +1088,7 @@ async fn test_update_expected_machine_by_id(pool: sqlx::PgPool) {
         .expect("update by id");
 
     // Fetch by id and verify
-    let get_req = rpc::forge::ExpectedMachineRequest {
+    let get_req = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
@@ -1114,12 +1114,12 @@ async fn test_delete_expected_machine_by_id(pool: sqlx::PgPool) {
 
     // Create with id
     let provided_id = Uuid::new_v4().to_string();
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: "AA:BB:CC:DD:EE:03".to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "SERIAL-DEL".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
         }),
@@ -1132,7 +1132,7 @@ async fn test_delete_expected_machine_by_id(pool: sqlx::PgPool) {
         .expect("add with id");
 
     // Delete by id
-    let del_req = rpc::forge::ExpectedMachineRequest {
+    let del_req = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
@@ -1144,7 +1144,7 @@ async fn test_delete_expected_machine_by_id(pool: sqlx::PgPool) {
         .expect("delete by id");
 
     // Verify NotFound by id
-    let get_req = rpc::forge::ExpectedMachineRequest {
+    let get_req = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
@@ -1157,7 +1157,7 @@ async fn test_delete_expected_machine_by_id(pool: sqlx::PgPool) {
         .unwrap_err();
     assert_eq!(
         err.message().to_string(),
-        CarbideError::NotFoundError {
+        NicoError::NotFoundError {
             kind: "expected_machine",
             id: provided_id
         }
@@ -1172,10 +1172,10 @@ async fn test_batch_create_expected_machines_all_or_nothing_success(pool: sqlx::
     let id1 = Uuid::new_v4();
     let id2 = Uuid::new_v4();
 
-    let request = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
+    let request = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
             expected_machines: vec![
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id1.to_string(),
                     }),
@@ -1183,10 +1183,10 @@ async fn test_batch_create_expected_machines_all_or_nothing_success(pool: sqlx::
                     bmc_username: "admin1".to_string(),
                     bmc_password: "pass1".to_string(),
                     chassis_serial_number: "SERIAL-001".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id2.to_string(),
                     }),
@@ -1194,7 +1194,7 @@ async fn test_batch_create_expected_machines_all_or_nothing_success(pool: sqlx::
                     bmc_username: "admin2".to_string(),
                     bmc_password: "pass2".to_string(),
                     chassis_serial_number: "SERIAL-002".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
             ],
@@ -1214,7 +1214,7 @@ async fn test_batch_create_expected_machines_all_or_nothing_success(pool: sqlx::
     assert!(results[1].success);
 
     // Verify both machines were created
-    let get_req1 = rpc::forge::ExpectedMachineRequest {
+    let get_req1 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id1.to_string(),
@@ -1227,7 +1227,7 @@ async fn test_batch_create_expected_machines_all_or_nothing_success(pool: sqlx::
         .expect("should find machine 1");
     assert_eq!(machine1.into_inner().bmc_username, "admin1");
 
-    let get_req2 = rpc::forge::ExpectedMachineRequest {
+    let get_req2 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id2.to_string(),
@@ -1248,10 +1248,10 @@ async fn test_batch_create_expected_machines_all_or_nothing_failure(pool: sqlx::
     let id1 = Uuid::new_v4();
     let id2 = Uuid::new_v4();
 
-    let request = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
+    let request = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
             expected_machines: vec![
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id1.to_string(),
                     }),
@@ -1259,10 +1259,10 @@ async fn test_batch_create_expected_machines_all_or_nothing_failure(pool: sqlx::
                     bmc_username: "admin1".to_string(),
                     bmc_password: "pass1".to_string(),
                     chassis_serial_number: "SERIAL-003".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id2.to_string(),
                     }),
@@ -1270,7 +1270,7 @@ async fn test_batch_create_expected_machines_all_or_nothing_failure(pool: sqlx::
                     bmc_username: "admin2".to_string(),
                     bmc_password: "pass2".to_string(),
                     chassis_serial_number: "SERIAL-004".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
             ],
@@ -1287,7 +1287,7 @@ async fn test_batch_create_expected_machines_all_or_nothing_failure(pool: sqlx::
     assert!(result.is_err());
 
     // Verify neither machine was created (transaction rollback)
-    let get_req1 = rpc::forge::ExpectedMachineRequest {
+    let get_req1 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id1.to_string(),
@@ -1308,10 +1308,10 @@ async fn test_batch_create_expected_machines_partial_results(pool: sqlx::PgPool)
     let id2 = Uuid::new_v4();
     let id3 = Uuid::new_v4();
 
-    let request = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
+    let request = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
             expected_machines: vec![
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id1.to_string(),
                     }),
@@ -1319,10 +1319,10 @@ async fn test_batch_create_expected_machines_partial_results(pool: sqlx::PgPool)
                     bmc_username: "admin1".to_string(),
                     bmc_password: "pass1".to_string(),
                     chassis_serial_number: "SERIAL-005".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id2.to_string(),
                     }),
@@ -1330,10 +1330,10 @@ async fn test_batch_create_expected_machines_partial_results(pool: sqlx::PgPool)
                     bmc_username: "admin2".to_string(),
                     bmc_password: "pass2".to_string(),
                     chassis_serial_number: "SERIAL-006".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id3.to_string(),
                     }),
@@ -1341,7 +1341,7 @@ async fn test_batch_create_expected_machines_partial_results(pool: sqlx::PgPool)
                     bmc_username: "admin3".to_string(),
                     bmc_password: "pass3".to_string(),
                     chassis_serial_number: "SERIAL-007".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
             ],
@@ -1362,7 +1362,7 @@ async fn test_batch_create_expected_machines_partial_results(pool: sqlx::PgPool)
     assert!(results[2].success, "Third machine should succeed");
 
     // Verify first machine was created
-    let get_req1 = rpc::forge::ExpectedMachineRequest {
+    let get_req1 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id1.to_string(),
@@ -1376,7 +1376,7 @@ async fn test_batch_create_expected_machines_partial_results(pool: sqlx::PgPool)
     assert_eq!(machine1.into_inner().bmc_username, "admin1");
 
     // Verify second machine was NOT created
-    let get_req2 = rpc::forge::ExpectedMachineRequest {
+    let get_req2 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id2.to_string(),
@@ -1389,7 +1389,7 @@ async fn test_batch_create_expected_machines_partial_results(pool: sqlx::PgPool)
     assert!(result2.is_err());
 
     // Verify third machine was created
-    let get_req3 = rpc::forge::ExpectedMachineRequest {
+    let get_req3 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id3.to_string(),
@@ -1407,15 +1407,15 @@ async fn test_batch_create_expected_machines_partial_results(pool: sqlx::PgPool)
 async fn test_batch_create_missing_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let request = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
-            expected_machines: vec![rpc::forge::ExpectedMachine {
+    let request = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
+            expected_machines: vec![rpc::nico::ExpectedMachine {
                 id: None, // Missing ID
                 bmc_mac_address: "AA:BB:CC:DD:EE:08".to_string(),
                 bmc_username: "admin".to_string(),
                 bmc_password: "pass".to_string(),
                 chassis_serial_number: "SERIAL-008".to_string(),
-                metadata: Some(rpc::forge::Metadata::default()),
+                metadata: Some(rpc::nico::Metadata::default()),
                 ..Default::default()
             }],
         }),
@@ -1438,10 +1438,10 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
     let id2 = Uuid::new_v4();
 
     // Create initial machines
-    let create_req = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
+    let create_req = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
             expected_machines: vec![
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id1.to_string(),
                     }),
@@ -1449,10 +1449,10 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
                     bmc_username: "admin1".to_string(),
                     bmc_password: "pass1".to_string(),
                     chassis_serial_number: "SERIAL-010".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id2.to_string(),
                     }),
@@ -1460,7 +1460,7 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
                     bmc_username: "admin2".to_string(),
                     bmc_password: "pass2".to_string(),
                     chassis_serial_number: "SERIAL-011".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
             ],
@@ -1474,10 +1474,10 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
         .expect("create should succeed");
 
     // Update both machines
-    let update_req = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
+    let update_req = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
             expected_machines: vec![
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id1.to_string(),
                     }),
@@ -1485,10 +1485,10 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
                     bmc_username: "admin1_updated".to_string(),
                     bmc_password: "pass1_updated".to_string(),
                     chassis_serial_number: "SERIAL-010".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id2.to_string(),
                     }),
@@ -1496,7 +1496,7 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
                     bmc_username: "admin2_updated".to_string(),
                     bmc_password: "pass2_updated".to_string(),
                     chassis_serial_number: "SERIAL-011".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
             ],
@@ -1516,7 +1516,7 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
     assert!(results[1].success);
 
     // Verify both machines were updated
-    let get_req1 = rpc::forge::ExpectedMachineRequest {
+    let get_req1 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id1.to_string(),
@@ -1529,7 +1529,7 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
         .expect("should find machine 1");
     assert_eq!(machine1.into_inner().bmc_username, "admin1_updated");
 
-    let get_req2 = rpc::forge::ExpectedMachineRequest {
+    let get_req2 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id2.to_string(),
@@ -1551,9 +1551,9 @@ async fn test_batch_update_expected_machines_all_or_nothing_failure(pool: sqlx::
     let id2 = Uuid::new_v4();
 
     // Create initial machines
-    let create_req = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
-            expected_machines: vec![rpc::forge::ExpectedMachine {
+    let create_req = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
+            expected_machines: vec![rpc::nico::ExpectedMachine {
                 id: Some(::rpc::common::Uuid {
                     value: id1.to_string(),
                 }),
@@ -1561,7 +1561,7 @@ async fn test_batch_update_expected_machines_all_or_nothing_failure(pool: sqlx::
                 bmc_username: "admin1".to_string(),
                 bmc_password: "pass1".to_string(),
                 chassis_serial_number: "SERIAL-012".to_string(),
-                metadata: Some(rpc::forge::Metadata::default()),
+                metadata: Some(rpc::nico::Metadata::default()),
                 ..Default::default()
             }],
         }),
@@ -1574,10 +1574,10 @@ async fn test_batch_update_expected_machines_all_or_nothing_failure(pool: sqlx::
         .expect("create should succeed");
 
     // Try to update with one valid and one invalid (non-existent id)
-    let update_req = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
+    let update_req = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
             expected_machines: vec![
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id1.to_string(),
                     }),
@@ -1585,10 +1585,10 @@ async fn test_batch_update_expected_machines_all_or_nothing_failure(pool: sqlx::
                     bmc_username: "admin1_updated".to_string(),
                     bmc_password: "pass1_updated".to_string(),
                     chassis_serial_number: "SERIAL-012".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id2.to_string(), // Non-existent ID
                     }),
@@ -1596,7 +1596,7 @@ async fn test_batch_update_expected_machines_all_or_nothing_failure(pool: sqlx::
                     bmc_username: "admin2".to_string(),
                     bmc_password: "pass2".to_string(),
                     chassis_serial_number: "SERIAL-013".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
             ],
@@ -1613,7 +1613,7 @@ async fn test_batch_update_expected_machines_all_or_nothing_failure(pool: sqlx::
     assert!(result.is_err());
 
     // Verify first machine was NOT updated (transaction rollback)
-    let get_req1 = rpc::forge::ExpectedMachineRequest {
+    let get_req1 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id1.to_string(),
@@ -1640,10 +1640,10 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
     let id3 = Uuid::new_v4();
 
     // Create initial machines
-    let create_req = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
+    let create_req = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
             expected_machines: vec![
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id1.to_string(),
                     }),
@@ -1651,10 +1651,10 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
                     bmc_username: "admin1".to_string(),
                     bmc_password: "pass1".to_string(),
                     chassis_serial_number: "SERIAL-014".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id3.to_string(),
                     }),
@@ -1662,7 +1662,7 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
                     bmc_username: "admin3".to_string(),
                     bmc_password: "pass3".to_string(),
                     chassis_serial_number: "SERIAL-016".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
             ],
@@ -1676,10 +1676,10 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
         .expect("create should succeed");
 
     // Try to update with partial results
-    let update_req = rpc::forge::BatchExpectedMachineOperationRequest {
-        expected_machines: Some(rpc::forge::ExpectedMachineList {
+    let update_req = rpc::nico::BatchExpectedMachineOperationRequest {
+        expected_machines: Some(rpc::nico::ExpectedMachineList {
             expected_machines: vec![
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id1.to_string(),
                     }),
@@ -1687,10 +1687,10 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
                     bmc_username: "admin1_updated".to_string(),
                     bmc_password: "pass1_updated".to_string(),
                     chassis_serial_number: "SERIAL-014".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id2.to_string(), // Non-existent ID
                     }),
@@ -1698,10 +1698,10 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
                     bmc_username: "admin2".to_string(),
                     bmc_password: "pass2".to_string(),
                     chassis_serial_number: "SERIAL-015".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedMachine {
+                rpc::nico::ExpectedMachine {
                     id: Some(::rpc::common::Uuid {
                         value: id3.to_string(),
                     }),
@@ -1709,7 +1709,7 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
                     bmc_username: "admin3_updated".to_string(),
                     bmc_password: "pass3_updated".to_string(),
                     chassis_serial_number: "SERIAL-016".to_string(),
-                    metadata: Some(rpc::forge::Metadata::default()),
+                    metadata: Some(rpc::nico::Metadata::default()),
                     ..Default::default()
                 },
             ],
@@ -1730,7 +1730,7 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
     assert!(results[2].success, "Third update should succeed");
 
     // Verify first machine was updated
-    let get_req1 = rpc::forge::ExpectedMachineRequest {
+    let get_req1 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id1.to_string(),
@@ -1744,7 +1744,7 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
     assert_eq!(machine1.into_inner().bmc_username, "admin1_updated");
 
     // Verify second machine does not exist
-    let get_req2 = rpc::forge::ExpectedMachineRequest {
+    let get_req2 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id2.to_string(),
@@ -1757,7 +1757,7 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
     assert!(result2.is_err());
 
     // Verify third machine was updated
-    let get_req3 = rpc::forge::ExpectedMachineRequest {
+    let get_req3 = rpc::nico::ExpectedMachineRequest {
         bmc_mac_address: "".to_string(),
         id: Some(::rpc::common::Uuid {
             value: id3.to_string(),
@@ -1780,12 +1780,12 @@ async fn test_patch_dpf_enabled_none_to_false(pool: sqlx::PgPool) {
 
     // Create machine with dpf_enabled = null (is_dpf_enabled: None)
     env.api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "SN-DPF-NULL".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             is_dpf_enabled: None,
             ..Default::default()
         }))
@@ -1795,7 +1795,7 @@ async fn test_patch_dpf_enabled_none_to_false(pool: sqlx::PgPool) {
     // Patch (update) with is_dpf_enabled: None — should keep dpf_enabled as NULL
     let mut updated = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: bmc_mac_address.to_string(),
             id: None,
         }))
@@ -1817,7 +1817,7 @@ async fn test_patch_dpf_enabled_none_to_false(pool: sqlx::PgPool) {
 
     let retrieved = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: bmc_mac_address.to_string(),
             id: None,
         }))
@@ -1838,12 +1838,12 @@ async fn test_patch_dpf_enabled_true_stays_true_when_patched_with_null(pool: sql
 
     // Create machine with dpf_enabled = true
     env.api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "SN-DPF-TRUE".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             is_dpf_enabled: Some(true),
             ..Default::default()
         }))
@@ -1853,7 +1853,7 @@ async fn test_patch_dpf_enabled_true_stays_true_when_patched_with_null(pool: sql
     // Patch (update) with is_dpf_enabled: None — should preserve dpf_enabled = true
     let mut updated = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: bmc_mac_address.to_string(),
             id: None,
         }))
@@ -1874,7 +1874,7 @@ async fn test_patch_dpf_enabled_true_stays_true_when_patched_with_null(pool: sql
 
     let retrieved = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: bmc_mac_address.to_string(),
             id: None,
         }))
@@ -1891,13 +1891,13 @@ async fn test_patch_dpf_enabled_true_stays_true_when_patched_with_null(pool: sql
 async fn test_add_expected_machine_with_static_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: "5A:5B:5C:5D:5E:60".to_string(),
         bmc_username: "root".into(),
         bmc_password: "testpass".into(),
         chassis_serial_number: "STATIC-IP-TEST".into(),
         bmc_ip_address: Some("10.0.0.100".to_string()),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         id: Some(::rpc::common::Uuid {
             value: uuid::Uuid::new_v4().to_string(),
         }),
@@ -1911,7 +1911,7 @@ async fn test_add_expected_machine_with_static_ip(pool: sqlx::PgPool) {
 
     let retrieved_machine = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "5A:5B:5C:5D:5E:60".to_string(),
             id: None,
         }))
@@ -1931,13 +1931,13 @@ async fn test_update_expected_machine_add_static_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     // Create machine without static IP
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: "5A:5B:5C:5D:5E:62".to_string(),
         bmc_username: "root".into(),
         bmc_password: "testpass".into(),
         chassis_serial_number: "UPDATE-STATIC-IP".into(),
         bmc_ip_address: None,
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         id: Some(::rpc::common::Uuid {
             value: uuid::Uuid::new_v4().to_string(),
         }),
@@ -1952,7 +1952,7 @@ async fn test_update_expected_machine_add_static_ip(pool: sqlx::PgPool) {
     // Update to add static IP
     let mut updated_machine = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "5A:5B:5C:5D:5E:62".to_string(),
             id: None,
         }))
@@ -1970,7 +1970,7 @@ async fn test_update_expected_machine_add_static_ip(pool: sqlx::PgPool) {
 
     let retrieved_machine = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "5A:5B:5C:5D:5E:62".to_string(),
             id: None,
         }))
@@ -1989,13 +1989,13 @@ async fn test_update_expected_machine_change_static_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     // Create machine with static IP
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: "5A:5B:5C:5D:5E:63".to_string(),
         bmc_username: "root".into(),
         bmc_password: "testpass".into(),
         chassis_serial_number: "CHANGE-STATIC-IP".into(),
         bmc_ip_address: Some("10.0.0.200".to_string()),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         id: Some(::rpc::common::Uuid {
             value: uuid::Uuid::new_v4().to_string(),
         }),
@@ -2010,7 +2010,7 @@ async fn test_update_expected_machine_change_static_ip(pool: sqlx::PgPool) {
     // Update to change static IP
     let mut updated_machine = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "5A:5B:5C:5D:5E:63".to_string(),
             id: None,
         }))
@@ -2028,7 +2028,7 @@ async fn test_update_expected_machine_change_static_ip(pool: sqlx::PgPool) {
 
     let retrieved_machine = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: "5A:5B:5C:5D:5E:63".to_string(),
             id: None,
         }))
@@ -2046,13 +2046,13 @@ async fn test_update_expected_machine_change_static_ip(pool: sqlx::PgPool) {
 async fn test_add_expected_machine_with_invalid_static_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: "5A:5B:5C:5D:5E:64".to_string(),
         bmc_username: "root".into(),
         bmc_password: "testpass".into(),
         chassis_serial_number: "INVALID-IP".into(),
         bmc_ip_address: Some("not-a-valid-ip".to_string()),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         id: Some(::rpc::common::Uuid {
             value: uuid::Uuid::new_v4().to_string(),
         }),
@@ -2082,13 +2082,13 @@ async fn test_add_with_host_nic_fixed_ip_creates_interface(
     let fixed_ip = "192.0.2.230";
 
     env.api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-FIXEDIP-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::nico::ExpectedHostNic {
                 mac_address: nic_mac.to_string(),
                 nic_type: Some("onboard".into()),
                 fixed_ip: Some(fixed_ip.into()),
@@ -2137,13 +2137,13 @@ async fn test_dhcp_discover_uses_fixed_ip_from_host_nics(
 
     // Register expected machine with host NIC fixed_ip.
     env.api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DHCP-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::nico::ExpectedHostNic {
                 mac_address: nic_mac.to_string(),
                 nic_type: Some("onboard".into()),
                 fixed_ip: Some(fixed_ip.into()),
@@ -2184,12 +2184,12 @@ async fn test_add_expected_machine_with_bmc_retain_credentials(pool: sqlx::PgPoo
     let env = create_test_env(pool).await;
     let bmc_mac: MacAddress = "5A:5B:5C:5D:5E:70".parse().unwrap();
 
-    let expected_machine = rpc::forge::ExpectedMachine {
+    let expected_machine = rpc::nico::ExpectedMachine {
         bmc_mac_address: bmc_mac.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "RETAIN-CREDS-001".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         id: Some(::rpc::common::Uuid {
             value: Uuid::new_v4().to_string(),
         }),
@@ -2230,12 +2230,12 @@ async fn test_update_preserves_bmc_retain_credentials(
 
     // Create with bmc_retain_credentials = true.
     env.api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "RETAIN-UPDATE-001".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             id: Some(::rpc::common::Uuid {
                 value: Uuid::new_v4().to_string(),
             }),
@@ -2246,12 +2246,12 @@ async fn test_update_preserves_bmc_retain_credentials(
 
     // Update without setting bmc_retain_credentials (None).
     env.api
-        .update_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .update_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "NEW-ADMIN".into(),
             bmc_password: "NEW-PASS".into(),
             chassis_serial_number: "RETAIN-UPDATE-001".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             bmc_retain_credentials: None,
             ..Default::default()
         }))
@@ -2293,13 +2293,13 @@ async fn test_dhcp_honors_primary_host_nic(
     let primary_mac: MacAddress = "9A:9B:9C:9D:9E:02".parse().unwrap();
 
     env.api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-PRIMARY-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::nico::ExpectedHostNic {
                 mac_address: primary_mac.to_string(),
                 nic_type: Some("onboard".into()),
                 fixed_ip: None,
@@ -2355,14 +2355,14 @@ async fn test_dhcp_marks_non_primary_mac_as_non_primary(
     let other_mac: MacAddress = "9A:9B:9C:9D:9E:12".parse().unwrap();
 
     env.api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-PRIMARY-002".into(),
             host_nics: vec![
-                rpc::forge::ExpectedHostNic {
+                rpc::nico::ExpectedHostNic {
                     mac_address: primary_mac.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2370,7 +2370,7 @@ async fn test_dhcp_marks_non_primary_mac_as_non_primary(
                     fixed_gateway: None,
                     primary: Some(true),
                 },
-                rpc::forge::ExpectedHostNic {
+                rpc::nico::ExpectedHostNic {
                     mac_address: other_mac.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2421,14 +2421,14 @@ async fn test_add_rejects_multiple_primary_host_nics(
 
     let result = env
         .api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DUPLICATE-PRIMARY-001".into(),
             host_nics: vec![
-                rpc::forge::ExpectedHostNic {
+                rpc::nico::ExpectedHostNic {
                     mac_address: mac_a.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2436,7 +2436,7 @@ async fn test_add_rejects_multiple_primary_host_nics(
                     fixed_gateway: None,
                     primary: Some(true),
                 },
-                rpc::forge::ExpectedHostNic {
+                rpc::nico::ExpectedHostNic {
                     mac_address: mac_b.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2467,12 +2467,12 @@ async fn test_dpu_mode_round_trip_for_non_default_values(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    for (idx, mode) in [rpc::forge::DpuMode::NicMode, rpc::forge::DpuMode::NoDpu]
+    for (idx, mode) in [rpc::nico::DpuMode::NicMode, rpc::nico::DpuMode::NoDpu]
         .iter()
         .enumerate()
     {
         let mac = format!("5A:5B:5C:5D:5E:{idx:02X}");
-        let request = rpc::forge::ExpectedMachine {
+        let request = rpc::nico::ExpectedMachine {
             bmc_mac_address: mac.clone(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
@@ -2487,7 +2487,7 @@ async fn test_dpu_mode_round_trip_for_non_default_values(
 
         let retrieved = env
             .api
-            .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
                 bmc_mac_address: mac.clone(),
                 id: None,
             }))
@@ -2516,7 +2516,7 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
 
     let mac = "5A:5B:5C:5D:5E:FF";
     env.api
-        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+        .add_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachine {
             bmc_mac_address: mac.into(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
@@ -2528,7 +2528,7 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
 
     let retrieved = env
         .api
-        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+        .get_expected_machine(tonic::Request::new(rpc::nico::ExpectedMachineRequest {
             bmc_mac_address: mac.into(),
             id: None,
         }))

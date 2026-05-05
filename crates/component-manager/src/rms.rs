@@ -691,9 +691,9 @@ impl NvSwitchManager for RmsBackend {
 #[cfg(test)]
 mod tests {
     use api_test_helper::mock_rms::MockRmsApi;
-    use carbide_uuid::power_shelf::PowerShelfId;
-    use carbide_uuid::rack::RackId;
-    use carbide_uuid::switch::SwitchId;
+    use nico_uuid::power_shelf::PowerShelfId;
+    use nico_uuid::rack::RackId;
+    use nico_uuid::switch::SwitchId;
 
     use super::*;
     use crate::power_shelf_manager::PowerShelfVendor;
@@ -832,7 +832,7 @@ mod tests {
 
     // ---- PowerShelfManager tests ----
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_power_control_success(pool: sqlx::PgPool) {
         let (mock, backend, rack_id, ps1, ps2, _, _) = make_backend(&pool).await;
         mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
@@ -857,7 +857,7 @@ mod tests {
         assert_eq!(calls[1].node_id, ps2.to_string());
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_power_control_partial_failure(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
@@ -875,7 +875,7 @@ mod tests {
         assert!(results[1].error.is_some());
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_power_control_transport_error(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
@@ -901,7 +901,7 @@ mod tests {
         );
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_power_control_unknown_mac(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
@@ -921,7 +921,7 @@ mod tests {
         assert_eq!(calls[0].operation, rms::PowerOperation::PowerOff as i32);
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_update_firmware_success(pool: sqlx::PgPool) {
         let (mock, backend, rack_id, ps1, _ps2, _, _) = make_backend(&pool).await;
         mock.enqueue_update_node_firmware_async(Ok(MockRmsApi::firmware_update_ok("job-aaa")))
@@ -954,7 +954,7 @@ mod tests {
         );
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_update_firmware_multiple_components(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         mock.enqueue_update_node_firmware_async(Ok(MockRmsApi::firmware_update_ok("job-1")))
@@ -978,7 +978,7 @@ mod tests {
         assert_eq!(calls[0].firmware_targets[1].target, "psu");
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_update_firmware_failure(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         mock.enqueue_update_node_firmware_async(Ok(MockRmsApi::firmware_update_fail(
@@ -996,7 +996,7 @@ mod tests {
         assert_eq!(results[0].error.as_deref(), Some("bad firmware file"));
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_firmware_status_running(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
 
@@ -1024,7 +1024,7 @@ mod tests {
         assert_eq!(calls[0].job_id, "job-xyz");
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_firmware_status_no_job(pool: sqlx::PgPool) {
         let (_mock, backend, _, _, _, _, _) = make_backend(&pool).await;
 
@@ -1043,7 +1043,7 @@ mod tests {
         );
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_firmware_status_completed(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
 
@@ -1066,7 +1066,7 @@ mod tests {
         assert_eq!(statuses[0].state, FirmwareState::Completed);
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_firmware_status_failed(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
 
@@ -1093,7 +1093,7 @@ mod tests {
         assert_eq!(statuses[0].error.as_deref(), Some("checksum mismatch"));
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_list_firmware_success(pool: sqlx::PgPool) {
         let (mock, backend, rack_id, ps1, _, _, _) = make_backend(&pool).await;
         mock.enqueue_get_node_firmware_inventory(Ok(MockRmsApi::firmware_inventory_ok(&[
@@ -1113,7 +1113,7 @@ mod tests {
         assert_eq!(calls[0].rack_id, rack_id.to_string());
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_list_firmware_rms_failure(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         mock.enqueue_get_node_firmware_inventory(Ok(rms::GetNodeFirmwareInventoryResponse {
@@ -1129,7 +1129,7 @@ mod tests {
         assert!(results[0].error.is_some());
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_list_firmware_transport_error(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         mock.enqueue_get_node_firmware_inventory(Err(
@@ -1144,7 +1144,7 @@ mod tests {
         assert!(results[0].error.as_ref().unwrap().contains("down"));
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn ps_list_firmware_unknown_mac(pool: sqlx::PgPool) {
         let (_mock, backend, _, _, _, _, _) = make_backend(&pool).await;
 
@@ -1157,7 +1157,7 @@ mod tests {
 
     // ---- NvSwitchManager tests ----
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn sw_power_control_success(pool: sqlx::PgPool) {
         let (mock, backend, rack_id, _, _, sw1, sw2) = make_backend(&pool).await;
         mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
@@ -1181,7 +1181,7 @@ mod tests {
         assert_eq!(calls[1].node_id, sw2.to_string());
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn sw_power_control_unknown_mac(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
@@ -1199,7 +1199,7 @@ mod tests {
         assert_eq!(calls.len(), 1);
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn sw_queue_firmware_updates_success(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, sw1, _) = make_backend(&pool).await;
         mock.enqueue_update_node_firmware_async(Ok(MockRmsApi::firmware_update_ok("sw-job-1")))
@@ -1229,7 +1229,7 @@ mod tests {
         );
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn sw_firmware_status(pool: sqlx::PgPool) {
         let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
 
@@ -1256,7 +1256,7 @@ mod tests {
         assert_eq!(calls[0].job_id, "sw-job-2");
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn sw_firmware_status_no_job(pool: sqlx::PgPool) {
         let (_mock, backend, _, _, _, _, _) = make_backend(&pool).await;
 
@@ -1275,7 +1275,7 @@ mod tests {
         );
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn list_firmware_bundles_empty_db(pool: sqlx::PgPool) {
         let (_mock, backend, _, _, _, _, _) = make_backend(&pool).await;
         let bundles = backend.list_firmware_bundles().await.unwrap();

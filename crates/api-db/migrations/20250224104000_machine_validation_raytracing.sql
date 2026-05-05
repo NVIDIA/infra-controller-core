@@ -4,4 +4,4 @@ UPDATE
 SET
     verified = false
 where
-    test_id = 'forge_RaytracingVk';
+    test_id = 'nico_RaytracingVk';

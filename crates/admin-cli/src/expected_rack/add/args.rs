@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
@@ -51,15 +51,15 @@ pub struct Args {
     pub labels: Option<Vec<String>>,
 }
 
-impl From<Args> for rpc::forge::ExpectedRack {
+impl From<Args> for rpc::nico::ExpectedRack {
     fn from(value: Args) -> Self {
         let labels = parse_rpc_labels(value.labels.unwrap_or_default());
-        let metadata = rpc::forge::Metadata {
+        let metadata = rpc::nico::Metadata {
             name: value.meta_name.unwrap_or_default(),
             description: value.meta_description.unwrap_or_default(),
             labels,
         };
-        rpc::forge::ExpectedRack {
+        rpc::nico::ExpectedRack {
             rack_id: Some(value.rack_id),
             rack_profile_id: Some(value.rack_profile_id.into()),
             metadata: Some(metadata),

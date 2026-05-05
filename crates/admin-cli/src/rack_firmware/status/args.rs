@@ -23,7 +23,7 @@ pub struct Args {
     pub job_id: String,
 }
 
-impl From<Args> for rpc::forge::RackFirmwareJobStatusRequest {
+impl From<Args> for rpc::nico::RackFirmwareJobStatusRequest {
     fn from(args: Args) -> Self {
         Self {
             job_id: args.job_id,

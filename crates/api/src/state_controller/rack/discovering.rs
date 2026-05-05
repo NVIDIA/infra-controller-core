@@ -22,7 +22,7 @@
 //! state. Once all devices are ready, reprovisioning is triggered and the
 //! rack transitions to Maintenance.
 
-use carbide_uuid::rack::{RackId, RackProfileId};
+use nico_uuid::rack::{RackId, RackProfileId};
 use db::{machine as db_machine, power_shelf as db_power_shelf, switch as db_switch};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{FirmwareUpgradeState, RackMaintenanceState, RackState};

@@ -15,18 +15,18 @@
  * limitations under the License.
  */
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::extension_service::ExtensionServiceId;
+use ::rpc::nico as rpc;
+use nico_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
 use db::{WithTransaction, extension_service, instance};
-use forge_secrets::credentials::{CredentialKey, Credentials};
+use nico_secrets::credentials::{CredentialKey, Credentials};
 use futures_util::FutureExt;
 use model::extension_service::{ExtensionServiceObservability, ExtensionServiceType};
 use model::tenant::TenantOrganizationId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 const MAX_POD_SPEC_SIZE: usize = 2 << 15; // 64 KB
@@ -44,7 +44,7 @@ pub(crate) async fn create(
 
     let service_id = match req.service_id {
         Some(id) => id.parse::<ExtensionServiceId>().map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidUuid(
+            NicoError::from(RpcDataConversionError::InvalidUuid(
                 "ExtensionServiceId",
                 e.to_string(),
             ))
@@ -57,15 +57,15 @@ pub(crate) async fn create(
     let tenant_organization_id = req
         .tenant_organization_id
         .parse::<TenantOrganizationId>()
-        .map_err(|e| CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string())))?;
+        .map_err(|e| NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string())))?;
 
     // Validate required fields
     if req.service_name.is_empty() {
-        return Err(CarbideError::MissingArgument("service_name").into());
+        return Err(NicoError::MissingArgument("service_name").into());
     }
     let service_type: ExtensionServiceType =
         rpc::DpuExtensionServiceType::try_from(req.service_type)
-            .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?
+            .map_err(|_| NicoError::InvalidArgument("Invalid service_type".to_string()))?
             .into();
 
     let initial_version = ConfigVersion::initial();
@@ -84,7 +84,7 @@ pub(crate) async fn create(
         .map(|o| o.configs.len())
         .unwrap_or(0);
     if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
-        return Err(CarbideError::InvalidConfiguration(
+        return Err(NicoError::InvalidConfiguration(
             model::ConfigValidationError::InvalidValue(format!(
                 "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
                 obvs_len
@@ -156,7 +156,7 @@ pub(crate) async fn create(
         .boxed()
         .await?;
     if versions.len() != 1 || versions.first().unwrap().version_nr() != 1 {
-        return Err(CarbideError::Internal {
+        return Err(NicoError::Internal {
             message: "Initial extension service should only have a single version (1)".to_string(),
         }
         .into());
@@ -197,7 +197,7 @@ pub(crate) async fn update(
     let req = request.into_inner();
 
     let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
-        CarbideError::from(RpcDataConversionError::InvalidUuid(
+        NicoError::from(RpcDataConversionError::InvalidUuid(
             "ExtensionServiceId",
             e.to_string(),
         ))
@@ -205,7 +205,7 @@ pub(crate) async fn update(
 
     if req.service_name.is_some() && req.service_name.as_ref().unwrap().is_empty() {
         return Err(
-            CarbideError::InvalidArgument("service_name cannot be empty".to_string()).into(),
+            NicoError::InvalidArgument("service_name cannot be empty".to_string()).into(),
         );
     }
 
@@ -222,7 +222,7 @@ pub(crate) async fn update(
     let current_service_res = extension_service::find_by_ids(&mut txn, &[service_id], true).await?;
     let current_service = match current_service_res.len() {
         0 => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "extension_service",
                 id: service_id.to_string(),
             }
@@ -230,7 +230,7 @@ pub(crate) async fn update(
         }
         1 => current_service_res.first().unwrap(),
         _ => {
-            return Err(CarbideError::Internal {
+            return Err(NicoError::Internal {
                 message: "Multiple extension services found for the same ID".to_string(),
             }
             .into());
@@ -241,7 +241,7 @@ pub(crate) async fn update(
     if let Some(version_ctr) = req.if_version_ctr_match
         && current_service.version_ctr != version_ctr
     {
-        return Err(CarbideError::ConcurrentModificationError(
+        return Err(NicoError::ConcurrentModificationError(
             "ExtensionService",
             version_ctr.to_string(),
         )
@@ -300,7 +300,7 @@ pub(crate) async fn update(
             latest_credential,
         )?;
         if !is_spec_changed {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "No changes to data or credential from latest version".to_string(),
             )
             .into());
@@ -312,7 +312,7 @@ pub(crate) async fn update(
             .map(|o| o.configs.len())
             .unwrap_or(0);
         if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
-            return Err(CarbideError::InvalidConfiguration(
+            return Err(NicoError::InvalidConfiguration(
                 model::ConfigValidationError::InvalidValue(format!(
                     "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
                     obvs_len
@@ -327,7 +327,7 @@ pub(crate) async fn update(
 
         let version_change =
             ConfigVersion::new(current_service.version_ctr.try_into().map_err(|e| {
-                CarbideError::internal(format!("Invalid version for extension service: {e}"))
+                NicoError::internal(format!("Invalid version for extension service: {e}"))
             })?)
             .incremental_change();
 
@@ -436,7 +436,7 @@ pub(crate) async fn delete(
     let req = request.into_inner();
 
     let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
-        CarbideError::from(RpcDataConversionError::InvalidUuid(
+        NicoError::from(RpcDataConversionError::InvalidUuid(
             "ExtensionServiceId",
             e.to_string(),
         ))
@@ -450,7 +450,7 @@ pub(crate) async fn delete(
         .iter()
         .map(|v| {
             v.parse::<config_version::ConfigVersion>().map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
+                NicoError::from(RpcDataConversionError::InvalidConfigVersion(format!(
                     "Failed to parse version: {}",
                     e
                 )))
@@ -462,7 +462,7 @@ pub(crate) async fn delete(
     let current_service_res = extension_service::find_by_ids(&mut txn, &[service_id], true).await?;
     match current_service_res.len() {
         0 => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "extension_service",
                 id: service_id.to_string(),
             }
@@ -470,7 +470,7 @@ pub(crate) async fn delete(
         }
         1 => {}
         _ => {
-            return Err(CarbideError::Internal {
+            return Err(NicoError::Internal {
                 message: "Multiple extension services found for the same ID".to_string(),
             }
             .into());
@@ -482,7 +482,7 @@ pub(crate) async fn delete(
     // lock on the extension service.
     let is_in_use = extension_service::is_service_in_use(&mut txn, service_id, &versions).await?;
     if is_in_use {
-        return Err(CarbideError::FailedPrecondition(
+        return Err(NicoError::FailedPrecondition(
             "One or more extension service version is in use by instances; detach before deleting"
                 .into(),
         )
@@ -553,17 +553,17 @@ pub(crate) async fn find_ids(
         .as_deref() // avoid moving the String; parse from &str
         .map(|id| {
             id.parse::<TenantOrganizationId>().map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })
         })
-        .transpose()?; // Result<Option<TenantOrganizationId>, CarbideError>
+        .transpose()?; // Result<Option<TenantOrganizationId>, NicoError>
 
     // Convert the service type from the request
     let service_type_opt: Option<ExtensionServiceType> = match req.service_type {
         None => None,
         Some(v) => {
             let service_type_rpc = rpc::DpuExtensionServiceType::try_from(v)
-                .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?;
+                .map_err(|_| NicoError::InvalidArgument("Invalid service_type".to_string()))?;
             Some(ExtensionServiceType::from(service_type_rpc))
         }
     };
@@ -598,7 +598,7 @@ pub(crate) async fn find_by_ids(
     let mut ids: Vec<ExtensionServiceId> = Vec::with_capacity(req.service_ids.len());
     for s in &req.service_ids {
         let id = s.parse::<ExtensionServiceId>().map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidUuid(
+            NicoError::from(RpcDataConversionError::InvalidUuid(
                 "ExtensionServiceId",
                 e.to_string(),
             ))
@@ -642,7 +642,7 @@ pub(crate) async fn get_versions_info(
             .map(|v| v.parse::<config_version::ConfigVersion>())
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
+                NicoError::from(RpcDataConversionError::InvalidConfigVersion(format!(
                     "Failed to parse version: {}",
                     e
                 )))
@@ -655,7 +655,7 @@ pub(crate) async fn get_versions_info(
     let mut txn = api.txn_begin().await?;
 
     let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
-        CarbideError::from(RpcDataConversionError::InvalidUuid(
+        NicoError::from(RpcDataConversionError::InvalidUuid(
             "ExtensionServiceId",
             e.to_string(),
         ))
@@ -688,7 +688,7 @@ pub(crate) async fn find_instances_by_extension_service(
 
     // Parse and validate extension service ID
     let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
-        CarbideError::from(RpcDataConversionError::InvalidUuid(
+        NicoError::from(RpcDataConversionError::InvalidUuid(
             "ExtensionServiceId",
             e.to_string(),
         ))
@@ -699,7 +699,7 @@ pub(crate) async fn find_instances_by_extension_service(
         .version
         .map(|v| {
             v.parse::<config_version::ConfigVersion>().map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
+                NicoError::from(RpcDataConversionError::InvalidConfigVersion(format!(
                     "Failed to parse version: {}",
                     e
                 )))
@@ -714,7 +714,7 @@ pub(crate) async fn find_instances_by_extension_service(
         extension_service::find_by_ids(&mut txn, &[service_id], false).await?;
     match extension_service_res.len() {
         0 => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "extension_service",
                 id: service_id.to_string(),
             }
@@ -722,7 +722,7 @@ pub(crate) async fn find_instances_by_extension_service(
         }
         1 => {}
         _ => {
-            return Err(CarbideError::Internal {
+            return Err(NicoError::Internal {
                 message: "Multiple extension services found for the same ID".to_string(),
             }
             .into());
@@ -751,7 +751,7 @@ pub(crate) async fn find_instances_by_extension_service(
                 removed: ext_service_config.removed.map(|ts| ts.to_string()),
             });
         } else {
-            return Err(CarbideError::Internal {
+            return Err(NicoError::Internal {
                 message: format!(
                     "Instance {} returned by database query but no extension service config found",
                     instance.id
@@ -776,15 +776,15 @@ pub(crate) async fn find_instances_by_extension_service(
 /// - kind
 /// - metadata.name
 /// - spec.containers (must be an array and must have at least one container)
-fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
+fn validate_pod_spec_file(data: &str) -> Result<(), NicoError> {
     if data.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Invalid empty data for KubernetesPod service, need a valid pod manifest".to_string(),
         ));
     }
 
     let root = serde_yaml::from_str::<serde_yaml::Value>(data).map_err(|e| {
-        CarbideError::InvalidArgument(format!(
+        NicoError::InvalidArgument(format!(
             "Invalid pod spec file for KubernetesPod service: {}",
             e
         ))
@@ -794,7 +794,7 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
         serde_yaml::Value::Mapping(ref mapping) => {
             // Check for apiVersion field
             if !mapping.contains_key(serde_yaml::Value::String("apiVersion".to_string())) {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Pod manifest missing required field: apiVersion".to_string(),
                 ));
             }
@@ -804,7 +804,7 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
                 .get(serde_yaml::Value::String("kind".to_string()))
                 .and_then(|v| v.as_str());
             if kind != Some("Pod") {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Pod manifest must have kind: Pod".to_string(),
                 ));
             }
@@ -816,13 +816,13 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
             match metadata {
                 Some(meta_map) => {
                     if !meta_map.contains_key(serde_yaml::Value::String("name".to_string())) {
-                        return Err(CarbideError::InvalidArgument(
+                        return Err(NicoError::InvalidArgument(
                             "Pod manifest missing required field: metadata.name".to_string(),
                         ));
                     }
                 }
                 None => {
-                    return Err(CarbideError::InvalidArgument(
+                    return Err(NicoError::InvalidArgument(
                         "Pod manifest missing required field: metadata".to_string(),
                     ));
                 }
@@ -841,27 +841,27 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
                     match containers {
                         Some(container_list) => {
                             if container_list.is_empty() {
-                                return Err(CarbideError::InvalidArgument(
+                                return Err(NicoError::InvalidArgument(
                                     "Pod manifest must have at least one container in spec.containers".to_string(),
                                 ));
                             }
                         }
                         None => {
-                            return Err(CarbideError::InvalidArgument(
+                            return Err(NicoError::InvalidArgument(
                                 "Pod manifest missing required field: spec.containers (must be an array)".to_string(),
                             ));
                         }
                     }
                 }
                 None => {
-                    return Err(CarbideError::InvalidArgument(
+                    return Err(NicoError::InvalidArgument(
                         "Pod manifest missing required field: spec".to_string(),
                     ));
                 }
             }
         }
         _ => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "Pod manifest must be a valid mapping object that contains apiVersion, kind, metadata, and spec.containers".to_string(),
             ))
         }
@@ -874,9 +874,9 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
 fn validate_extension_service_data(
     service_type: &ExtensionServiceType,
     data: &str,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     if data.len() > MAX_POD_SPEC_SIZE {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Extension service data exceeds the maximum size: {} bytes",
             MAX_POD_SPEC_SIZE
         )));
@@ -895,23 +895,23 @@ fn validate_extension_service_data(
 fn validate_extension_service_credential(
     service_type: &ExtensionServiceType,
     credential: &rpc::DpuExtensionServiceCredential,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     match credential.r#type.as_ref() {
         Some(rpc::dpu_extension_service_credential::Type::UsernamePassword(up)) => {
             // @TODO(Felicity): Add more validation for username and password
             if up.username.is_empty() || up.username.len() > 255 {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Invalid username".to_string(),
                 ));
             }
             if up.password.is_empty() || up.password.len() > 255 {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Invalid password".to_string(),
                 ));
             }
         }
         _ => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "Invalid credential type".to_string(),
             ));
         }
@@ -923,7 +923,7 @@ fn validate_extension_service_credential(
             // image match pattern. For example, if the registry URL is "nvcr.io/nvforge",
             // kubelet will match all images under "nvcr.io/nvforge/*".
             if credential.registry_url.is_empty() || credential.registry_url.len() > 255 {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Invalid credential registry URL".to_string(),
                 ));
             }
@@ -940,19 +940,19 @@ fn detect_extension_service_spec_change(
     old_data: &str,
     new_cred: Option<rpc::DpuExtensionServiceCredential>,
     old_cred: Option<rpc::DpuExtensionServiceCredential>,
-) -> Result<bool, CarbideError> {
+) -> Result<bool, NicoError> {
     let data_changed = match service_type {
         ExtensionServiceType::KubernetesPod => {
             let old_data_yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(old_data).map_err(|e| {
-                    CarbideError::internal(format!(
+                    NicoError::internal(format!(
                         "Found corrupted data for KubernetesPod service: {}",
                         e
                     ))
                 })?;
             let new_data_yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(new_data).map_err(|e| {
-                    CarbideError::InvalidArgument(format!(
+                    NicoError::InvalidArgument(format!(
                         "Invalid pod spec file for KubernetesPod service: {}",
                         e
                     ))
@@ -984,13 +984,13 @@ pub(crate) fn create_extension_service_credential_key(
 /// Create the extension service credential in the vault based on the credential type
 async fn create_extension_service_credential(
     service_type: &ExtensionServiceType,
-    credential_writer: &dyn forge_secrets::credentials::CredentialWriter,
+    credential_writer: &dyn nico_secrets::credentials::CredentialWriter,
     credential_key: CredentialKey,
     credential: &rpc::DpuExtensionServiceCredential,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     match service_type {
         ExtensionServiceType::KubernetesPod => {
-            use ::rpc::forge::dpu_extension_service_credential::Type as CredType;
+            use ::rpc::nico::dpu_extension_service_credential::Type as CredType;
 
             match credential.r#type.as_ref() {
                 Some(CredType::UsernamePassword(up)) => {
@@ -1001,7 +1001,7 @@ async fn create_extension_service_credential(
                         credential.registry_url, up.username
                     );
 
-                    let cred = forge_secrets::credentials::Credentials::UsernamePassword {
+                    let cred = nico_secrets::credentials::Credentials::UsernamePassword {
                         username: cred_username,
                         password: up.password.clone(),
                     };
@@ -1010,12 +1010,12 @@ async fn create_extension_service_credential(
                         .create_credentials(&credential_key, &cred)
                         .await
                         .map_err(|e| {
-                            CarbideError::internal(format!(
+                            NicoError::internal(format!(
                                 "Error creating credential for extension service: {e}"
                             ))
                         })
                 }
-                None => Err(CarbideError::InvalidArgument(
+                None => Err(NicoError::InvalidArgument(
                     "Missing credential".to_string(),
                 )),
             }
@@ -1025,7 +1025,7 @@ async fn create_extension_service_credential(
 
 /// Delete the extension service credential from the vault using the credential key
 async fn delete_extension_service_credential(
-    credential_writer: &dyn forge_secrets::credentials::CredentialWriter,
+    credential_writer: &dyn nico_secrets::credentials::CredentialWriter,
     credential_key: CredentialKey,
 ) -> Result<(), eyre::Report> {
     credential_writer
@@ -1036,13 +1036,13 @@ async fn delete_extension_service_credential(
 
 /// Get the extension service credential from the vault using the credential key
 pub(crate) async fn get_extension_service_credential(
-    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
+    credential_reader: &dyn nico_secrets::credentials::CredentialReader,
     credential_key: CredentialKey,
-) -> Result<rpc::DpuExtensionServiceCredential, CarbideError> {
+) -> Result<rpc::DpuExtensionServiceCredential, NicoError> {
     let credential = credential_reader
         .get_credentials(&credential_key)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Could not find the credential: {}", e),
         })?;
 
@@ -1053,7 +1053,7 @@ pub(crate) async fn get_extension_service_credential(
             let parts: Vec<&str> = username.splitn(2, ", username: ").collect();
 
             if parts.len() != 2 {
-                return Err(CarbideError::Internal {
+                return Err(NicoError::Internal {
                     message: format!("Invalid credential format: {}", username),
                 });
             }
@@ -1061,7 +1061,7 @@ pub(crate) async fn get_extension_service_credential(
             // Extract registry URL (remove "url: " prefix)
             let registry_url = parts[0]
                 .strip_prefix("url: ")
-                .ok_or_else(|| CarbideError::Internal {
+                .ok_or_else(|| NicoError::Internal {
                     message: format!(
                         "Invalid credential format, missing 'url: ' prefix: {}",
                         username
@@ -1074,7 +1074,7 @@ pub(crate) async fn get_extension_service_credential(
             (registry_url, actual_username, password)
         }
         _ => {
-            return Err(CarbideError::Internal {
+            return Err(NicoError::Internal {
                 message: "Could not find the credential".to_string(),
             });
         }

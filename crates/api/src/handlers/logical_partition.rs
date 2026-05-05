@@ -14,14 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use config_version::ConfigVersion;
 use db::{self, ObjectColumnFilter, WithTransaction, instance, nvl_logical_partition};
 use futures_util::FutureExt;
 use model::nvl_logical_partition::NewLogicalPartition;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 pub(crate) async fn create(
@@ -42,11 +42,11 @@ pub(crate) async fn create(
     let req = NewLogicalPartition::try_from(request_inner)?;
 
     let metadata = req.config.metadata.clone();
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     let resp = nvl_logical_partition::create(&req, &mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
     let resp = rpc::NvLinkLogicalPartition::try_from(resp).map(Response::new)?;
     txn.commit().await?;
 
@@ -80,13 +80,13 @@ pub(crate) async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if partition_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if partition_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -95,7 +95,7 @@ pub(crate) async fn find_by_ids(
         ObjectColumnFilter::List(nvl_logical_partition::IdColumn, &partition_ids),
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     let mut result = Vec::with_capacity(partitions.len());
     for lp in partitions {
@@ -116,19 +116,19 @@ pub(crate) async fn delete(
     let id = request
         .into_inner()
         .id
-        .ok_or_else(|| CarbideError::MissingArgument("id"))?;
+        .ok_or_else(|| NicoError::MissingArgument("id"))?;
 
     let mut partitions = db::nvl_logical_partition::find_by(
         &api.database_connection,
         ObjectColumnFilter::One(nvl_logical_partition::IdColumn, &id),
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     let partition = match partitions.len() {
         1 => partitions.remove(0),
         _ => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "logical_partition",
                 id: id.to_string(),
             }
@@ -139,9 +139,9 @@ pub(crate) async fn delete(
     // check if any instance's nvlink config  has this logical partition
     if instance::any_instance_referencing_nvlink_logical_partition(&api.database_connection, &id)
         .await
-        .map_err(CarbideError::from)?
+        .map_err(NicoError::from)?
     {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "logical partition is still referenced by instance(s)".to_string(),
         )
         .into());
@@ -169,7 +169,7 @@ pub(crate) async fn for_tenant(
     let tenant_org_id_str: String = match tenant_organization_id {
         Some(id) => id,
         None => {
-            return Err(CarbideError::MissingArgument("tenant_organization_id").into());
+            return Err(NicoError::MissingArgument("tenant_organization_id").into());
         }
     };
 
@@ -178,7 +178,7 @@ pub(crate) async fn for_tenant(
     let results =
         db::nvl_logical_partition::for_tenant(&api.database_connection, tenant_org_id_str)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
     let mut partitions = Vec::with_capacity(results.len());
 
@@ -200,18 +200,18 @@ pub(crate) async fn update(
     let req = request.into_inner();
     let id = req
         .id
-        .ok_or_else(|| CarbideError::InvalidArgument("ID must be provided".to_string()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("ID must be provided".to_string()))?;
 
     let config = req
         .config
-        .ok_or_else(|| CarbideError::InvalidArgument("Config must be provided".to_string()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("Config must be provided".to_string()))?;
 
     let metadata: model::metadata::Metadata = config
         .metadata
         .clone()
-        .ok_or_else(|| CarbideError::InvalidArgument("Metadata must be provided".to_string()))?
+        .ok_or_else(|| NicoError::InvalidArgument("Metadata must be provided".to_string()))?
         .try_into()?;
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -220,12 +220,12 @@ pub(crate) async fn update(
         ObjectColumnFilter::One(nvl_logical_partition::IdColumn, &id),
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     let partition = match partitions.len() {
         1 => partitions.remove(0),
         _ => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "logical_partition",
                 id: id.to_string(),
             }
@@ -236,7 +236,7 @@ pub(crate) async fn update(
     log_tenant_organization_id(&config.tenant_organization_id);
 
     if config.tenant_organization_id != partition.tenant_organization_id.to_string() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Tenant organization ID should not be updated".to_string(),
         )
         .into());
@@ -245,10 +245,10 @@ pub(crate) async fn update(
     if let Some(if_version_match) = req.if_version_match {
         let target_version = if_version_match
             .parse::<ConfigVersion>()
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
         if partition.config_version != target_version {
-            return Err(CarbideError::ConcurrentModificationError(
+            return Err(NicoError::ConcurrentModificationError(
                 "LogicalPartition",
                 target_version.to_string(),
             )

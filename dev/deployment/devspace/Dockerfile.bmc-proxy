@@ -27,9 +27,9 @@ COPY . .
 
 RUN --mount=type=cache,id=nico-devspace-cargo-home,target=/cargo-home,sharing=locked \
   --mount=type=cache,id=nico-devspace-cargo-target,target=/cargo-target,sharing=locked \
-  cargo build -p carbide-bmc-proxy --bin carbide-bmc-proxy --locked && \
+  cargo build -p nico-bmc-proxy --bin nico-bmc-proxy --locked && \
   mkdir -p /artifacts && \
-  cp /cargo-target/debug/carbide-bmc-proxy /artifacts/carbide-bmc-proxy
+  cp /cargo-target/debug/nico-bmc-proxy /artifacts/nico-bmc-proxy
 
 FROM ubuntu:24.04
 
@@ -43,6 +43,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   tpm2-tools \
   && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/carbide /mnt/persistence
+RUN mkdir -p /opt/nico /mnt/persistence
 
-COPY --from=builder /artifacts/carbide-bmc-proxy /opt/carbide/carbide-bmc-proxy
+COPY --from=builder /artifacts/nico-bmc-proxy /opt/nico/nico-bmc-proxy

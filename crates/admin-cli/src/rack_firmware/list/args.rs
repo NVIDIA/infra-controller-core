@@ -25,7 +25,7 @@ pub struct Args {
     pub rack_hardware_type: Option<String>,
 }
 
-impl From<Args> for rpc::forge::RackFirmwareSearchFilter {
+impl From<Args> for rpc::nico::RackFirmwareSearchFilter {
     fn from(args: Args) -> Self {
         Self {
             only_available: args.only_available,

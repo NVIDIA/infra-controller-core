@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM carbide-runtime:latest
+FROM nico-runtime:latest
 
 WORKDIR /app/code
 

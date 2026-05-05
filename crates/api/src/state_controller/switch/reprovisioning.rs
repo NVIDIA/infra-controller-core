@@ -17,7 +17,7 @@
 
 //! Handler for SwitchControllerState::ReProvisioning.
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{ReProvisioningState, Switch, SwitchControllerState};
 

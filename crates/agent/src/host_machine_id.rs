@@ -18,19 +18,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use backon::{ExponentialBuilder, Retryable};
-use carbide_host_support::agent_config::AgentConfig;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use forge_dpu_agent_utils::utils::create_forge_client;
-use rpc::forge::MachineInterface;
-use rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT};
+use nico_host_support::agent_config::AgentConfig;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_dpu_agent_utils::utils::create_nico_client;
+use rpc::nico::MachineInterface;
+use rpc::nico_tls_client::{NicoClientConfig, NicoClientT};
 
 use crate::periodic_config_fetcher::PeriodicConfigFetcher;
 
 async fn get_interface(
-    client: &mut ForgeClientT,
+    client: &mut NicoClientT,
     interface_id: MachineInterfaceId,
 ) -> Result<MachineInterface, eyre::Error> {
-    let request = tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+    let request = tonic::Request::new(rpc::nico::InterfaceSearchQuery {
         id: Some(interface_id),
         ip: None,
     });
@@ -54,8 +54,8 @@ async fn get_interface(
 pub async fn get_host_machine_id(
     agent_config: &AgentConfig,
     fetcher: &PeriodicConfigFetcher,
-    forge_client_config: Arc<ForgeClientConfig>,
-    forge_api: &str,
+    nico_client_config: Arc<NicoClientConfig>,
+    nico_api: &str,
 ) -> Result<Option<MachineId>, eyre::Error> {
     // Try to get interface id from the agent config, otherwise try the periodic config fetcher.
     let interface_id_option = match agent_config.machine.interface_id {
@@ -64,7 +64,7 @@ pub async fn get_host_machine_id(
     };
 
     if let Some(interface_id) = interface_id_option {
-        let mut client = create_forge_client(forge_api, &forge_client_config).await?;
+        let mut client = create_nico_client(nico_api, &nico_client_config).await?;
         let interface = get_interface(&mut client, interface_id).await?;
         return Ok(interface.machine_id);
     }
@@ -75,8 +75,8 @@ pub async fn get_host_machine_id(
 pub async fn get_host_machine_id_retry(
     agent_config: &AgentConfig,
     fetcher: &PeriodicConfigFetcher,
-    forge_client_config: Arc<ForgeClientConfig>,
-    forge_api: &str,
+    nico_client_config: Arc<NicoClientConfig>,
+    nico_api: &str,
 ) -> Result<MachineId, eyre::Report> {
     let retry_policy = ExponentialBuilder::default()
         .with_min_delay(Duration::from_millis(100))
@@ -88,8 +88,8 @@ pub async fn get_host_machine_id_retry(
         get_host_machine_id(
             agent_config,
             fetcher,
-            forge_client_config.clone(),
-            forge_api,
+            nico_client_config.clone(),
+            nico_api,
         )
         .await
         .map_err(|e| {

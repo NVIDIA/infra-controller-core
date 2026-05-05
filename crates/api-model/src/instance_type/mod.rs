@@ -17,9 +17,9 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::{common as rpc_common, forge as rpc};
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
+use ::rpc::{common as rpc_common, nico as rpc};
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::MachineId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
@@ -587,7 +587,7 @@ impl TryFrom<InstanceType> for rpc::InstanceType {
 mod tests {
     use std::collections::HashMap;
 
-    use ::rpc::forge as rpc;
+    use ::rpc::nico as rpc;
     use config_version::ConfigVersion;
 
     use super::*;

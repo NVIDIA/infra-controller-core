@@ -18,11 +18,11 @@
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
-use rpc::forge as rpc;
+use rpc::nico as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
-use crate::errors::CarbideError;
+use crate::errors::NicoError;
 
 /// Resolve the correct segment for a static IP. If the IP is within a
 /// managed network prefix, use that segment. Otherwise use the
@@ -30,7 +30,7 @@ use crate::errors::CarbideError;
 async fn resolve_segment_for_static_ip(
     txn: &mut sqlx::PgConnection,
     ip: std::net::IpAddr,
-) -> Result<model::network_segment::NetworkSegment, CarbideError> {
+) -> Result<model::network_segment::NetworkSegment, NicoError> {
     match db::network_segment::for_relay(txn, ip).await? {
         Some(seg) => Ok(seg),
         None => Ok(db::network_segment::static_assignments(txn).await?),
@@ -50,11 +50,11 @@ pub async fn preallocate_machine_interface(
     txn: &mut sqlx::PgConnection,
     bmc_mac_address: MacAddress,
     bmc_ip: std::net::IpAddr,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     // Check if an interface already exists for this MAC.
     let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
     if !existing.is_empty() {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "a machine interface already exists for MAC {bmc_mac_address}; \
              use update to change the IP address"
         )));
@@ -64,7 +64,7 @@ pub async fn preallocate_machine_interface(
     if let Some(existing_addr) =
         db::machine_interface_address::find_by_address(&mut *txn, bmc_ip).await?
     {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "IP address {bmc_ip} is already allocated to interface {} \
              on segment {}; use 'machine-interfaces assign-address' to reassign it",
             existing_addr.id, existing_addr.name,
@@ -108,7 +108,7 @@ pub async fn update_preallocated_machine_interface(
     txn: &mut sqlx::PgConnection,
     bmc_mac_address: MacAddress,
     bmc_ip: std::net::IpAddr,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
 
     if let Some(iface) = existing.first() {
@@ -172,9 +172,9 @@ pub async fn update_preallocated_machine_interface(
 pub async fn assign_static_address(
     api: &Api,
     request: Request<rpc::AssignStaticAddressRequest>,
-) -> Result<Response<rpc::AssignStaticAddressResponse>, CarbideError> {
+) -> Result<Response<rpc::AssignStaticAddressResponse>, NicoError> {
     let req = request.into_inner();
-    let interface_id = req.interface_id.ok_or(CarbideError::InvalidArgument(
+    let interface_id = req.interface_id.ok_or(NicoError::InvalidArgument(
         "interface_id is required".into(),
     ))?;
     let ip_address: std::net::IpAddr = req.ip_address.parse()?;
@@ -221,9 +221,9 @@ pub async fn assign_static_address(
 pub async fn remove_static_address(
     api: &Api,
     request: Request<rpc::RemoveStaticAddressRequest>,
-) -> Result<Response<rpc::RemoveStaticAddressResponse>, CarbideError> {
+) -> Result<Response<rpc::RemoveStaticAddressResponse>, NicoError> {
     let req = request.into_inner();
-    let interface_id = req.interface_id.ok_or(CarbideError::InvalidArgument(
+    let interface_id = req.interface_id.ok_or(NicoError::InvalidArgument(
         "interface_id is required".into(),
     ))?;
     let ip_address: std::net::IpAddr = req.ip_address.parse()?;
@@ -257,7 +257,7 @@ pub async fn find_interface_addresses(
     request: Request<rpc::FindInterfaceAddressesRequest>,
 ) -> Result<Response<rpc::FindInterfaceAddressesResponse>, Status> {
     let req = request.into_inner();
-    let interface_id = req.interface_id.ok_or(CarbideError::InvalidArgument(
+    let interface_id = req.interface_id.ok_or(NicoError::InvalidArgument(
         "interface_id is required".into(),
     ))?;
 

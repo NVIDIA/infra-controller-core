@@ -20,7 +20,7 @@ use clap::Parser;
 #[derive(Parser, Debug, Default)]
 pub struct Args;
 
-impl From<Args> for ::rpc::forge::ListResourcePoolsRequest {
+impl From<Args> for ::rpc::nico::ListResourcePoolsRequest {
     fn from(_args: Args) -> Self {
         Self {
             auto_assignable: None,

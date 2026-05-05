@@ -18,7 +18,7 @@
 pub mod measured_boot;
 
 pub mod tpm_ca_cert;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use db::{ObjectFilter, Transaction};
 pub use measured_boot::*;
 use model::hardware_info::TpmEkCertificate;
@@ -26,12 +26,12 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use sqlx::{PgConnection, Pool, Postgres};
 pub use tpm_ca_cert::{extract_ca_fields, match_insert_new_ek_cert_status_against_ca};
 
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 pub async fn get_ek_cert_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-) -> CarbideResult<TpmEkCertificate> {
+) -> NicoResult<TpmEkCertificate> {
     // fetch machine from the db
     let machine = db::machine::find_one(
         txn,
@@ -42,23 +42,23 @@ pub async fn get_ek_cert_by_machine_id(
         },
     )
     .await?
-    .ok_or_else(|| CarbideError::internal(format!("Machine with id {machine_id} not found.")))?;
+    .ok_or_else(|| NicoError::internal(format!("Machine with id {machine_id} not found.")))?;
 
     // obtain an ek cert
     let tpm_ek_cert = machine
         .hardware_info
         .as_ref()
-        .ok_or_else(|| CarbideError::internal("Hardware Info not found.".to_string()))?
+        .ok_or_else(|| NicoError::internal("Hardware Info not found.".to_string()))?
         .tpm_ek_certificate
         .as_ref()
-        .ok_or_else(|| CarbideError::internal("TPM EK Certificate not found.".to_string()))?;
+        .ok_or_else(|| NicoError::internal("TPM EK Certificate not found.".to_string()))?;
 
     Ok(tpm_ek_cert.clone())
 }
 
 pub async fn backfill_ek_cert_status_for_existing_machines(
     db_pool: &Pool<Postgres>,
-) -> CarbideResult<()> {
+) -> NicoResult<()> {
     // get all machines that are not DPU
     // for each machine
     // - get hardware info and extract tpm ek cert
@@ -66,7 +66,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
 
     let mut txn = Transaction::begin(db_pool).await?;
 
-    let machines: Vec<::carbide_uuid::machine::MachineId> =
+    let machines: Vec<::nico_uuid::machine::MachineId> =
         db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
             .await?
             .iter()

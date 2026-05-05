@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
+use nico_uuid::dpa_interface::DpaInterfaceId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

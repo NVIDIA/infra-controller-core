@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico as rpc;
+use ::rpc::nico_tls_client::{self, ApiConfig, NicoClientConfig};
+use nico_uuid::machine::MachineId;
 use data_encoding::BASE64;
 use eyre::WrapErr;
 use tokio::process::Command as TokioCommand;
@@ -33,10 +33,10 @@ fn make_upgrade_cmd(to_package_version: &str) -> String {
     // making it through the self-upgrade if the last one was interrupted.
     format!(
         "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
-         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/nico.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
          apt-get autoclean && \
          DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
-         forge-dpu={}",
+         nico-dpu={}",
         shell_escape(to_package_version)
     )
 }
@@ -55,16 +55,16 @@ fn shell_escape(s: &str) -> String {
     out
 }
 
-/// Check if forge-dpu-agent needs upgrading to a new version, and if yes perform the upgrade
+/// Check if nico-dpu-agent needs upgrading to a new version, and if yes perform the upgrade
 /// Returns true if we just updated and hence need to exit, so the new version can start instead.
 pub async fn upgrade(
-    forge_api: &str,
-    client_config: &ForgeClientConfig,
+    nico_api: &str,
+    client_config: &NicoClientConfig,
     machine_id: &MachineId,
     // allow integration test to replace UPGRADE_CMD
     override_upgrade_cmd: Option<&str>,
 ) -> eyre::Result<bool> {
-    let resp = match upgrade_check(forge_api, client_config, machine_id).await {
+    let resp = match upgrade_check(nico_api, client_config, machine_id).await {
         Ok(r) => r,
         Err(err) => match err.downcast_ref::<tonic::Status>() {
             Some(grpc_status) if grpc_status.code() == tonic::Code::Internal => {
@@ -86,7 +86,7 @@ pub async fn upgrade(
         },
     };
     if !resp.should_upgrade {
-        tracing::trace!("forge-dpu-agent is up to date");
+        tracing::trace!("nico-dpu-agent is up to date");
         return Ok(false);
     }
 
@@ -118,11 +118,11 @@ pub async fn upgrade(
         .map(|s| s.to_string())
         .unwrap_or_else(|| make_upgrade_cmd(&resp.package_version));
     tracing::info!(
-        local_build = carbide_version::v!(build_version),
+        local_build = nico_version::v!(build_version),
         remote_build = resp.server_version,
         to_package_version = resp.package_version,
         upgrade_cmd,
-        version = carbide_version::v!(build_version),
+        version = nico_version::v!(build_version),
         "Upgrading myself, goodbye.",
     );
     if let Err(err) = clear_apt_metadata_cache() {
@@ -146,15 +146,15 @@ pub async fn upgrade(
 }
 
 async fn upgrade_check(
-    forge_api: &str,
-    client_config: &ForgeClientConfig,
+    nico_api: &str,
+    client_config: &NicoClientConfig,
     machine_id: &MachineId,
 ) -> eyre::Result<UpgradeCheckResult> {
     let binary_path = env::current_exe()?;
     let binary_mtime = mtime(binary_path.as_path())?;
     let binary_hash = hash_file(binary_path.as_path())?;
     network_upgrade_check(
-        forge_api,
+        nico_api,
         client_config,
         machine_id,
         binary_mtime,
@@ -167,7 +167,7 @@ fn mtime(p: &Path) -> eyre::Result<SystemTime> {
     let stat = fs::metadata(p).wrap_err_with(|| format!("Failed stat of '{}'", p.display()))?;
     let Ok(binary_mtime) = stat.modified() else {
         eyre::bail!(
-            "Failed reading mtime of forge-dpu-agent binary at '{}'",
+            "Failed reading mtime of nico-dpu-agent binary at '{}'",
             p.display()
         );
     };
@@ -205,13 +205,13 @@ struct UpgradeCheckResult {
 }
 
 async fn network_upgrade_check(
-    forge_api: &str,
-    client_config: &ForgeClientConfig,
+    nico_api: &str,
+    client_config: &NicoClientConfig,
     machine_id: &MachineId,
     binary_mtime: SystemTime,
     binary_hash: String,
 ) -> eyre::Result<UpgradeCheckResult> {
-    let local_build = carbide_version::v!(build_version);
+    let local_build = nico_version::v!(build_version);
     let req = rpc::DpuAgentUpgradeCheckRequest {
         machine_id: machine_id.to_string(),
         current_agent_version: local_build.to_string(),
@@ -220,7 +220,7 @@ async fn network_upgrade_check(
     };
 
     let mut client =
-        forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(forge_api, client_config))
+        nico_tls_client::NicoTlsClient::retry_build(&ApiConfig::new(nico_api, client_config))
             .await?;
     let resp = client
         .dpu_agent_upgrade_check(tonic::Request::new(req))
@@ -236,7 +236,7 @@ async fn network_upgrade_check(
 
 async fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
     let mut cmd = TokioCommand::new("bash");
-    // Do not kill the upgrade command even if it hangs because that risks losing `/usr/bin/forge-dpu-agent`
+    // Do not kill the upgrade command even if it hangs because that risks losing `/usr/bin/nico-dpu-agent`
     cmd.arg("-c").arg(upgrade_cmd).kill_on_drop(false);
     // This can easily take 60 seconds. systemd watchdog gives us 5 mins, so take 3.
     let out = timeout(Duration::from_secs(180), cmd.output())
@@ -257,8 +257,8 @@ async fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
 /// See https://nvbugspro.nvidia.com/bug/4870691
 fn clear_apt_metadata_cache() -> eyre::Result<()> {
     const MC: [&str; 2] = [
-        "/var/lib/apt/lists/carbide-pxe.forge_public_blobs_internal_apt_dists_focal_Release",
-        "/var/lib/apt/lists/carbide-pxe.forge_public_blobs_internal_apt_dists_focal_main_binary-arm64_Packages",
+        "/var/lib/apt/lists/nico-pxe.nico_public_blobs_internal_apt_dists_focal_Release",
+        "/var/lib/apt/lists/nico-pxe.nico_public_blobs_internal_apt_dists_focal_main_binary-arm64_Packages",
     ];
     for filepath in MC {
         let p = PathBuf::from(filepath);
@@ -274,36 +274,36 @@ fn test_make_upgrade_cmd() {
     assert_eq!(
         make_upgrade_cmd("1.0.0"),
         "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
-         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/nico.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
          apt-get autoclean && \
          DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
-         forge-dpu='1.0.0'",
+         nico-dpu='1.0.0'",
     );
 
     assert_eq!(
         make_upgrade_cmd("2026.01.16-az51trunk-01-4-g3064b81c4"),
         "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
-         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/nico.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
          apt-get autoclean && \
          DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
-         forge-dpu='2026.01.16-az51trunk-01-4-g3064b81c4'",
+         nico-dpu='2026.01.16-az51trunk-01-4-g3064b81c4'",
     );
 
     assert_eq!(
         make_upgrade_cmd("'; echo evil stuff && sh /tmp/evil.sh"),
         "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
-         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/nico.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
          apt-get autoclean && \
          DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
-         forge-dpu=''\\''; echo evil stuff && sh /tmp/evil.sh'",
+         nico-dpu=''\\''; echo evil stuff && sh /tmp/evil.sh'",
     );
 
     assert_eq!(
         make_upgrade_cmd(""),
         "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
-         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/nico.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
          apt-get autoclean && \
          DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
-         forge-dpu=''",
+         nico-dpu=''",
     );
 }

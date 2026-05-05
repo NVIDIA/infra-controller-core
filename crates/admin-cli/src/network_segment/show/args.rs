@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::network::NetworkSegmentId;
+use nico_uuid::network::NetworkSegmentId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::ReExploreEndpointRequest;
+use ::rpc::admin_cli::NicoCliResult;
+use ::rpc::nico::ReExploreEndpointRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn re_explore(api_client: &ApiClient, opts: Args) -> CarbideCliResult<()> {
+pub async fn re_explore(api_client: &ApiClient, opts: Args) -> NicoCliResult<()> {
     api_client
         .0
         .re_explore_endpoint(ReExploreEndpointRequest {

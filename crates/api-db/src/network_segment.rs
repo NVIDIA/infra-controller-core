@@ -18,9 +18,9 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::Deref;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
@@ -325,7 +325,7 @@ where
 /// Find network segments attached to a machine through machine_interfaces, optionally of a certain type
 pub async fn find_ids_by_machine_id(
     txn: &mut PgConnection,
-    machine_id: &::carbide_uuid::machine::MachineId,
+    machine_id: &::nico_uuid::machine::MachineId,
     network_segment_type: Option<NetworkSegmentType>,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     let result = batch_find_ids_by_machine_ids(txn, &[*machine_id], network_segment_type).await?;
@@ -644,7 +644,7 @@ pub async fn mark_as_deleted_no_validation(
 
 /// SVI IP is needed for Network Segments attached to FNN VPCs.
 /// Usually third IP of a prefix is used as SVI IP. In case, first 3 IPs are not reserved,
-/// carbide will pick any available free IP and store it in DB for further use.
+/// nico will pick any available free IP and store it in DB for further use.
 /// Allocates SVI IPs for all prefixes in a segment that don't already have one.
 /// For dual-stack segments, this allocates one SVI IP per prefix (v4 and v6).
 ///

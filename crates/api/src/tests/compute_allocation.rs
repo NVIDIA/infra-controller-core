@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::network::NetworkSegmentId;
-use rpc::forge::forge_server::Forge;
+use nico_uuid::network::NetworkSegmentId;
+use rpc::nico::nico_server::Nico;
 use tonic::{Code, Request};
 use uuid::Uuid;
 
@@ -35,8 +35,8 @@ use crate::tests::common::rpc_builder::{
 
 const TENANT_ORG: &str = "2829bbe3-c169-4cd9-8b2a-19a8b1618a93";
 
-fn metadata(name: impl Into<String>) -> rpc::forge::Metadata {
-    rpc::forge::Metadata {
+fn metadata(name: impl Into<String>) -> rpc::nico::Metadata {
+    rpc::nico::Metadata {
         name: name.into(),
         description: String::new(),
         labels: vec![],
@@ -48,7 +48,7 @@ async fn create_compute_allocation(
     instance_type_id: &str,
     count: u32,
     name: &str,
-) -> rpc::forge::ComputeAllocation {
+) -> rpc::nico::ComputeAllocation {
     // Create allocation for this scenario.
     // Expect success: tenant and type are valid.
     env.api
@@ -71,16 +71,16 @@ async fn allocate_instance(
     host: &TestManagedHost,
     instance_type_id: Option<&str>,
     segment_id: NetworkSegmentId,
-) -> Result<tonic::Response<rpc::forge::Instance>, tonic::Status> {
+) -> Result<tonic::Response<rpc::nico::Instance>, tonic::Status> {
     // Attempt instance allocation for this case.
     // Caller asserts expected success/failure.
     env.api
-        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(Request::new(rpc::nico::InstanceAllocationRequest {
             instance_id: None,
             machine_id: Some(host.id),
             instance_type_id: instance_type_id.map(str::to_string),
-            config: Some(rpc::forge::InstanceConfig {
-                tenant: Some(rpc::forge::TenantConfig {
+            config: Some(rpc::nico::InstanceConfig {
+                tenant: Some(rpc::nico::TenantConfig {
                     tenant_organization_id: TENANT_ORG.to_string(),
                     tenant_keyset_ids: vec![],
                     hostname: None,
@@ -100,10 +100,10 @@ async fn allocate_instance(
 
 async fn update_compute_allocation(
     env: &TestEnv,
-    allocation: &rpc::forge::ComputeAllocation,
+    allocation: &rpc::nico::ComputeAllocation,
     count: u32,
     name: &str,
-) -> Result<tonic::Response<rpc::forge::UpdateComputeAllocationResponse>, tonic::Status> {
+) -> Result<tonic::Response<rpc::nico::UpdateComputeAllocationResponse>, tonic::Status> {
     // Attempt allocation update for this case.
     // Caller asserts expected success/failure.
     env.api
@@ -133,7 +133,7 @@ async fn test_compute_allocation_basic_actions(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -146,7 +146,7 @@ async fn test_compute_allocation_basic_actions(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host.id.to_string()],
             },
@@ -163,7 +163,7 @@ async fn test_compute_allocation_basic_actions(
     // Expect one ID due to exact filters.
     let found_ids = env
         .api
-        .find_compute_allocation_ids(Request::new(rpc::forge::FindComputeAllocationIdsRequest {
+        .find_compute_allocation_ids(Request::new(rpc::nico::FindComputeAllocationIdsRequest {
             name: Some(allocation_name.clone()),
             tenant_organization_id: Some(TENANT_ORG.to_string()),
             instance_type_id: Some(instance_type_id.clone()),
@@ -179,7 +179,7 @@ async fn test_compute_allocation_basic_actions(
     let found_allocations = env
         .api
         .find_compute_allocations_by_ids(Request::new(
-            rpc::forge::FindComputeAllocationsByIdsRequest {
+            rpc::nico::FindComputeAllocationsByIdsRequest {
                 ids: vec![allocation.id.unwrap()],
             },
         ))
@@ -216,7 +216,7 @@ async fn test_compute_allocation_basic_actions(
     // Expect none: deleted rows are filtered.
     let post_delete_ids = env
         .api
-        .find_compute_allocation_ids(Request::new(rpc::forge::FindComputeAllocationIdsRequest {
+        .find_compute_allocation_ids(Request::new(rpc::nico::FindComputeAllocationIdsRequest {
             name: Some(updated_name),
             tenant_organization_id: Some(TENANT_ORG.to_string()),
             instance_type_id: Some(instance_type_id),
@@ -250,7 +250,7 @@ async fn test_create_instance_no_allocations(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -263,7 +263,7 @@ async fn test_create_instance_no_allocations(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host.id.to_string()],
             },
@@ -326,7 +326,7 @@ async fn test_create_instance_without_instance_type_id_no_allocations(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -339,7 +339,7 @@ async fn test_create_instance_without_instance_type_id_no_allocations(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host.id.to_string()],
             },
@@ -363,7 +363,7 @@ async fn test_create_instance_without_instance_type_id_no_allocations(
     // Expect no explicit instance type to be persisted.
     let persisted = env
         .api
-        .find_instances_by_ids(Request::new(rpc::forge::InstancesByIdsRequest {
+        .find_instances_by_ids(Request::new(rpc::nico::InstancesByIdsRequest {
             instance_ids: vec![instance.id.unwrap()],
         }))
         .await
@@ -418,7 +418,7 @@ async fn test_create_instance_with_enough_allocations(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -431,7 +431,7 @@ async fn test_create_instance_with_enough_allocations(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host.id.to_string()],
             },
@@ -499,7 +499,7 @@ async fn test_create_instance_with_insufficient_allocations(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -512,7 +512,7 @@ async fn test_create_instance_with_insufficient_allocations(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_1.id.to_string()],
             },
@@ -524,7 +524,7 @@ async fn test_create_instance_with_insufficient_allocations(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_2.id.to_string()],
             },
@@ -613,7 +613,7 @@ async fn test_create_instance_without_instance_type_id_skips_insufficient_alloca
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -627,7 +627,7 @@ async fn test_create_instance_without_instance_type_id_skips_insufficient_alloca
     // Expect success for fresh hosts.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_1.id.to_string(), host_2.id.to_string()],
             },
@@ -662,7 +662,7 @@ async fn test_create_instance_without_instance_type_id_skips_insufficient_alloca
     // Expect no explicit instance type to be persisted.
     let persisted = env
         .api
-        .find_instances_by_ids(Request::new(rpc::forge::InstancesByIdsRequest {
+        .find_instances_by_ids(Request::new(rpc::nico::InstancesByIdsRequest {
             instance_ids: vec![instance.id.unwrap()],
         }))
         .await
@@ -707,7 +707,7 @@ async fn test_delete_allocation_when_instances_not_present_passes(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -720,7 +720,7 @@ async fn test_delete_allocation_when_instances_not_present_passes(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host.id.to_string()],
             },
@@ -756,7 +756,7 @@ async fn test_delete_allocation_when_instances_present_and_sufficient_remain_pas
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -769,7 +769,7 @@ async fn test_delete_allocation_when_instances_present_and_sufficient_remain_pas
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_1.id.to_string()],
             },
@@ -781,7 +781,7 @@ async fn test_delete_allocation_when_instances_present_and_sufficient_remain_pas
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_2.id.to_string()],
             },
@@ -838,7 +838,7 @@ async fn test_delete_allocation_when_instances_present_and_insufficient_remain_f
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -851,7 +851,7 @@ async fn test_delete_allocation_when_instances_present_and_insufficient_remain_f
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host.id.to_string()],
             },
@@ -901,7 +901,7 @@ async fn test_update_allocation_reduce_when_sufficient_remains_passes(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -914,7 +914,7 @@ async fn test_update_allocation_reduce_when_sufficient_remains_passes(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_1.id.to_string()],
             },
@@ -926,7 +926,7 @@ async fn test_update_allocation_reduce_when_sufficient_remains_passes(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_2.id.to_string()],
             },
@@ -979,7 +979,7 @@ async fn test_update_allocation_reduce_when_insufficient_remains_fails(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -992,7 +992,7 @@ async fn test_update_allocation_reduce_when_insufficient_remains_fails(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host.id.to_string()],
             },
@@ -1042,7 +1042,7 @@ async fn test_update_allocation_increase_when_sufficient_machines_remain_passes(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -1055,7 +1055,7 @@ async fn test_update_allocation_increase_when_sufficient_machines_remain_passes(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_1.id.to_string()],
             },
@@ -1067,7 +1067,7 @@ async fn test_update_allocation_increase_when_sufficient_machines_remain_passes(
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host_2.id.to_string()],
             },
@@ -1113,7 +1113,7 @@ async fn test_update_allocation_increase_when_insufficient_machines_remain_fails
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -1126,7 +1126,7 @@ async fn test_update_allocation_increase_when_insufficient_machines_remain_fails
     // Expect success for a fresh host.
     env.api
         .associate_machines_with_instance_type(Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![host.id.to_string()],
             },
@@ -1180,7 +1180,7 @@ async fn test_remove_machine_association(
     // Create tenant for allocation FK checks.
     // Expect success in isolated test DB.
     env.api
-        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(Request::new(rpc::nico::CreateTenantRequest {
             organization_id: TENANT_ORG.to_string(),
             routing_profile_type: None,
             metadata: Some(metadata("compute-allocation-test-tenant")),
@@ -1195,7 +1195,7 @@ async fn test_remove_machine_association(
         // Expect success for a fresh host.
         env.api
             .associate_machines_with_instance_type(Request::new(
-                rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                     instance_type_id: instance_type_id.clone(),
                     machine_ids: vec![host.id.to_string()],
                 },
@@ -1223,7 +1223,7 @@ async fn test_remove_machine_association(
     let result = env
         .api
         .remove_machine_instance_type_association(Request::new(
-            rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
+            rpc::nico::RemoveMachineInstanceTypeAssociationRequest {
                 machine_id: host_to_remove.id.to_string(),
             },
         ))

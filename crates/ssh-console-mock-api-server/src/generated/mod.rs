@@ -22,7 +22,7 @@ pub mod common;
 pub mod dns;
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
-pub mod forge;
+pub mod nico;
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
 pub mod health;

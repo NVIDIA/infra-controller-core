@@ -16,6 +16,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM runtime-container-localdev:latest as carbide
-WORKDIR ./carbide
-COPY .skaffold/target/carbide-dns/debug/carbide-dns /opt/carbide/
+FROM runtime-container-localdev:latest as nico
+WORKDIR ./nico
+COPY .skaffold/target/nico-dns/debug/nico-dns /opt/nico/

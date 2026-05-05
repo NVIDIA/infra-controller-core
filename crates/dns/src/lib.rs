@@ -23,7 +23,7 @@ use pdns::request::PdnsRequest;
 use pdns::response::PdnsResponse;
 use pdns::socket::PdnsSocket;
 use rpc::JsonDnsResourceRecord;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
+use rpc::nico_tls_client::{ApiConfig, NicoClientT, NicoTlsClient};
 use rpc::protos::dns::{
     DnsResourceRecordLookupRequest, DomainMetadataRequest, GetAllDomainsRequest,
 };
@@ -43,11 +43,11 @@ pub struct MethodParseError;
 pub async fn start(config: Config) -> Result<(), eyre::Report> {
     let config = Arc::new(config);
 
-    let forge_client_config = config.clone().forge_client_config();
-    let api_uri = config.carbide_uri.to_string();
-    let api_config = ApiConfig::new(api_uri.as_str(), &forge_client_config);
+    let nico_client_config = config.clone().nico_client_config();
+    let api_uri = config.nico_uri.to_string();
+    let api_config = ApiConfig::new(api_uri.as_str(), &nico_client_config);
 
-    let client = Arc::new(Mutex::new(ForgeTlsClient::retry_build(&api_config).await?));
+    let client = Arc::new(Mutex::new(NicoTlsClient::retry_build(&api_config).await?));
 
     let socket = PdnsSocket::new_socket(config.clone())?;
     let listener = socket.socket.clone();
@@ -75,7 +75,7 @@ pub async fn start(config: Config) -> Result<(), eyre::Report> {
 }
 async fn handle_connection(
     mut stream: UnixStream,
-    client: Arc<Mutex<ForgeClientT>>,
+    client: Arc<Mutex<NicoClientT>>,
 ) -> Result<(), Report> {
     let (reader, mut writer) = stream.split();
 
@@ -186,7 +186,7 @@ async fn handle_connection(
 
 async fn handle_get_all_domains(
     req: &PdnsRequest,
-    client: &Arc<Mutex<ForgeClientT>>,
+    client: &Arc<Mutex<NicoClientT>>,
 ) -> Result<PdnsResponse, Report> {
     let query: GetAllDomainsRequest = req.try_into()?;
     let span = tracing::info_span!("get_all_domains");
@@ -223,7 +223,7 @@ async fn handle_get_all_domains(
 
 async fn handle_get_all_domain_metadata(
     req: &PdnsRequest,
-    client: &Arc<Mutex<ForgeClientT>>,
+    client: &Arc<Mutex<NicoClientT>>,
 ) -> Result<PdnsResponse, Report> {
     let query: DomainMetadataRequest = req.try_into()?;
     let span = tracing::info_span!("get_all_domain_metadata", domain = %query.domain);
@@ -264,7 +264,7 @@ async fn handle_get_all_domain_metadata(
 
 async fn handle_lookup(
     req: &PdnsRequest,
-    client: &Arc<Mutex<ForgeClientT>>,
+    client: &Arc<Mutex<NicoClientT>>,
 ) -> Result<PdnsResponse, Report> {
     let query: DnsResourceRecordLookupRequest = req.try_into()?;
 

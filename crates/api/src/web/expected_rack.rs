@@ -22,7 +22,7 @@ use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -87,7 +87,7 @@ async fn fetch_expected_racks(
     };
 
     // Index actual racks by their ID for quick lookup.
-    let racks_by_id: std::collections::HashMap<String, &rpc::forge::Rack> = rack_response
+    let racks_by_id: std::collections::HashMap<String, &rpc::nico::Rack> = rack_response
         .racks
         .iter()
         .filter_map(|r| r.id.as_ref().map(|id| (id.to_string(), r)))

@@ -25,7 +25,7 @@ pub struct Args {
     pub identifier: String,
 }
 
-impl From<Args> for ::rpc::forge::DeleteRackRequest {
+impl From<Args> for ::rpc::nico::DeleteRackRequest {
     fn from(args: Args) -> Self {
         Self {
             id: args.identifier,

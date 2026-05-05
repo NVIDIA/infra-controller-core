@@ -19,7 +19,7 @@ use std::iter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use carbide_redfish::libredfish::conv::IntoModel;
+use nico_redfish::libredfish::conv::IntoModel;
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;

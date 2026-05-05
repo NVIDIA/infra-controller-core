@@ -54,7 +54,7 @@ current_version_reported_as = "^Installed-.*__iDRAC."
 
 [[components.bmc.known_firmware]]
 version = "7.10.30.00"
-filenames = ["/opt/carbide/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE", "/opt/carbide/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A01.EXE"]
+filenames = ["/opt/forge/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE", "/opt/forge/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A01.EXE"]
 default = true
     "#;
     let mut config: FirmwareConfig = Default::default();

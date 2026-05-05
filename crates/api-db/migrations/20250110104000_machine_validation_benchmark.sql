@@ -8,7 +8,7 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_CudaSample';
+    test_id = 'nico_CudaSample';
 
 UPDATE
     machine_validation_tests
@@ -20,7 +20,7 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_RaytracingVk';
+    test_id = 'nico_RaytracingVk';
 
 INSERT INTO
     machine_validation_tests (
@@ -50,7 +50,7 @@ INSERT INTO
     )
 VALUES
     (
-        'forge_Nvbandwidth',
+        'nico_Nvbandwidth',
         'Nvbandwidth',
         'Running nvbandwidth test using benechpress',
         NULL,

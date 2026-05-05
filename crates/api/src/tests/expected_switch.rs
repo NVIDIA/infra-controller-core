@@ -16,15 +16,15 @@
  */
 use std::default::Default;
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::site_explorer::create_expected_switches;
 use db::DatabaseError;
 use mac_address::MacAddress;
 use model::expected_switch::ExpectedSwitch;
 use model::metadata::Metadata;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ExpectedSwitchList, ExpectedSwitchRequest};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{ExpectedSwitchList, ExpectedSwitchRequest};
 
 use crate::tests::common;
 
@@ -150,7 +150,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     for mut expected_switch in [
-        rpc::forge::ExpectedSwitch {
+        rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
             nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:4F".to_string()],
@@ -164,7 +164,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
             bmc_ip_address: String::new(),
             bmc_retain_credentials: None,
         },
-        rpc::forge::ExpectedSwitch {
+        rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:40".to_string(),
             nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:40".to_string()],
@@ -173,12 +173,12 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
             switch_serial_number: "SW-TEST-002".into(),
             nvos_username: Some("nvos_user".into()),
             nvos_password: Some("nvos_pass".into()),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_ip_address: String::new(),
             bmc_retain_credentials: None,
         },
-        rpc::forge::ExpectedSwitch {
+        rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:41".to_string(),
             nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:41".to_string()],
@@ -187,15 +187,15 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
             switch_serial_number: "SW-TEST-003".into(),
             nvos_username: Some("nvos_user2".into()),
             nvos_password: Some("nvos_pass2".into()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "switch-a".to_string(),
                 description: "Test switch".to_string(),
                 labels: vec![
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "location".to_string(),
                         value: Some("datacenter-1".to_string()),
                     },
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "rack".to_string(),
                         value: Some("A1".to_string()),
                     },
@@ -211,7 +211,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
             .await
             .expect("unable to add expected switch ");
 
-        let expected_switch_query = rpc::forge::ExpectedSwitchRequest {
+        let expected_switch_query = rpc::nico::ExpectedSwitchRequest {
             bmc_mac_address: expected_switch.bmc_mac_address.clone(),
             expected_switch_id: None,
         };
@@ -254,7 +254,7 @@ async fn test_delete_expected_switch(pool: sqlx::PgPool) {
         .expected_switches
         .len();
 
-    let expected_switch_query = rpc::forge::ExpectedSwitchRequest {
+    let expected_switch_query = rpc::nico::ExpectedSwitchRequest {
         bmc_mac_address: switches[1].bmc_mac_address.to_string(),
         expected_switch_id: None,
     };
@@ -291,7 +291,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
         .map(|m| m.to_string())
         .collect();
     for mut updated_switch in [
-        rpc::forge::ExpectedSwitch {
+        rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             nvos_mac_addresses: nvos_mac_addresses.clone(),
@@ -305,7 +305,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
             bmc_ip_address: String::new(),
             bmc_retain_credentials: None,
         },
-        rpc::forge::ExpectedSwitch {
+        rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             nvos_mac_addresses: nvos_mac_addresses.clone(),
@@ -319,7 +319,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
             bmc_ip_address: String::new(),
             bmc_retain_credentials: None,
         },
-        rpc::forge::ExpectedSwitch {
+        rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             nvos_mac_addresses: nvos_mac_addresses.clone(),
@@ -328,15 +328,15 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
             switch_serial_number: "SW-UPD-003".into(),
             nvos_username: Some("nvos_upd_user2".into()),
             nvos_password: Some("nvos_upd_pass2".into()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "updated-switch".to_string(),
                 description: "Updated switch".to_string(),
                 labels: vec![
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "env".to_string(),
                         value: Some("production".to_string()),
                     },
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "zone".to_string(),
                         value: Some("zone-a".to_string()),
                     },
@@ -383,7 +383,7 @@ async fn test_get_expected_switch_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let explicit_id = uuid::Uuid::new_v4();
-    let expected_switch = rpc::forge::ExpectedSwitch {
+    let expected_switch = rpc::nico::ExpectedSwitch {
         expected_switch_id: Some(rpc::common::Uuid {
             value: explicit_id.to_string(),
         }),
@@ -394,7 +394,7 @@ async fn test_get_expected_switch_by_id(pool: sqlx::PgPool) {
         switch_serial_number: "SW-ID-001".into(),
         nvos_username: Some("nvos_user".into()),
         nvos_password: Some("nvos_pass".into()),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
         bmc_retain_credentials: None,
@@ -425,7 +425,7 @@ async fn test_delete_expected_switch_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let explicit_id = uuid::Uuid::new_v4();
-    let expected_switch = rpc::forge::ExpectedSwitch {
+    let expected_switch = rpc::nico::ExpectedSwitch {
         expected_switch_id: Some(rpc::common::Uuid {
             value: explicit_id.to_string(),
         }),
@@ -436,7 +436,7 @@ async fn test_delete_expected_switch_by_id(pool: sqlx::PgPool) {
         switch_serial_number: "SW-DEL-ID-001".into(),
         nvos_username: None,
         nvos_password: None,
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
         bmc_retain_credentials: None,
@@ -479,7 +479,7 @@ async fn test_update_expected_switch_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let explicit_id = uuid::Uuid::new_v4();
-    let expected_switch = rpc::forge::ExpectedSwitch {
+    let expected_switch = rpc::nico::ExpectedSwitch {
         expected_switch_id: Some(rpc::common::Uuid {
             value: explicit_id.to_string(),
         }),
@@ -490,7 +490,7 @@ async fn test_update_expected_switch_by_id(pool: sqlx::PgPool) {
         switch_serial_number: "SW-UPD-ID-001".into(),
         nvos_username: Some("nvos_user".into()),
         nvos_password: Some("nvos_pass".into()),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
         bmc_retain_credentials: None,
@@ -501,7 +501,7 @@ async fn test_update_expected_switch_by_id(pool: sqlx::PgPool) {
         .await
         .expect("unable to add expected switch");
 
-    let updated_switch = rpc::forge::ExpectedSwitch {
+    let updated_switch = rpc::nico::ExpectedSwitch {
         expected_switch_id: Some(rpc::common::Uuid {
             value: explicit_id.to_string(),
         }),
@@ -512,10 +512,10 @@ async fn test_update_expected_switch_by_id(pool: sqlx::PgPool) {
         switch_serial_number: "SW-UPD-ID-002".into(),
         nvos_username: Some("nvos_updated".into()),
         nvos_password: Some("nvos_upd_pass".into()),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(rpc::nico::Metadata {
             name: "updated-switch".to_string(),
             description: "Updated via id".to_string(),
-            labels: vec![rpc::forge::Label {
+            labels: vec![rpc::nico::Label {
                 key: "env".to_string(),
                 value: Some("staging".to_string()),
             }],
@@ -550,7 +550,7 @@ async fn test_create_expected_switch_with_explicit_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let explicit_id = uuid::Uuid::new_v4();
-    let expected_switch = rpc::forge::ExpectedSwitch {
+    let expected_switch = rpc::nico::ExpectedSwitch {
         expected_switch_id: Some(rpc::common::Uuid {
             value: explicit_id.to_string(),
         }),
@@ -561,7 +561,7 @@ async fn test_create_expected_switch_with_explicit_id(pool: sqlx::PgPool) {
         switch_serial_number: "SW-EXPLICIT-001".into(),
         nvos_username: None,
         nvos_password: None,
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
         bmc_retain_credentials: None,
@@ -595,7 +595,7 @@ async fn test_create_expected_switch_with_explicit_id(pool: sqlx::PgPool) {
 async fn test_create_expected_switch_auto_generates_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let expected_switch = rpc::forge::ExpectedSwitch {
+    let expected_switch = rpc::nico::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
         nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:3F".to_string()],
@@ -604,7 +604,7 @@ async fn test_create_expected_switch_auto_generates_id(pool: sqlx::PgPool) {
         switch_serial_number: "SW-AUTO-001".into(),
         nvos_username: None,
         nvos_password: None,
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
         bmc_retain_credentials: None,
@@ -685,7 +685,7 @@ async fn test_get_linked_expected_switches(pool: sqlx::PgPool) {
 async fn test_delete_expected_switch_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_switch_request = rpc::forge::ExpectedSwitchRequest {
+    let expected_switch_request = rpc::nico::ExpectedSwitchRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
         expected_switch_id: None,
     };
@@ -706,7 +706,7 @@ async fn test_delete_expected_switch_error(pool: sqlx::PgPool) {
 async fn test_update_expected_switch_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_switch = rpc::forge::ExpectedSwitch {
+    let expected_switch = rpc::nico::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: bmc_mac_address.to_string(),
         nvos_mac_addresses: vec!["3A:3B:3C:3D:3E:3F".to_string()],
@@ -738,7 +738,7 @@ async fn test_update_expected_switch_error(pool: sqlx::PgPool) {
 async fn test_get_expected_switch_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_switch_query = rpc::forge::ExpectedSwitchRequest {
+    let expected_switch_query = rpc::nico::ExpectedSwitchRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
         expected_switch_id: None,
     };
@@ -816,7 +816,7 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
         expected_switches: Vec::new(),
     };
 
-    let expected_switch_1 = rpc::forge::ExpectedSwitch {
+    let expected_switch_1 = rpc::nico::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: "6A:6B:6C:6D:6E:6F".into(),
         nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:6F".to_string()],
@@ -831,7 +831,7 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
         bmc_retain_credentials: None,
     };
 
-    let expected_switch_2 = rpc::forge::ExpectedSwitch {
+    let expected_switch_2 = rpc::nico::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: "7A:7B:7C:7D:7E:7F".into(),
         nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:7F".to_string()],
@@ -954,7 +954,7 @@ async fn test_add_with_bmc_ip_creates_static_interface(
     let bmc_ip = "192.0.1.180";
 
     env.api
-        .add_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+        .add_expected_switch(tonic::Request::new(rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
@@ -964,7 +964,7 @@ async fn test_add_with_bmc_ip_creates_static_interface(
             nvos_username: None,
             nvos_password: None,
             bmc_ip_address: bmc_ip.into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1008,7 +1008,7 @@ async fn test_add_without_bmc_ip_creates_no_interface(
     let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:71".parse().unwrap();
 
     env.api
-        .add_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+        .add_expected_switch(tonic::Request::new(rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
@@ -1018,7 +1018,7 @@ async fn test_add_without_bmc_ip_creates_no_interface(
             nvos_username: None,
             nvos_password: None,
             bmc_ip_address: String::new(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1044,7 +1044,7 @@ async fn test_add_expected_switch_with_bmc_retain_credentials(
     let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:80".parse().unwrap();
 
     env.api
-        .add_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+        .add_expected_switch(tonic::Request::new(rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
@@ -1054,7 +1054,7 @@ async fn test_add_expected_switch_with_bmc_retain_credentials(
             nvos_username: None,
             nvos_password: None,
             bmc_ip_address: String::new(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: Some(true),
         }))
@@ -1062,7 +1062,7 @@ async fn test_add_expected_switch_with_bmc_retain_credentials(
 
     let retrieved = env
         .api
-        .get_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitchRequest {
+        .get_expected_switch(tonic::Request::new(rpc::nico::ExpectedSwitchRequest {
             bmc_mac_address: bmc_mac.to_string(),
             expected_switch_id: None,
         }))
@@ -1089,7 +1089,7 @@ async fn test_update_expected_switch_preserves_bmc_retain_credentials(
 
     // Create with bmc_retain_credentials = true.
     env.api
-        .add_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+        .add_expected_switch(tonic::Request::new(rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
@@ -1099,7 +1099,7 @@ async fn test_update_expected_switch_preserves_bmc_retain_credentials(
             nvos_username: None,
             nvos_password: None,
             bmc_ip_address: String::new(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: Some(true),
         }))
@@ -1107,7 +1107,7 @@ async fn test_update_expected_switch_preserves_bmc_retain_credentials(
 
     // Update without setting bmc_retain_credentials (None).
     env.api
-        .update_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+        .update_expected_switch(tonic::Request::new(rpc::nico::ExpectedSwitch {
             expected_switch_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "NEW-ADMIN".into(),
@@ -1117,7 +1117,7 @@ async fn test_update_expected_switch_preserves_bmc_retain_credentials(
             nvos_username: None,
             nvos_password: None,
             bmc_ip_address: String::new(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1125,7 +1125,7 @@ async fn test_update_expected_switch_preserves_bmc_retain_credentials(
 
     let retrieved = env
         .api
-        .get_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitchRequest {
+        .get_expected_switch(tonic::Request::new(rpc::nico::ExpectedSwitchRequest {
             bmc_mac_address: bmc_mac.to_string(),
             expected_switch_id: None,
         }))

@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::forge as forgerpc;
+use rpc::nico as nicorpc;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -26,7 +26,7 @@ pub struct Args {
     pub use_ipmitool: bool,
 }
 
-impl From<Args> for forgerpc::AdminBmcResetRequest {
+impl From<Args> for nicorpc::AdminBmcResetRequest {
     fn from(args: Args) -> Self {
         Self {
             bmc_endpoint_request: None,

@@ -27,10 +27,10 @@ use bmc_mock::{
     MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
-use carbide_network::virtualization::build_dual_stack_list;
-use carbide_uuid::machine::MachineId;
-use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
-use rpc::forge_agent_control_response::Action;
+use nico_network::virtualization::build_dual_stack_list;
+use nico_uuid::machine::MachineId;
+use rpc::nico::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
+use rpc::nico_agent_control_response::Action;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -45,7 +45,7 @@ use crate::dhcp_wrapper::{
 use crate::machine_fsm::{Action as FsmAction, DhcpType, Event, MachineFsm, Timer};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
-    PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
+    PxeError, PxeResponse, nico_agent_control, get_validation_id, send_pxe_boot_request,
 };
 use crate::{PersistedDpuMachine, PersistedHostMachine, dhcp_wrapper};
 
@@ -186,20 +186,20 @@ impl LiveState {
     }
 }
 
-/// BmcRegistrationMode configures how each mock machine registers its BMC mock so that carbide can find it.
+/// BmcRegistrationMode configures how each mock machine registers its BMC mock so that nico can find it.
 #[derive(Debug, Clone)]
 pub enum BmcRegistrationMode {
     /// BackingInstance: Register the axum Router of the mock into a shared registry. This is used
     /// when running machine-a-tron as a kubernetes service, where we can only listen on a single
     /// IP/port but need to mock multiple BMC's. A shared BMC mock is expected to be running, and
     /// will delegate to these Routers for each BMC mock based on the `Forwarded` header in the
-    /// request from carbide-api.
+    /// request from nico-api.
     BackingInstance(BmcMockRegistry),
     /// None: Don't register anything, but instead listen on the actual IP address given via DHCP.
     /// This is the most true-to-production mode, where we configure a real IP alias on a configured
-    /// interface for every BMC mock, and carbide talks to the BMC's real IP address. It requires
-    /// carbide to be able to reach these aliases, so it is only /// suitable for local use where
-    /// carbide and machine-a-tron are on the same host.
+    /// interface for every BMC mock, and nico talks to the BMC's real IP address. It requires
+    /// nico to be able to reach these aliases, so it is only /// suitable for local use where
+    /// nico and machine-a-tron are on the same host.
     None(u16),
 }
 
@@ -651,7 +651,7 @@ impl MachineStateMachine {
                     let machine_id = result.machine_id.as_ref().ok_or(MissingMachineId)?;
                     // Inform the API that we have finished our reboot (ie. scout is now running)
                     self.app_context
-                        .forge_api_client
+                        .nico_api_client
                         .reboot_completed(*machine_id)
                         .await?;
                 }
@@ -685,7 +685,7 @@ impl MachineStateMachine {
 
         // Ask the API server what to do next
         let start = Instant::now();
-        let Some(control_response) = forge_agent_control(&self.app_context, machine_id).await
+        let Some(control_response) = nico_agent_control(&self.app_context, machine_id).await
         else {
             return Err(MachineStateError::MachineNotFound(machine_id));
         };
@@ -718,7 +718,7 @@ impl MachineStateMachine {
             Some(Action::Noop(_)) => {}
             _ => {
                 tracing::warn!(
-                    "Unknown action from forge_agent_control: {:?} for OS image {}",
+                    "Unknown action from nico_agent_control: {:?} for OS image {}",
                     control_response.action,
                     os_image,
                 );
@@ -737,7 +737,7 @@ impl MachineStateMachine {
 
         let network_config = match self
             .app_context
-            .forge_api_client
+            .nico_api_client
             .get_managed_host_network_config(machine_id)
             .await
         {
@@ -834,7 +834,7 @@ impl MachineStateMachine {
                     .as_ref()
                     .map(|v6| v6.interface_prefix.clone()),
             );
-            interfaces = vec![rpc::forge::InstanceInterfaceStatusObservation {
+            interfaces = vec![rpc::nico::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: None,
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
@@ -860,7 +860,7 @@ impl MachineStateMachine {
                         .as_ref()
                         .map(|v6| v6.interface_prefix.clone()),
                 );
-                interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
+                interfaces.push(rpc::nico::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
@@ -868,7 +868,7 @@ impl MachineStateMachine {
                     prefixes,
                     gateways: vec![iface.gateway.clone()],
                     network_security_group: iface.network_security_group.as_ref().map(|s| {
-                        rpc::forge::NetworkSecurityGroupStatus {
+                        rpc::nico::NetworkSecurityGroupStatus {
                             source: s.source,
                             id: s.id.clone(),
                             version: s.version.clone(),
@@ -968,7 +968,7 @@ impl MachineStateMachine {
     async fn send_discovery_complete(&self, machine_id: &MachineId) -> Result<(), ClientApiError> {
         let start = Instant::now();
         self.app_context
-            .forge_api_client
+            .nico_api_client
             .discovery_completed(*machine_id)
             .await
             .map_err(ClientApiError::InvocationError)?;
@@ -994,7 +994,7 @@ pub enum OsImage {
     /// Default installed OS, will sleep forever when booted to.
     #[default]
     None,
-    /// This is the carbide.efi image and should only run on DPUs. It can be run via PXE or installed.
+    /// This is the nico.efi image and should only run on DPUs. It can be run via PXE or installed.
     DpuAgent,
     /// This is the scout image and can be run on hosts via PXE but should not be installed
     Scout,
@@ -1042,7 +1042,7 @@ pub enum MachineStateError {
     ListenAddressConfigError(#[from] AddressConfigError),
     #[error("Could not find certificates at {0}")]
     MissingCertificates(String),
-    #[error("Error calling forge API: {0}")]
+    #[error("Error calling nico API: {0}")]
     ClientApi(#[from] ClientApiError),
     #[error("Failed to get DHCP address: {0:?}")]
     DhcpError(#[from] DhcpRelayError),

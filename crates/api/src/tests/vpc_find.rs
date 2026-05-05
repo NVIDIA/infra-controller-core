@@ -16,9 +16,9 @@
  */
 use std::ops::DerefMut;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::vpc::VpcId;
-use rpc::forge_server::Forge;
+use ::rpc::nico as rpc;
+use nico_uuid::vpc::VpcId;
+use rpc::nico_server::Nico;
 
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::vpc::create_vpc;
@@ -238,7 +238,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     for i in 0..=3 {
         env.api
             .create_vpc(
-                VpcCreationRequest::builder("", "Forge_unit_tests")
+                VpcCreationRequest::builder("", "Nico_unit_tests")
                     .metadata(rpc::Metadata {
                         name: format!("VPC_{i}{i}{i}").to_string(),
                         description: format!("VPC_{i}{i}{i} have labels").to_string(),

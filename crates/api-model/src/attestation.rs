@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 
@@ -73,7 +73,7 @@ pub mod spdm {
     /// to advance the machine to its next major state. The managed-host model (comprising the host and connected DPUs)
     /// is not suitable here because it typically handles only 2 DPUs in sequence and halts if any DPU modifies its state.
     /// Conversely, each machine in the attestation state machine may have multiple components like GPUs, CPUs, BMCs, FPGAs,
-    /// etc., potentially numbering up to 8-10 components once Carbide supports attestation for all components.
+    /// etc., potentially numbering up to 8-10 components once Nico supports attestation for all components.
     /// Therefore, the managed-host model is not scalable for this use case.
     #[derive(Clone, Debug, Serialize, Deserialize)]
     pub struct SpdmMachineSnapshot {
@@ -298,7 +298,7 @@ pub mod spdm {
         #[error("The Object ID must have 2 parts but not as should be {0:?}")]
         WrongFormat(String),
         #[error("The Machine ID parsing failed: {0}")]
-        MachineIdParsingFailed(#[from] carbide_uuid::machine::MachineIdParseError),
+        MachineIdParsingFailed(#[from] nico_uuid::machine::MachineIdParseError),
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, FromRow)]
@@ -459,9 +459,9 @@ pub mod spdm {
         }
     }
 
-    impl From<SpdmMachineDetails> for rpc::forge::attestation_response::AttestationMachineData {
+    impl From<SpdmMachineDetails> for rpc::nico::attestation_response::AttestationMachineData {
         fn from(value: SpdmMachineDetails) -> Self {
-            rpc::forge::attestation_response::AttestationMachineData {
+            rpc::nico::attestation_response::AttestationMachineData {
                 machine_id: Some(value.machine.machine_id),
                 requested_at: Some(value.machine.requested_at.into()),
                 started_at: value.machine.started_at.map(|x| x.into()),
@@ -476,7 +476,7 @@ pub mod spdm {
     }
 
     impl From<SpdmMachineDeviceAttestation>
-        for rpc::forge::attestation_response::AttestationDeviceData
+        for rpc::nico::attestation_response::AttestationDeviceData
     {
         fn from(value: SpdmMachineDeviceAttestation) -> Self {
             Self {

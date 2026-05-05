@@ -17,10 +17,10 @@
 
 use std::num::ParseIntError;
 
-use carbide_utils::cmd::CmdError;
+use nico_utils::cmd::CmdError;
 
 #[derive(thiserror::Error, Debug)]
-pub enum CarbideClientError {
+pub enum NicoClientError {
     #[error("Generic error: {0}")]
     GenericError(String),
 
@@ -41,11 +41,11 @@ pub enum CarbideClientError {
 
     #[error("Hardware enumeration error: {0}")]
     HardwareEnumerationError(
-        #[from] carbide_host_support::hardware_enumeration::HardwareEnumerationError,
+        #[from] nico_host_support::hardware_enumeration::HardwareEnumerationError,
     ),
 
     #[error("Registration error: {0}")]
-    RegistrationError(#[from] carbide_host_support::registration::RegistrationError),
+    RegistrationError(#[from] nico_host_support::registration::RegistrationError),
 
     #[error("Error decoding gRPC enum value: {0}")]
     RpcDecodeError(String), // This should be '#[from] prost::DecodeError)' but don't work
@@ -63,4 +63,4 @@ pub enum CarbideClientError {
     MlxFwManagerError(String),
 }
 
-pub type CarbideClientResult<T> = Result<T, CarbideClientError>;
+pub type NicoClientResult<T> = Result<T, NicoClientError>;

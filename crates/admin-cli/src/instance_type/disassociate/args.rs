@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::forge::RemoveMachineInstanceTypeAssociationRequest;
+use rpc::nico::RemoveMachineInstanceTypeAssociationRequest;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

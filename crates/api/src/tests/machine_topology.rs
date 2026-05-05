@@ -16,7 +16,7 @@
  */
 use std::str::FromStr;
 
-use carbide_uuid::machine::{MachineId, MachineType};
+use nico_uuid::machine::{MachineId, MachineType};
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
 use common::api_fixtures::{create_managed_host, create_test_env};
@@ -26,7 +26,7 @@ use db::{self, ObjectColumnFilter, network_segment};
 use model::hardware_info::{Cpu, CpuInfo, HardwareInfo};
 use model::machine::machine_id::from_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 
 use crate::tests::common;
 
@@ -115,7 +115,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Hardware info is available on the machine
     let rpc_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![machine.id],
             ..Default::default()
         }))
@@ -164,7 +164,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let rpc_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![machine.id],
             ..Default::default()
         }))
@@ -429,7 +429,7 @@ async fn test_find_machine_ids_by_bmc_ips(db_pool: sqlx::PgPool) -> Result<(), e
     let host_machine = env.find_machine(host_machine_id).await.remove(0);
 
     let bmc_ip = host_machine.bmc_info.as_ref().unwrap().ip();
-    let req = tonic::Request::new(rpc::forge::BmcIpList {
+    let req = tonic::Request::new(rpc::nico::BmcIpList {
         bmc_ips: vec![bmc_ip.to_string()],
     });
     let res = env.api.find_machine_ids_by_bmc_ips(req).await?.into_inner();

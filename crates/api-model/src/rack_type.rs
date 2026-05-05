@@ -256,7 +256,7 @@ pub struct RackProfile {
 /* ********************************** */
 
 /// RackProfileConfig contains all known rack profiles, keyed by profile id.
-/// Loaded from the Carbide configuration file and used to validate that
+/// Loaded from the Nico configuration file and used to validate that
 /// the correct number of expected devices have been registered for a rack.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RackProfileConfig {
@@ -291,55 +291,55 @@ impl From<rpc::common::RackHardwareType> for RackHardwareType {
     }
 }
 
-impl From<RackHardwareTopology> for rpc::forge::RackHardwareTopology {
+impl From<RackHardwareTopology> for rpc::nico::RackHardwareTopology {
     fn from(value: RackHardwareTopology) -> Self {
         match value {
             RackHardwareTopology::Gb200Nvl36r1C2g4Topology => {
-                rpc::forge::RackHardwareTopology::Gb200Nvl36r1C2g4
+                rpc::nico::RackHardwareTopology::Gb200Nvl36r1C2g4
             }
             RackHardwareTopology::Gb300Nvl36r1C2g4Topology => {
-                rpc::forge::RackHardwareTopology::Gb300Nvl36r1C2g4
+                rpc::nico::RackHardwareTopology::Gb300Nvl36r1C2g4
             }
             RackHardwareTopology::Gb200Nvl72r1C2g4Topology => {
-                rpc::forge::RackHardwareTopology::Gb200Nvl72r1C2g4
+                rpc::nico::RackHardwareTopology::Gb200Nvl72r1C2g4
             }
             RackHardwareTopology::Gb300Nvl72r1C2g4Topology => {
-                rpc::forge::RackHardwareTopology::Gb300Nvl72r1C2g4
+                rpc::nico::RackHardwareTopology::Gb300Nvl72r1C2g4
             }
             RackHardwareTopology::VrNvl8r1C2g4RtfTopology => {
-                rpc::forge::RackHardwareTopology::VrNvl8r1C2g4Rtf
+                rpc::nico::RackHardwareTopology::VrNvl8r1C2g4Rtf
             }
             RackHardwareTopology::VrNvl72r1C2g4Topology => {
-                rpc::forge::RackHardwareTopology::VrNvl72r1C2g4
+                rpc::nico::RackHardwareTopology::VrNvl72r1C2g4
             }
         }
     }
 }
 
-impl TryFrom<rpc::forge::RackHardwareTopology> for RackHardwareTopology {
+impl TryFrom<rpc::nico::RackHardwareTopology> for RackHardwareTopology {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::RackHardwareTopology) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::nico::RackHardwareTopology) -> Result<Self, Self::Error> {
         match value {
-            rpc::forge::RackHardwareTopology::Gb200Nvl36r1C2g4 => {
+            rpc::nico::RackHardwareTopology::Gb200Nvl36r1C2g4 => {
                 Ok(RackHardwareTopology::Gb200Nvl36r1C2g4Topology)
             }
-            rpc::forge::RackHardwareTopology::Gb300Nvl36r1C2g4 => {
+            rpc::nico::RackHardwareTopology::Gb300Nvl36r1C2g4 => {
                 Ok(RackHardwareTopology::Gb300Nvl36r1C2g4Topology)
             }
-            rpc::forge::RackHardwareTopology::Gb200Nvl72r1C2g4 => {
+            rpc::nico::RackHardwareTopology::Gb200Nvl72r1C2g4 => {
                 Ok(RackHardwareTopology::Gb200Nvl72r1C2g4Topology)
             }
-            rpc::forge::RackHardwareTopology::Gb300Nvl72r1C2g4 => {
+            rpc::nico::RackHardwareTopology::Gb300Nvl72r1C2g4 => {
                 Ok(RackHardwareTopology::Gb300Nvl72r1C2g4Topology)
             }
-            rpc::forge::RackHardwareTopology::VrNvl8r1C2g4Rtf => {
+            rpc::nico::RackHardwareTopology::VrNvl8r1C2g4Rtf => {
                 Ok(RackHardwareTopology::VrNvl8r1C2g4RtfTopology)
             }
-            rpc::forge::RackHardwareTopology::VrNvl72r1C2g4 => {
+            rpc::nico::RackHardwareTopology::VrNvl72r1C2g4 => {
                 Ok(RackHardwareTopology::VrNvl72r1C2g4Topology)
             }
-            rpc::forge::RackHardwareTopology::Unspecified => {
+            rpc::nico::RackHardwareTopology::Unspecified => {
                 Err(RpcDataConversionError::InvalidArgument(
                     "unspecified rack hardware topology".to_string(),
                 ))
@@ -348,23 +348,23 @@ impl TryFrom<rpc::forge::RackHardwareTopology> for RackHardwareTopology {
     }
 }
 
-impl From<RackHardwareClass> for rpc::forge::RackHardwareClass {
+impl From<RackHardwareClass> for rpc::nico::RackHardwareClass {
     fn from(value: RackHardwareClass) -> Self {
         match value {
-            RackHardwareClass::Dev => rpc::forge::RackHardwareClass::Dev,
-            RackHardwareClass::Prod => rpc::forge::RackHardwareClass::Prod,
+            RackHardwareClass::Dev => rpc::nico::RackHardwareClass::Dev,
+            RackHardwareClass::Prod => rpc::nico::RackHardwareClass::Prod,
         }
     }
 }
 
-impl TryFrom<rpc::forge::RackHardwareClass> for RackHardwareClass {
+impl TryFrom<rpc::nico::RackHardwareClass> for RackHardwareClass {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::RackHardwareClass) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::nico::RackHardwareClass) -> Result<Self, Self::Error> {
         match value {
-            rpc::forge::RackHardwareClass::Dev => Ok(RackHardwareClass::Dev),
-            rpc::forge::RackHardwareClass::Prod => Ok(RackHardwareClass::Prod),
-            rpc::forge::RackHardwareClass::Unspecified => {
+            rpc::nico::RackHardwareClass::Dev => Ok(RackHardwareClass::Dev),
+            rpc::nico::RackHardwareClass::Prod => Ok(RackHardwareClass::Prod),
+            rpc::nico::RackHardwareClass::Unspecified => {
                 Err(RpcDataConversionError::InvalidArgument(
                     "unspecified rack hardware class".to_string(),
                 ))
@@ -373,9 +373,9 @@ impl TryFrom<rpc::forge::RackHardwareClass> for RackHardwareClass {
     }
 }
 
-impl From<&RackCapabilityCompute> for rpc::forge::RackCapabilityCompute {
+impl From<&RackCapabilityCompute> for rpc::nico::RackCapabilityCompute {
     fn from(value: &RackCapabilityCompute) -> Self {
-        rpc::forge::RackCapabilityCompute {
+        rpc::nico::RackCapabilityCompute {
             name: value.name.clone(),
             count: value.count,
             vendor: value.vendor.clone(),
@@ -384,9 +384,9 @@ impl From<&RackCapabilityCompute> for rpc::forge::RackCapabilityCompute {
     }
 }
 
-impl From<&RackCapabilitySwitch> for rpc::forge::RackCapabilitySwitch {
+impl From<&RackCapabilitySwitch> for rpc::nico::RackCapabilitySwitch {
     fn from(value: &RackCapabilitySwitch) -> Self {
-        rpc::forge::RackCapabilitySwitch {
+        rpc::nico::RackCapabilitySwitch {
             name: value.name.clone(),
             count: value.count,
             vendor: value.vendor.clone(),
@@ -395,9 +395,9 @@ impl From<&RackCapabilitySwitch> for rpc::forge::RackCapabilitySwitch {
     }
 }
 
-impl From<&RackCapabilityPowerShelf> for rpc::forge::RackCapabilityPowerShelf {
+impl From<&RackCapabilityPowerShelf> for rpc::nico::RackCapabilityPowerShelf {
     fn from(value: &RackCapabilityPowerShelf) -> Self {
-        rpc::forge::RackCapabilityPowerShelf {
+        rpc::nico::RackCapabilityPowerShelf {
             name: value.name.clone(),
             count: value.count,
             vendor: value.vendor.clone(),
@@ -406,9 +406,9 @@ impl From<&RackCapabilityPowerShelf> for rpc::forge::RackCapabilityPowerShelf {
     }
 }
 
-impl From<&RackCapabilitiesSet> for rpc::forge::RackCapabilitiesSet {
+impl From<&RackCapabilitiesSet> for rpc::nico::RackCapabilitiesSet {
     fn from(value: &RackCapabilitiesSet) -> Self {
-        rpc::forge::RackCapabilitiesSet {
+        rpc::nico::RackCapabilitiesSet {
             compute: Some((&value.compute).into()),
             switch: Some((&value.switch).into()),
             power_shelf: Some((&value.power_shelf).into()),
@@ -416,21 +416,21 @@ impl From<&RackCapabilitiesSet> for rpc::forge::RackCapabilitiesSet {
     }
 }
 
-impl From<&RackProfile> for rpc::forge::RackProfile {
+impl From<&RackProfile> for rpc::nico::RackProfile {
     fn from(value: &RackProfile) -> Self {
-        rpc::forge::RackProfile {
+        rpc::nico::RackProfile {
             rack_hardware_type: value
                 .rack_hardware_type
                 .as_ref()
                 .map(|t| rpc::common::RackHardwareType::from(t.clone())),
             rack_hardware_topology: value
                 .rack_hardware_topology
-                .map(|t| rpc::forge::RackHardwareTopology::from(t) as i32)
-                .unwrap_or(rpc::forge::RackHardwareTopology::Unspecified as i32),
+                .map(|t| rpc::nico::RackHardwareTopology::from(t) as i32)
+                .unwrap_or(rpc::nico::RackHardwareTopology::Unspecified as i32),
             rack_hardware_class: value
                 .rack_hardware_class
-                .map(|c| rpc::forge::RackHardwareClass::from(c) as i32)
-                .unwrap_or(rpc::forge::RackHardwareClass::Unspecified as i32),
+                .map(|c| rpc::nico::RackHardwareClass::from(c) as i32)
+                .unwrap_or(rpc::nico::RackHardwareClass::Unspecified as i32),
             capabilities: Some((&value.rack_capabilities).into()),
         }
     }
@@ -683,31 +683,31 @@ count = 2
         let cases = [
             (
                 RackHardwareTopology::Gb200Nvl36r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::Gb200Nvl36r1C2g4,
+                rpc::nico::RackHardwareTopology::Gb200Nvl36r1C2g4,
             ),
             (
                 RackHardwareTopology::Gb300Nvl36r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::Gb300Nvl36r1C2g4,
+                rpc::nico::RackHardwareTopology::Gb300Nvl36r1C2g4,
             ),
             (
                 RackHardwareTopology::Gb200Nvl72r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::Gb200Nvl72r1C2g4,
+                rpc::nico::RackHardwareTopology::Gb200Nvl72r1C2g4,
             ),
             (
                 RackHardwareTopology::Gb300Nvl72r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::Gb300Nvl72r1C2g4,
+                rpc::nico::RackHardwareTopology::Gb300Nvl72r1C2g4,
             ),
             (
                 RackHardwareTopology::VrNvl8r1C2g4RtfTopology,
-                rpc::forge::RackHardwareTopology::VrNvl8r1C2g4Rtf,
+                rpc::nico::RackHardwareTopology::VrNvl8r1C2g4Rtf,
             ),
             (
                 RackHardwareTopology::VrNvl72r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::VrNvl72r1C2g4,
+                rpc::nico::RackHardwareTopology::VrNvl72r1C2g4,
             ),
         ];
         for (model, proto) in cases {
-            let converted: rpc::forge::RackHardwareTopology = model.into();
+            let converted: rpc::nico::RackHardwareTopology = model.into();
             assert_eq!(converted, proto);
             let back: RackHardwareTopology = proto.try_into().unwrap();
             assert_eq!(back, model);
@@ -716,18 +716,18 @@ count = 2
 
     #[test]
     fn test_rack_hardware_topology_proto_unspecified_errors() {
-        let result = RackHardwareTopology::try_from(rpc::forge::RackHardwareTopology::Unspecified);
+        let result = RackHardwareTopology::try_from(rpc::nico::RackHardwareTopology::Unspecified);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_rack_hardware_class_proto_round_trip() {
         let cases = [
-            (RackHardwareClass::Dev, rpc::forge::RackHardwareClass::Dev),
-            (RackHardwareClass::Prod, rpc::forge::RackHardwareClass::Prod),
+            (RackHardwareClass::Dev, rpc::nico::RackHardwareClass::Dev),
+            (RackHardwareClass::Prod, rpc::nico::RackHardwareClass::Prod),
         ];
         for (model, proto) in cases {
-            let converted: rpc::forge::RackHardwareClass = model.into();
+            let converted: rpc::nico::RackHardwareClass = model.into();
             assert_eq!(converted, proto);
             let back: RackHardwareClass = proto.try_into().unwrap();
             assert_eq!(back, model);
@@ -736,7 +736,7 @@ count = 2
 
     #[test]
     fn test_rack_hardware_class_proto_unspecified_errors() {
-        let result = RackHardwareClass::try_from(rpc::forge::RackHardwareClass::Unspecified);
+        let result = RackHardwareClass::try_from(rpc::nico::RackHardwareClass::Unspecified);
         assert!(result.is_err());
     }
 
@@ -768,16 +768,16 @@ count = 2
             },
         };
 
-        let proto: rpc::forge::RackProfile = (&profile).into();
+        let proto: rpc::nico::RackProfile = (&profile).into();
 
         assert_eq!(proto.rack_hardware_type.unwrap().value, "dsx_gb200nvl_72x1");
         assert_eq!(
             proto.rack_hardware_topology,
-            rpc::forge::RackHardwareTopology::Gb200Nvl72r1C2g4 as i32
+            rpc::nico::RackHardwareTopology::Gb200Nvl72r1C2g4 as i32
         );
         assert_eq!(
             proto.rack_hardware_class,
-            rpc::forge::RackHardwareClass::Prod as i32
+            rpc::nico::RackHardwareClass::Prod as i32
         );
 
         let caps = proto.capabilities.unwrap();
@@ -801,16 +801,16 @@ count = 2
     #[test]
     fn test_rack_profile_proto_conversion_with_defaults() {
         let profile = RackProfile::default();
-        let proto: rpc::forge::RackProfile = (&profile).into();
+        let proto: rpc::nico::RackProfile = (&profile).into();
 
         assert_eq!(proto.rack_hardware_type, None);
         assert_eq!(
             proto.rack_hardware_topology,
-            rpc::forge::RackHardwareTopology::Unspecified as i32
+            rpc::nico::RackHardwareTopology::Unspecified as i32
         );
         assert_eq!(
             proto.rack_hardware_class,
-            rpc::forge::RackHardwareClass::Unspecified as i32
+            rpc::nico::RackHardwareClass::Unspecified as i32
         );
     }
 }

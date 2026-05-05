@@ -17,14 +17,14 @@
 
 use std::sync::Arc;
 
-use carbide_host_support::agent_config::MachineIdentityConfig;
+use nico_host_support::agent_config::MachineIdentityConfig;
 use eyre::eyre;
-use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
+use nico_dpu_fmds_shared::machine_identity::MachineIdentityParams;
 use rpc::fmds::fmds_config_service_client::FmdsConfigServiceClient;
 use rpc::fmds::{
     FmdsConfigUpdate, FmdsMachineIdentityConfig, IbDevice, IbInstance, UpdateConfigRequest,
 };
-use rpc::forge::ManagedHostNetworkConfigResponse;
+use rpc::nico::ManagedHostNetworkConfigResponse;
 use tonic::transport::Channel;
 
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
@@ -35,7 +35,7 @@ use crate::periodic_config_fetcher::InstanceMetadata;
 /// mode it's in. It's all handled in here.
 pub enum FmdsUpdater {
     /// Embedded will update FMDS state directly within the
-    /// carbide-dpu-agent (because the FMDS listener is in
+    /// nico-dpu-agent (because the FMDS listener is in
     /// the agent).
     Embedded(Arc<InstanceMetadataRouterStateImpl>),
     /// External will send FMDS updates to an FMDS server,

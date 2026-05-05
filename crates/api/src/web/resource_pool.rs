@@ -22,14 +22,14 @@ use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::Base;
 
 mod filters {
     pub fn resource_pool_allocated_fmt(
-        pool: &super::forgerpc::ResourcePool,
+        pool: &super::nicorpc::ResourcePool,
     ) -> askama::Result<String> {
         Ok(format!(
             "{} ({:.0}%)",
@@ -44,7 +44,7 @@ use crate::api::Api;
 #[derive(Template)]
 #[template(path = "resource_pool_show.html")]
 struct ResourcePoolShow {
-    pools: Vec<forgerpc::ResourcePool>,
+    pools: Vec<nicorpc::ResourcePool>,
 }
 
 /// List resource pools
@@ -79,8 +79,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(out)).into_response()
 }
 
-async fn fetch_resource_pools(api: Arc<Api>) -> Result<Vec<forgerpc::ResourcePool>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::ListResourcePoolsRequest {
+async fn fetch_resource_pools(api: Arc<Api>) -> Result<Vec<nicorpc::ResourcePool>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::ListResourcePoolsRequest {
         auto_assignable: None,
     });
     let mut out = api

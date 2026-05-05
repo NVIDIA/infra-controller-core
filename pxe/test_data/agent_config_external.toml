@@ -1,4 +1,4 @@
-[forge-system]
+[nico-system]
 api-server = "https://10.99.0.1:1079"
 
 [machine]

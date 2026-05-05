@@ -56,7 +56,7 @@ pub fn setup_logging() {
                 .add_directive("hyper=warn".parse().unwrap())
                 .add_directive("h2=warn".parse().unwrap())
                 // Silence permissive mode related messages
-                .add_directive("carbide::auth=error".parse().unwrap()),
+                .add_directive("nico::auth=error".parse().unwrap()),
         )
         .try_init()
     {

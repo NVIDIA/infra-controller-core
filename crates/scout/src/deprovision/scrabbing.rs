@@ -17,27 +17,27 @@
 use std::fs;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use carbide_host_support::hardware_enumeration::discovery_ibs;
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico as rpc;
+use nico_host_support::hardware_enumeration::discovery_ibs;
+use nico_uuid::machine::MachineId;
 use regex::Regex;
-use scout::CarbideClientError;
+use scout::NicoClientError;
 use serde::Deserialize;
 use smbioslib::SMBiosSystemInformation;
 use tracing::Instrument;
 
 use crate::cfg::Options;
-use crate::client::create_forge_client;
+use crate::client::create_nico_client;
 use crate::deprovision::cmdrun;
-use crate::{CarbideClientResult, IN_QEMU_VM};
+use crate::{NicoClientResult, IN_QEMU_VM};
 
-fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
+fn check_memory_overwrite_efi_var() -> Result<(), NicoClientError> {
     let name = match efivar::efi::Variable::from_str(
         "MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829",
     ) {
         Ok(o) => o,
         Err(e) => {
-            return Err(CarbideClientError::GenericError(format!(
+            return Err(NicoClientError::GenericError(format!(
                 "Can not build EFI variable name: {e}"
             )));
         }
@@ -48,13 +48,13 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
             if buffer.len() == 1 && buffer[0] == 1 {
                 return Ok(());
             }
-            Err(CarbideClientError::GenericError(format!(
+            Err(NicoClientError::GenericError(format!(
                 "Invalid result when reading MemoryOverwriteRequestControl efivar size={} value={}",
                 buffer.len(),
                 buffer[0]
             )))
         }
-        Err(e) => Err(CarbideClientError::GenericError(format!(
+        Err(e) => Err(NicoClientError::GenericError(format!(
             "Failed to read MemoryOverwriteRequestControl efivar: {e}"
         ))),
     }
@@ -124,13 +124,13 @@ struct NvmeNamespaceParams {
     lbafs: Vec<NvmeLbaFormat>,
 }
 
-async fn get_nvme_params(nvmename: &str) -> Result<NvmeParams, CarbideClientError> {
+async fn get_nvme_params(nvmename: &str) -> Result<NvmeParams, NicoClientError> {
     let nvme_params_lines =
         cmdrun::run_prog(NVME_CLI_PROG, ["id-ctrl", nvmename, "-o", "json"]).await?;
     let nvme_drive_params = match serde_json::from_str(&nvme_params_lines) {
         Ok(o) => o,
         Err(e) => {
-            return Err(CarbideClientError::GenericError(format!(
+            return Err(NicoClientError::GenericError(format!(
                 "nvme id-ctrl parse error: {e}"
             )));
         }
@@ -163,7 +163,7 @@ fn select_best_lba_format(
 }
 
 /// Get namespace parameters by running nvme id-ns command.
-async fn get_namespace_params(nvmename: &str) -> Result<NvmeNamespaceParams, CarbideClientError> {
+async fn get_namespace_params(nvmename: &str) -> Result<NvmeNamespaceParams, NicoClientError> {
     let namespace_params_lines = cmdrun::run_prog(
         NVME_CLI_PROG,
         ["id-ns", nvmename, "-n", "0xffffffff", "-o", "json"],
@@ -174,7 +174,7 @@ async fn get_namespace_params(nvmename: &str) -> Result<NvmeNamespaceParams, Car
     {
         Ok(o) => o,
         Err(e) => {
-            return Err(CarbideClientError::GenericError(format!(
+            return Err(NicoClientError::GenericError(format!(
                 "nvme id-ns parse error: {e}"
             )));
         }
@@ -187,7 +187,7 @@ async fn get_namespace_params(nvmename: &str) -> Result<NvmeNamespaceParams, Car
 /// Prefers 512B sectors (ds=9) with no metadata and best performance.
 /// Falls back to 4K sectors (ds=12) if no 512B format is available.
 /// If neither is found, falls back to FLBAS 0.
-async fn get_best_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientError> {
+async fn get_best_lba_format(nvmename: &str) -> Result<(u8, u64), NicoClientError> {
     let namespace_params = get_namespace_params(nvmename).await?;
 
     // Try 512B format first (ds=9 means 2^9 = 512 bytes)
@@ -228,13 +228,13 @@ async fn get_best_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientE
         );
         Ok((0u8, sector_size))
     } else {
-        Err(CarbideClientError::GenericError(
+        Err(NicoClientError::GenericError(
             "No LBA formats available for device".to_string(),
         ))
     }
 }
 
-async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
+async fn clean_this_nvme(nvmename: &String) -> Result<(), NicoClientError> {
     tracing::debug!("cleaning {}", nvmename);
 
     let nvme_drive_params = get_nvme_params(nvmename).await?;
@@ -255,10 +255,10 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
 
     if nvme_drive_params.mn.trim() == "M.2 NVMe 2-Bay RAID Kit" {
         let lenovo_mnv_cli_prog = resolve_lenovo_mnv_cli_prog().ok_or_else(|| {
-            CarbideClientError::GenericError(format!(
+            NicoClientError::GenericError(format!(
                 "Device {} is a Lenovo M.2 NVMe 2-Bay RAID Kit and requires mnv_cli for \
                      cleanup, but the binary was not found in any known location: {}. \
-                     Ensure the Lenovo mnv_cli tool is included in the carbide extras \
+                     Ensure the Lenovo mnv_cli tool is included in the nico extras \
                      container and staged into the scout image.",
                 nvmename,
                 LENOVO_NVMI_CLI_PROG_CANDIDATES.join(", ")
@@ -278,7 +278,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "0"]).await?;
             cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "1"]).await?;
         } else {
-            return Err(CarbideClientError::GenericError(
+            return Err(NicoClientError::GenericError(
                 "Could not find a RAID0 or RAID1 on the raid kit".to_string(),
             ));
         }
@@ -378,7 +378,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             let nsid = match NVME_NSID_RE.captures(&line_created_ns_id) {
                 Some(o) => o.get(1).map_or("", |m| m.as_str()),
                 None => {
-                    return Err(CarbideClientError::GenericError(format!(
+                    return Err(NicoClientError::GenericError(format!(
                         "nvme cant get nsid after create-ns {line_created_ns_id}"
                     )));
                 }
@@ -406,10 +406,10 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
 struct CleanupFailure {
     device: String,
     duration: std::time::Duration,
-    error: CarbideClientError,
+    error: NicoClientError,
 }
 
-async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
+async fn all_nvme_cleanup() -> Result<(), NicoClientError> {
     let mut nvme_devicepaths: Vec<String> = Vec::new();
     if let Ok(paths) = fs::read_dir("/dev") {
         for entry in paths {
@@ -500,7 +500,7 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
     );
 
     if !errors.is_empty() {
-        return Err(CarbideClientError::GenericError(errors.join("\n")));
+        return Err(NicoClientError::GenericError(errors.join("\n")));
     }
 
     Ok(())
@@ -521,25 +521,25 @@ fn hdparm_supports_enhanced_erase(output: &str) -> bool {
     output.contains("supported: enhanced erase")
 }
 
-async fn try_ata_secure_erase(devpath: &str) -> Result<(), CarbideClientError> {
+async fn try_ata_secure_erase(devpath: &str) -> Result<(), NicoClientError> {
     let info = cmdrun::run_prog(HDPARM_CLI_PROG, ["-I", devpath]).await?;
 
     if !hdparm_has_security_section(&info) {
-        return Err(CarbideClientError::GenericError(format!(
+        return Err(NicoClientError::GenericError(format!(
             "Device {} has no ATA Security section; may be SAS/SCSI",
             devpath
         )));
     }
 
     if hdparm_is_frozen(&info) {
-        return Err(CarbideClientError::GenericError(format!(
+        return Err(NicoClientError::GenericError(format!(
             "Device {} ATA security is frozen; cannot erase without power cycle",
             devpath
         )));
     }
 
     if !hdparm_supports_enhanced_erase(&info) {
-        return Err(CarbideClientError::GenericError(format!(
+        return Err(NicoClientError::GenericError(format!(
             "Device {} does not support ATA enhanced erase; non-SED SATA drives are not supported",
             devpath
         )));
@@ -553,7 +553,7 @@ async fn try_ata_secure_erase(devpath: &str) -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-async fn try_scsi_sanitize(devpath: &str) -> Result<(), CarbideClientError> {
+async fn try_scsi_sanitize(devpath: &str) -> Result<(), NicoClientError> {
     // The supported SAS fleet uses SEDs; use crypto erase intentionally rather than --block.
     cmdrun::run_prog(SG_SANITIZE_CLI_PROG, ["-Q", "-w", "-C", devpath]).await?;
     // Some drives leave LBA 0 as random bytes after a crypto erase rather than zeroing it.
@@ -587,7 +587,7 @@ fn is_sata_device(devname: &str) -> bool {
         .unwrap_or(false)
 }
 
-async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError> {
+async fn clean_this_block_device(devpath: &str) -> Result<(), NicoClientError> {
     let devname = devpath.trim_start_matches("/dev/");
     if is_sata_device(devname) {
         tracing::info!("{} detected as SATA, using ATA Secure Erase", devpath);
@@ -598,7 +598,7 @@ async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError
     }
 }
 
-async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
+async fn all_hdd_cleanup() -> Result<(), NicoClientError> {
     let mut block_devicepaths: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir("/sys/block") {
         for entry in entries {
@@ -683,7 +683,7 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
     );
 
     if !errors.is_empty() {
-        return Err(CarbideClientError::GenericError(errors.join("\n")));
+        return Err(NicoClientError::GenericError(errors.join("\n")));
     }
 
     Ok(())
@@ -698,7 +698,7 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
 //     mem_cached: u64,
 // }
 
-// fn get_os_mem_info() -> Result<StructOsMemInfo, CarbideClientError> {
+// fn get_os_mem_info() -> Result<StructOsMemInfo, NicoClientError> {
 //     let mut meminfo = StructOsMemInfo {
 //         mem_total: 0,
 //         mem_free: 0,
@@ -709,7 +709,7 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
 
 //     let rust_meminfo = match Meminfo::new() {
 //         Err(e) => {
-//             return Err(CarbideClientError::GenericError(format!(
+//             return Err(NicoClientError::GenericError(format!(
 //                 "Failed to retrieve memory information: {}",
 //                 e
 //             )))
@@ -718,7 +718,7 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
 //     };
 //     meminfo.mem_available = match rust_meminfo.mem_available {
 //         None => {
-//             return Err(CarbideClientError::GenericError(
+//             return Err(NicoClientError::GenericError(
 //                 "mem_available is not available".to_string(),
 //             ))
 //         }
@@ -757,9 +757,9 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
 //     0
 // }
 
-// fn cleanup_ram() -> Result<(), CarbideClientError> {
+// fn cleanup_ram() -> Result<(), NicoClientError> {
 //     if let Err(e) = Resource::AS.set(libc::RLIM_INFINITY, libc::RLIM_INFINITY) {
-//         return Err(CarbideClientError::GenericError(format!(
+//         return Err(NicoClientError::GenericError(format!(
 //             "Failed to set rlimit: {}",
 //             e
 //         )));
@@ -777,14 +777,14 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
 //     let meminfo2 = get_os_mem_info()?;
 
 //     if mem_clr_res != 0 {
-//         return Err(CarbideClientError::GenericError(format!(
+//         return Err(NicoClientError::GenericError(format!(
 //             "Mem cleanup failed with code {}",
 //             mem_clr_res
 //         )));
 //     }
 
 //     if meminfo.mem_free >= meminfo2.mem_free {
-//         return Err(CarbideClientError::GenericError(
+//         return Err(NicoClientError::GenericError(
 //             format!("Incomplete memory cleanup. Memory free before cleanup: {}. Memory free after cleanup: {}.",
 //             meminfo.mem_free,
 //             meminfo2.mem_free
@@ -793,7 +793,7 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
 
 //     mem_clr_res = memclr(meminfo2.mem_available);
 //     if mem_clr_res != 0 {
-//         return Err(CarbideClientError::GenericError(format!(
+//         return Err(NicoClientError::GenericError(format!(
 //             "Mem cleanup 2 failed with code {}",
 //             mem_clr_res
 //         )));
@@ -806,7 +806,7 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
 // This ensures the port link state remains up independent of host OS,
 // making the port visible to UFM regardless of driver state.
 // Sets P1 (required) and P2 (optional, for dual-port devices).
-async fn set_ib_link_up() -> Result<(), CarbideClientError> {
+async fn set_ib_link_up() -> Result<(), NicoClientError> {
     match discovery_ibs() {
         Ok(ibs) => {
             for ib in ibs {
@@ -857,7 +857,7 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
         }
         Err(e) => {
             tracing::error!("{}", e);
-            return Err(CarbideClientError::GenericError(format!(
+            return Err(NicoClientError::GenericError(format!(
                 "Failed to get ibs: {e}"
             )));
         }
@@ -867,10 +867,10 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
 }
 
 // reuse hardware_enumeration::discovery_ibs to get all the non-DPU devices.
-// in forge case, all the non-DPU device should be VPI device or IB-only device
+// in nico case, all the non-DPU device should be VPI device or IB-only device
 // `reset` will set the link_type to IB for all the devices.
 // It calls set_ib_link_up() to set KEEP_IB_LINK_UP for P1/P2 which is now default state.
-async fn reset_ib_devices() -> Result<(), CarbideClientError> {
+async fn reset_ib_devices() -> Result<(), NicoClientError> {
     match discovery_ibs() {
         Ok(ibs) => {
             for ib in ibs {
@@ -890,7 +890,7 @@ async fn reset_ib_devices() -> Result<(), CarbideClientError> {
         }
         Err(e) => {
             tracing::error!("{}", e);
-            return Err(CarbideClientError::GenericError(format!(
+            return Err(NicoClientError::GenericError(format!(
                 "Failed to get ibs: {e}"
             )));
         }
@@ -899,7 +899,7 @@ async fn reset_ib_devices() -> Result<(), CarbideClientError> {
     set_ib_link_up().await
 }
 
-async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineCleanupInfo> {
+async fn do_cleanup(machine_id: &MachineId) -> NicoClientResult<rpc::MachineCleanupInfo> {
     let mut cleanup_result = rpc::MachineCleanupInfo {
         machine_id: Some(*machine_id),
         nvme: None,
@@ -1026,7 +1026,7 @@ fn is_host() -> bool {
     }
 }
 
-pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClientResult<()> {
+pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> NicoClientResult<()> {
     tracing::info!("full deprovision starts.");
     if !is_host() {
         tracing::info!("full deprovision skipped, we are not running on a host.");
@@ -1035,13 +1035,13 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
     }
     tracing::info!("Machine cleanup starting, we are running on a host.");
     let info = do_cleanup(machine_id).await?;
-    let mut client = create_forge_client(config).await?;
+    let mut client = create_nico_client(config).await?;
     let request = tonic::Request::new(info);
     client.cleanup_machine_completed(request).await?;
     Ok(())
 }
 
-pub async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
+pub async fn run_no_api(tpm_path: &str) -> Result<(), NicoClientError> {
     if !is_host() {
         tracing::info!("No cleanup needed on DPU.");
         return Ok(());

@@ -21,8 +21,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
-use carbide_firmware::FirmwareConfig;
-use carbide_uuid::machine::MachineId;
+use nico_firmware::FirmwareConfig;
+use nico_uuid::machine::MachineId;
 use db::{self, desired_firmware};
 use model::machine::ManagedHostStateSnapshot;
 use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
@@ -31,12 +31,12 @@ use sqlx::PgConnection;
 use tokio::sync::Mutex;
 
 use super::machine_update_module::MachineUpdateModule;
-use crate::CarbideResult;
-use crate::cfg::file::CarbideConfig;
+use crate::NicoResult;
+use crate::cfg::file::NicoConfig;
 
 pub struct HostFirmwareUpdate {
     pub metrics: HostFirmwareUpdateMetrics,
-    config: Arc<CarbideConfig>,
+    config: Arc<NicoConfig>,
     firmware_config: FirmwareConfig,
     firmware_dir_last_read: Arc<Mutex<Option<std::time::SystemTime>>>,
 }
@@ -46,7 +46,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     async fn get_updates_in_progress(
         &self,
         txn: &mut PgConnection,
-    ) -> CarbideResult<HashSet<MachineId>> {
+    ) -> NicoResult<HashSet<MachineId>> {
         let current_updating_machines = db::machine::get_host_reprovisioning_machines(txn).await?;
 
         Ok(current_updating_machines.iter().map(|m| m.id).collect())
@@ -58,7 +58,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
-    ) -> CarbideResult<HashSet<MachineId>> {
+    ) -> NicoResult<HashSet<MachineId>> {
         if let Ok(mut firmware_dir_last_read) = self.firmware_dir_last_read.try_lock() {
             let firmware_dir_mod_time = self.firmware_config.config_update_time();
             if (firmware_dir_mod_time.is_none() && firmware_dir_last_read.is_none()) // Not using an auto firmware directory, one and done
@@ -102,7 +102,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         Ok(updates_started)
     }
 
-    async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
+    async fn clear_completed_updates(&self, txn: &mut PgConnection) -> NicoResult<()> {
         let completed = db::host_machine_update::find_completed_updates(txn).await?;
 
         if !completed.is_empty() {
@@ -153,7 +153,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
 impl HostFirmwareUpdate {
     pub fn new(
-        config: Arc<CarbideConfig>,
+        config: Arc<NicoConfig>,
         meter: opentelemetry::metrics::Meter,
         firmware_config: FirmwareConfig,
     ) -> Option<Self> {
@@ -174,7 +174,7 @@ impl HostFirmwareUpdate {
         &self,
         txn: &mut PgConnection,
         mut available_updates: i32,
-    ) -> CarbideResult<Vec<MachineId>> {
+    ) -> NicoResult<Vec<MachineId>> {
         let mut machines = vec![];
         if available_updates == 0 {
             return Ok(machines);
@@ -230,7 +230,7 @@ impl HostFirmwareUpdateMetrics {
         let pending_firmware_updates = self.pending_firmware_updates.clone();
         let active_firmware_updates = self.active_firmware_updates.clone();
         meter
-            .u64_observable_gauge("carbide_pending_host_firmware_update_count")
+            .u64_observable_gauge("nico_pending_host_firmware_update_count")
             .with_description(
                 "The number of host machines in the system that need a firmware update.",
             )
@@ -239,7 +239,7 @@ impl HostFirmwareUpdateMetrics {
             })
             .build();
         meter
-            .u64_observable_gauge("carbide_active_host_firmware_update_count")
+            .u64_observable_gauge("nico_active_host_firmware_update_count")
             .with_description(
                 "The number of host machines in the system currently working on updating their firmware.",
             )

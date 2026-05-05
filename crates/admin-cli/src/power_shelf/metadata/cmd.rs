@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 
 use super::args::{
     Args, PowerShelfMetadataCommandAddLabel, PowerShelfMetadataCommandFromExpectedPowerShelf,
@@ -30,7 +30,7 @@ pub async fn metadata(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     format: OutputFormat,
     extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         Args::Show(cmd) => metadata_show(api_client, cmd, output_file, format, extended).await,
         Args::Set(cmd) => metadata_set(api_client, cmd).await,
@@ -44,17 +44,17 @@ pub async fn metadata(
 
 async fn fetch_power_shelf(
     api_client: &ApiClient,
-    power_shelf_id: carbide_uuid::power_shelf::PowerShelfId,
-) -> CarbideCliResult<rpc::forge::PowerShelf> {
+    power_shelf_id: nico_uuid::power_shelf::PowerShelfId,
+) -> NicoCliResult<rpc::nico::PowerShelf> {
     let response = api_client
         .0
-        .find_power_shelves(rpc::forge::PowerShelfQuery {
+        .find_power_shelves(rpc::nico::PowerShelfQuery {
             name: None,
             power_shelf_id: Some(power_shelf_id),
         })
         .await?;
     response.power_shelves.into_iter().next().ok_or_else(|| {
-        CarbideCliError::GenericError(format!(
+        NicoCliError::GenericError(format!(
             "Power Shelf with ID {} was not found",
             power_shelf_id
         ))
@@ -67,16 +67,16 @@ async fn metadata_show(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     _extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let power_shelf = fetch_power_shelf(api_client, cmd.power_shelf).await?;
-    let metadata = power_shelf.metadata.ok_or(CarbideCliError::Empty)?;
+    let metadata = power_shelf.metadata.ok_or(NicoCliError::Empty)?;
     crate::metadata::display_metadata(output_file, &output_format, &metadata).await
 }
 
 async fn metadata_set(
     api_client: &ApiClient,
     cmd: PowerShelfMetadataCommandSet,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let ps = fetch_power_shelf(api_client, cmd.power_shelf).await?;
     let metadata = crate::metadata::apply_set(ps.metadata, cmd.name, cmd.description)?;
     api_client
@@ -87,7 +87,7 @@ async fn metadata_set(
 async fn metadata_add_label(
     api_client: &ApiClient,
     cmd: PowerShelfMetadataCommandAddLabel,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let ps = fetch_power_shelf(api_client, cmd.power_shelf).await?;
     let metadata = crate::metadata::apply_add_label(ps.metadata, cmd.key, cmd.value)?;
     api_client
@@ -98,7 +98,7 @@ async fn metadata_add_label(
 async fn metadata_remove_labels(
     api_client: &ApiClient,
     cmd: PowerShelfMetadataCommandRemoveLabels,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let ps = fetch_power_shelf(api_client, cmd.power_shelf).await?;
     let metadata = crate::metadata::apply_remove_labels(ps.metadata, cmd.keys)?;
     api_client
@@ -109,7 +109,7 @@ async fn metadata_remove_labels(
 async fn metadata_from_expected_power_shelf(
     api_client: &ApiClient,
     cmd: PowerShelfMetadataCommandFromExpectedPowerShelf,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let power_shelf = fetch_power_shelf(api_client, cmd.power_shelf).await?;
 
     let serial_number = power_shelf
@@ -117,14 +117,14 @@ async fn metadata_from_expected_power_shelf(
         .as_ref()
         .map(|c| c.name.clone())
         .ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "No config/serial number found for Power Shelf with ID {}",
                 cmd.power_shelf
             ))
         })?;
 
     let mut metadata = power_shelf.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError(
+        NicoCliError::GenericError(
             "Power Shelf does not carry Metadata that can be patched".into(),
         )
     })?;
@@ -138,14 +138,14 @@ async fn metadata_from_expected_power_shelf(
         .into_iter()
         .find(|eps| eps.shelf_serial_number == serial_number)
         .ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "No expected Power Shelf found for Power Shelf with ID {} and serial number {}",
                 cmd.power_shelf, serial_number
             ))
         })?;
 
     let expected_metadata = expected_power_shelf.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError(format!(
+        NicoCliError::GenericError(format!(
             "No expected Power Shelf Metadata found for Power Shelf with ID {} and serial number {}",
             cmd.power_shelf, serial_number
         ))

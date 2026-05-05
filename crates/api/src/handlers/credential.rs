@@ -19,9 +19,9 @@ use std::fs::File;
 use std::io::Write;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_nvlink_manager::DEFAULT_NMX_M_NAME;
-use forge_secrets::credentials::{
+use ::rpc::nico as rpc;
+use nico_nvlink_manager::DEFAULT_NMX_M_NAME;
+use nico_secrets::credentials::{
     BgpCredentialType, BmcCredentialType, CredentialKey, CredentialType, Credentials,
 };
 use mac_address::MacAddress;
@@ -29,13 +29,13 @@ use model::ConfigValidationError;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 use crate::credentials::UpdateCredentials;
 use crate::handlers::utils::convert_and_log_machine_id;
 
 /// Default Username for the admin BMC account.
-const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
+const DEFAULT_NICO_ADMIN_BMC_USERNAME: &str = "root";
 
 /// The maximum size that will be accepted in the underlying BGP config
 /// on the DPU.  This was directly verified by checking the maximum accepted
@@ -54,7 +54,7 @@ pub(crate) async fn create_credential(
     let password = req.password;
 
     let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
-        CarbideError::NotFoundError {
+        NicoError::NotFoundError {
             kind: "credential_type",
             id: req.credential_type.to_string(),
         }
@@ -62,15 +62,15 @@ pub(crate) async fn create_credential(
 
     match credential_type {
         rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
-            return Err(CarbideError::InvalidArgument(
-                "Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.".into(),
+            return Err(NicoError::InvalidArgument(
+                "Nico no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.".into(),
             ).into());
         }
         rpc::CredentialType::SiteWideBmcRoot => {
             set_sitewide_bmc_root_credentials(api, password)
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!(
+                    NicoError::internal(format!(
                         "Error setting Site Wide BMC Root credentials: {e:?} "
                     ))
                 })?;
@@ -89,7 +89,7 @@ pub(crate) async fn create_credential(
                     )
                     .await
                     .map_err(|e| {
-                        CarbideError::internal(format!(
+                        NicoError::internal(format!(
                             "Error setting credential for Ufm {}: {:?} ",
                             username.clone(),
                             e
@@ -98,7 +98,7 @@ pub(crate) async fn create_credential(
             } else if req.username.is_none() && password.is_empty() && req.vendor.is_some() {
                 write_ufm_certs(api, req.vendor.unwrap_or_default()).await?;
             } else {
-                return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
+                return Err(NicoError::InvalidArgument("missing UFM Url".to_string()).into());
             }
         }
         rpc::CredentialType::DpuUefi => {
@@ -127,7 +127,7 @@ pub(crate) async fn create_credential(
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!("Error setting credential for DPU UEFI: {e:?} "))
+                    NicoError::internal(format!("Error setting credential for DPU UEFI: {e:?} "))
                 })?
         }
         rpc::CredentialType::HostUefi => {
@@ -156,15 +156,15 @@ pub(crate) async fn create_credential(
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!("Error setting credential for Host UEFI: {e:?}"))
+                    NicoError::internal(format!("Error setting credential for Host UEFI: {e:?}"))
                 })?
         }
         rpc::CredentialType::HostBmcFactoryDefault => {
             let Some(username) = req.username else {
-                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
+                return Err(NicoError::InvalidArgument("missing username".to_string()).into());
             };
             let Some(vendor) = req.vendor else {
-                return Err(CarbideError::InvalidArgument("missing vendor".to_string()).into());
+                return Err(NicoError::InvalidArgument("missing vendor".to_string()).into());
             };
             let vendor: bmc_vendor::BMCVendor = vendor.as_str().into();
             api.credential_manager
@@ -176,14 +176,14 @@ pub(crate) async fn create_credential(
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!(
+                    NicoError::internal(format!(
                         "Error setting Host factory default credential: {e:?}"
                     ))
                 })?
         }
         rpc::CredentialType::DpuBmcFactoryDefault => {
             let Some(username) = req.username else {
-                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
+                return Err(NicoError::InvalidArgument("missing username".to_string()).into());
             };
             api.credential_manager
                 .set_credentials(
@@ -194,32 +194,32 @@ pub(crate) async fn create_credential(
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!(
+                    NicoError::internal(format!(
                         "Error setting DPU factory default credential: {e:?}"
                     ))
                 })?
         }
         rpc::CredentialType::RootBmcByMacAddress => {
             let Some(mac_address) = req.mac_address else {
-                return Err(CarbideError::InvalidArgument("mac address".to_string()).into());
+                return Err(NicoError::InvalidArgument("mac address".to_string()).into());
             };
 
             let parsed_mac: MacAddress = mac_address
                 .parse::<MacAddress>()
-                .map_err(CarbideError::from)?;
+                .map_err(NicoError::from)?;
 
             set_bmc_root_credentials_by_mac(api, parsed_mac, password, req.username)
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!(
+                    NicoError::internal(format!(
                         "Error setting Site Wide BMC Root credentials: {e:?} "
                     ))
                 })?;
         }
-        rpc::CredentialType::BmcForgeAdminByMacAddress => {
-            // TODO: support credential creation for forge-admin
-            return Err(CarbideError::InvalidArgument(
-                "Forge does not support creating forge-admin credentials yet.".into(),
+        rpc::CredentialType::BmcNicoAdminByMacAddress => {
+            // TODO: support credential creation for nico-admin
+            return Err(NicoError::InvalidArgument(
+                "Nico does not support creating nico-admin credentials yet.".into(),
             )
             .into());
         }
@@ -237,14 +237,14 @@ pub(crate) async fn create_credential(
                     )
                     .await
                     .map_err(|e| {
-                        CarbideError::internal(format!(
+                        NicoError::internal(format!(
                             "Error setting credential for NmxM {}: {:?} ",
                             username.clone(),
                             e
                         ))
                     })?;
             } else {
-                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
+                return Err(NicoError::InvalidArgument("missing username".to_string()).into());
             }
         }
         rpc::CredentialType::BgpSiteWideLeafPassword => {
@@ -258,13 +258,13 @@ pub(crate) async fn create_credential(
                         password: if password.len() <= MAX_BGP_PASSWORD_LENGTH {
                             password
                         } else {
-                            return Err(CarbideError::InvalidConfiguration(ConfigValidationError::InvalidValue(format!("BGP password length exceeds {MAX_BGP_PASSWORD_LENGTH} characters"))).into())
+                            return Err(NicoError::InvalidConfiguration(ConfigValidationError::InvalidValue(format!("BGP password length exceeds {MAX_BGP_PASSWORD_LENGTH} characters"))).into())
                         },
                     },
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!("Error setting BGP credential: {e:?}"))
+                    NicoError::internal(format!("Error setting BGP credential: {e:?}"))
                 })?;
         }
     };
@@ -280,7 +280,7 @@ pub(crate) async fn delete_credential(
     let req = request.into_inner();
 
     let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
-        CarbideError::NotFoundError {
+        NicoError::NotFoundError {
             kind: "credential_type",
             id: req.credential_type.to_string(),
         }
@@ -301,14 +301,14 @@ pub(crate) async fn delete_credential(
                     )
                     .await
                     .map_err(|e| {
-                        CarbideError::internal(format!(
+                        NicoError::internal(format!(
                             "Error deleting credential for Ufm {}: {:?} ",
                             username.clone(),
                             e
                         ))
                     })?;
             } else {
-                return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
+                return Err(NicoError::InvalidArgument("missing UFM Url".to_string()).into());
             }
         }
         rpc::CredentialType::SiteWideBmcRoot => {
@@ -319,12 +319,12 @@ pub(crate) async fn delete_credential(
             Some(mac_address) => {
                 let parsed_mac: MacAddress = mac_address
                     .parse::<MacAddress>()
-                    .map_err(CarbideError::from)?;
+                    .map_err(NicoError::from)?;
 
                 delete_bmc_root_credentials_by_mac(api, parsed_mac).await?;
             }
             None => {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "request does not specify mac address".into(),
                 )
                 .into());
@@ -336,7 +336,7 @@ pub(crate) async fn delete_credential(
         | rpc::CredentialType::HostUefi
         | rpc::CredentialType::HostBmcFactoryDefault
         | rpc::CredentialType::DpuBmcFactoryDefault
-        | rpc::CredentialType::BmcForgeAdminByMacAddress
+        | rpc::CredentialType::BmcNicoAdminByMacAddress
         | rpc::CredentialType::NmxM => {
             // Not support delete credential for these types
         }
@@ -347,7 +347,7 @@ pub(crate) async fn delete_credential(
                 })
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!("Error deleting BGP credential: {e:?}"))
+                    NicoError::internal(format!("Error deleting BGP credential: {e:?}"))
                 })?;
         }
     };
@@ -368,7 +368,7 @@ pub(crate) async fn update_machine_credentials(
 
     let mac_address = match request.mac_address {
         Some(v) => Some(v.parse().map_err(|_| {
-            CarbideError::from(RpcDataConversionError::InvalidMacAddress(
+            NicoError::from(RpcDataConversionError::InvalidMacAddress(
                 "mac_address".into(),
             ))
         })?),
@@ -400,7 +400,7 @@ pub(crate) async fn get_bmc_credentals(
     let bmc_mac_address: mac_address::MacAddress = req
         .mac_addr
         .parse()
-        .map_err(CarbideError::MacAddressParseError)?;
+        .map_err(NicoError::MacAddressParseError)?;
 
     let credentials = api
         .credential_manager
@@ -408,8 +408,8 @@ pub(crate) async fn get_bmc_credentals(
             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
         })
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?
-        .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?
+        .ok_or_else(|| NicoError::internal("missing credentials".to_string()))?;
 
     let (username, password) = match credentials {
         Credentials::UsernamePassword { username, password } => (username, password),
@@ -427,7 +427,7 @@ pub(crate) async fn get_bmc_credentals(
 async fn set_sitewide_bmc_root_credentials(
     api: &Api,
     password: String,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let credential_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::SiteWideRoot,
     };
@@ -444,7 +444,7 @@ async fn set_sitewide_bmc_root_credentials(
 pub(crate) async fn delete_bmc_root_credentials_by_mac(
     api: &Api,
     bmc_mac_address: MacAddress,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let credential_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
     };
@@ -452,7 +452,7 @@ pub(crate) async fn delete_bmc_root_credentials_by_mac(
     api.credential_manager
         .delete_credentials(&credential_key)
         .await
-        .map_err(|e| CarbideError::internal(format!("Error deleting credential for BMC: {e:?} ")))
+        .map_err(|e| NicoError::internal(format!("Error deleting credential for BMC: {e:?} ")))
 }
 
 async fn set_bmc_root_credentials_by_mac(
@@ -460,13 +460,13 @@ async fn set_bmc_root_credentials_by_mac(
     bmc_mac_address: MacAddress,
     password: String,
     username: Option<String>,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let credential_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
     };
 
     let credentials = Credentials::UsernamePassword {
-        username: username.unwrap_or_else(|| DEFAULT_FORGE_ADMIN_BMC_USERNAME.to_string()),
+        username: username.unwrap_or_else(|| DEFAULT_NICO_ADMIN_BMC_USERNAME.to_string()),
         password: password.clone(),
     };
 
@@ -477,64 +477,64 @@ async fn set_bmc_credentials(
     api: &Api,
     credential_key: &CredentialKey,
     credentials: &Credentials,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     api.credential_manager
         .set_credentials(credential_key, credentials)
         .await
-        .map_err(|e| CarbideError::internal(format!("Error setting credential for BMC: {e:?} ")))
+        .map_err(|e| NicoError::internal(format!("Error setting credential for BMC: {e:?} ")))
 }
 
-pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideError> {
+pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), NicoError> {
     const CERT_PATH: &str = "/var/run/secrets";
 
     // ttl can be limited by vault, so final value can be different
     // alternative names should match vault`s `allowed_domains` parameter
-    // See: forged:bases/argo-workflows/workflows/vault/configure-vault.yaml
+    // See: nicod:bases/argo-workflows/workflows/vault/configure-vault.yaml
     let ttl = "365d".to_string();
     let alt_names = if let Some(value) = &api.runtime_config.initial_domain_name {
-        format!("{fabric}.ufm.forge, {fabric}.ufm.{value}")
+        format!("{fabric}.ufm.nico, {fabric}.ufm.{value}")
     } else {
-        format!("{fabric}.ufm.forge")
+        format!("{fabric}.ufm.nico")
     };
 
     let certificate = api
         .certificate_provider
         .get_certificate(fabric.as_str(), Some(alt_names), Some(ttl))
         .await
-        .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
+        .map_err(|err| NicoError::ClientCertificateError(err.to_string()))?;
 
     let mut cert_filename = format!("{CERT_PATH}/{fabric}-ufm-ca-intermediate.crt");
     let mut cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
+        NicoError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.issuing_ca.as_slice())
         .map_err(|e| {
-            CarbideError::internal(format!(
+            NicoError::internal(format!(
                 "Failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
 
     cert_filename = format!("{CERT_PATH}/{fabric}-ufm-server.key");
     cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
+        NicoError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.private_key.as_slice())
         .map_err(|e| {
-            CarbideError::internal(format!(
+            NicoError::internal(format!(
                 "Failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
 
     cert_filename = format!("{CERT_PATH}/{fabric}-ufm-server.crt");
     cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
+        NicoError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.public_key.as_slice())
         .map_err(|e| {
-            CarbideError::internal(format!(
+            NicoError::internal(format!(
                 "Failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
@@ -557,12 +557,12 @@ pub(crate) async fn renew_machine_certificate(
             .certificate_provider
             .get_certificate(machine_identity, None, None)
             .await
-            .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
+            .map_err(|err| NicoError::ClientCertificateError(err.to_string()))?;
 
         return Ok(Response::new(rpc::MachineCertificateResult {
             machine_certificate: Some(certificate.into()),
         }));
     }
 
-    Err(CarbideError::ClientCertificateError("no client certificate presented?".to_string()).into())
+    Err(NicoError::ClientCertificateError("no client certificate presented?".to_string()).into())
 }

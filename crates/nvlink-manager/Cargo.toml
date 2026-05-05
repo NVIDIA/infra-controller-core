@@ -1,25 +1,25 @@
 [package]
-name = "carbide-nvlink-manager"
+name = "nico-nvlink-manager"
 version = "0.0.1"
 edition.workspace = true
-description = "Carbide NVLink Manager"
+description = "Nico NVLink Manager"
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_nvlink_manager"
+name = "nico_nvlink_manager"
 
 [features]
 default = []
 test-support = []
 
 [dependencies]
-carbide-api-db = { path = "../api-db" }
-carbide-api-model = { path = "../api-model" }
-carbide-rpc = { path = "../rpc" } # TODO: it is only for Errors, can be improved. 
-carbide-secrets = { path = "../secrets" }
-carbide-utils = { path = "../utils" }
-carbide-uuid = { path = "../uuid" }
+nico-api-db = { path = "../api-db" }
+nico-api-model = { path = "../api-model" }
+nico-rpc = { path = "../rpc" } # TODO: it is only for Errors, can be improved. 
+nico-secrets = { path = "../secrets" }
+nico-utils = { path = "../utils" }
+nico-uuid = { path = "../uuid" }
 config-version = { path = "../config-version" }
 libnmxm = { path = "../libnmxm" }
 

@@ -22,7 +22,7 @@ use opentelemetry::metrics::Meter;
 pub use crate::chained_reader::ChainedCredentialReader;
 /// Exposed for `CertificateProvider` usage only. Credential operations should go
 /// through `create_credential_manager` instead of using the vault client directly.
-pub use crate::forge_vault::{ForgeVaultClient, VaultConfig, create_vault_client};
+pub use crate::nico_vault::{NicoVaultClient, VaultConfig, create_vault_client};
 pub use crate::local_credentials::{
     CredentialSnapshot, EnvCredentialsConfig, FileCredentialsConfig, MachineIdentityConfig,
     UsernamePassword,
@@ -31,7 +31,7 @@ pub use crate::local_credentials::{
 pub mod certificates;
 pub mod chained_reader;
 pub mod credentials;
-pub mod forge_vault;
+pub mod nico_vault;
 pub mod key_encryption;
 pub mod local_credentials;
 

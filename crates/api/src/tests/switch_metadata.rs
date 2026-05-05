@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use db::{DatabaseError, switch as db_switch};
 use model::metadata::Metadata;
 use model::switch::{NewSwitch, SwitchConfig};

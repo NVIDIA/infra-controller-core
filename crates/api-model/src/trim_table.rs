@@ -20,10 +20,10 @@ pub enum TrimTableTarget {
     MeasuredBoot,
 }
 
-impl From<rpc::forge::TrimTableTarget> for TrimTableTarget {
-    fn from(target: rpc::forge::TrimTableTarget) -> Self {
+impl From<rpc::nico::TrimTableTarget> for TrimTableTarget {
+    fn from(target: rpc::nico::TrimTableTarget) -> Self {
         match target {
-            rpc::forge::TrimTableTarget::MeasuredBoot => TrimTableTarget::MeasuredBoot,
+            rpc::nico::TrimTableTarget::MeasuredBoot => TrimTableTarget::MeasuredBoot,
         }
     }
 }

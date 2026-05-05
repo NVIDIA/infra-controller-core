@@ -169,7 +169,7 @@ fn parse_add_uefi() {
 // converts to protobuf CredentialType.
 #[test]
 fn bmc_credential_type_to_proto() {
-    use rpc::forge::CredentialType;
+    use rpc::nico::CredentialType;
 
     assert!(matches!(
         CredentialType::from(BmcCredentialType::SiteWideRoot),
@@ -180,8 +180,8 @@ fn bmc_credential_type_to_proto() {
         CredentialType::RootBmcByMacAddress
     ));
     assert!(matches!(
-        CredentialType::from(BmcCredentialType::BmcForgeAdmin),
-        CredentialType::BmcForgeAdminByMacAddress
+        CredentialType::from(BmcCredentialType::BmcNicoAdmin),
+        CredentialType::BmcNicoAdminByMacAddress
     ));
 }
 
@@ -189,7 +189,7 @@ fn bmc_credential_type_to_proto() {
 // UefiCredentialType converts to protobuf CredentialType.
 #[test]
 fn uefi_credential_type_to_proto() {
-    use rpc::forge::CredentialType;
+    use rpc::nico::CredentialType;
 
     assert!(matches!(
         CredentialType::from(UefiCredentialType::Dpu),
@@ -224,8 +224,8 @@ fn bmc_credential_type_value_enum() {
         Ok(BmcCredentialType::BmcRoot)
     ));
     assert!(matches!(
-        BmcCredentialType::from_str("bmc-forge-admin", false),
-        Ok(BmcCredentialType::BmcForgeAdmin)
+        BmcCredentialType::from_str("bmc-nico-admin", false),
+        Ok(BmcCredentialType::BmcNicoAdmin)
     ));
     assert!(BmcCredentialType::from_str("invalid", false).is_err());
 }

@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use chrono::TimeZone;
 use itertools::Itertools;
 use model::firmware::DesiredFirmwareVersions;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 
 pub(crate) async fn set_firmware_update_time_window(
@@ -34,16 +34,16 @@ pub(crate) async fn set_firmware_update_time_window(
     // Sanity checks
     if start != 0 || end != 0 {
         if start == 0 || end == 0 {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "Start and end must both be zero or nonzero".to_string(),
             )
             .into());
         }
         if start >= end {
-            return Err(CarbideError::InvalidArgument("Start must precede end".to_string()).into());
+            return Err(NicoError::InvalidArgument("Start must precede end".to_string()).into());
         }
         if end < chrono::Utc::now().timestamp() {
-            return Err(CarbideError::InvalidArgument("End occurs in the past".to_string()).into());
+            return Err(NicoError::InvalidArgument("End occurs in the past".to_string()).into());
         }
     }
 
@@ -137,7 +137,7 @@ pub(crate) fn get_desired_firmware_versions(
             })
         })
         .try_collect()
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
     Ok(Response::new(rpc::GetDesiredFirmwareVersionsResponse {
         entries,
     }))

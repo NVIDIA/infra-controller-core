@@ -1,29 +1,29 @@
 [package]
-name = "carbide-site-explorer"
+name = "nico-site-explorer"
 version = "0.0.1"
 edition.workspace = true
-description = "Carbide Site Explorer"
+description = "Nico Site Explorer"
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_site_explorer"
+name = "nico_site_explorer"
 
 [features]
 default = []
 
 [dependencies]
 bmc-explorer = { path = "../bmc-explorer" }
-carbide-api-db = { path = "../api-db", default-features = false }
-carbide-api-model = { path = "../api-model", default-features = false }
-carbide-firmware = { path = "../firmware" }
-carbide-health-report = { path = "../health-report" }
-carbide-ipmi = { path = "../ipmi" }
-carbide-network = { path = "../network" }
-carbide-redfish = { path = "../redfish" }
-carbide-secrets = { path = "../secrets" }
-carbide-utils = { path = "../utils" }
-carbide-uuid = { path = "../uuid" }
+nico-api-db = { path = "../api-db", default-features = false }
+nico-api-model = { path = "../api-model", default-features = false }
+nico-firmware = { path = "../firmware" }
+nico-health-report = { path = "../health-report" }
+nico-ipmi = { path = "../ipmi" }
+nico-network = { path = "../network" }
+nico-redfish = { path = "../redfish" }
+nico-secrets = { path = "../secrets" }
+nico-utils = { path = "../utils" }
+nico-uuid = { path = "../uuid" }
 config-version = { path = "../config-version" }
 
 # these are alphabetized
@@ -50,7 +50,7 @@ thiserror = { workspace = true }
 version-compare = { workspace = true }
 
 [dev-dependencies]
-carbide-redfish = { path = "../redfish", features = ["test-support"] }
+nico-redfish = { path = "../redfish", features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]

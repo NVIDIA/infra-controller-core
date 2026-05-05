@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey};
 use mac_address::MacAddress;
 
 pub enum RedfishAuth {
@@ -27,7 +27,7 @@ pub enum RedfishAuth {
 impl RedfishAuth {
     pub fn for_bmc_mac(bmc_mac_address: MacAddress) -> Self {
         RedfishAuth::Key(CredentialKey::BmcCredentials {
-            // TODO(ajf): Change this to Forge Admin user once site explorer
+            // TODO(ajf): Change this to Nico Admin user once site explorer
             // ensures it exist, credentials are done by mac address
             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
         })

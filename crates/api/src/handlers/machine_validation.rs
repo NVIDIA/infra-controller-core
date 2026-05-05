@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
+use ::rpc::nico::{self as rpc, GetMachineValidationExternalConfigResponse};
 use config_version::ConfigVersion;
 use db::{self, machine_validation_suites};
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -30,7 +30,7 @@ use model::machine_validation::{
 };
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode};
 use crate::handlers::utils::convert_and_log_machine_id;
@@ -39,7 +39,7 @@ use crate::handlers::utils::convert_and_log_machine_id;
 ///
 /// **Why here and not only `internal_rbac_rules`?** Principal lists in `internal_rbac_rules` are
 /// enforced only by `InternalRBACHandler`, which is **not** registered when
-/// [`crate::cfg::file::CarbideConfig::bypass_rbac`] is `true` (see `crates/api/src/listener.rs`). In
+/// [`crate::cfg::file::NicoConfig::bypass_rbac`] is `true` (see `crates/api/src/listener.rs`). In
 /// that mode—common for local/dev—those rules never run, so tightening RBAC alone does not stop
 /// clients from reaching these handlers and persisting. A check in the handler applies regardless
 /// of `bypass_rbac`. Casbin may still apply separately; this guard is independent.
@@ -67,7 +67,7 @@ pub(crate) async fn mark_machine_validation_complete(
 
     // Extract and check UUID
     let Some(validation_id) = &req.validation_id else {
-        return Err(CarbideError::MissingArgument("validation id").into());
+        return Err(NicoError::MissingArgument("validation id").into());
     };
 
     let mut txn = api.txn_begin().await?;
@@ -76,13 +76,13 @@ pub(crate) async fn mark_machine_validation_complete(
         Some(machine) => machine,
         None => {
             tracing::error!(%validation_id, "validation id not found");
-            return Err(CarbideError::InvalidArgument("wrong validation ID".to_string()).into());
+            return Err(NicoError::InvalidArgument("wrong validation ID".to_string()).into());
         }
     };
 
     if machine.id != machine_id {
         tracing::error!(validation_id = %validation_id, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Validation ID does not belong to provided Machine ID".to_string(),
         )
         .into());
@@ -187,7 +187,7 @@ pub(crate) async fn persist_validation_result(
     request: tonic::Request<rpc::MachineValidationResultPostRequest>,
 ) -> Result<tonic::Response<()>, Status> {
     let Some(result) = request.into_inner().result else {
-        return Err(CarbideError::InvalidArgument("Validation Result".to_string()).into());
+        return Err(NicoError::InvalidArgument("Validation Result".to_string()).into());
     };
 
     let validation_result: MachineValidationResult = result.try_into()?;
@@ -203,7 +203,7 @@ pub(crate) async fn persist_validation_result(
             None => {
                 tracing::error!(%validation_result.validation_id, "validation id not found");
                 return Err(
-                    CarbideError::InvalidArgument("wrong validation ID".to_string()).into(),
+                    NicoError::InvalidArgument("wrong validation ID".to_string()).into(),
                 );
             }
         };
@@ -220,7 +220,7 @@ pub(crate) async fn persist_validation_result(
         _ => {
             tracing::error!("invalid host machine state {}", machine.current_state());
             return Err(
-                CarbideError::InvalidArgument("wrong host machine state".to_string()).into(),
+                NicoError::InvalidArgument("wrong host machine state".to_string()).into(),
             );
         }
     }
@@ -274,7 +274,7 @@ pub(crate) async fn get_machine_validation_results(
         Some(id) => Some(id),
         None => {
             if machine_id.is_none() {
-                return Err(CarbideError::MissingArgument(
+                return Err(NicoError::MissingArgument(
                     "Validation id or Machine id is required",
                 )
                 .into());
@@ -333,7 +333,7 @@ pub(crate) async fn get_machine_validation_external_config(
 }
 
 // The next three handlers share `MACHINE_VALIDATION_MUTATION_NOOP`. Handler no-op beats
-// RBAC-only lockdown: `bypass_rbac` on `CarbideConfig` disables the internal RBAC layer entirely,
+// RBAC-only lockdown: `bypass_rbac` on `NicoConfig` disables the internal RBAC layer entirely,
 // so `internal_rbac_rules` are not consulted in that mode. Remove the no-op when safe.
 pub(crate) async fn add_update_machine_validation_external_config(
     api: &Api,
@@ -422,7 +422,7 @@ pub(crate) async fn on_demand_machine_validation(
             )
             .await?
             .ok_or_else(|| {
-                CarbideError::InvalidArgument(format!("Machine id {machine_id} not found."))
+                NicoError::InvalidArgument(format!("Machine id {machine_id} not found."))
             })?;
             if machine
                 .on_demand_machine_validation_request
@@ -431,7 +431,7 @@ pub(crate) async fn on_demand_machine_validation(
                 let msg =
                     format!("On demand machine validation for {machine_id} is already scheduled.");
                 tracing::error!(msg);
-                return Err(CarbideError::InvalidArgument(msg).into());
+                return Err(NicoError::InvalidArgument(msg).into());
             }
             // Check state
             match machine.current_state() {
@@ -445,7 +445,7 @@ pub(crate) async fn on_demand_machine_validation(
                             "On demand machine validation for {machine_id} is already scheduled."
                         );
                         tracing::error!(msg);
-                        return Err(CarbideError::InvalidArgument(msg).into());
+                        return Err(NicoError::InvalidArgument(msg).into());
                     }
                     let allowed_tests: Vec<String> = req
                         .allowed_tests
@@ -485,12 +485,12 @@ pub(crate) async fn on_demand_machine_validation(
                         machine.current_state()
                     );
                     tracing::warn!(msg);
-                    Err(CarbideError::InvalidArgument(msg).into())
+                    Err(NicoError::InvalidArgument(msg).into())
                 }
             }
         }
         rpc::machine_validation_on_demand_request::Action::Stop => {
-            Err(CarbideError::InvalidArgument(
+            Err(NicoError::InvalidArgument(
                 "Cannot stop an on-demand validation request".to_string(),
             )
             .into())
@@ -553,7 +553,7 @@ pub(crate) async fn update_machine_validation_test(
     //     },
     // )
     // .await
-    // .map_err(CarbideError::from)?;
+    // .map_err(NicoError::from)?;
     // if existing[0].read_only {
     //     return Err(Status::invalid_argument(
     //         "Cannot modify read-only test cases",
@@ -596,7 +596,7 @@ pub(crate) async fn add_machine_validation_test(
     )
     .await?;
     if !tests.is_empty() {
-        return Err(CarbideError::InvalidArgument("Name already exists".to_string()).into());
+        return Err(NicoError::InvalidArgument("Name already exists".to_string()).into());
     }
     let version = ConfigVersion::initial();
     let test_id = machine_validation_suites::save(&mut txn, model_req, version).await?;
@@ -728,14 +728,14 @@ pub(crate) async fn update_machine_validation_run(
     let validation_id = req
         .validation_id
         .as_ref()
-        .ok_or(CarbideError::MissingArgument("Validation id"))?;
+        .ok_or(NicoError::MissingArgument("Validation id"))?;
 
     db::machine_validation::update_run(
         &mut txn,
         validation_id,
         req.total
             .try_into()
-            .map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?,
+            .map_err(|_e| NicoError::InvalidArgument("total".to_string()))?,
         req.duration_to_complete.unwrap_or_default().seconds,
     )
     .await?;
@@ -750,7 +750,7 @@ pub(crate) async fn update_machine_validation_run(
 pub async fn apply_config_on_startup(
     api: &Api,
     config: &MachineValidationConfig,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let mut txn = api.txn_begin().await?;
 
     // Get all tests from DB

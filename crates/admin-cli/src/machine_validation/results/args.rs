@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::machine_validation::MachineValidationId;
 use clap::{ArgGroup, Parser};
 
 #[derive(Parser, Debug)]

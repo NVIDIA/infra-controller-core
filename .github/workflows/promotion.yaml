@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-name: Carbide Artifacts Promotion
+name: Nico Artifacts Promotion
 
 on:
   workflow_dispatch:
@@ -67,9 +67,9 @@ jobs:
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
 
           IMAGES=(
-            "nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide:${VERSION}"
-            "nvcr.io/0837451325059433/carbide-dev/carbide-release-artifacts-aarch64:${VERSION}"
-            "nvcr.io/0837451325059433/carbide-dev/carbide-release-artifacts-x86_64:${VERSION}"
+            "nvcr.io/0837451325059433/carbide-dev/nvmetal-nico:${VERSION}"
+            "nvcr.io/0837451325059433/carbide-dev/nico-release-artifacts-aarch64:${VERSION}"
+            "nvcr.io/0837451325059433/carbide-dev/nico-release-artifacts-x86_64:${VERSION}"
           )
 
           FAILED=0
@@ -94,7 +94,7 @@ jobs:
           echo "All source images validated successfully!"
 
   # ============================================================================
-  # APPROVAL GATE - Promote images from carbide-dev to carbide
+  # APPROVAL GATE - Promote images from nico-dev to nico
   # ============================================================================
   approve-promotion:
     needs: prepare
@@ -105,29 +105,29 @@ jobs:
       - name: Promotion approved
         run: |
           echo "✅ Promotion approved"
-          echo "Promoting images from carbide-dev to carbide"
+          echo "Promoting images from nico-dev to nico"
           echo "Version: ${{ needs.prepare.outputs.version }}"
           echo ""
           echo "Images to be promoted:"
-          echo "  - nvmetal-carbide"
-          echo "  - carbide-release-artifacts-aarch64"
-          echo "  - carbide-release-artifacts-x86_64"
+          echo "  - nvmetal-nico"
+          echo "  - nico-release-artifacts-aarch64"
+          echo "  - nico-release-artifacts-x86_64"
           echo "Helm charts to be promoted:"
-          echo "  - carbide-prereqs"
+          echo "  - nico-prereqs"
 
 
   # ============================================================================
-  # ReTag - Application Image (nvmetal-carbide)
+  # ReTag - Application Image (nvmetal-nico)
   # ============================================================================
-  promote-carbide-core:
+  promote-nico-core:
     needs:
       - prepare
       - approve-promotion
     uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
     with:
-      source: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
+      source: nvcr.io/0837451325059433/carbide-dev/nvmetal-nico
       source_tag: ${{ needs.prepare.outputs.version }}
-      destination: nvcr.io/0837451325059433/carbide/nvmetal-carbide
+      destination: nvcr.io/0837451325059433/carbide/nvmetal-nico
       destination_tag: ${{ needs.prepare.outputs.version }}
     secrets:
       SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
@@ -144,9 +144,9 @@ jobs:
       - approve-promotion
     uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
     with:
-      source: nvcr.io/0837451325059433/carbide-dev/carbide-release-artifacts-aarch64
+      source: nvcr.io/0837451325059433/carbide-dev/nico-release-artifacts-aarch64
       source_tag: ${{ needs.prepare.outputs.version }}
-      destination: nvcr.io/0837451325059433/carbide/carbide-release-artifacts-aarch64
+      destination: nvcr.io/0837451325059433/carbide/nico-release-artifacts-aarch64
       destination_tag: ${{ needs.prepare.outputs.version }}
     secrets:
       SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
@@ -163,9 +163,9 @@ jobs:
       - approve-promotion
     uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
     with:
-      source: nvcr.io/0837451325059433/carbide-dev/carbide-release-artifacts-x86_64
+      source: nvcr.io/0837451325059433/carbide-dev/nico-release-artifacts-x86_64
       source_tag: ${{ needs.prepare.outputs.version }}
-      destination: nvcr.io/0837451325059433/carbide/carbide-release-artifacts-x86_64
+      destination: nvcr.io/0837451325059433/carbide/nico-release-artifacts-x86_64
       destination_tag: ${{ needs.prepare.outputs.version }}
     secrets:
       SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
@@ -174,7 +174,7 @@ jobs:
       DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
 
   # ============================================================================
-  # Publish - Helm prereqs chart (carbide-prereqs)
+  # Publish - Helm prereqs chart (nico-prereqs)
   # ============================================================================
   promote-helm-prereqs-chart:
     needs:

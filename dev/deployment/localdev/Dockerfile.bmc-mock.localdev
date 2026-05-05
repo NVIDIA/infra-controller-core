@@ -16,10 +16,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM runtime-container-localdev:latest as carbide
+FROM runtime-container-localdev:latest as nico
 
-WORKDIR ./carbide
-COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/carbide/
-COPY crates/bmc-mock/tls.crt /opt/carbide/
-COPY crates/bmc-mock/tls.key /opt/carbide/
-COPY crates/bmc-mock/dell_poweredge_r750.tar.gz /opt/carbide/
+WORKDIR ./nico
+COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/nico/
+COPY crates/bmc-mock/tls.crt /opt/nico/
+COPY crates/bmc-mock/tls.key /opt/nico/
+COPY crates/bmc-mock/dell_poweredge_r750.tar.gz /opt/nico/

@@ -17,7 +17,7 @@
 
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::machine::MachineInterfaceId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

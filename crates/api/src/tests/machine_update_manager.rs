@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use common::api_fixtures::create_test_env;
 use figment::Figment;
 use figment::providers::{Format, Toml};
@@ -33,8 +33,8 @@ use sqlx::PgConnection;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::CarbideResult;
-use crate::cfg::file::CarbideConfig;
+use crate::NicoResult;
+use crate::cfg::file::NicoConfig;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::machine_update_manager::machine_update_module::{
     MachineUpdateModule, create_host_update_health_report,
@@ -57,7 +57,7 @@ impl MachineUpdateModule for TestUpdateModule {
     async fn get_updates_in_progress(
         &self,
         _txn: &mut PgConnection,
-    ) -> CarbideResult<HashSet<MachineId>> {
+    ) -> NicoResult<HashSet<MachineId>> {
         Ok(self.updates_in_progress.clone().into_iter().collect())
     }
 
@@ -67,14 +67,14 @@ impl MachineUpdateModule for TestUpdateModule {
         _available_updates: i32,
         _updating_machines: &HashSet<MachineId>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
-    ) -> CarbideResult<HashSet<MachineId>> {
+    ) -> NicoResult<HashSet<MachineId>> {
         if let Ok(mut guard) = self.start_updates_called.lock() {
             (*guard) += 1;
         }
         Ok(self.updates_started.clone())
     }
 
-    async fn clear_completed_updates(&self, _txn: &mut PgConnection) -> CarbideResult<()> {
+    async fn clear_completed_updates(&self, _txn: &mut PgConnection) -> NicoResult<()> {
         if let Ok(mut guard) = self.clear_completed_updates_called.lock() {
             (*guard) += 1;
         }
@@ -122,7 +122,7 @@ async fn test_max_outstanding_updates(
     create_managed_host(&env).await;
     let (_, dpu_machine_id) = create_managed_host(&env).await.into();
 
-    let config: Arc<CarbideConfig> = Arc::new(
+    let config: Arc<NicoConfig> = Arc::new(
         Figment::new()
             .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
             .extract()
@@ -219,7 +219,7 @@ fn test_start(pool: sqlx::PgPool) {
             .await
             .unwrap();
 
-    let mut config: Arc<CarbideConfig> = Arc::new(
+    let mut config: Arc<NicoConfig> = Arc::new(
         Figment::new()
             .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
             .extract()
@@ -340,7 +340,7 @@ async fn add_host_update_alert(
     txn: &mut PgConnection,
     machine_update: &DpuMachineUpdate,
     reference: &model::machine_update_module::DpuReprovisionInitiator,
-) -> CarbideResult<()> {
+) -> NicoResult<()> {
     let health_override = create_host_update_health_report(
         Some("DpuFirmware".to_string()),
         reference.to_string(),

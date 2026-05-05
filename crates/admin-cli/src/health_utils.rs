@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::{self as nicorpc};
 use prettytable::{Table, row};
 
 use crate::machine::health_report::cmd::get_empty_template;
@@ -24,19 +24,19 @@ use crate::machine::{HealthReportTemplates, get_health_report};
 
 /// Display a list of health report entries.
 pub fn display_health_reports(
-    entries: Vec<forgerpc::HealthReportEntry>,
+    entries: Vec<nicorpc::HealthReportEntry>,
     output_format: OutputFormat,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let mut rows = vec![];
     for entry in entries {
-        let report = entry.report.ok_or(CarbideCliError::GenericError(
+        let report = entry.report.ok_or(NicoCliError::GenericError(
             "missing response".to_string(),
         ))?;
-        let mode = match forgerpc::HealthReportApplyMode::try_from(entry.mode)
-            .map_err(|_| CarbideCliError::GenericError("invalide response".to_string()))?
+        let mode = match nicorpc::HealthReportApplyMode::try_from(entry.mode)
+            .map_err(|_| NicoCliError::GenericError("invalide response".to_string()))?
         {
-            forgerpc::HealthReportApplyMode::Merge => "Merge",
-            forgerpc::HealthReportApplyMode::Replace => "Replace",
+            nicorpc::HealthReportApplyMode::Merge => "Merge",
+            nicorpc::HealthReportApplyMode::Replace => "Replace",
         };
         rows.push((report, mode));
     }
@@ -72,14 +72,14 @@ pub fn resolve_health_report(
     template: Option<HealthReportTemplates>,
     health_report_json: Option<String>,
     message: Option<String>,
-) -> CarbideCliResult<health_report::HealthReport> {
+) -> NicoCliResult<health_report::HealthReport> {
     if let Some(template) = template {
         Ok(get_health_report(template, message))
     } else if let Some(json) = health_report_json {
         serde_json::from_str::<health_report::HealthReport>(&json)
-            .map_err(CarbideCliError::JsonError)
+            .map_err(NicoCliError::JsonError)
     } else {
-        Err(CarbideCliError::GenericError(
+        Err(NicoCliError::GenericError(
             "Either health_report or template name must be provided.".to_string(),
         ))
     }

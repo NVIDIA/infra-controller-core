@@ -21,8 +21,8 @@ use std::io::Write;
 use std::process::Command;
 
 use byteorder::{BigEndian, ByteOrder};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementReportId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementReportId;
 use db::db_read::DbReader;
 use model::machine::MeasuringState;
 use pkcs1::LineEnding;
@@ -32,7 +32,7 @@ use temp_dir::TempDir;
 
 use crate::attestation::get_ek_cert_by_machine_id;
 use crate::state_controller::machine::{MeasuringOutcome, handle_measuring_state};
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 /// VerifyQuoteState is a simple enum used to track
 /// the state of a verify_quote call, specifically as
@@ -64,7 +64,7 @@ pub fn verify_quote_state(
     signature_valid: bool,
     pcr_hash_matches: bool,
     event_log: &Option<Vec<u8>>,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let quote_state = VerifyQuoteState::from_results(signature_valid, pcr_hash_matches);
     match quote_state {
         VerifyQuoteState::Success => Ok(()),
@@ -73,7 +73,7 @@ pub fn verify_quote_state(
                 "PCR signature invalid (event log: {}",
                 event_log_to_string(event_log)
             );
-            Err(CarbideError::AttestQuoteError(
+            Err(NicoError::AttestQuoteError(
                 "PCR signature invalid (see logs for full event log)".to_string(),
             ))
         }
@@ -82,7 +82,7 @@ pub fn verify_quote_state(
                 "PCR hash mismatch (event log: {}",
                 event_log_to_string(event_log)
             );
-            Err(CarbideError::AttestQuoteError(
+            Err(NicoError::AttestQuoteError(
                 "PCR hash does not match (see logs for full event log)".to_string(),
             ))
         }
@@ -91,7 +91,7 @@ pub fn verify_quote_state(
                 "PCR signature invalid and PCR hash mismatch (event log: {}",
                 event_log_to_string(event_log)
             );
-            Err(CarbideError::AttestQuoteError(
+            Err(NicoError::AttestQuoteError(
                 "PCR signature invalid and PCR hash mismatch (see logs for full event log)"
                     .to_string(),
             ))
@@ -103,26 +103,26 @@ pub fn cli_make_cred(
     pub_key: rsa::RsaPublicKey,
     ak_name_serialized: &Vec<u8>,
     session_key: &[u8],
-) -> Result<(Vec<u8>, Vec<u8>), CarbideError> {
+) -> Result<(Vec<u8>, Vec<u8>), NicoError> {
     // now construct the temp directory
     let tmp_dir = TempDir::with_prefix("make_cred")
-        .map_err(|e| CarbideError::AttestBindKeyError(format!("Could not create TempDir: {e}")))?;
+        .map_err(|e| NicoError::AttestBindKeyError(format!("Could not create TempDir: {e}")))?;
     let tmp_dir_path = tmp_dir.path();
 
     // create a file to write the EK key to
     let ek_file_path = tmp_dir_path.join("ek.dat");
     let mut ek_file = File::create(ek_file_path.clone())
-        .map_err(|e| CarbideError::AttestBindKeyError(format!("Could not create EK file: {e}")))?;
+        .map_err(|e| NicoError::AttestBindKeyError(format!("Could not create EK file: {e}")))?;
 
     // serialize the public key to a PEM format and write it to the file
     let pem_pub_key = pub_key.to_pkcs1_pem(LineEnding::default()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!(
+        NicoError::AttestBindKeyError(format!(
             "Could not convert EK RsaPublicKey to PEM format: {e}"
         ))
     })?;
 
     ek_file.write_all(pem_pub_key.as_bytes()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not write EK Pub to PEM file: {e}"))
+        NicoError::AttestBindKeyError(format!("Could not write EK Pub to PEM file: {e}"))
     })?;
 
     // now write AK name to the file in hexadecimal format
@@ -132,28 +132,28 @@ pub fn cli_make_cred(
     let session_key_path_str =
         session_key_path
             .to_str()
-            .ok_or(CarbideError::AttestBindKeyError(
+            .ok_or(NicoError::AttestBindKeyError(
                 "Could not join seession_key_path".to_string(),
             ))?;
 
     let mut session_key_file = File::create(session_key_path.clone()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create file for session key: {e}"))
+        NicoError::AttestBindKeyError(format!("Could not create file for session key: {e}"))
     })?;
     session_key_file.write_all(session_key).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not write session key to file: {e}"))
+        NicoError::AttestBindKeyError(format!("Could not write session key to file: {e}"))
     })?;
 
     // construct the command to execute make_credential
     let ek_file_path_str = ek_file_path
         .to_str()
-        .ok_or(CarbideError::AttestBindKeyError(
+        .ok_or(NicoError::AttestBindKeyError(
             "Could not convert ek_file_path to str".to_string(),
         ))?;
 
     let cred_out_path = tmp_dir_path.join("mkcred.out");
     let cred_out_path_str = cred_out_path
         .to_str()
-        .ok_or(CarbideError::AttestBindKeyError(
+        .ok_or(NicoError::AttestBindKeyError(
             "Could not join cred_out_path".to_string(),
         ))?;
 
@@ -168,7 +168,7 @@ pub fn cli_make_cred(
         .arg(cmd_str)
         .output()
         .map_err(|e| {
-            CarbideError::AttestBindKeyError(format!(
+            NicoError::AttestBindKeyError(format!(
                 "Could not execute makecredential command: {e}"
             ))
         })?;
@@ -181,7 +181,7 @@ pub fn cli_make_cred(
     }
 
     let creds = fs::read(cred_out_path).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create creds file: {e}"))
+        NicoError::AttestBindKeyError(format!("Could not create creds file: {e}"))
     })?;
 
     let (cred_blob, encr_secret) = extract_cred_secret(&creds)?;
@@ -194,18 +194,18 @@ pub fn verify_signature(
     ak_pub: &[u8],
     attest_vec: &[u8],
     rsa_signature: &[u8],
-) -> CarbideResult<bool> {
+) -> NicoResult<bool> {
     #[cfg(feature = "linux-build")]
     {
         use tss_esapi::structures::{Public, Signature};
         use tss_esapi::traits::UnMarshall;
 
         let ak_pub = Public::unmarshall(ak_pub).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {e}"))
+            NicoError::AttestQuoteError(format!("Could not unmarshal AK Pub: {e}"))
         })?;
 
         let signature = Signature::unmarshall(rsa_signature).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {e}"))
+            NicoError::AttestQuoteError(format!("Could not unmarshall Signature struct: {e}"))
         })?;
 
         linux_build::verify_signature(&ak_pub, attest_vec, &signature)
@@ -217,13 +217,13 @@ pub fn verify_signature(
 }
 
 #[cfg_attr(not(feature = "linux-build"), allow(unused_variables))]
-pub fn verify_pcr_hash(attestation: &[u8], pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
+pub fn verify_pcr_hash(attestation: &[u8], pcr_values: &[Vec<u8>]) -> NicoResult<bool> {
     #[cfg(feature = "linux-build")]
     {
         use tss_esapi::structures::Attest;
         use tss_esapi::traits::UnMarshall;
         let attest = Attest::unmarshall(attestation).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {e}"))
+            NicoError::AttestQuoteError(format!("Could not unmarshall Attest struct: {e}"))
         })?;
         linux_build::verify_pcr_hash(&attest, pcr_values)
     }
@@ -233,7 +233,7 @@ pub fn verify_pcr_hash(attestation: &[u8], pcr_values: &[Vec<u8>]) -> CarbideRes
     }
 }
 
-fn extract_cred_secret(creds: &[u8]) -> CarbideResult<(Vec<u8>, Vec<u8>)> {
+fn extract_cred_secret(creds: &[u8]) -> NicoResult<(Vec<u8>, Vec<u8>)> {
     let magic_header_offset: usize = 8; // 4 bytes for magic number and 4 bytes for version
 
     // get length for cred blob
@@ -242,7 +242,7 @@ fn extract_cred_secret(creds: &[u8]) -> CarbideResult<(Vec<u8>, Vec<u8>)> {
     let secret_offset: usize = 2;
 
     if creds.len() < magic_header_offset + cred_blob_offset {
-        return Err(CarbideError::AttestBindKeyError(format!(
+        return Err(NicoError::AttestBindKeyError(format!(
             "Creds file is too short: {0} bytes",
             creds.len()
         )));
@@ -256,7 +256,7 @@ fn extract_cred_secret(creds: &[u8]) -> CarbideResult<(Vec<u8>, Vec<u8>)> {
         magic_header_offset + cred_blob_offset + usize::from(cred_blob_size);
 
     if creds.len() < cred_blob_end_idx + secret_offset - 1 {
-        return Err(CarbideError::AttestBindKeyError(format!(
+        return Err(NicoError::AttestBindKeyError(format!(
             "Creds file is too short: {0} bytes",
             creds.len()
         )));
@@ -290,7 +290,7 @@ pub async fn compare_pub_key_against_cert(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     ek_pub: &[u8],
-) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
+) -> NicoResult<(bool, rsa::RsaPublicKey)> {
     let tpm_ek_cert = get_ek_cert_by_machine_id(txn, machine_id).await?;
     #[cfg(feature = "linux-build")]
     {
@@ -306,7 +306,7 @@ pub async fn has_passed_attestation<DB>(
     db: &mut DB,
     machine_id: &MachineId,
     _report_id: &MeasurementReportId,
-) -> CarbideResult<bool>
+) -> NicoResult<bool>
 where
     for<'db> &'db mut DB: DbReader<'db>,
 {
@@ -317,14 +317,14 @@ where
         true,
     )
     .await
-    .map_err(|e| CarbideError::AttestQuoteError(e.to_string()))?;
+    .map_err(|e| NicoError::AttestQuoteError(e.to_string()))?;
 
     Ok(measuring_outcome == MeasuringOutcome::PassedOk)
 }
 
 #[cfg(not(feature = "linux-build"))]
-fn attestation_unsupported_error() -> CarbideError {
-    CarbideError::AttestQuoteError("This server does not support attestation".to_string())
+fn attestation_unsupported_error() -> NicoError {
+    NicoError::AttestQuoteError("This server does not support attestation".to_string())
 }
 
 #[cfg(feature = "linux-build")]
@@ -340,15 +340,15 @@ pub mod linux_build {
     use x509_parser::certificate::X509Certificate;
     use x509_parser::public_key::PublicKey as x509_parser_pub_key;
 
-    use crate::errors::{CarbideError, CarbideResult};
+    use crate::errors::{NicoError, NicoResult};
 
     const RSA_PUBKEY_EXPONENT: u32 = 65537u32;
 
-    pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
+    pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> NicoResult<bool> {
         let attest_digest = match attest.attested() {
             AttestInfo::Quote { info } => info.pcr_digest(),
             _other => {
-                return Err(CarbideError::AttestQuoteError(
+                return Err(NicoError::AttestQuoteError(
                     "Incorrect Attestation Type".into(),
                 ));
             }
@@ -372,23 +372,23 @@ pub mod linux_build {
     pub fn do_compare_pub_key_against_cert(
         tpm_ek_cert: &TpmEkCertificate,
         ek_pub: &[u8],
-    ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
+    ) -> NicoResult<(bool, rsa::RsaPublicKey)> {
         // compare the pub key and the cert
 
         let cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
             .map_err(|e| {
-                CarbideError::AttestBindKeyError(format!("Could not unmarshall EK Cert: {e}"))
+                NicoError::AttestBindKeyError(format!("Could not unmarshall EK Cert: {e}"))
             })?
             .1;
 
         let pub_key_cert_data = cert.public_key().parsed().map_err(|e| {
-            CarbideError::AttestBindKeyError(format!("Could not get EK Cert Data: {e}"))
+            NicoError::AttestBindKeyError(format!("Could not get EK Cert Data: {e}"))
         })?;
 
         let ek_cert_modulus = match pub_key_cert_data {
             x509_parser_pub_key::RSA(rsa_pub_key) => rsa_pub_key.modulus,
             _rest => {
-                return Err(CarbideError::AttestBindKeyError(
+                return Err(NicoError::AttestBindKeyError(
                     "TPM EK is not in RSA format".to_string(),
                 ));
             }
@@ -401,19 +401,19 @@ pub mod linux_build {
         // pub_key_cert has a different type from pub_key_cert_data, even though their type names
         // actually do coincide!
         let pub_key_cert = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-            CarbideError::AttestBindKeyError(format!(
+            NicoError::AttestBindKeyError(format!(
                 "Could not create RsaPublicKey from EK Cert: {e}"
             ))
         })?;
         // construct the Public structure and extract the PublicKeyRsa from it, which is really just the modulus
         let ek_pub = Public::unmarshall(ek_pub).map_err(|e| {
-            CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {e}"))
+            NicoError::AttestBindKeyError(format!("Could not unmarshall EK: {e}"))
         })?;
 
         let unique = match ek_pub {
             Public::Rsa { unique, .. } => unique,
             _ => {
-                return Err(CarbideError::AttestBindKeyError(
+                return Err(NicoError::AttestBindKeyError(
                     "EK Pub is not in RSA format".to_string(),
                 ));
             }
@@ -424,7 +424,7 @@ pub mod linux_build {
         let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
 
         let pub_key_ek = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-            CarbideError::AttestBindKeyError(format!(
+            NicoError::AttestBindKeyError(format!(
                 "Could not create RsaPublicKey from TPM's EK Pub: {e}"
             ))
         })?;
@@ -436,7 +436,7 @@ pub mod linux_build {
         ak_pub: &Public,
         attest_vec: &[u8],
         signature: &Signature,
-    ) -> CarbideResult<bool> {
+    ) -> NicoResult<bool> {
         // let's take hash of the original attestation
         let mut hasher = sha2::Sha256::new();
         hasher.update(attest_vec);
@@ -445,7 +445,7 @@ pub mod linux_build {
         let unique = match ak_pub {
             tss_esapi::structures::Public::Rsa { unique, .. } => unique,
             _ => {
-                return Err(CarbideError::AttestQuoteError(
+                return Err(NicoError::AttestQuoteError(
                     "AK Pub is not an RSA key".to_string(),
                 ));
             }
@@ -456,13 +456,13 @@ pub mod linux_build {
         let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
 
         let pub_key = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not create RsaPublicKey: {e}"))
+            NicoError::AttestQuoteError(format!("Could not create RsaPublicKey: {e}"))
         })?;
 
         let rsa_signature = match signature {
             RsaPss(rsa_signature) => rsa_signature,
             _ => {
-                return Err(CarbideError::AttestQuoteError(
+                return Err(NicoError::AttestQuoteError(
                     "unknown signature type".to_string(),
                 ));
             }

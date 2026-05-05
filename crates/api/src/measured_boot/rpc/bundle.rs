@@ -40,7 +40,7 @@ use rpc::protos::measured_boot::{
 use tonic::Status;
 
 use crate::api::Api;
-use crate::errors::CarbideError;
+use crate::errors::NicoError;
 
 /// handle_create_measurement_bundle handles the CreateMeasurementBundle
 /// API endpoint.
@@ -53,13 +53,13 @@ pub async fn handle_create_measurement_bundle(
     let bundle = db::measured_boot::bundle::new(
         &mut txn,
         req.profile_id
-            .ok_or(CarbideError::MissingArgument("profile_id"))?,
+            .ok_or(NicoError::MissingArgument("profile_id"))?,
         req.name,
         &PcrRegisterValue::from_pb_vec(req.pcr_values),
         Some(MeasurementBundleState::from(state)),
     )
     .await
-    .map_err(|e| CarbideError::Internal {
+    .map_err(|e| NicoError::Internal {
         message: format!("failed to create new bundle: {e}"),
     })?;
 
@@ -81,7 +81,7 @@ pub async fn handle_delete_measurement_bundle(
         Some(delete_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
             db::measured_boot::bundle::delete_for_id(&mut txn, bundle_uuid, false)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("deletion failed: {e}"),
                 })?
         }
@@ -90,7 +90,7 @@ pub async fn handle_delete_measurement_bundle(
         Some(delete_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
             db::measured_boot::bundle::delete_for_name(&mut txn, bundle_name, false)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("deletion failed: {e}"),
                 })?
         }
@@ -98,7 +98,7 @@ pub async fn handle_delete_measurement_bundle(
         // ID or name is needed.
         None => {
             return Err(
-                CarbideError::InvalidArgument("deletion selector is required".to_string()).into(),
+                NicoError::InvalidArgument("deletion selector is required".to_string()).into(),
             );
         }
     };
@@ -121,7 +121,7 @@ pub async fn handle_rename_measurement_bundle(
         Some(rename_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
             db::measured_boot::bundle::rename_for_id(&mut txn, bundle_uuid, req.new_bundle_name)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("rename failed: {e}"),
                 })?
         }
@@ -130,7 +130,7 @@ pub async fn handle_rename_measurement_bundle(
         Some(rename_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
             db::measured_boot::bundle::rename_for_name(&mut txn, bundle_name, req.new_bundle_name)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("rename failed: {e}"),
                 })?
         }
@@ -138,7 +138,7 @@ pub async fn handle_rename_measurement_bundle(
         // ID or name is needed.
         None => {
             return Err(
-                CarbideError::InvalidArgument("rename selector is required".to_string()).into(),
+                NicoError::InvalidArgument("rename selector is required".to_string()).into(),
             );
         }
     };
@@ -164,7 +164,7 @@ pub async fn handle_update_measurement_bundle(
         Some(update_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
             db::measured_boot::bundle::from_name(&mut txn, bundle_name)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("deletion failed: {e}"),
                 })?
                 .bundle_id
@@ -172,7 +172,7 @@ pub async fn handle_update_measurement_bundle(
         // ID or name is needed.
         None => {
             return Err(
-                CarbideError::InvalidArgument("deletion selector is required".to_string()).into(),
+                NicoError::InvalidArgument("deletion selector is required".to_string()).into(),
             );
         }
     };
@@ -180,7 +180,7 @@ pub async fn handle_update_measurement_bundle(
     // And then set it in the database.
     let bundle = db::measured_boot::bundle::set_state_for_id(&mut txn, bundle_id, state.into())
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("failed to update bundle: {e}"),
         })?;
 
@@ -201,20 +201,20 @@ pub async fn handle_show_measurement_bundle(
         Some(show_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
             db::measured_boot::bundle::from_id(&mut txn, bundle_uuid)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("{e}"),
                 })?
         }
         Some(show_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
             db::measured_boot::bundle::from_name(&mut txn, bundle_name)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("{e}"),
                 })?
         }
         None => {
             return Err(
-                CarbideError::InvalidArgument("selector must be provided".to_string()).into(),
+                NicoError::InvalidArgument("selector must be provided".to_string()).into(),
             );
         }
     };
@@ -234,7 +234,7 @@ pub async fn handle_show_measurement_bundles(
     Ok(ShowMeasurementBundlesResponse {
         bundles: db::measured_boot::bundle::get_all(&mut api.db_reader())
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?
             .into_iter()
@@ -252,7 +252,7 @@ pub async fn handle_list_measurement_bundles(
     let bundles: Vec<MeasurementBundleRecordPb> =
         get_measurement_bundle_records(&api.database_connection)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?
             .into_iter()
@@ -274,7 +274,7 @@ pub async fn handle_list_measurement_bundle_machines(
         Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_uuid)) => {
             get_machines_for_bundle_id(&mut txn, bundle_uuid)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("{e}"),
                 })?
                 .drain(..)
@@ -285,7 +285,7 @@ pub async fn handle_list_measurement_bundle_machines(
         Some(list_measurement_bundle_machines_request::Selector::BundleName(bundle_name)) => {
             get_machines_for_bundle_name(&mut txn, bundle_name)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("{e}"),
                 })?
                 .drain(..)
@@ -293,7 +293,7 @@ pub async fn handle_list_measurement_bundle_machines(
                 .collect()
         }
         // ...and it has to be either by ID or name.
-        None => return Err(CarbideError::InvalidArgument("selector required".to_string()).into()),
+        None => return Err(NicoError::InvalidArgument("selector required".to_string()).into()),
     };
 
     txn.commit().await?;
@@ -309,11 +309,11 @@ pub async fn handle_find_closest_match(
 
     let report_id = req
         .report_id
-        .ok_or(CarbideError::MissingArgument("report_id"))?;
+        .ok_or(NicoError::MissingArgument("report_id"))?;
 
     let report = db::measured_boot::report::from_id(&mut txn, report_id)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("{e}"),
         })?;
 
@@ -323,7 +323,7 @@ pub async fn handle_find_closest_match(
 
     let bundle = match bundle::find_closest_match(
         &mut txn,
-        journal.profile_id.ok_or(CarbideError::InvalidArgument(
+        journal.profile_id.ok_or(NicoError::InvalidArgument(
             "A journal without profile detected".into(),
         ))?,
         &report.pcr_values(),

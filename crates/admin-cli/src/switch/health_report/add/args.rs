@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use clap::{ArgGroup, Parser};
 
 use crate::machine::HealthReportTemplates;
@@ -32,6 +32,6 @@ pub struct Args {
     pub message: Option<String>,
     #[clap(long, help = "Replace all other health reports with this source")]
     pub replace: bool,
-    #[clap(long, help = "Print the template that is going to be send to carbide")]
+    #[clap(long, help = "Print the template that is going to be send to nico")]
     pub print_only: bool,
 }

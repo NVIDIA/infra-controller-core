@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::nvlink::NvLinkPartitionId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico as nicorpc;
+use nico_uuid::nvlink::NvLinkPartitionId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -30,7 +30,7 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
         show_nvl_partitions(
@@ -53,7 +53,7 @@ async fn show_nvl_partitions(
     page_size: usize,
     tenant_org_id: Option<String>,
     name: Option<String>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let all_nvl_partitions = api_client
         .get_all_nv_link_partitions(tenant_org_id, name, page_size)
         .await?;
@@ -69,9 +69,9 @@ async fn show_nvl_partition_details(
     id: String,
     json: bool,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let nvl_partition_id: NvLinkPartitionId = uuid::Uuid::parse_str(&id)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
+        .map_err(|_| NicoCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
     let nvl_partition = api_client
         .get_one_nv_link_partition(nvl_partition_id)
@@ -89,7 +89,7 @@ async fn show_nvl_partition_details(
 }
 
 fn convert_nvl_partitions_to_nice_table(
-    nvl_partitions: forgerpc::NvLinkPartitionList,
+    nvl_partitions: nicorpc::NvLinkPartitionList,
 ) -> Box<Table> {
     let mut table = Table::new();
 
@@ -106,8 +106,8 @@ fn convert_nvl_partitions_to_nice_table(
 }
 
 fn convert_nvl_partition_to_nice_format(
-    nvl_partition: forgerpc::NvLinkPartition,
-) -> CarbideCliResult<String> {
+    nvl_partition: nicorpc::NvLinkPartition,
+) -> NicoCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 

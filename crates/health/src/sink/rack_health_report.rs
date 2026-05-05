@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 
 use super::dedup_queue::DedupQueue;
 use super::{CollectorEvent, DataSink, EventContext, HealthReport, ReportSource};

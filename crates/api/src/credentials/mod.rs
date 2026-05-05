@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::MachineCredentialsUpdateResponse;
-use ::rpc::forge::machine_credentials_update_request::{CredentialPurpose, Credentials};
-use carbide_uuid::machine::MachineId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
+use ::rpc::nico::MachineCredentialsUpdateResponse;
+use ::rpc::nico::machine_credentials_update_request::{CredentialPurpose, Credentials};
+use nico_uuid::machine::MachineId;
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use mac_address::MacAddress;
 
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 pub struct UpdateCredentials {
     pub machine_id: MachineId,
@@ -33,11 +33,11 @@ impl UpdateCredentials {
     pub async fn execute(
         &self,
         credential_writer: &dyn CredentialWriter,
-    ) -> CarbideResult<MachineCredentialsUpdateResponse> {
+    ) -> NicoResult<MachineCredentialsUpdateResponse> {
         for credential in self.credentials.iter() {
             let credential_purpose = CredentialPurpose::try_from(credential.credential_purpose)
                 .map_err(|error| {
-                    CarbideError::internal(format!(
+                    NicoError::internal(format!(
                         "invalid discriminant {error:?} for Credential Purpose from grpc?"
                     ))
                 })?;
@@ -50,7 +50,7 @@ impl UpdateCredentials {
                     credential_type: BmcCredentialType::BmcRoot {
                         bmc_mac_address: self
                             .mac_address
-                            .ok_or_else(|| CarbideError::MissingArgument("MAC Address"))?,
+                            .ok_or_else(|| NicoError::MissingArgument("MAC Address"))?,
                     },
                 },
             };
@@ -58,13 +58,13 @@ impl UpdateCredentials {
             credential_writer
                 .set_credentials(
                     &key,
-                    &forge_secrets::credentials::Credentials::UsernamePassword {
+                    &nico_secrets::credentials::Credentials::UsernamePassword {
                         username: credential.user.clone(),
                         password: credential.password.clone(),
                     },
                 )
                 .await
-                .map_err(|err| CarbideError::internal(format!("{err}")))?;
+                .map_err(|err| NicoError::internal(format!("{err}")))?;
         }
 
         Ok(MachineCredentialsUpdateResponse {})

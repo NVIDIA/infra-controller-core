@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::common::MachineIdList;
-use ::rpc::forge::{self as rpc, AttestationResponse};
+use ::rpc::nico::{self as rpc, AttestationResponse};
 use config_version::ConfigVersion;
 use db::attestation::spdm::{
     insert_or_update_machine_attestation_request, load_details_for_machine_ids,
@@ -24,7 +24,7 @@ use itertools::Itertools;
 use model::attestation::spdm::SpdmMachineAttestation;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -124,7 +124,7 @@ pub(crate) async fn attest_quote(
         match db::attestation::secret_ak_pub::get_by_secret(&mut txn, &request.credential).await? {
             Some(entry) => entry.ak_pub,
             None => {
-                return Err(CarbideError::AttestQuoteError(
+                return Err(NicoError::AttestQuoteError(
                     "Could not form SQL query to fetch AK Pub".into(),
                 )
                 .into());
@@ -182,7 +182,7 @@ pub(crate) async fn attest_quote(
     let report =
         db::measured_boot::report::new(&mut txn, machine_id, pcr_values.into_inner().as_slice())
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!(
                     "Failed storing measurement report: (machine_id: {}, err: {})",
                     &machine_id, e
@@ -215,12 +215,12 @@ pub(crate) async fn attest_quote(
 
     let id_str = machine_id.to_string();
     let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
-        forge_secrets::certificates::Certificate::default()
+        nico_secrets::certificates::Certificate::default()
     } else {
         api.certificate_provider
             .get_certificate(id_str.as_str(), None, None)
             .await
-            .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
+            .map_err(|err| NicoError::ClientCertificateError(err.to_string()))?
     };
 
     tracing::info!(

@@ -17,8 +17,8 @@
 
 use std::sync::Arc;
 
-use carbide_redfish::libredfish::RedfishClientPool;
-use carbide_redfish::libredfish::conv::machine_last_reboot_requested_mode;
+use nico_redfish::libredfish::RedfishClientPool;
+use nico_redfish::libredfish::conv::machine_last_reboot_requested_mode;
 use chrono::Utc;
 use libredfish::model::BootProgress;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
@@ -27,7 +27,7 @@ use model::machine::Machine;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::write_ops::MachineWriteOp;
 use crate::state_controller::state_handler::StateHandlerContext;
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 #[track_caller]
 pub fn host_power_control(
@@ -35,7 +35,7 @@ pub fn host_power_control(
     machine: &Machine,
     action: SystemPowerControl,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-) -> impl Future<Output = CarbideResult<()>> {
+) -> impl Future<Output = NicoResult<()>> {
     let trigger_location = std::panic::Location::caller();
     host_power_control_with_location(redfish_client, machine, action, ctx, trigger_location)
 }
@@ -49,7 +49,7 @@ pub async fn host_power_control_with_location(
     action: SystemPowerControl,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     trigger_location: &std::panic::Location<'_>,
-) -> CarbideResult<()> {
+) -> NicoResult<()> {
     let action = if action == SystemPowerControl::ACPowercycle
         && !redfish_client.ac_powercycle_supported_by_power()
     {
@@ -58,7 +58,7 @@ pub async fn host_power_control_with_location(
     } else {
         action
     };
-    // Always log to ensure we can see that carbide is doing the power controlling
+    // Always log to ensure we can see that nico is doing the power controlling
     tracing::info!(
         machine_id = machine.id.to_string(),
         action = action.to_string(),
@@ -92,20 +92,20 @@ pub async fn host_power_control_with_location(
                 redfish_client
                 .power(SystemPowerControl::On)
                 .await
-                .map_err(CarbideError::RedfishError)?
+                .map_err(NicoError::RedfishError)?
                 */
             } else {
                 redfish_client
                     .power(action)
                     .await
-                    .map_err(CarbideError::RedfishError)?
+                    .map_err(NicoError::RedfishError)?
             }
         }
     } else if action == SystemPowerControl::ACPowercycle {
         let power_state = redfish_client
             .get_power_state()
             .await
-            .map_err(CarbideError::RedfishError)?;
+            .map_err(NicoError::RedfishError)?;
         if power_state != PowerState::Off {
             tracing::warn!(
                 machine_id = machine.id.to_string(),
@@ -115,17 +115,17 @@ pub async fn host_power_control_with_location(
             redfish_client
                 .power(SystemPowerControl::ForceOff)
                 .await
-                .map_err(CarbideError::RedfishError)?;
+                .map_err(NicoError::RedfishError)?;
         }
         redfish_client
             .power(action)
             .await
-            .map_err(CarbideError::RedfishError)?
+            .map_err(NicoError::RedfishError)?
     } else {
         redfish_client
             .power(action)
             .await
-            .map_err(CarbideError::RedfishError)?
+            .map_err(NicoError::RedfishError)?
     }
 
     Ok(())
@@ -137,26 +137,26 @@ pub async fn host_power_control_with_location(
 pub async fn set_host_uefi_password(
     redfish_client: &dyn Redfish,
     redfish_client_pool: Arc<dyn RedfishClientPool>,
-) -> CarbideResult<Option<String>> {
+) -> NicoResult<Option<String>> {
     redfish_client_pool
         .uefi_setup(redfish_client, false)
         .await
         .map_err(|e| {
             tracing::error!(%e, "Failed to run uefi_setup call");
-            CarbideError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
+            NicoError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
         })
 }
 
 pub async fn clear_host_uefi_password(
     redfish_client: &dyn Redfish,
     redfish_client_pool: Arc<dyn RedfishClientPool>,
-) -> CarbideResult<Option<String>> {
+) -> NicoResult<Option<String>> {
     redfish_client_pool
         .clear_host_uefi_password(redfish_client)
         .await
         .map_err(|e| {
             tracing::error!(%e, "Failed to run clear_host_uefi_password call");
-            CarbideError::internal(format!(
+            NicoError::internal(format!(
                 "Failed redfish clear_host_uefi_password subtask: {e}"
             ))
         })

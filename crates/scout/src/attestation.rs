@@ -21,8 +21,8 @@ use std::str::FromStr;
 use std::vec::Vec;
 
 use ::rpc::machine_discovery::TpmDescription;
-use ::rpc::{forge as rpc, machine_discovery as rpc_md};
-use carbide_uuid::machine::MachineId;
+use ::rpc::{nico as rpc, machine_discovery as rpc_md};
+use nico_uuid::machine::MachineId;
 use tss_esapi::abstraction::{ak, ek};
 use tss_esapi::attributes::session::SessionAttributesBuilder;
 use tss_esapi::constants::{CapabilityType, PropertyTag, SessionType};
@@ -39,7 +39,7 @@ use tss_esapi::structures::{
 use tss_esapi::traits::Marshall;
 use tss_esapi::{Context, TctiNameConf};
 
-use crate::CarbideClientError;
+use crate::NicoClientError;
 
 pub(crate) fn create_context_from_path(path: &str) -> Result<Context, Box<dyn std::error::Error>> {
     let tcti = TctiNameConf::from_str(path)?;
@@ -113,7 +113,7 @@ pub(crate) fn activate_credential(
     let ek_auth_session = match ek_auth_session_option {
         Some(auth_session) => auth_session,
         None => {
-            return Err(Box::new(CarbideClientError::TpmError(
+            return Err(Box::new(NicoClientError::TpmError(
                 "Could not start auth session 1".to_string(),
             )));
         }
@@ -133,7 +133,7 @@ pub(crate) fn activate_credential(
     let ak_auth_session = match ak_auth_session_option {
         Some(auth_session) => auth_session,
         None => {
-            return Err(Box::new(CarbideClientError::TpmError(
+            return Err(Box::new(NicoClientError::TpmError(
                 "Could not start auth session 2".to_string(),
             )));
         }
@@ -196,7 +196,7 @@ fn detect_pcr_hash_algo(ctx: &mut Context) -> Result<HashingAlgorithm, Box<dyn s
         return Ok(HashingAlgorithm::Sha384);
     }
 
-    Err(Box::new(CarbideClientError::TpmError(
+    Err(Box::new(NicoClientError::TpmError(
         "TPM PCR is using an unsupported hash. Only SHA256 and SHA384 are supported".to_string(),
     )))
 }
@@ -235,7 +235,7 @@ pub(crate) fn get_pcr_quote(
     let ak_auth_session = match ak_auth_session_option {
         Some(auth_session) => auth_session,
         None => {
-            return Err(Box::new(CarbideClientError::TpmError(
+            return Err(Box::new(NicoClientError::TpmError(
                 "Could not start auth session".to_string(),
             )));
         }

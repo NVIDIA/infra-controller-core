@@ -58,7 +58,7 @@ impl PdnsSocket {
         tracing::info!(
             path = %socket_config.socket_path.display(),
             permissions = %format!("{:o}", socket_config.socket_permissions),
-            carbide_uri = %socket_config.carbide_uri,
+            nico_uri = %socket_config.nico_uri,
             "Creating new socket"
         );
 

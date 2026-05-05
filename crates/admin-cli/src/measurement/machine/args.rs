@@ -26,11 +26,11 @@
  *  - `mock-machine list``: Lists all mock machines.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::admin_cli::NicoCliError;
 use ::rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, ShowCandidateMachineRequest, show_candidate_machine_request,
 };
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 use measured_boot::pcr::PcrRegisterValue;
 
@@ -91,11 +91,11 @@ impl From<Attest> for AttestCandidateMachineRequest {
 }
 
 impl TryFrom<Show> for ShowCandidateMachineRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
     fn try_from(show: Show) -> Result<Self, Self::Error> {
         let machine_id = show
             .machine_id
-            .ok_or(CarbideCliError::GenericError(String::from(
+            .ok_or(NicoCliError::GenericError(String::from(
                 "machine_id must be set to get a machine",
             )))?;
         Ok(Self {

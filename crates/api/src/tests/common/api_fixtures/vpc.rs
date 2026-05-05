@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::vpc::VpcId;
-use rpc::forge_server::Forge;
+use ::rpc::nico as rpc;
+use nico_uuid::vpc::VpcId;
+use rpc::nico_server::Nico;
 
 use super::TestEnv;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;

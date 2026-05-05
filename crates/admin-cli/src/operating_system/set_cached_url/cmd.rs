@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::IpxeTemplateArtifactCacheStrategy;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::IpxeTemplateArtifactCacheStrategy;
 use prettytable::{Cell, Row, Table};
 
 use super::args::Args;
@@ -27,19 +27,19 @@ pub async fn set_cached_url(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let id = str_to_os_id(&opts.id)?;
 
     let resp = api_client
         .0
         .update_operating_system_cachable_ipxe_template_artifacts(
-            ::rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+            ::rpc::nico::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(id),
                 updates: opts.updates,
             },
         )
         .await
-        .map_err(CarbideCliError::from)?;
+        .map_err(NicoCliError::from)?;
 
     if format == OutputFormat::Json {
         let serializable: Vec<SerializableArtifact> = resp
@@ -49,7 +49,7 @@ pub async fn set_cached_url(
             .collect();
         println!(
             "{}",
-            serde_json::to_string_pretty(&serializable).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&serializable).map_err(NicoCliError::JsonError)?
         );
         return Ok(());
     }

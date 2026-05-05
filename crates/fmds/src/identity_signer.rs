@@ -17,9 +17,9 @@
 
 use async_trait::async_trait;
 use axum::http::{HeaderMap, Uri};
-use forge_dpu_fmds_shared::machine_identity::{
+use nico_dpu_fmds_shared::machine_identity::{
     MetaDataIdentityOutcome, MetaDataIdentitySigner, forward_sign_proxy_if_ready,
-    sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
+    sign_machine_identity_with_nico, wait_identity_rate_limit_permit,
 };
 
 use crate::state::FmdsState;
@@ -55,19 +55,19 @@ impl MetaDataIdentitySigner for FmdsState {
             return Ok(MetaDataIdentityOutcome::HttpProxy(resp));
         }
 
-        let forge_client_config = self.forge_client_config.as_ref().ok_or_else(|| {
+        let nico_client_config = self.nico_client_config.as_ref().ok_or_else(|| {
             tonic::Status::failed_precondition(
-                "Forge client TLS is not configured; cannot sign machine identity",
+                "Nico client TLS is not configured; cannot sign machine identity",
             )
         })?;
         let snap = self.machine_identity.load();
-        let resp = sign_machine_identity_with_forge(
-            &self.forge_api,
-            forge_client_config.as_ref(),
-            snap.forge_call_timeout,
+        let resp = sign_machine_identity_with_nico(
+            &self.nico_api,
+            nico_client_config.as_ref(),
+            snap.nico_call_timeout,
             audiences,
         )
         .await?;
-        Ok(MetaDataIdentityOutcome::Forge(resp))
+        Ok(MetaDataIdentityOutcome::Nico(resp))
     }
 }

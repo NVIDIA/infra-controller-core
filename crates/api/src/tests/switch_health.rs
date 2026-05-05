@@ -16,8 +16,8 @@
  */
 
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as rpc_forge};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{self as rpc_nico};
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::site_explorer::new_switch;
@@ -68,18 +68,18 @@ async fn test_insert_list_remove_switch_override(
     let report = alert_report("external-monitor");
 
     env.api
-        .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
+        .insert_switch_health_report(Request::new(rpc_nico::InsertSwitchHealthReportRequest {
             switch_id: Some(switch_id),
-            health_report_entry: Some(rpc_forge::HealthReportEntry {
+            health_report_entry: Some(rpc_nico::HealthReportEntry {
                 report: Some(report.clone().into()),
-                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                mode: rpc_nico::HealthReportApplyMode::Merge as i32,
             }),
         }))
         .await?;
 
     let list_resp = env
         .api
-        .list_switch_health_reports(Request::new(rpc_forge::ListSwitchHealthReportsRequest {
+        .list_switch_health_reports(Request::new(rpc_nico::ListSwitchHealthReportsRequest {
             switch_id: Some(switch_id),
         }))
         .await?
@@ -95,7 +95,7 @@ async fn test_insert_list_remove_switch_override(
     assert_eq!(listed_report.alerts.len(), 1);
 
     env.api
-        .remove_switch_health_report(Request::new(rpc_forge::RemoveSwitchHealthReportRequest {
+        .remove_switch_health_report(Request::new(rpc_nico::RemoveSwitchHealthReportRequest {
             switch_id: Some(switch_id),
             source: "external-monitor".to_string(),
         }))
@@ -103,7 +103,7 @@ async fn test_insert_list_remove_switch_override(
 
     let list_resp = env
         .api
-        .list_switch_health_reports(Request::new(rpc_forge::ListSwitchHealthReportsRequest {
+        .list_switch_health_reports(Request::new(rpc_nico::ListSwitchHealthReportsRequest {
             switch_id: Some(switch_id),
         }))
         .await?
@@ -125,11 +125,11 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     for _ in 0..3 {
         env.api
-            .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
+            .insert_switch_health_report(Request::new(rpc_nico::InsertSwitchHealthReportRequest {
                 switch_id: Some(switch_id),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
+                health_report_entry: Some(rpc_nico::HealthReportEntry {
                     report: Some(report.clone().into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                    mode: rpc_nico::HealthReportApplyMode::Merge as i32,
                 }),
             }))
             .await?;
@@ -137,7 +137,7 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     let list_resp = env
         .api
-        .list_switch_health_reports(Request::new(rpc_forge::ListSwitchHealthReportsRequest {
+        .list_switch_health_reports(Request::new(rpc_nico::ListSwitchHealthReportsRequest {
             switch_id: Some(switch_id),
         }))
         .await?
@@ -159,7 +159,7 @@ async fn test_remove_nonexistent_source(
 
     let result = env
         .api
-        .remove_switch_health_report(Request::new(rpc_forge::RemoveSwitchHealthReportRequest {
+        .remove_switch_health_report(Request::new(rpc_nico::RemoveSwitchHealthReportRequest {
             switch_id: Some(switch_id),
             source: "nonexistent-source".to_string(),
         }))
@@ -178,16 +178,16 @@ async fn test_missing_switch_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(get_config()))
             .await;
 
-    let nonexistent_switch_id = carbide_uuid::switch::SwitchId::from(uuid::Uuid::new_v4());
+    let nonexistent_switch_id = nico_uuid::switch::SwitchId::from(uuid::Uuid::new_v4());
     let report = alert_report("external-monitor");
 
     let result = env
         .api
-        .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
+        .insert_switch_health_report(Request::new(rpc_nico::InsertSwitchHealthReportRequest {
             switch_id: Some(nonexistent_switch_id),
-            health_report_entry: Some(rpc_forge::HealthReportEntry {
+            health_report_entry: Some(rpc_nico::HealthReportEntry {
                 report: Some(report.into()),
-                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                mode: rpc_nico::HealthReportApplyMode::Merge as i32,
             }),
         }))
         .await;
@@ -207,18 +207,18 @@ async fn test_replace_mode_override(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let replace_report = empty_healthy_report("admin-override");
     env.api
-        .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
+        .insert_switch_health_report(Request::new(rpc_nico::InsertSwitchHealthReportRequest {
             switch_id: Some(switch_id),
-            health_report_entry: Some(rpc_forge::HealthReportEntry {
+            health_report_entry: Some(rpc_nico::HealthReportEntry {
                 report: Some(replace_report.into()),
-                mode: rpc_forge::HealthReportApplyMode::Replace as i32,
+                mode: rpc_nico::HealthReportApplyMode::Replace as i32,
             }),
         }))
         .await?;
 
     let list_resp = env
         .api
-        .list_switch_health_reports(Request::new(rpc_forge::ListSwitchHealthReportsRequest {
+        .list_switch_health_reports(Request::new(rpc_nico::ListSwitchHealthReportsRequest {
             switch_id: Some(switch_id),
         }))
         .await?
@@ -226,11 +226,11 @@ async fn test_replace_mode_override(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert_eq!(list_resp.health_report_entries.len(), 1);
     assert_eq!(
         list_resp.health_report_entries[0].mode,
-        rpc_forge::HealthReportApplyMode::Replace as i32
+        rpc_nico::HealthReportApplyMode::Replace as i32
     );
 
     env.api
-        .remove_switch_health_report(Request::new(rpc_forge::RemoveSwitchHealthReportRequest {
+        .remove_switch_health_report(Request::new(rpc_nico::RemoveSwitchHealthReportRequest {
             switch_id: Some(switch_id),
             source: "admin-override".to_string(),
         }))
@@ -238,7 +238,7 @@ async fn test_replace_mode_override(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let list_resp = env
         .api
-        .list_switch_health_reports(Request::new(rpc_forge::ListSwitchHealthReportsRequest {
+        .list_switch_health_reports(Request::new(rpc_nico::ListSwitchHealthReportsRequest {
             switch_id: Some(switch_id),
         }))
         .await?
@@ -260,18 +260,18 @@ async fn test_switch_health_visible_in_find_switches(
 
     let report = alert_report("external-monitor");
     env.api
-        .insert_switch_health_report(Request::new(rpc_forge::InsertSwitchHealthReportRequest {
+        .insert_switch_health_report(Request::new(rpc_nico::InsertSwitchHealthReportRequest {
             switch_id: Some(switch_id),
-            health_report_entry: Some(rpc_forge::HealthReportEntry {
+            health_report_entry: Some(rpc_nico::HealthReportEntry {
                 report: Some(report.into()),
-                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                mode: rpc_nico::HealthReportApplyMode::Merge as i32,
             }),
         }))
         .await?;
 
     let switch_resp = env
         .api
-        .find_switches(Request::new(rpc_forge::SwitchQuery {
+        .find_switches(Request::new(rpc_nico::SwitchQuery {
             switch_id: Some(switch_id),
             name: None,
         }))
@@ -296,7 +296,7 @@ async fn test_switch_health_visible_in_find_switches(
     assert_eq!(switch_status.health_sources[0].source, "external-monitor");
     assert_eq!(
         switch_status.health_sources[0].mode,
-        rpc_forge::HealthReportApplyMode::Merge as i32
+        rpc_nico::HealthReportApplyMode::Merge as i32
     );
 
     Ok(())

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::BmcEndpointRequest;
+use ::rpc::admin_cli::NicoCliResult;
+use ::rpc::nico::BmcEndpointRequest;
 use mac_address::MacAddress;
 
 use crate::rpc::ApiClient;
@@ -25,7 +25,7 @@ pub async fn explore(
     api_client: &ApiClient,
     address: &str,
     mac: Option<MacAddress>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let report = api_client
         .0
         .explore(BmcEndpointRequest {

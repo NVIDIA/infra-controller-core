@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, OutputFormat};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -24,12 +24,12 @@ pub async fn get_job_status(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     let response = api_client
         .0
         .get_rack_firmware_job_status(opts)
         .await
-        .map_err(CarbideCliError::from)?;
+        .map_err(NicoCliError::from)?;
 
     if format == OutputFormat::Json {
         let result = serde_json::json!({

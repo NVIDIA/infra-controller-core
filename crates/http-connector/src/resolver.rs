@@ -40,12 +40,12 @@ type HickoryResolverFuture =
     Pin<Box<dyn Future<Output = Result<SocketAddrs, ResolveError>> + Send>>;
 
 #[derive(Clone, Default)]
-pub struct ForgeRuntimeProvider {
+pub struct NicoRuntimeProvider {
     handle: TokioHandle,
     use_mgmt_vrf: bool,
 }
 
-impl ForgeRuntimeProvider {
+impl NicoRuntimeProvider {
     pub fn new() -> Self {
         Self {
             handle: TokioHandle::default(),
@@ -87,7 +87,7 @@ impl ForgeRuntimeProvider {
     }
 }
 
-impl RuntimeProvider for ForgeRuntimeProvider {
+impl RuntimeProvider for NicoRuntimeProvider {
     type Handle = TokioHandle;
     type Timer = TokioTime;
     type Udp = TokioUdpSocket;
@@ -102,7 +102,7 @@ impl RuntimeProvider for ForgeRuntimeProvider {
         server_addr: SocketAddr,
     ) -> Pin<Box<dyn Send + Future<Output = std::io::Result<Self::Tcp>>>> {
         if self.use_mgmt_vrf {
-            let socket = match ForgeRuntimeProvider::create_ipv4_tcp_socket(true) {
+            let socket = match NicoRuntimeProvider::create_ipv4_tcp_socket(true) {
                 Ok(socket) => socket,
                 Err(io_err) => {
                     return Box::pin(async move { Err(io_err) });
@@ -134,7 +134,7 @@ impl RuntimeProvider for ForgeRuntimeProvider {
         _server_addr: SocketAddr,
     ) -> Pin<Box<dyn Send + Future<Output = std::io::Result<Self::Udp>>>> {
         if self.use_mgmt_vrf {
-            let socket = match ForgeRuntimeProvider::create_ipv4_udp_socket(true) {
+            let socket = match NicoRuntimeProvider::create_ipv4_udp_socket(true) {
                 Ok(socket) => socket,
                 Err(io_err) => {
                     return Box::pin(async move { Err(io_err) });
@@ -169,14 +169,14 @@ impl RuntimeProvider for ForgeRuntimeProvider {
 }
 
 /// A hyper resolver using `hickory`'s [`TokioAsyncResolver`].
-pub type ForgeResolver = HickoryResolver<ForgeTokioConnectionProvider>;
+pub type NicoResolver = HickoryResolver<NicoTokioConnectionProvider>;
 
 /// A [`hickory_resolver::name_server::ConnectionProvider`] for Tokio.
 /// This allows us to set socket options on the sockets we create for DNS resolution.
-pub type ForgeTokioConnectionProvider = GenericConnector<ForgeRuntimeProvider>;
+pub type NicoTokioConnectionProvider = GenericConnector<NicoRuntimeProvider>;
 
 #[derive(Clone, Debug, Default)]
-pub struct ForgeResolverOpts {
+pub struct NicoResolverOpts {
     inner: ResolverOpts,
     use_mgmt_vrf: bool,
 }
@@ -200,7 +200,7 @@ impl Iterator for SocketAddrs {
     }
 }
 
-impl ForgeResolverOpts {
+impl NicoResolverOpts {
     pub fn new() -> Self {
         Self {
             inner: ResolverOpts::default(),
@@ -224,39 +224,39 @@ impl ForgeResolverOpts {
 
 /// Get the default resolver options as configured per crate features.
 /// This allows us to enable DNSSEC conditionally.
-fn default_opts() -> ForgeResolverOpts {
-    ForgeResolverOpts::default()
+fn default_opts() -> NicoResolverOpts {
+    NicoResolverOpts::default()
 }
 
-impl ForgeResolver {
-    /// Create a new [`ForgeResolver`] with the default config options.
+impl NicoResolver {
+    /// Create a new [`NicoResolver`] with the default config options.
     /// This must be run inside a Tokio runtime context.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create a new [`ForgeResolver`] with the resolver configuration
+    /// Create a new [`NicoResolver`] with the resolver configuration
     /// options specified.
     /// This must be run inside a Tokio runtime context.
     //#[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn with_config_and_options(config: ResolverConfig, options: ForgeResolverOpts) -> Self {
+    pub fn with_config_and_options(config: ResolverConfig, options: NicoResolverOpts) -> Self {
         if options.use_mgmt_vrf {
-            let rt = ForgeRuntimeProvider::new().use_mgmt_vrf(options.use_mgmt_vrf);
-            let cp = ForgeTokioConnectionProvider::new(rt);
+            let rt = NicoRuntimeProvider::new().use_mgmt_vrf(options.use_mgmt_vrf);
+            let cp = NicoTokioConnectionProvider::new(rt);
             let resolver = AsyncResolver::new(config, options.inner, cp);
             Self::from_async_resolver(resolver)
         } else {
-            let rt = ForgeRuntimeProvider::new();
-            let cp = ForgeTokioConnectionProvider::new(rt);
+            let rt = NicoRuntimeProvider::new();
+            let cp = NicoTokioConnectionProvider::new(rt);
             let resolver = AsyncResolver::new(config, options.inner, cp);
             Self::from_async_resolver(resolver)
         }
     }
 }
 
-impl Default for ForgeResolver {
+impl Default for NicoResolver {
     fn default() -> Self {
         Self::with_config_and_options(ResolverConfig::default(), default_opts())
     }

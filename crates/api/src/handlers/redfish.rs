@@ -18,14 +18,14 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use arc_swap::ArcSwap;
-use carbide_utils::HostPortPair;
+use nico_utils::HostPortPair;
 use chrono::{DateTime, Local};
 use db::Transaction;
 use db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
 };
-use forge_secrets::credentials::CredentialReader;
+use nico_secrets::credentials::CredentialReader;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Uri};
 use model::redfish::BMCResponse;
@@ -33,24 +33,24 @@ use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::log_request_data;
 use crate::auth::external_user_info;
 
-// TODO: put this in carbide config?
+// TODO: put this in nico config?
 pub const NUM_REQUIRED_APPROVALS: usize = 2;
 
 pub async fn redfish_browse(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishBrowseRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishBrowseResponse>, tonic::Status> {
+    request: tonic::Request<::rpc::nico::RedfishBrowseRequest>,
+) -> Result<tonic::Response<::rpc::nico::RedfishBrowseResponse>, tonic::Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
     let uri: http::Uri = match request.uri.clone().parse() {
         Ok(uri) => uri,
         Err(err) => {
-            return Err(CarbideError::internal(format!("Parsing uri failed: {err}")).into());
+            return Err(NicoError::internal(format!("Parsing uri failed: {err}")).into());
         }
     };
 
@@ -71,7 +71,7 @@ pub async fn redfish_browse(
     {
         Ok(response) => response,
         Err(e) => {
-            return Err(CarbideError::internal(format!("Http request failed: {e:?}")).into());
+            return Err(NicoError::internal(format!("Http request failed: {e:?}")).into());
         }
     };
 
@@ -88,20 +88,20 @@ pub async fn redfish_browse(
 
     let status = response.status();
     let text = response.text().await.map_err(|e| {
-        CarbideError::internal(format!(
+        NicoError::internal(format!(
             "Error reading response body: {e}, Status: {status}"
         ))
     })?;
 
-    Ok(tonic::Response::new(::rpc::forge::RedfishBrowseResponse {
+    Ok(tonic::Response::new(::rpc::nico::RedfishBrowseResponse {
         text,
         headers,
     }))
 }
 pub async fn redfish_list_actions(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishListActionsRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishListActionsResponse>, tonic::Status> {
+    request: tonic::Request<::rpc::nico::RedfishListActionsRequest>,
+) -> Result<tonic::Response<::rpc::nico::RedfishListActionsResponse>, tonic::Status> {
     log_request_data(&request);
 
     let filter: model::redfish::RedfishListActionsFilter = request.into_inner().into();
@@ -109,7 +109,7 @@ pub async fn redfish_list_actions(
     let result = list_requests(filter, &api.database_connection).await?;
 
     Ok(tonic::Response::new(
-        rpc::forge::RedfishListActionsResponse {
+        rpc::nico::RedfishListActionsResponse {
             actions: result.into_iter().map(Into::into).collect(),
         },
     ))
@@ -117,12 +117,12 @@ pub async fn redfish_list_actions(
 
 pub async fn redfish_create_action(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishCreateActionRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishCreateActionResponse>, tonic::Status> {
+    request: tonic::Request<::rpc::nico::RedfishCreateActionRequest>,
+) -> Result<tonic::Response<::rpc::nico::RedfishCreateActionResponse>, tonic::Status> {
     log_request_data(&request);
 
     let authored_by = external_user_info(&request)?.user.ok_or(
-        CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
+        NicoError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
     let rpc_request = request.into_inner();
@@ -146,18 +146,18 @@ pub async fn redfish_create_action(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        ::rpc::forge::RedfishCreateActionResponse { request_id },
+        ::rpc::nico::RedfishCreateActionResponse { request_id },
     ))
 }
 
 pub async fn redfish_approve_action(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishActionId>,
-) -> Result<tonic::Response<::rpc::forge::RedfishApproveActionResponse>, tonic::Status> {
+    request: tonic::Request<::rpc::nico::RedfishActionId>,
+) -> Result<tonic::Response<::rpc::nico::RedfishApproveActionResponse>, tonic::Status> {
     log_request_data(&request);
 
     let approver = external_user_info(&request)?.user.ok_or(
-        CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
+        NicoError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
     let request: model::redfish::RedfishActionId = request.into_inner().into();
@@ -166,31 +166,31 @@ pub async fn redfish_approve_action(
     let action_request = fetch_request(request, &mut txn).await?;
     if action_request.approvers.contains(&approver) {
         return Err(
-            CarbideError::InvalidArgument("user already approved request".to_owned()).into(),
+            NicoError::InvalidArgument("user already approved request".to_owned()).into(),
         );
     }
 
     let is_approved = approve_request(approver, request, &mut txn).await?;
     if !is_approved {
         return Err(
-            CarbideError::InvalidArgument("user already approved request".to_owned()).into(),
+            NicoError::InvalidArgument("user already approved request".to_owned()).into(),
         );
     }
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        ::rpc::forge::RedfishApproveActionResponse {},
+        ::rpc::nico::RedfishApproveActionResponse {},
     ))
 }
 
 pub async fn redfish_apply_action(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishActionId>,
-) -> Result<tonic::Response<::rpc::forge::RedfishApplyActionResponse>, tonic::Status> {
+    request: tonic::Request<::rpc::nico::RedfishActionId>,
+) -> Result<tonic::Response<::rpc::nico::RedfishApplyActionResponse>, tonic::Status> {
     log_request_data(&request);
 
     let applier = external_user_info(&request)?.user.ok_or(
-        CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
+        NicoError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
     let request: model::redfish::RedfishActionId = request.into_inner().into();
@@ -199,18 +199,18 @@ pub async fn redfish_apply_action(
 
     let action_request = fetch_request(request, &mut txn).await?;
     if action_request.applied_at.is_some() {
-        return Err(CarbideError::InvalidArgument("action already applied".to_owned()).into());
+        return Err(NicoError::InvalidArgument("action already applied".to_owned()).into());
     }
 
     if action_request.approvers.len() < NUM_REQUIRED_APPROVALS {
-        return Err(CarbideError::InvalidArgument("insufficient approvals".to_owned()).into());
+        return Err(NicoError::InvalidArgument("insufficient approvals".to_owned()).into());
     }
 
     let ip_to_serial = find_serials(&action_request.machine_ips, &mut txn).await?;
 
     let is_applied = set_applied(applier, request, &mut txn).await?;
     if !is_applied {
-        return Err(CarbideError::InvalidArgument("Request was already applied".to_owned()).into());
+        return Err(NicoError::InvalidArgument("Request was already applied".to_owned()).into());
     }
 
     let mut uris: Vec<(Uri, usize)> = Vec::with_capacity(action_request.machine_ips.len());
@@ -239,7 +239,7 @@ pub async fn redfish_apply_action(
                     .path_and_query(&action_request.target)
                     .build()
                     .map_err(|e| {
-                        CarbideError::internal(format!("invalid uri from machine_ip: {e}"))
+                        NicoError::internal(format!("invalid uri from machine_ip: {e}"))
                     })?,
                 index,
             ));
@@ -280,7 +280,7 @@ pub async fn redfish_apply_action(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        ::rpc::forge::RedfishApplyActionResponse {},
+        ::rpc::nico::RedfishApplyActionResponse {},
     ))
 }
 
@@ -390,21 +390,21 @@ pub(crate) async fn create_client(
     bmc_proxy: &ArcSwap<Option<HostPortPair>>,
 ) -> Result<
     (
-        rpc::forge::BmcMetaDataGetResponse,
+        rpc::nico::BmcMetaDataGetResponse,
         http::Uri,
         HeaderMap,
         reqwest::Client,
     ),
-    CarbideError,
+    NicoError,
 > {
-    let bmc_metadata_request = rpc::forge::BmcMetaDataGetRequest {
+    let bmc_metadata_request = rpc::nico::BmcMetaDataGetRequest {
         machine_id: None,
-        bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
+        bmc_endpoint_request: Some(rpc::nico::BmcEndpointRequest {
             ip_address: uri.host().map(|x| x.to_string()).unwrap_or_default(),
             mac_address: None,
         }),
-        role: rpc::forge::UserRoles::Administrator.into(),
-        request_type: rpc::forge::BmcRequestType::Ipmi.into(),
+        role: rpc::nico::UserRoles::Administrator.into(),
+        request_type: rpc::nico::BmcRequestType::Ipmi.into(),
     };
 
     let metadata =
@@ -424,15 +424,15 @@ pub(crate) async fn create_client(
     };
     let new_authority = if let Some(port) = port {
         http::uri::Authority::try_from(format!("{host}:{port}"))
-            .map_err(|e| CarbideError::internal(format!("creating url {e}")))?
+            .map_err(|e| NicoError::internal(format!("creating url {e}")))?
     } else {
         http::uri::Authority::try_from(host)
-            .map_err(|e| CarbideError::internal(format!("creating url {e}")))?
+            .map_err(|e| NicoError::internal(format!("creating url {e}")))?
     };
     let mut parts = uri.into_parts();
     parts.authority = Some(new_authority);
     let new_uri = http::Uri::from_parts(parts)
-        .map_err(|e| CarbideError::internal(format!("invalid url parts {e}")))?;
+        .map_err(|e| NicoError::internal(format!("invalid url parts {e}")))?;
     let mut headers = HeaderMap::new();
     if add_custom_header {
         headers.insert(
@@ -454,7 +454,7 @@ pub(crate) async fn create_client(
             Ok(client) => client,
             Err(err) => {
                 tracing::error!(%err, "build_http_client");
-                return Err(CarbideError::internal(format!(
+                return Err(NicoError::internal(format!(
                     "Http building failed: {err}"
                 )));
             }
@@ -465,8 +465,8 @@ pub(crate) async fn create_client(
 
 pub async fn redfish_cancel_action(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishActionId>,
-) -> Result<tonic::Response<::rpc::forge::RedfishCancelActionResponse>, tonic::Status> {
+    request: tonic::Request<::rpc::nico::RedfishActionId>,
+) -> Result<tonic::Response<::rpc::nico::RedfishCancelActionResponse>, tonic::Status> {
     log_request_data(&request);
 
     let request: model::redfish::RedfishActionId = request.into_inner().into();
@@ -478,7 +478,7 @@ pub async fn redfish_cancel_action(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        ::rpc::forge::RedfishCancelActionResponse {},
+        ::rpc::nico::RedfishCancelActionResponse {},
     ))
 }
 
@@ -503,9 +503,9 @@ impl FromStr for TestBehavior {
 }
 
 impl TestBehavior {
-    pub fn into_client_creation_error(self) -> Option<CarbideError> {
+    pub fn into_client_creation_error(self) -> Option<NicoError> {
         if let TestBehavior::FailureAtClientCreation = self {
-            Some(CarbideError::internal(
+            Some(NicoError::internal(
                 "mock failure at client creation".to_owned(),
             ))
         } else {

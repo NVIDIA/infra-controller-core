@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::carbide_utils::metrics::SharedMetricsHolder;
+use ::nico_utils::metrics::SharedMetricsHolder;
 use opentelemetry::metrics::Meter;
 
 #[derive(Clone, Debug)]
@@ -38,7 +38,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<PreingestionM
     {
         let metrics = shared_metrics.clone();
         meter
-            .u64_observable_gauge("carbide_preingestion_total")
+            .u64_observable_gauge("nico_preingestion_total")
             .with_description(
                 "The amount of known machines currently being evaluated prior to ingestion",
             )
@@ -53,7 +53,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<PreingestionM
     {
         let metrics = shared_metrics.clone();
         meter
-                .u64_observable_gauge("carbide_preingestion_waiting_installation")
+                .u64_observable_gauge("nico_preingestion_waiting_installation")
                 .with_description(
                     "The amount of machines which have had firmware uploaded to them and are currently in the process of installing that firmware"
                 ).with_callback(move |observer| {
@@ -66,7 +66,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<PreingestionM
     {
         let metrics = shared_metrics;
         meter
-            .u64_observable_gauge("carbide_preingestion_waiting_download")
+            .u64_observable_gauge("nico_preingestion_waiting_download")
             .with_description("The amount of machines that are waiting for firmware downloads on other machines to complete before doing their own")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
@@ -104,7 +104,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use carbide_utils::test_support::test_meter::TestMeter;
+    use nico_utils::test_support::test_meter::TestMeter;
     use prometheus_text_parser::ParsedPrometheusMetrics;
 
     use super::*;

@@ -22,10 +22,10 @@ use std::net::IpAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{MachineId, MachineType};
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::dpa_interface::DpaInterfaceId;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::{MachineId, MachineType};
+use nico_uuid::machine_validation::MachineValidationId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, HealthReportApplyMode};
@@ -1162,7 +1162,7 @@ pub async fn try_update_network_config(
 }
 
 /// Replaces predicted host id with stable host id.
-/// Once forge receives DiscoveryData from Host, forge can create StableMachineId.
+/// Once nico receives DiscoveryData from Host, nico can create StableMachineId.
 /// This StableMachineId must replace existing PredictedHostId in db.
 /// State machine does not act on receiving discoverydata, but discoverycompleted message,
 /// so updating host id must not interfere state machine handling.
@@ -1684,17 +1684,17 @@ pub async fn apply_agent_upgrade_policy(
     match machine.network_status_observation.as_ref() {
         None => Ok(false),
         Some(obs) => {
-            let carbide_api_version = carbide_version::v!(build_version);
+            let nico_api_version = nico_version::v!(build_version);
             let Some(agent_version) = obs.agent_version.clone() else {
                 return Ok(false);
             };
-            let should_upgrade = policy.should_upgrade(&agent_version, carbide_api_version);
+            let should_upgrade = policy.should_upgrade(&agent_version, nico_api_version);
             if should_upgrade != machine.needs_agent_upgrade() {
                 set_dpu_agent_upgrade_requested(
                     txn,
                     machine_id,
                     should_upgrade,
-                    carbide_api_version,
+                    nico_api_version,
                 )
                 .await?;
             }
@@ -2436,7 +2436,7 @@ pub fn count_healthy_unhealthy_host_machines(
 mod test {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
     use model::machine::ManagedHostState;
     use model::machine::machine_search_config::MachineSearchConfig;
 

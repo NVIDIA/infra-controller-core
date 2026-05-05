@@ -3,7 +3,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_DcgmFullLong'
+    test_id = 'nico_DcgmFullLong'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 UPDATE
@@ -11,7 +11,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_DcgmFullShort'
+    test_id = 'nico_DcgmFullShort'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 UPDATE
@@ -19,7 +19,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_MqStresserLong'
+    test_id = 'nico_MqStresserLong'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 UPDATE
@@ -27,7 +27,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_MqStresserShort'
+    test_id = 'nico_MqStresserShort'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 UPDATE
@@ -35,7 +35,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_CPUTestLong'
+    test_id = 'nico_CPUTestLong'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 UPDATE
@@ -43,7 +43,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_CPUTestShort'
+    test_id = 'nico_CPUTestShort'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 UPDATE
@@ -51,7 +51,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_MemoryTestLong'
+    test_id = 'nico_MemoryTestLong'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 UPDATE
@@ -59,7 +59,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_MemoryTestShort'
+    test_id = 'nico_MemoryTestShort'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 UPDATE
@@ -67,7 +67,7 @@ UPDATE
 SET
     supported_platforms = array_append(supported_platforms, '920-24387-2540-000')
 WHERE
-    test_id = 'forge_ForgeRunBook'
+    test_id = 'nico_NicoRunBook'
     AND array_position(supported_platforms, '920-24387-2540-000') IS NULL;
 
 -- Testing is completed; Remove default sku from all test cases
@@ -105,7 +105,7 @@ VALUES
         ARRAY ['default'],
         7200,
         'V1-T1731384539962561',
-        'forge_DefaultTestCase',
+        'nico_DefaultTestCase',
         '',
         ARRAY ['dgxcloud'],
         'System'

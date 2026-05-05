@@ -30,8 +30,8 @@
 #include <dhcp/option_definition.h>
 #include <dhcp/option_string.h>
 
-#include "carbide_logger.h"
-#include "carbide_rust.h"
+#include "nico_logger.h"
+#include "nico_rust.h"
 #include <dhcp/option_custom.h>
 #pragma GCC diagnostic ignored "-Wsign-compare"
 #include <dhcp/option_int.h>

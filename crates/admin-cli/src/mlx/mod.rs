@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliResult, OutputFormat};
 use clap::Parser;
 use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use prettytable::{Cell, Row, Table};
@@ -58,7 +58,7 @@ pub struct CliContext<'g, 'a> {
 }
 
 impl Dispatch for MlxAction {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+    async fn dispatch(self, ctx: RuntimeContext) -> NicoCliResult<()> {
         let mut ctxt = CliContext {
             grpc_conn: &ctx.api_client,
             format: &ctx.config.format,

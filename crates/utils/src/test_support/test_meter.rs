@@ -117,7 +117,7 @@ impl Default for TestMeter {
             .build();
 
         TestMeter {
-            meter: meter_provider.meter("carbide-api"),
+            meter: meter_provider.meter("nico-api"),
             registry: prometheus_registry,
             _meter_provider: meter_provider,
         }

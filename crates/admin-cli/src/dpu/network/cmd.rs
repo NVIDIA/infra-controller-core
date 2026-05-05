@@ -17,9 +17,9 @@
 
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::ManagedHostNetworkConfigResponse;
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::ManagedHostNetworkConfigResponse;
+use nico_uuid::machine::MachineId;
 use prettytable::{Table, format, row};
 
 use crate::async_write;
@@ -31,7 +31,7 @@ pub async fn network(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     cmd: NetworkCommand,
     output_format: OutputFormat,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         NetworkCommand::Config(query) => {
             show_dpu_network_config(api_client, output_file, query.machine_id, output_format).await
@@ -54,9 +54,9 @@ pub async fn show_dpu_network_config(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     dpu_id: MachineId,
     output_format: OutputFormat,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if !dpu_id.machine_type().is_dpu() {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "Only DPU id is allowed.".to_string(),
         ));
     }
@@ -96,7 +96,7 @@ pub async fn show_dpu_network_config(
                     .unwrap_or_default()
             ]);
 
-            let virt_type = ::rpc::forge::VpcVirtualizationType::try_from(
+            let virt_type = ::rpc::nico::VpcVirtualizationType::try_from(
                 config.network_virtualization_type.unwrap_or_default(),
             )
             .unwrap_or_default()
@@ -197,7 +197,7 @@ pub async fn show_dpu_network_config(
 pub async fn show_dpu_status(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let all_status = api_client
         .0
         .get_all_managed_host_network_status()

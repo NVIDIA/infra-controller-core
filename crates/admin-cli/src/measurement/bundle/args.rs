@@ -30,7 +30,7 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::admin_cli::NicoCliError;
 use ::rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest, FindClosestBundleMatchRequest,
     ListMeasurementBundleMachinesRequest, MeasurementBundleStatePb, RenameMeasurementBundleRequest,
@@ -39,7 +39,7 @@ use ::rpc::protos::measured_boot::{
     rename_measurement_bundle_request, show_measurement_bundle_request,
     update_measurement_bundle_request,
 };
-use carbide_uuid::measured_boot::{
+use nico_uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
 };
 use clap::Parser;
@@ -287,12 +287,12 @@ impl From<Delete> for DeleteMeasurementBundleRequest {
 }
 
 impl TryFrom<Rename> for RenameMeasurementBundleRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
     fn try_from(rename: Rename) -> Result<Self, Self::Error> {
         let selector = match get_identifier(&rename)? {
             IdentifierType::ForId => {
                 let bundle_id = MeasurementBundleId::from_str(&rename.identifier)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                    .map_err(|e| NicoCliError::GenericError(e.to_string()))?;
                 Some(rename_measurement_bundle_request::Selector::BundleId(
                     bundle_id,
                 ))
@@ -317,13 +317,13 @@ impl TryFrom<Rename> for RenameMeasurementBundleRequest {
 }
 
 impl TryFrom<SetState> for UpdateMeasurementBundleRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
     fn try_from(set_state: SetState) -> Result<Self, Self::Error> {
         let state: MeasurementBundleStatePb = set_state.state.into();
         let selector = match get_identifier(&set_state)? {
             IdentifierType::ForId => {
                 let bundle_id = MeasurementBundleId::from_str(&set_state.identifier)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                    .map_err(|e| NicoCliError::GenericError(e.to_string()))?;
                 Some(update_measurement_bundle_request::Selector::BundleId(
                     bundle_id,
                 ))
@@ -348,18 +348,18 @@ impl TryFrom<SetState> for UpdateMeasurementBundleRequest {
 }
 
 impl TryFrom<Show> for ShowMeasurementBundleRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
     fn try_from(show: Show) -> Result<Self, Self::Error> {
         let identifier_type = get_identifier(&show)?;
         let identifier = show
             .identifier
-            .ok_or(CarbideCliError::GenericError(String::from(
+            .ok_or(NicoCliError::GenericError(String::from(
                 "identifier expected to be set here",
             )))?;
         let selector = match identifier_type {
             IdentifierType::ForId => {
                 let bundle_id = MeasurementBundleId::from_str(&identifier)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                    .map_err(|e| NicoCliError::GenericError(e.to_string()))?;
                 Some(show_measurement_bundle_request::Selector::BundleId(
                     bundle_id,
                 ))
@@ -381,12 +381,12 @@ impl TryFrom<Show> for ShowMeasurementBundleRequest {
 }
 
 impl TryFrom<ListMachines> for ListMeasurementBundleMachinesRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
     fn try_from(list_machines: ListMachines) -> Result<Self, Self::Error> {
         let selector = match get_identifier(&list_machines)? {
             IdentifierType::ForId => {
                 let bundle_id = MeasurementBundleId::from_str(&list_machines.identifier)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                    .map_err(|e| NicoCliError::GenericError(e.to_string()))?;
                 Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
             }
             IdentifierType::ForName => Some(

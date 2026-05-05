@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-//! Carbide-specific DPU service definitions for DPUServiceTemplate / DPUServiceConfiguration.
+//! Nico-specific DPU service definitions for DPUServiceTemplate / DPUServiceConfiguration.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use carbide_dpf::sdk::build_dpu_interfaces_vec;
-use carbide_dpf::types::{DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, FMDS_SERVICE_NAME};
-use carbide_dpf::{
+use nico_dpf::sdk::build_dpu_interfaces_vec;
+use nico_dpf::types::{DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, FMDS_SERVICE_NAME};
+use nico_dpf::{
     ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
     ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
@@ -32,14 +32,14 @@ use crate::cfg::file::DpfServiceConfig;
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
-pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
+pub const DEFAULT_NICO_HELM_REGISTRY: &str =
     "https://helm.ngc.nvidia.com/0837451325059433/carbide-dev";
 
 /// Default DOCA container image registry prefix.
 pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 
-/// Default Carbide container image registry prefix.
-pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
+/// Default Nico container image registry prefix.
+pub const DEFAULT_NICO_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
@@ -49,10 +49,10 @@ pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
 pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 
 /// DHCP Service Definitions
-pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "carbide-dhcp-server";
+pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "nico-dhcp-server";
 pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
 pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
-pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
+pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "nico-dhcp-server";
 
 /// DTS service definitions
 pub const DTS_SERVICE_NAME: &str = "dts";
@@ -60,29 +60,29 @@ pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
 pub const DTS_SERVICE_HELM_VERSION: &str = "1.22.1";
 
 // DPU Agent Service Definitions
-pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
-pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
-pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
+pub const DPU_AGENT_SERVICE_NAME: &str = "nico-dpu-agent";
+pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "nico-dpu-agent";
+pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "nico-dpu-agent";
 
 /// FMDS Agent Service Definitions
-pub const FMDS_SERVICE_HELM_NAME: &str = "carbide-fmds";
-pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
+pub const FMDS_SERVICE_HELM_NAME: &str = "nico-fmds";
+pub const FMDS_SERVICE_IMAGE_NAME: &str = "nico-fmds";
 pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
 pub const FMDS_SERVICE_MTU: i64 = 1500;
 
 /// OTel Collector Service Definitions
-pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
-pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "carbide-otelcol";
+pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "nico-otelcol";
+pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
-pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
+pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("NICO_BUILD_HELM_VERSION") {
     Some(v) => v,
     None => "",
 };
 
 /// Compile-time image tag (set by CI via VERSION env var). Empty on PR/fork builds.
-pub(crate) const COMPILE_TIME_IMAGE_TAG: &str = match option_env!("CARBIDE_BUILD_GIT_TAG") {
+pub(crate) const COMPILE_TIME_IMAGE_TAG: &str = match option_env!("NICO_BUILD_GIT_TAG") {
     Some(v) => v,
     None => "",
 };
@@ -163,10 +163,10 @@ pub(crate) fn default_doca_hbn_service() -> DpfServiceConfig {
 pub(crate) fn default_dpu_agent_service() -> DpfServiceConfig {
     DpfServiceConfig {
         name: DPU_AGENT_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_repo_url: DEFAULT_NICO_HELM_REGISTRY.to_string(),
         helm_chart: DPU_AGENT_SERVICE_HELM_NAME.to_string(),
         helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
-        docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DPU_AGENT_SERVICE_IMAGE_NAME}"),
+        docker_repo_url: format!("{DEFAULT_NICO_IMAGE_REGISTRY}/{DPU_AGENT_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
     }
 }
@@ -174,11 +174,11 @@ pub(crate) fn default_dpu_agent_service() -> DpfServiceConfig {
 pub(crate) fn default_dhcp_server_service() -> DpfServiceConfig {
     DpfServiceConfig {
         name: DHCP_SERVER_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_repo_url: DEFAULT_NICO_HELM_REGISTRY.to_string(),
         helm_chart: DHCP_SERVER_SERVICE_HELM_NAME.to_string(),
         helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
         docker_repo_url: format!(
-            "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DHCP_SERVER_SERVICE_IMAGE_NAME}"
+            "{DEFAULT_NICO_IMAGE_REGISTRY}/{DHCP_SERVER_SERVICE_IMAGE_NAME}"
         ),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
     }
@@ -187,10 +187,10 @@ pub(crate) fn default_dhcp_server_service() -> DpfServiceConfig {
 pub(crate) fn default_fmds_service() -> DpfServiceConfig {
     DpfServiceConfig {
         name: FMDS_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_repo_url: DEFAULT_NICO_HELM_REGISTRY.to_string(),
         helm_chart: FMDS_SERVICE_HELM_NAME.to_string(),
         helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
-        docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{FMDS_SERVICE_IMAGE_NAME}"),
+        docker_repo_url: format!("{DEFAULT_NICO_IMAGE_REGISTRY}/{FMDS_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
     }
 }
@@ -198,11 +198,11 @@ pub(crate) fn default_fmds_service() -> DpfServiceConfig {
 pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
     DpfServiceConfig {
         name: OTEL_COLLECTOR_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_repo_url: DEFAULT_NICO_HELM_REGISTRY.to_string(),
         helm_chart: OTEL_COLLECTOR_SERVICE_HELM_NAME.to_string(),
         helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
         docker_repo_url: format!(
-            "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{OTEL_COLLECTOR_SERVICE_IMAGE_NAME}"
+            "{DEFAULT_NICO_IMAGE_REGISTRY}/{OTEL_COLLECTOR_SERVICE_IMAGE_NAME}"
         ),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
     }
@@ -224,7 +224,7 @@ pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             "configuration": {
                 "user": {
                     "create": true,
-                    "username": "carbide",
+                    "username": "nico",
                     "password": {
                         "secretName": "hbn-user-password",
                         "secretKey": "password",
@@ -274,7 +274,7 @@ pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-/// Forge DPU Agent service definition.
+/// Nico DPU Agent service definition.
 pub fn dpu_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
@@ -298,11 +298,11 @@ pub fn dpu_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 
         config_values: Some(serde_json::json!({
             "dhcp_server": {
-                "service_name": "{{ (index .Services \"carbide-dhcp-server\").Name }}",
+                "service_name": "{{ (index .Services \"nico-dhcp-server\").Name }}",
                 "interface_prepend": "d_"
             },
             "fmds": {
-                "service_name": "{{ (index .Services \"carbide-fmds\").Name }}"
+                "service_name": "{{ (index .Services \"nico-fmds\").Name }}"
             },
             "hbn": {
                 "nvue_https_address": "{{ (index .Services \"doca-hbn\").Name }}"
@@ -318,7 +318,7 @@ pub fn dpu_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-/// Forge DHCP Server service definition.
+/// Nico DHCP Server service definition.
 pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
@@ -354,7 +354,7 @@ pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-/// Forge FMDS service definition.
+/// Nico FMDS service definition.
 pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
@@ -424,9 +424,9 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 
 #[cfg(test)]
 mod tests {
-    use carbide_dpf::build_service_interface;
-    use carbide_dpf::sdk::build_dpu_interfaces_vec;
-    use carbide_dpf::types::DpuServiceInterfaceTemplateType;
+    use nico_dpf::build_service_interface;
+    use nico_dpf::sdk::build_dpu_interfaces_vec;
+    use nico_dpf::types::DpuServiceInterfaceTemplateType;
 
     use super::*;
 

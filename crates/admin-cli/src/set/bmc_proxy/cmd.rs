@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::ConfigSetting;
+use ::rpc::admin_cli::NicoCliResult;
+use ::rpc::nico::ConfigSetting;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn bmc_proxy(opts: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn bmc_proxy(opts: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     if opts.enabled {
         api_client
             .set_dynamic_config(

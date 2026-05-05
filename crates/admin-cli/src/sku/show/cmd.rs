@@ -16,8 +16,8 @@
  */
 use std::io::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::SkuList;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::SkuList;
 use prettytable::{Row, Table};
 use tokio::io::AsyncWriteExt;
 
@@ -26,15 +26,15 @@ use crate::rpc::ApiClient;
 use crate::{async_write_table_as_csv, async_writeln};
 
 struct SkuWrapper {
-    sku: ::rpc::forge::Sku,
+    sku: ::rpc::nico::Sku,
 }
 
 struct SkusWrapper {
     skus: Vec<SkuWrapper>,
 }
 
-impl From<::rpc::forge::Sku> for SkuWrapper {
-    fn from(sku: ::rpc::forge::Sku) -> Self {
+impl From<::rpc::nico::Sku> for SkuWrapper {
+    fn from(sku: ::rpc::nico::Sku) -> Self {
         SkuWrapper { sku }
     }
 }
@@ -85,7 +85,7 @@ fn create_table(header: Vec<&str>) -> Table {
     table
 }
 
-fn cpu_table(cpus: Vec<::rpc::forge::SkuComponentCpu>) -> Table {
+fn cpu_table(cpus: Vec<::rpc::nico::SkuComponentCpu>) -> Table {
     let mut table = create_table(vec!["Vendor", "Model", "Threads", "Count"]);
 
     for cpu in cpus {
@@ -100,7 +100,7 @@ fn cpu_table(cpus: Vec<::rpc::forge::SkuComponentCpu>) -> Table {
     table
 }
 
-fn gpu_table(gpus: Vec<::rpc::forge::SkuComponentGpu>) -> Table {
+fn gpu_table(gpus: Vec<::rpc::nico::SkuComponentGpu>) -> Table {
     let mut table = create_table(vec!["Vendor", "Total Memory", "Model", "Count"]);
     for gpu in gpus {
         table.add_row(Row::from(vec![
@@ -114,12 +114,12 @@ fn gpu_table(gpus: Vec<::rpc::forge::SkuComponentGpu>) -> Table {
     table
 }
 
-fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
+fn memory_table(memory: Vec<::rpc::nico::SkuComponentMemory>) -> Table {
     let mut table = create_table(vec!["Type", "Capacity", "Count"]);
     for m in memory {
         table.add_row(Row::from(vec![
             m.memory_type,
-            ::carbide_utils::sku::capacity_string(m.capacity_mb as u64),
+            ::nico_utils::sku::capacity_string(m.capacity_mb as u64),
             m.count.to_string(),
         ]));
     }
@@ -127,7 +127,7 @@ fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
     table
 }
 
-fn ib_device_table(devices: Vec<::rpc::forge::SkuComponentInfinibandDevices>) -> Table {
+fn ib_device_table(devices: Vec<::rpc::nico::SkuComponentInfinibandDevices>) -> Table {
     let mut table = create_table(vec!["Vendor", "Model", "Count", "Inactive Devices"]);
     for dev in devices {
         let inactive_devices = serde_json::to_string(&dev.inactive_devices).unwrap();
@@ -142,7 +142,7 @@ fn ib_device_table(devices: Vec<::rpc::forge::SkuComponentInfinibandDevices>) ->
     table
 }
 
-fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
+fn storage_table(storage: Vec<::rpc::nico::SkuComponentStorage>) -> Table {
     let mut table = Table::new();
     let table_format = table.get_format();
     table_format.indent(10);
@@ -157,8 +157,8 @@ fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
 pub async fn show_skus_table(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
-    skus: Vec<::rpc::forge::Sku>,
-) -> CarbideCliResult<()> {
+    skus: Vec<::rpc::nico::Sku>,
+) -> NicoCliResult<()> {
     match output_format {
         OutputFormat::Json => {
             async_writeln!(output_file, "{}", serde_json::to_string_pretty(&skus)?)?;
@@ -192,8 +192,8 @@ pub async fn show_sku_details(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     extended: bool,
-    sku: ::rpc::forge::Sku,
-) -> CarbideCliResult<()> {
+    sku: ::rpc::nico::Sku,
+) -> NicoCliResult<()> {
     match output_format {
         OutputFormat::Json => {
             output_file
@@ -201,7 +201,7 @@ pub async fn show_sku_details(
                 .await?;
         }
         OutputFormat::Csv => {
-            return Err(CarbideCliError::GenericError(
+            return Err(NicoCliError::GenericError(
                 "CSV output not supported".to_string(),
             ));
         }
@@ -273,7 +273,7 @@ pub async fn show_sku_details(
                     writeln!(
                         output,
                         "Memory ({}): ",
-                        ::carbide_utils::sku::capacity_string(
+                        ::nico_utils::sku::capacity_string(
                             components
                                 .memory
                                 .iter()
@@ -303,7 +303,7 @@ pub async fn show_sku_details(
             output_file.write_all(output.as_slice()).await?;
         }
         OutputFormat::Yaml => {
-            return Err(CarbideCliError::GenericError(
+            return Err(NicoCliError::GenericError(
                 "YAML output not supported".to_string(),
             ));
         }
@@ -318,7 +318,7 @@ pub async fn show(
     output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if let Some(sku_id) = args.sku_id {
         let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
 

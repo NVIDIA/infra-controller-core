@@ -20,8 +20,8 @@
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use carbide_redfish::libredfish::conv::IntoModel;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_redfish::libredfish::conv::IntoModel;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
@@ -31,7 +31,7 @@ use model::site_explorer::{
     EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NicMode,
     PowerState, Service, UefiDevicePath,
 };
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use sqlx::PgConnection;
 use tonic::Request;
@@ -275,7 +275,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
 pub async fn create_dpu_machine(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
-) -> carbide_uuid::machine::MachineId {
+) -> nico_uuid::machine::MachineId {
     site_explorer::new_dpu(env, host_config.clone())
         .await
         .unwrap()
@@ -293,16 +293,16 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
 pub async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
     tracing::debug!("Creating machine inventory for {}", machine_id);
     env.api
-        .update_agent_reported_inventory(Request::new(rpc::forge::DpuAgentInventoryReport {
+        .update_agent_reported_inventory(Request::new(rpc::nico::DpuAgentInventoryReport {
             machine_id: Some(machine_id),
-            inventory: Some(rpc::forge::MachineInventory {
+            inventory: Some(rpc::nico::MachineInventory {
                 components: vec![
-                    rpc::forge::MachineInventorySoftwareComponent {
+                    rpc::nico::MachineInventorySoftwareComponent {
                         name: "doca-hbn".to_string(),
                         version: TEST_DOCA_HBN_VERSION.to_string(),
                         url: "nvcr.io/nvidia/doca/".to_string(),
                     },
-                    rpc::forge::MachineInventorySoftwareComponent {
+                    rpc::nico::MachineInventorySoftwareComponent {
                         name: "doca-telemetry".to_string(),
                         version: TEST_DOCA_TELEMETRY_VERSION.to_string(),
                         url: "nvcr.io/nvidia/doca/".to_string(),
@@ -338,7 +338,7 @@ pub async fn dpu_discover_machine(
     env: &TestEnv,
     dpu_config: &DpuConfig,
     machine_interface_id: MachineInterfaceId,
-) -> carbide_uuid::machine::MachineId {
+) -> nico_uuid::machine::MachineId {
     let response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {

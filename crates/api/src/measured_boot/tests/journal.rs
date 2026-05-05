@@ -24,8 +24,8 @@
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
-    use carbide_uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
+    use nico_uuid::machine::MachineId;
+    use nico_uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
     use measured_boot::records::MeasurementMachineState;
 
     // test_journal_crudl makes sure database constraints

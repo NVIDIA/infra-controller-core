@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use carbide_utils::arch::CpuArchitecture;
+use nico_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{CpuInfo, Gpu, InfinibandInterface, MemoryDevice};
 use rpc::{BlockDevice, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice, PciDeviceProperties};
@@ -336,7 +336,7 @@ impl NvidiaDgxH100<'_> {
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: [
-                // version required carbide to pass ingestion test in site explorer.
+                // version required nico to pass ingestion test in site explorer.
                 ("CPLDMB_0", "0.2.1.9"),
                 // This one is needed for libredfish to setup lockdown
                 ("HostBIOS_0", "01.05.03"),

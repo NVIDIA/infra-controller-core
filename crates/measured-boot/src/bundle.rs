@@ -20,7 +20,7 @@
  *  tables in the database, leveraging the bundle-specific record types.
  */
 
-use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use nico_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
 use rpc::errors::RpcDataConversionError;

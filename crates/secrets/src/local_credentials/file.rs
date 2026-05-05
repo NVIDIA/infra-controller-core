@@ -42,7 +42,7 @@ impl FileCredentialsConfig {
     pub fn enabled(&self) -> bool {
         self.enabled
             .or_else(|| {
-                std::env::var("CARBIDE_CREDENTIALS_FILE_ENABLED")
+                std::env::var("NICO_CREDENTIALS_FILE_ENABLED")
                     .ok()
                     .and_then(|v| v.parse().ok())
             })
@@ -53,7 +53,7 @@ impl FileCredentialsConfig {
         self.path
             .clone()
             .or_else(|| {
-                std::env::var("CARBIDE_CREDENTIALS_FILE_PATH")
+                std::env::var("NICO_CREDENTIALS_FILE_PATH")
                     .ok()
                     .map(PathBuf::from)
             })

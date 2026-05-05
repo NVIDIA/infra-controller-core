@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};

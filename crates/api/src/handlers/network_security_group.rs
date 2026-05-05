@@ -18,10 +18,10 @@
 use std::collections::HashSet;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::network_security_group::NetworkSecurityGroupId;
-use carbide_uuid::vpc::VpcId;
+use ::rpc::nico as rpc;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::network_security_group::NetworkSecurityGroupId;
+use nico_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
 use db::network_security_group;
 use model::metadata::Metadata;
@@ -30,7 +30,7 @@ use model::tenant::{InvalidTenantOrg, TenantOrganizationId};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 pub(crate) async fn create(
@@ -45,7 +45,7 @@ pub(crate) async fn create(
     let id = match req.id {
         None => NetworkSecurityGroupId::from(Uuid::new_v4()),
         Some(i) => i.parse::<NetworkSecurityGroupId>().map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+            NicoError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
                 e.value(),
             ))
         })?,
@@ -53,15 +53,15 @@ pub(crate) async fn create(
 
     // Prepare the metadata
     let metadata = match req.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
 
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     // Prepare the rules list
     let (stateful_egress, rules) = {
@@ -73,7 +73,7 @@ pub(crate) async fn create(
                 .into_iter()
                 .map(|r| r.try_into())
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(CarbideError::from)?,
+                .map_err(NicoError::from)?,
         )
     };
 
@@ -92,7 +92,7 @@ pub(crate) async fn create(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Start a new transaction for a db write.
@@ -141,7 +141,7 @@ pub(crate) async fn find_ids(
         .map(|t| t.parse::<TenantOrganizationId>())
         .transpose()
         .map_err(|e: InvalidTenantOrg| {
-            CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+            NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
         })?;
 
     let mut txn = api.txn_begin().await?;
@@ -176,7 +176,7 @@ pub(crate) async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if req.network_security_group_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be submitted"
         ))
         .into());
@@ -184,7 +184,7 @@ pub(crate) async fn find_by_ids(
 
     if req.network_security_group_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -196,7 +196,7 @@ pub(crate) async fn find_by_ids(
         .map(|i| i.parse::<NetworkSecurityGroupId>())
         .collect::<Result<Vec<NetworkSecurityGroupId>, _>>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+            NicoError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
                 e.value(),
             ))
         })?;
@@ -211,7 +211,7 @@ pub(crate) async fn find_by_ids(
         .map(|t| t.parse::<TenantOrganizationId>())
         .transpose()
         .map_err(|e: InvalidTenantOrg| {
-            CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+            NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
         })?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
@@ -257,22 +257,22 @@ pub(crate) async fn update(
 
     // Get the target ID
     let id = req.id.parse::<NetworkSecurityGroupId>().map_err(|e| {
-        CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+        NicoError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
             e.value(),
         ))
     })?;
 
     // Prepare the metadata
     let metadata = match req.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
 
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     // Prepare the desired rules list
     let (stateful_egress, rules) = {
@@ -284,7 +284,7 @@ pub(crate) async fn update(
                 .into_iter()
                 .map(|r| r.try_into())
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(CarbideError::from)?,
+                .map_err(NicoError::from)?,
         )
     };
 
@@ -303,7 +303,7 @@ pub(crate) async fn update(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Start a new transaction for a db write.
@@ -325,9 +325,9 @@ pub(crate) async fn update(
 
     // If we found more than one, the DB is corrupt.
     if current_network_security_group.len() > 1 {
-        // CarbideError::FindOneReturnedManyResultsError expects a uuid,
+        // NicoError::FindOneReturnedManyResultsError expects a uuid,
         // and we've said we want to move away from uuid::Uuid
-        return Err(CarbideError::Internal {
+        return Err(NicoError::Internal {
             message: format!("multiple NetworkSecurityGroup records found for '{id}'"),
         }
         .into());
@@ -340,7 +340,7 @@ pub(crate) async fn update(
     let current_network_security_group = match current_network_security_group.first() {
         Some(i) => i,
         None => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "NetworkSecurityGroup",
                 id: format!(
                     "{} for tenant org `{}`",
@@ -356,10 +356,10 @@ pub(crate) async fn update(
     if let Some(if_version_match) = req.if_version_match {
         let target_version = if_version_match
             .parse::<ConfigVersion>()
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
         if current_network_security_group.version != target_version {
-            return Err(CarbideError::ConcurrentModificationError(
+            return Err(NicoError::ConcurrentModificationError(
                 "NetworkSecurityGroup",
                 target_version.to_string(),
             )
@@ -402,7 +402,7 @@ pub(crate) async fn delete(
     let req = request.into_inner();
 
     let id = req.id.parse::<NetworkSecurityGroupId>().map_err(|e| {
-        CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+        NicoError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
             e.value(),
         ))
     })?;
@@ -415,7 +415,7 @@ pub(crate) async fn delete(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Prepare our txn to delete from the DB
@@ -441,7 +441,7 @@ pub(crate) async fn delete(
     // Since we needed to query for the record anyway,
     // we can save ourselves some extra work if it didn't exist.
     let Some(nsg) = nsg else {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "NetworkSecurityGroup",
             id: id.to_string(),
         }
@@ -449,7 +449,7 @@ pub(crate) async fn delete(
     };
 
     if nsg.tenant_organization_id != tenant_organization_id {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "NetworkSecurityGroup `{}` is not owned by Tenant `{}`",
             nsg.id.clone(),
             tenant_organization_id.clone()
@@ -471,7 +471,7 @@ pub(crate) async fn delete(
         .map(|a| a.has_attachments())
         .unwrap_or_default()
     {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "NetworkSecurityGroup {id} is associated with active objects"
         ))
         .into());
@@ -500,14 +500,14 @@ pub(crate) async fn get_propagation_status(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if req.vpc_ids.len() + req.instance_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs combined can be submitted"
         ))
         .into());
     }
 
     if req.vpc_ids.is_empty() && req.instance_ids.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "at least one VPC ID or Instance ID must be provided".to_string(),
         )
         .into());
@@ -518,7 +518,7 @@ pub(crate) async fn get_propagation_status(
         .iter()
         .map(|v| v.parse::<VpcId>())
         .collect::<Result<Vec<VpcId>, _>>()
-        .map_err(|e| CarbideError::from(RpcDataConversionError::InvalidVpcId(e.to_string())))?;
+        .map_err(|e| NicoError::from(RpcDataConversionError::InvalidVpcId(e.to_string())))?;
 
     let instance_ids = req
         .instance_ids
@@ -526,7 +526,7 @@ pub(crate) async fn get_propagation_status(
         .map(|i| i.parse::<InstanceId>())
         .collect::<Result<Vec<InstanceId>, _>>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceId(e.to_string()))
+            NicoError::from(RpcDataConversionError::InvalidInstanceId(e.to_string()))
         })?;
 
     // Prepare our txn to associate machines with the NetworkSecurityGroup
@@ -544,7 +544,7 @@ pub(crate) async fn get_propagation_status(
             })
             .transpose()
             .map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidInstanceId(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidInstanceId(e.to_string()))
             })?
             .as_deref(),
         None,
@@ -576,7 +576,7 @@ pub(crate) async fn get_attachments(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if req.network_security_group_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be submitted"
         ))
         .into());
@@ -584,7 +584,7 @@ pub(crate) async fn get_attachments(
 
     if req.network_security_group_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -594,7 +594,7 @@ pub(crate) async fn get_attachments(
         .map(|v| v.parse::<NetworkSecurityGroupId>())
         .collect::<Result<Vec<NetworkSecurityGroupId>, _>>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+            NicoError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
                 e.value(),
             ))
         })?;
@@ -624,20 +624,20 @@ pub(crate) async fn get_attachments(
 fn validate_expanded_rule_set(
     rules: &[NetworkSecurityGroupRule],
     limit: usize,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let mut total_rules = 0u32;
 
     let mut ids = HashSet::<Option<String>>::new();
 
     if rules.len() > limit {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "expanded rule set contains more than {limit} maximum number of rules"
         )));
     }
 
     for rule in rules {
         if !ids.insert(rule.id.clone()) {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "duplicate rule ID `{}` found in rule set",
                 rule.id.clone().unwrap_or_default()
             )));
@@ -657,7 +657,7 @@ fn validate_expanded_rule_set(
 
                 total_rules = match total_rules.overflowing_add(rule_count) {
                     (_, true) => {
-                        return Err(CarbideError::InvalidArgument(format!(
+                        return Err(NicoError::InvalidArgument(format!(
                             "expanded rule set contains more than {limit} maximum number of rules"
                         )));
                     }
@@ -665,7 +665,7 @@ fn validate_expanded_rule_set(
                 };
 
                 if total_rules as usize > limit {
-                    return Err(CarbideError::InvalidArgument(format!(
+                    return Err(NicoError::InvalidArgument(format!(
                         "expanded rule set contains more than {limit} maximum number of rules"
                     )));
                 }

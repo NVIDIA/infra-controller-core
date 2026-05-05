@@ -589,7 +589,7 @@ async fn get_boot_options_collection(
     };
     let boot_options_order = match system_state.config.boot_order_mode {
         BootOrderMode::DellOem => {
-            // Carbide relies that Dell sorts boot options in according to boot
+            // Nico relies that Dell sorts boot options in according to boot
             // order. Code below simulates the same.
             if let Some(boot_order) = system_state.boot_order_override() {
                 let mut indices = (0..boot_options.len()).collect::<Vec<_>>();

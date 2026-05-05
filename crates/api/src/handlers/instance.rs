@@ -17,13 +17,13 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
-use carbide_redfish::libredfish::RedfishAuth;
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico::{self as rpc, AdminForceDeleteMachineResponse};
+use nico_redfish::libredfish::RedfishAuth;
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use db::{DatabaseError, WithTransaction, extension_service, network_security_group};
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
@@ -53,7 +53,7 @@ use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
     validate_ib_partition_ownership, validate_os_definition_usable,
 };
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 /// Represents the repair status label value set by RepairSystem
 ///
@@ -124,7 +124,7 @@ pub(crate) async fn batch_allocate(
     let batch_request = request.into_inner();
 
     if batch_request.instance_requests.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Batch request must contain at least one instance".to_string(),
         )
         .into());
@@ -201,13 +201,13 @@ pub(crate) async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if instance_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if instance_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -247,11 +247,11 @@ pub(crate) async fn find_by_machine_id(
     {
         Ok(Some(snapshot)) => snapshot,
         Ok(None) => return Ok(Response::new(rpc::InstanceList { instances: vec![] })),
-        Err(e) => return Err(CarbideError::from(e).into()),
+        Err(e) => return Err(NicoError::from(e).into()),
     };
 
     let maybe_instance =
-        Option::<rpc::Instance>::try_from(mh_snapshot).map_err(CarbideError::from)?;
+        Option::<rpc::Instance>::try_from(mh_snapshot).map_err(NicoError::from)?;
 
     let instances = if let Some(instance) = maybe_instance {
         vec![instance]
@@ -329,7 +329,7 @@ async fn apply_health_override(
     machine_id: &MachineId,
     override_report: &HealthReport,
     operation_desc: &str,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     db::machine::insert_health_report(
         txn,
         machine_id,
@@ -345,7 +345,7 @@ async fn apply_health_override(
             operation = %operation_desc,
             "Failed to apply health override"
         );
-        CarbideError::from(e)
+        NicoError::from(e)
     })?;
 
     tracing::info!(
@@ -362,7 +362,7 @@ async fn remove_health_override(
     machine_id: &MachineId,
     source: &str,
     operation_desc: &str,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     db::machine::remove_health_report(txn, machine_id, HealthReportApplyMode::Merge, source)
         .await
         .map_err(|e| {
@@ -372,7 +372,7 @@ async fn remove_health_override(
                 operation = %operation_desc,
                 "Failed to remove health override"
             );
-            CarbideError::from(e)
+            NicoError::from(e)
         })?;
 
     tracing::info!(
@@ -399,7 +399,7 @@ async fn remove_health_override(
 /// - Checks machine metadata for `repair_status` label
 /// - **Repair Completed**: Removes RequestRepair, handles any new issues without auto-repair
 /// - **Repair Incomplete**: Remove RequestRepair override and replace with TenantReportedIssue
-///   to transition back to manual intervention by the Forge team.
+///   to transition back to manual intervention by the Nico team.
 ///
 /// ## Infinite Cycle Prevention
 /// The function specifically avoids triggering auto-repair (RequestRepair) for repair tenant
@@ -410,7 +410,7 @@ async fn handle_instance_release_from_repair_tenant(
     issue: Option<&rpc::Issue>,
     machine: &model::machine::Machine,
     tenant_organization_id: &str,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let has_request_repair = machine.health_reports.merges.contains_key("repair-request");
 
     if !has_request_repair {
@@ -494,7 +494,7 @@ async fn handle_instance_release_from_repair_tenant(
         }
     } else {
         // Repair failed - Remove the existing RequestRepair override and set TenantReportedIssue
-        // to send the machine for Forge team intervention, preventing auto-repair loops.
+        // to send the machine for Nico team intervention, preventing auto-repair loops.
         remove_health_override(
             txn,
             machine_id,
@@ -564,7 +564,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
     issue: &rpc::Issue,
     auto_repair_enabled: bool,
     tenant_organization_id: &str,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     tracing::info!(
         machine_id = %machine_id,
         issue_category = ?issue.category,
@@ -602,7 +602,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
     Ok(())
 }
 
-/// Handles instance release requests with support for the Forge-RepairSystem integration.
+/// Handles instance release requests with support for the Nico-RepairSystem integration.
 ///
 /// This function processes instance deletion requests and applies appropriate health overrides
 /// based on the requesting tenant type and reported issues. It supports two main workflows:
@@ -635,7 +635,7 @@ pub(crate) async fn release(
 
     let instance = db::instance::find_by_id(&mut txn, delete_instance.instance_id)
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "instance",
             id: delete_instance.instance_id.to_string(),
         })?;
@@ -662,7 +662,7 @@ pub(crate) async fn release(
             },
         )
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "machine",
             id: instance.machine_id.to_string(),
         })?;
@@ -676,7 +676,7 @@ pub(crate) async fn release(
             instance.config.tenant.tenant_organization_id.as_str(),
         )
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: e.to_string(),
         })?;
     } else if let Some(issue) = &delete_instance.issue {
@@ -691,7 +691,7 @@ pub(crate) async fn release(
             instance.config.tenant.tenant_organization_id.as_str(),
         )
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: e.to_string(),
         })?;
     }
@@ -722,13 +722,13 @@ pub(crate) async fn update_phone_home_last_contact(
     let request = request.into_inner();
     let instance_id = request
         .instance_id
-        .ok_or(CarbideError::MissingArgument("id"))?;
+        .ok_or(NicoError::MissingArgument("id"))?;
 
     let mut txn = api.txn_begin().await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "instance",
             id: instance_id.to_string(),
         })?;
@@ -764,7 +764,7 @@ pub(crate) async fn invoke_power(
         )
         .await?
         .pop()
-        .ok_or(CarbideError::NotFoundError {
+        .ok_or(NicoError::NotFoundError {
             kind: "instance",
             id: instance_id.to_string(),
         })?;
@@ -772,7 +772,7 @@ pub(crate) async fn invoke_power(
         if let Some(machine_id) = &request.machine_id
             && *machine_id != snapshot.host_snapshot.id
         {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "Instance {} is not hosted on machine {}",
                 instance_id, machine_id
             ))
@@ -789,12 +789,12 @@ pub(crate) async fn invoke_power(
             LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
         )
         .await?
-        .ok_or(CarbideError::NotFoundError {
+        .ok_or(NicoError::NotFoundError {
             kind: "machine",
             id: machine_id.to_string(),
         })?;
         if snapshot.instance.is_none() {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "Supplied machine ID does not match an instance: {machine_id}"
             ))
             .into());
@@ -802,7 +802,7 @@ pub(crate) async fn invoke_power(
 
         snapshot
     } else {
-        return Err(CarbideError::MissingArgument("instance_id").into());
+        return Err(NicoError::MissingArgument("instance_id").into());
     };
     let machine_id = snapshot.host_snapshot.id;
     log_machine_id(&machine_id);
@@ -818,7 +818,7 @@ pub(crate) async fn invoke_power(
             .bmc_info
             .ip
             .as_ref()
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "bmc_ip",
                 id: machine_id.to_string(),
             })?;
@@ -882,7 +882,7 @@ pub(crate) async fn invoke_power(
             };
 
             if rr.started_at.is_some() {
-                return Err(CarbideError::DpuReprovisioningInProgress(format!(
+                return Err(NicoError::DpuReprovisioningInProgress(format!(
                     "Can't reboot host: {machine_id}"
                 ))
                 .into());
@@ -898,7 +898,7 @@ pub(crate) async fn invoke_power(
                     tracing::error!(machine=%machine_id, "{:?}", err);
 
                     // TODO: What does this error actually mean
-                    CarbideError::internal(
+                    NicoError::internal(
                         "Internal Failure. Try again after some time.".to_string(),
                     )
                 })?;
@@ -912,7 +912,7 @@ pub(crate) async fn invoke_power(
                     // print actual error for debugging, but don't leak internal info to user.
                     tracing::error!(machine=%machine_id, "{:?}", err);
 
-                    CarbideError::internal(
+                    NicoError::internal(
                         "Internal Failure. Try again after some time.".to_string(),
                     )
                 })?;
@@ -943,7 +943,7 @@ pub(crate) async fn invoke_power(
             .host_snapshot
             .bmc_info
             .mac
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "bmc_mac",
                 id: machine_id.to_string(),
             })?;
@@ -962,12 +962,12 @@ pub(crate) async fn invoke_power(
             None,
         )
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     client
         .power(libredfish::SystemPowerControl::ForceRestart)
         .await
-        .map_err(|e| CarbideError::internal(format!("Failed redfish ForceRestart subtask: {e}")))?;
+        .map_err(|e| NicoError::internal(format!("Failed redfish ForceRestart subtask: {e}")))?;
 
     Ok(Response::new(rpc::InstancePowerResult {}))
 }
@@ -981,13 +981,13 @@ pub(crate) async fn update_operating_system(
     let request = request.into_inner();
     let instance_id = request
         .instance_id
-        .ok_or(CarbideError::MissingArgument("id"))?;
+        .ok_or(NicoError::MissingArgument("id"))?;
 
     let os: OperatingSystem = match request.os {
-        None => return Err(CarbideError::MissingArgument("os").into()),
-        Some(os) => os.try_into().map_err(CarbideError::from)?,
+        None => return Err(NicoError::MissingArgument("os").into()),
+        Some(os) => os.try_into().map_err(NicoError::from)?,
     };
-    os.validate().map_err(CarbideError::from)?;
+    os.validate().map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -995,7 +995,7 @@ pub(crate) async fn update_operating_system(
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
-        .ok_or(CarbideError::NotFoundError {
+        .ok_or(NicoError::NotFoundError {
             kind: "instance",
             id: instance_id.to_string(),
         })?;
@@ -1004,14 +1004,14 @@ pub(crate) async fn update_operating_system(
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
     if instance.deleted.is_some() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
     }
 
     let expected_version = match request.if_version_match {
-        Some(version) => version.parse().map_err(CarbideError::from)?,
+        Some(version) => version.parse().map_err(NicoError::from)?,
         None => instance.config_version,
     };
 
@@ -1023,7 +1023,7 @@ pub(crate) async fn update_operating_system(
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?
-    .ok_or(CarbideError::NotFoundError {
+    .ok_or(NicoError::NotFoundError {
         kind: "instance",
         id: instance_id.to_string(),
     })?;
@@ -1044,11 +1044,11 @@ pub(crate) async fn update_instance_config(
 
     let instance_id = request
         .instance_id
-        .ok_or(CarbideError::MissingArgument("id"))?;
+        .ok_or(NicoError::MissingArgument("id"))?;
 
     let mut config: InstanceConfig = match request.config {
-        None => return Err(CarbideError::MissingArgument("config").into()),
-        Some(config) => config.try_into().map_err(CarbideError::from)?,
+        None => return Err(NicoError::MissingArgument("config").into()),
+        Some(config) => config.try_into().map_err(NicoError::from)?,
     };
 
     // Network validation is done only if network update is requested.
@@ -1061,25 +1061,25 @@ pub(crate) async fn update_instance_config(
                 .map(|vc| vc.allow_instance_vf)
                 .unwrap_or(true),
         )
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     // TODO: Should a missing metadata field
     // - be an error
     // - lead to writing empty metadata (same as initial instance creation will do)
     // - keep existing metadata
     let metadata: Metadata = match request.metadata {
-        None => return Err(CarbideError::MissingArgument("metadata").into()),
-        Some(metadata) => metadata.try_into().map_err(CarbideError::from)?,
+        None => return Err(NicoError::MissingArgument("metadata").into()),
+        Some(metadata) => metadata.try_into().map_err(NicoError::from)?,
     };
     metadata.validate(true).map_err(|e| {
-        CarbideError::InvalidArgument(format!("Instance metadata is not valid: {e}"))
+        NicoError::InvalidArgument(format!("Instance metadata is not valid: {e}"))
     })?;
 
     let mut txn = api.txn_begin().await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
-        .ok_or(CarbideError::NotFoundError {
+        .ok_or(NicoError::NotFoundError {
             kind: "instance",
             id: instance_id.to_string(),
         })?;
@@ -1093,7 +1093,7 @@ pub(crate) async fn update_instance_config(
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?
-    .ok_or(CarbideError::NotFoundError {
+    .ok_or(NicoError::NotFoundError {
         kind: "instance",
         id: instance_id.to_string(),
     })?;
@@ -1104,7 +1104,7 @@ pub(crate) async fn update_instance_config(
         .map(|instance| instance.deleted.is_some())
         .unwrap_or(true)
     {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
@@ -1114,12 +1114,12 @@ pub(crate) async fn update_instance_config(
     instance
         .config
         .verify_update_allowed_to(&config)
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     validate_os_definition_usable(&mut txn, &config.os).await?;
 
     let expected_version = match request.if_version_match {
-        Some(version) => version.parse().map_err(CarbideError::from)?,
+        Some(version) => version.parse().map_err(NicoError::from)?,
         None => instance.config_version,
     };
 
@@ -1146,7 +1146,7 @@ pub(crate) async fn update_instance_config(
         .pop()
         .is_none()
         {
-            return Err(CarbideError::FailedPrecondition(format!(
+            return Err(NicoError::FailedPrecondition(format!(
                 "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
                 nsg_id,
                 tenant_org.clone(),
@@ -1166,7 +1166,7 @@ pub(crate) async fn update_instance_config(
         let unique_service_ids: std::collections::HashSet<_> = service_ids.iter().collect();
 
         if service_ids.len() != unique_service_ids.len() {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "Duplicate extension services in configuration. Only one version of each service is allowed.".to_string()
             )
             .into());
@@ -1186,7 +1186,7 @@ pub(crate) async fn update_instance_config(
 
         for service in service_configs.iter() {
             if !services.contains_key(&service.service_id) {
-                return Err(CarbideError::FailedPrecondition(format!(
+                return Err(NicoError::FailedPrecondition(format!(
                     "Extension service {} does not exist",
                     service.service_id,
                 ))
@@ -1197,7 +1197,7 @@ pub(crate) async fn update_instance_config(
                 .unwrap()
                 .contains(&service.version)
             {
-                return Err(CarbideError::FailedPrecondition(format!(
+                return Err(NicoError::FailedPrecondition(format!(
                     "Extension service {} version {} does not exist or is deleted",
                     service.service_id, service.version,
                 ))
@@ -1248,7 +1248,7 @@ pub(crate) async fn update_instance_config(
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?
-    .ok_or(CarbideError::NotFoundError {
+    .ok_or(NicoError::NotFoundError {
         kind: "instance",
         id: instance_id.to_string(),
     })?;
@@ -1272,7 +1272,7 @@ async fn update_instance_network_config(
     network: &mut InstanceNetworkConfig,
     mh_state: &ManagedHostState,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     if instance.update_network_config_request.is_some() {
         return Err(ConfigValidationError::InstanceNetworkConfigUpdateAlreadyInProgress.into());
     }
@@ -1306,7 +1306,7 @@ async fn update_instance_network_config(
     allocate_network(network, txn).await?;
     network
         .validate(allow_instance_vf)
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
         txn.as_mut(),
@@ -1314,7 +1314,7 @@ async fn update_instance_network_config(
         LoadSnapshotOptions::default(),
     )
     .await?
-    .ok_or(CarbideError::NotFoundError {
+    .ok_or(NicoError::NotFoundError {
         kind: "machine",
         id: instance.machine_id.to_string(),
     })?;
@@ -1345,7 +1345,7 @@ async fn update_instance_infiniband_config(
     instance: &InstanceSnapshot,
     ib_config: &mut InstanceInfinibandConfig,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     if !instance
         .config
         .infiniband
@@ -1398,7 +1398,7 @@ async fn update_instance_extension_services_config(
     instance: &InstanceSnapshot,
     extension_services: &mut InstanceExtensionServicesConfig,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     if !instance
         .config
         .extension_services
@@ -1446,12 +1446,12 @@ async fn update_instance_extension_services_config(
 /// can be utilized.
 fn snapshot_to_instance(
     mh_snapshot: ManagedHostStateSnapshot,
-) -> Result<rpc::Instance, CarbideError> {
+) -> Result<rpc::Instance, NicoError> {
     let machine_id = mh_snapshot.host_snapshot.id;
     Option::<rpc::Instance>::try_from(mh_snapshot)
-        .map_err(CarbideError::from)?
+        .map_err(NicoError::from)?
         .ok_or_else(|| {
-            CarbideError::internal(format!(
+            NicoError::internal(format!(
                 "Instance on Machine {machine_id} can be converted from snapshot"
             ))
         })
@@ -1461,11 +1461,11 @@ pub async fn force_delete_instance(
     instance_id: InstanceId,
     api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
-) -> CarbideResult<()> {
+) -> NicoResult<()> {
     let instance = db::instance::find_by_id(&api.database_connection, instance_id)
         .await?
         .ok_or_else(|| {
-            CarbideError::internal(format!("Could not find an instance for {instance_id}"))
+            NicoError::internal(format!("Could not find an instance for {instance_id}"))
         })?
         .to_owned();
 
@@ -1524,7 +1524,7 @@ pub async fn force_delete_instance(
         },
     ));
 
-    let network_segments_set: std::collections::HashSet<::carbide_uuid::network::NetworkSegmentId> =
+    let network_segments_set: std::collections::HashSet<::nico_uuid::network::NetworkSegmentId> =
         network_segment_ids_with_vpc.drain(..).collect();
     network_segment_ids_with_vpc.extend(network_segments_set.into_iter());
 
@@ -1540,7 +1540,7 @@ pub async fn force_delete_instance(
         LoadSnapshotOptions::default(),
     )
     .await?
-    .ok_or(CarbideError::NotFoundError {
+    .ok_or(NicoError::NotFoundError {
         kind: "machine",
         id: instance.machine_id.to_string(),
     })?;
@@ -1551,7 +1551,7 @@ pub async fn force_delete_instance(
         &mut txn,
     )
     .await
-    .map_err(|e| CarbideError::internal(e.to_string()))?;
+    .map_err(|e| NicoError::internal(e.to_string()))?;
 
     txn.commit().await?;
 
@@ -1563,7 +1563,7 @@ pub async fn update_instance_nvlink_config(
     instance: &InstanceSnapshot,
     nvlcfg: &InstanceNvLinkConfig,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     if !instance
         .config
         .nvlink
@@ -1601,7 +1601,7 @@ pub async fn update_instance_nvlink_config(
 async fn unbind_all_instance_ib_ports(
     api: &Api,
     instance: &InstanceSnapshot,
-) -> Result<u32, CarbideError> {
+) -> Result<u32, NicoError> {
     // Create an index of PartitionId -> GUID from the instance's ib_interfaces
     let ib_config_map: HashMap<IBPartitionId, Vec<String>> = instance
         .config

@@ -14,21 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;
-use rpc::forge::{RemoveSkuRequest, SkuIdList};
+use rpc::nico::{RemoveSkuRequest, SkuIdList};
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<::rpc::forge::SkuList>,
-) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
+    request: Request<::rpc::nico::SkuList>,
+) -> Result<Response<::rpc::nico::SkuIdList>, Status> {
     log_request_data(&request);
     let mut txn = api.txn_begin().await?;
 
@@ -55,7 +55,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
     let mut skus = db::sku::find(&mut txn, &sku_id_list).await?;
 
     let Some(sku) = skus.pop() else {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "The SKU {} does not exist",
             sku_id_list
                 .first()
@@ -65,7 +65,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
         .into());
     };
     if !skus.is_empty() {
-        return Err(CarbideError::NotImplemented.into());
+        return Err(NicoError::NotImplemented.into());
     }
 
     let machine_ids =
@@ -75,7 +75,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
         .map(|machine_ids| machine_ids.len())
         .unwrap_or(0);
     if machines_using_sku > 0 {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "The SKU is in use by {machines_using_sku} machines"
         ))
         .into());
@@ -91,7 +91,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
 pub(crate) async fn generate_from_machine(
     api: &Api,
     request: Request<MachineId>,
-) -> Result<Response<::rpc::forge::Sku>, Status> {
+) -> Result<Response<::rpc::nico::Sku>, Status> {
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
@@ -102,7 +102,7 @@ pub(crate) async fn generate_from_machine(
 
 pub(crate) async fn assign_to_machine(
     api: &Api,
-    request: Request<::rpc::forge::SkuMachinePair>,
+    request: Request<::rpc::nico::SkuMachinePair>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let mut txn = api.txn_begin().await?;
@@ -113,14 +113,14 @@ pub(crate) async fn assign_to_machine(
     let machine =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
 
-    let machine = machine.ok_or(CarbideError::NotFoundError {
+    let machine = machine.ok_or(NicoError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
     })?;
 
     if !sku_machine_pair.force {
         if let Some(assigned_sku) = machine.hw_sku {
-            return Err(CarbideError::FailedPrecondition(format!(
+            return Err(NicoError::FailedPrecondition(format!(
                 "The specified machine already has a SKU assigned ({assigned_sku})"
             ))
             .into());
@@ -138,7 +138,7 @@ pub(crate) async fn assign_to_machine(
             }
             | ManagedHostState::Ready => {}
             _ => {
-                return Err(CarbideError::FailedPrecondition(
+                return Err(NicoError::FailedPrecondition(
                     "Specified machine is not in a valid state for assigning a SKU".to_string(),
                 )
                 .into());
@@ -148,13 +148,13 @@ pub(crate) async fn assign_to_machine(
 
     let mut skus = db::sku::find(&mut txn, std::slice::from_ref(&sku_machine_pair.sku_id)).await?;
 
-    let sku = skus.pop().ok_or(CarbideError::NotFoundError {
+    let sku = skus.pop().ok_or(NicoError::NotFoundError {
         kind: "SKU ID",
         id: sku_machine_pair.sku_id.clone(),
     })?;
 
     if !skus.is_empty() {
-        return Err(CarbideError::internal(format!(
+        return Err(NicoError::internal(format!(
             "Unexpected additional SKUs found for ID: {}",
             sku_machine_pair.sku_id.clone()
         ))
@@ -182,7 +182,7 @@ pub(crate) async fn verify_for_machine(
     let machine =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
 
-    let machine = machine.ok_or(CarbideError::NotFoundError {
+    let machine = machine.ok_or(NicoError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
     })?;
@@ -193,7 +193,7 @@ pub(crate) async fn verify_for_machine(
             bom_validating_state: BomValidating::SkuVerificationFailed(_),
         } => {}
         _ => {
-            return Err(CarbideError::FailedPrecondition(
+            return Err(NicoError::FailedPrecondition(
                 "Specified machine is not in a valid state for machine SKU verification"
                     .to_string(),
             )
@@ -221,7 +221,7 @@ pub(crate) async fn remove_sku_association(
     let machine =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
 
-    let machine = machine.ok_or(CarbideError::NotFoundError {
+    let machine = machine.ok_or(NicoError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
     })?;
@@ -233,7 +233,7 @@ pub(crate) async fn remove_sku_association(
                 bom_validating_state: BomValidating::SkuVerificationFailed(_),
             } => {}
             _ => {
-                return Err(CarbideError::FailedPrecondition(
+                return Err(NicoError::FailedPrecondition(
                     "Specified machine is not in a valid state for removing SKU association"
                         .to_string(),
                 )
@@ -251,31 +251,31 @@ pub(crate) async fn remove_sku_association(
 pub(crate) async fn get_all_ids(
     api: &Api,
     request: Request<()>,
-) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
+) -> Result<Response<::rpc::nico::SkuIdList>, Status> {
     log_request_data(&request);
     let sku_ids = db::sku::get_sku_ids(&api.database_connection).await?;
 
-    Ok(Response::new(::rpc::forge::SkuIdList {
+    Ok(Response::new(::rpc::nico::SkuIdList {
         ids: sku_ids.into_iter().collect(),
     }))
 }
 
 pub(crate) async fn find_skus_by_ids(
     api: &Api,
-    request: Request<::rpc::forge::SkusByIdsRequest>,
-) -> Result<Response<::rpc::forge::SkuList>, Status> {
+    request: Request<::rpc::nico::SkusByIdsRequest>,
+) -> Result<Response<::rpc::nico::SkuList>, Status> {
     log_request_data(&request);
 
     let sku_ids = request.into_inner().ids;
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if sku_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if sku_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -283,7 +283,7 @@ pub(crate) async fn find_skus_by_ids(
 
     let skus = db::sku::find(&mut txn, &sku_ids).await?;
 
-    let mut rpc_skus: Vec<rpc::forge::Sku> =
+    let mut rpc_skus: Vec<rpc::nico::Sku> =
         skus.into_iter().map(std::convert::Into::into).collect();
 
     let mut machine_ids_by_sku_ids =
@@ -296,12 +296,12 @@ pub(crate) async fn find_skus_by_ids(
         }
     }
 
-    Ok(Response::new(rpc::forge::SkuList { skus: rpc_skus }))
+    Ok(Response::new(rpc::nico::SkuList { skus: rpc_skus }))
 }
 
 pub(crate) async fn update_sku_metadata(
     api: &Api,
-    request: Request<::rpc::forge::SkuUpdateMetadataRequest>,
+    request: Request<::rpc::nico::SkuUpdateMetadataRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -324,8 +324,8 @@ pub(crate) async fn update_sku_metadata(
 
 pub(crate) async fn replace_sku(
     api: &Api,
-    request: Request<::rpc::forge::Sku>,
-) -> Result<Response<rpc::forge::Sku>, Status> {
+    request: Request<::rpc::nico::Sku>,
+) -> Result<Response<rpc::nico::Sku>, Status> {
     let request = request.into_inner().into();
     let mut txn = api.txn_begin().await?;
 

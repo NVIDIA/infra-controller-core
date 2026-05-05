@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use rpc::forge::RemoveSkuRequest;
+use ::rpc::admin_cli::NicoCliResult;
+use rpc::nico::RemoveSkuRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn unassign(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn unassign(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     api_client
         .0
         .remove_sku_association(RemoveSkuRequest {

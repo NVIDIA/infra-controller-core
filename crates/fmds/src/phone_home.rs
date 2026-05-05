@@ -18,8 +18,8 @@
 use std::sync::Arc;
 
 use eyre::eyre;
-use forge_dpu_agent_utils::utils::create_forge_client;
-use rpc::forge::InstancePhoneHomeLastContactRequest;
+use nico_dpu_agent_utils::utils::create_nico_client;
+use rpc::nico::InstancePhoneHomeLastContactRequest;
 
 use crate::state::FmdsState;
 
@@ -29,12 +29,12 @@ pub async fn phone_home(state: &Arc<FmdsState>) -> Result<(), eyre::Error> {
         Err(e) => return Err(eyre!("rate limit exceeded for phone_home; {}\n", e)),
     };
 
-    let forge_client_config = state
-        .forge_client_config
+    let nico_client_config = state
+        .nico_client_config
         .as_ref()
-        .ok_or_else(|| eyre!("phone_home not configured: no forge client config"))?;
+        .ok_or_else(|| eyre!("phone_home not configured: no nico client config"))?;
 
-    let mut client = create_forge_client(&state.forge_api, forge_client_config).await?;
+    let mut client = create_nico_client(&state.nico_api, nico_client_config).await?;
 
     let machine_id = state
         .machine_id

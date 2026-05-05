@@ -20,7 +20,7 @@ use std::process::Stdio;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use futures_util::FutureExt;
 use opentelemetry::KeyValue;

@@ -16,12 +16,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM debian:bookworm-slim as carbide
+FROM debian:bookworm-slim as nico
 
-RUN mkdir -p /opt/carbide/migrations && \
-  mkdir -p /opt/carbide/pxe/templates && \
-  mkdir -p /opt/carbide/static \
-  mkdir -p /forge-boot-artifacts/blobs/internal/aarch64
+RUN mkdir -p /opt/nico/migrations && \
+  mkdir -p /opt/nico/pxe/templates && \
+  mkdir -p /opt/nico/static \
+  mkdir -p /nico-boot-artifacts/blobs/internal/aarch64
 
 
 # This is required for kea pid file

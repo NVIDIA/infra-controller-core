@@ -23,7 +23,7 @@ use db::{self, ObjectColumnFilter};
 use model::dns::NewDomain;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 
 pub(crate) async fn create(
@@ -55,16 +55,16 @@ pub(crate) async fn update(
     let req = request.into_inner();
     let domain_proto = req
         .domain
-        .ok_or_else(|| CarbideError::MissingArgument("domain"))?;
+        .ok_or_else(|| NicoError::MissingArgument("domain"))?;
 
     let uuid = domain_proto
         .id
-        .ok_or_else(|| CarbideError::MissingArgument("id"))?;
+        .ok_or_else(|| NicoError::MissingArgument("id"))?;
 
     let mut domain =
         domain::find_by_uuid(&mut txn, uuid)
             .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "domain",
                 id: uuid.to_string(),
             })?;
@@ -89,12 +89,12 @@ pub(crate) async fn delete(
     let mut txn = api.txn_begin().await?;
 
     let req = request.into_inner();
-    let uuid = req.id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
+    let uuid = req.id.ok_or_else(|| NicoError::MissingArgument("id"))?;
 
     let domain =
         domain::find_by_uuid(&mut txn, uuid)
             .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "domain",
                 id: uuid.to_string(),
             })?;
@@ -140,7 +140,7 @@ pub(crate) async fn find(
             domains: domain.into_iter().map(Domain::from).collect(),
         })
         .map(Response::new)
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     Ok(result)
 }
@@ -152,7 +152,7 @@ pub(crate) async fn find(
 // TODO: Remove these once clients have migrated
 // ============================================================================
 
-use ::rpc::protos::forge::{
+use ::rpc::protos::nico::{
     DomainDeletionLegacy, DomainDeletionResultLegacy, DomainLegacy, DomainListLegacy,
     DomainSearchQueryLegacy,
 };

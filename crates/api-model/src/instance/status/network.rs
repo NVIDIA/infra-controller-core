@@ -20,7 +20,7 @@ use std::convert::Into;
 use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use ipnetwork::IpNetwork;
@@ -65,11 +65,11 @@ pub struct InstanceNetworkStatus {
     ///   is exactly the same version as the version the user desires.
     ///
     /// Note for the implementation: We need to monitor all these config versions
-    /// on the feedback path from DPU to carbide in order to know whether the
+    /// on the feedback path from DPU to nico in order to know whether the
     /// changes have indeed taken effect.
     /// TODO: Do we also want to show all applied versions here, or just track them
     /// internally? Probably not helpful for tenants at all - but it could be helpful
-    /// for the Forge operating team to debug settings that to do do not go in-sync
+    /// for the Nico operating team to debug settings that to do do not go in-sync
     /// without having to attach to the database.
     pub configs_synced: SyncState,
 }
@@ -554,8 +554,8 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
 
     fn try_from(observation: rpc::InstanceInterfaceStatusObservation) -> Result<Self, Self::Error> {
         let function_id = match observation.function_type() {
-            rpc::forge::InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
-            rpc::forge::InterfaceFunctionType::Virtual => {
+            rpc::nico::InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
+            rpc::nico::InterfaceFunctionType::Virtual => {
                 InterfaceFunctionId::try_virtual_from(observation.virtual_function_id() as u8)
                     .map_err(|_| {
                         RpcDataConversionError::InvalidVirtualFunctionId(
@@ -624,7 +624,7 @@ mod tests {
     use std::fmt::Write;
     use std::str::FromStr;
 
-    use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+    use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 
     use super::*;
     use crate::instance::config::network::InstanceInterfaceConfig;
@@ -703,7 +703,7 @@ mod tests {
                 gateways: vec!["127.1.2.1".parse().unwrap()],
                 network_security_group: Some(NetworkSecurityGroupStatusObservation {
                     id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                    source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                    source: rpc::nico::NetworkSecurityGroupSource::NsgSourceInstance
                         .try_into()
                         .unwrap(),
                     version: "V1-T1".parse().unwrap(),
@@ -917,7 +917,7 @@ mod tests {
                 gateways,
                 network_security_group: Some(NetworkSecurityGroupStatusObservation {
                     id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                    source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                    source: rpc::nico::NetworkSecurityGroupSource::NsgSourceInstance
                         .try_into()
                         .unwrap(),
                     version: "V1-T1".parse().unwrap(),

@@ -1,5 +1,5 @@
 export PGHOST=localhost
-export PGUSER=carbide_development
+export PGUSER=nico_development
 export PGPASSWORD=notforprod
 
 export API_SERVER_HOST=127.0.0.1

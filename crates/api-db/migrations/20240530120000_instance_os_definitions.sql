@@ -1,6 +1,6 @@
 -- Update the instance Operating System data model
 
--- We rename several columns in order to align them better with names in Forge cloud
+-- We rename several columns in order to align them better with names in Nico cloud
 -- We also utilize the metadata_config_version to version additional fields,
 -- and therefore rename the colummn to instance_config_version
 

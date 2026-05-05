@@ -16,15 +16,15 @@
  */
 use std::default::Default;
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::site_explorer::create_expected_power_shelves;
 use db::DatabaseError;
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::metadata::Metadata;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ExpectedPowerShelfList, ExpectedPowerShelfRequest};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{ExpectedPowerShelfList, ExpectedPowerShelfRequest};
 use uuid::Uuid;
 
 use crate::tests::common;
@@ -148,7 +148,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     for mut expected_power_shelf in [
-        rpc::forge::ExpectedPowerShelf {
+        rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
             bmc_username: "ADMIN".into(),
@@ -159,33 +159,33 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
             rack_id: None,
             bmc_retain_credentials: None,
         },
-        rpc::forge::ExpectedPowerShelf {
+        rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:40".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-TEST-002".into(),
             bmc_ip_address: "192.168.1.200".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         },
-        rpc::forge::ExpectedPowerShelf {
+        rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:41".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-TEST-003".into(),
             bmc_ip_address: "192.168.1.201".into(),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "power-shelf-a".to_string(),
                 description: "Test power shelf".to_string(),
                 labels: vec![
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "location".to_string(),
                         value: Some("datacenter-1".to_string()),
                     },
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "rack".to_string(),
                         value: Some("A1".to_string()),
                     },
@@ -200,7 +200,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
             .await
             .expect("unable to add expected power shelf ");
 
-        let expected_power_shelf_query = rpc::forge::ExpectedPowerShelfRequest {
+        let expected_power_shelf_query = rpc::nico::ExpectedPowerShelfRequest {
             bmc_mac_address: expected_power_shelf.bmc_mac_address.clone(),
             expected_power_shelf_id: None,
         };
@@ -245,7 +245,7 @@ async fn test_delete_expected_power_shelf(pool: sqlx::PgPool) {
         .expected_power_shelves
         .len();
 
-    let expected_power_shelf_query = rpc::forge::ExpectedPowerShelfRequest {
+    let expected_power_shelf_query = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: shelves[1].bmc_mac_address.to_string(),
         expected_power_shelf_id: None,
     };
@@ -274,7 +274,7 @@ async fn test_delete_expected_power_shelf(pool: sqlx::PgPool) {
 async fn test_delete_expected_power_shelf_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_power_shelf_request = rpc::forge::ExpectedPowerShelfRequest {
+    let expected_power_shelf_request = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
         expected_power_shelf_id: None,
     };
@@ -300,7 +300,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
 
     let bmc_mac_address: MacAddress = shelves[1].bmc_mac_address;
     for mut updated_power_shelf in [
-        rpc::forge::ExpectedPowerShelf {
+        rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE".into(),
@@ -311,7 +311,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
             rack_id: None,
             bmc_retain_credentials: None,
         },
-        rpc::forge::ExpectedPowerShelf {
+        rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE".into(),
@@ -322,22 +322,22 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
             rack_id: None,
             bmc_retain_credentials: None,
         },
-        rpc::forge::ExpectedPowerShelf {
+        rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE1".into(),
             bmc_password: "PASS_UPDATE1".into(),
             shelf_serial_number: "PS-UPD-003".into(),
             bmc_ip_address: "192.168.2.100".into(),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "updated-shelf".to_string(),
                 description: "Updated power shelf".to_string(),
                 labels: vec![
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "env".to_string(),
                         value: Some("production".to_string()),
                     },
-                    rpc::forge::Label {
+                    rpc::nico::Label {
                         key: "zone".to_string(),
                         value: Some("zone-a".to_string()),
                     },
@@ -384,7 +384,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
 async fn test_update_expected_power_shelf_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+    let expected_power_shelf = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: None,
         bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN_UPDATE".into(),
@@ -465,7 +465,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         expected_power_shelves: Vec::new(),
     };
 
-    let expected_power_shelf_1 = rpc::forge::ExpectedPowerShelf {
+    let expected_power_shelf_1 = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: None,
         bmc_mac_address: "6A:6B:6C:6D:6E:6F".into(),
         bmc_username: "ADMIN_NEW".into(),
@@ -477,7 +477,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         bmc_retain_credentials: None,
     };
 
-    let expected_power_shelf_2 = rpc::forge::ExpectedPowerShelf {
+    let expected_power_shelf_2 = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: None,
         bmc_mac_address: "7A:7B:7C:7D:7E:7F".into(),
         bmc_username: "ADMIN_NEW".into(),
@@ -528,7 +528,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
 async fn test_get_expected_power_shelf_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_power_shelf_query = rpc::forge::ExpectedPowerShelfRequest {
+    let expected_power_shelf_query = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
         expected_power_shelf_id: None,
     };
@@ -572,7 +572,7 @@ async fn test_get_linked_expected_power_shelves_unseen(pool: sqlx::PgPool) {
 async fn test_add_expected_power_shelf_with_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
-    let mut expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+    let mut expected_power_shelf = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: None,
         bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN".into(),
@@ -589,7 +589,7 @@ async fn test_add_expected_power_shelf_with_ip(pool: sqlx::PgPool) {
         .await
         .expect("unable to add expected power shelf ");
 
-    let expected_power_shelf_query = rpc::forge::ExpectedPowerShelfRequest {
+    let expected_power_shelf_query = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
         expected_power_shelf_id: None,
     };
@@ -638,7 +638,7 @@ async fn test_update_expected_power_shelf_ip_address(pool: sqlx::PgPool) {
     let shelf_mac = shelves[1].bmc_mac_address.to_string();
     let mut eps1 = env
         .api
-        .get_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelfRequest {
+        .get_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelfRequest {
             bmc_mac_address: shelf_mac.clone(),
             expected_power_shelf_id: None,
         }))
@@ -656,7 +656,7 @@ async fn test_update_expected_power_shelf_ip_address(pool: sqlx::PgPool) {
 
     let eps2 = env
         .api
-        .get_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelfRequest {
+        .get_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelfRequest {
             bmc_mac_address: shelf_mac,
             expected_power_shelf_id: None,
         }))
@@ -673,7 +673,7 @@ async fn test_get_expected_power_shelf_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let provided_id = Uuid::new_v4().to_string();
-    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+    let expected_power_shelf = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
         }),
@@ -682,7 +682,7 @@ async fn test_get_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         bmc_password: "PASS".into(),
         shelf_serial_number: "PS-ID-001".into(),
         bmc_ip_address: "10.0.0.50".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_retain_credentials: None,
     };
@@ -693,7 +693,7 @@ async fn test_get_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         .expect("unable to add expected power shelf");
 
     // Get by id
-    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+    let get_req = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: "".to_string(),
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
@@ -720,7 +720,7 @@ async fn test_delete_expected_power_shelf_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let provided_id = Uuid::new_v4().to_string();
-    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+    let expected_power_shelf = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
         }),
@@ -729,7 +729,7 @@ async fn test_delete_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         bmc_password: "PASS".into(),
         shelf_serial_number: "PS-DEL-001".into(),
         bmc_ip_address: "".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_retain_credentials: None,
     };
@@ -740,7 +740,7 @@ async fn test_delete_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         .expect("unable to add expected power shelf");
 
     // Delete by id
-    let del_req = rpc::forge::ExpectedPowerShelfRequest {
+    let del_req = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: "".to_string(),
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
@@ -752,7 +752,7 @@ async fn test_delete_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         .expect("unable to delete by id");
 
     // Verify it's gone by trying to get by id
-    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+    let get_req = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: "".to_string(),
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
@@ -775,7 +775,7 @@ async fn test_update_expected_power_shelf_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let provided_id = Uuid::new_v4().to_string();
-    let mut expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+    let mut expected_power_shelf = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
         }),
@@ -784,7 +784,7 @@ async fn test_update_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         bmc_password: "PASS".into(),
         shelf_serial_number: "PS-UPD-ID-001".into(),
         bmc_ip_address: "".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_retain_credentials: None,
     };
@@ -804,7 +804,7 @@ async fn test_update_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         .expect("unable to update by id");
 
     // Fetch by id and verify
-    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+    let get_req = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: "".to_string(),
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
@@ -831,7 +831,7 @@ async fn test_create_expected_power_shelf_with_explicit_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let provided_id = Uuid::new_v4().to_string();
-    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+    let expected_power_shelf = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: provided_id.clone(),
         }),
@@ -840,7 +840,7 @@ async fn test_create_expected_power_shelf_with_explicit_id(pool: sqlx::PgPool) {
         bmc_password: "PASS".into(),
         shelf_serial_number: "PS-EXPLICIT-001".into(),
         bmc_ip_address: "".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_retain_credentials: None,
     };
@@ -851,7 +851,7 @@ async fn test_create_expected_power_shelf_with_explicit_id(pool: sqlx::PgPool) {
         .expect("unable to add expected power shelf with explicit id");
 
     // Retrieve by MAC and verify the ID matches what we provided
-    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+    let get_req = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: "AA:BB:CC:DD:EE:04".to_string(),
         expected_power_shelf_id: None,
     };
@@ -872,14 +872,14 @@ async fn test_create_expected_power_shelf_with_explicit_id(pool: sqlx::PgPool) {
 async fn test_create_expected_power_shelf_auto_generates_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+    let expected_power_shelf = rpc::nico::ExpectedPowerShelf {
         expected_power_shelf_id: None,
         bmc_mac_address: "AA:BB:CC:DD:EE:05".to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         shelf_serial_number: "PS-AUTO-001".into(),
         bmc_ip_address: "".into(),
-        metadata: Some(rpc::forge::Metadata::default()),
+        metadata: Some(rpc::nico::Metadata::default()),
         rack_id: None,
         bmc_retain_credentials: None,
     };
@@ -890,7 +890,7 @@ async fn test_create_expected_power_shelf_auto_generates_id(pool: sqlx::PgPool) 
         .expect("unable to add expected power shelf without id");
 
     // Retrieve by MAC and verify an ID was auto-generated
-    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+    let get_req = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: "AA:BB:CC:DD:EE:05".to_string(),
         expected_power_shelf_id: None,
     };
@@ -921,7 +921,7 @@ async fn test_get_expected_power_shelf_by_id_not_found(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
     let non_existent_id = Uuid::new_v4().to_string();
-    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+    let get_req = rpc::nico::ExpectedPowerShelfRequest {
         bmc_mac_address: "".to_string(),
         expected_power_shelf_id: Some(::rpc::common::Uuid {
             value: non_existent_id.clone(),
@@ -952,14 +952,14 @@ async fn test_add_with_bmc_ip_creates_static_interface(
     let bmc_ip = "192.0.2.180";
 
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-STATIC-001".into(),
             bmc_ip_address: bmc_ip.into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1006,14 +1006,14 @@ async fn test_add_without_bmc_ip_creates_no_interface(
     let bmc_mac: MacAddress = "5A:5B:5C:5D:5E:5F".parse().unwrap();
 
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-NO-IP-001".into(),
             bmc_ip_address: "".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1051,14 +1051,14 @@ async fn test_add_with_bmc_ip_rejects_if_interface_exists(
     // Now try to add an expected power shelf with the same MAC -- should fail.
     let result = env
         .api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-COLLISION-001".into(),
             bmc_ip_address: "192.0.1.190".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1084,14 +1084,14 @@ async fn test_add_with_external_bmc_ip_uses_static_assignments(
     let external_ip = "10.50.1.150";
 
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-EXT-001".into(),
             bmc_ip_address: external_ip.into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1141,14 +1141,14 @@ async fn test_add_with_bmc_ip_rejects_if_ip_already_allocated(
     // SAME IP -- should fail.
     let result = env
         .api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: "6A:6B:6C:6D:6E:88".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-IP-COLLISION".into(),
             bmc_ip_address: taken_ip.to_string(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1174,14 +1174,14 @@ async fn test_update_with_matching_bmc_ip_is_noop(
 
     // Add expected power shelf with bmc_ip_address.
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-NOOP-001".into(),
             bmc_ip_address: bmc_ip.into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1189,14 +1189,14 @@ async fn test_update_with_matching_bmc_ip_is_noop(
 
     // Update with the same bmc_ip_address -- should succeed (no-op).
     env.api
-        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .update_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN-UPDATED".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-NOOP-001".into(),
             bmc_ip_address: bmc_ip.into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1219,14 +1219,14 @@ async fn test_update_with_different_bmc_ip_leaves_interface_alone(
 
     // Add expected power shelf with bmc_ip_address.
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-LEAVE-001".into(),
             bmc_ip_address: original_ip.into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1235,14 +1235,14 @@ async fn test_update_with_different_bmc_ip_leaves_interface_alone(
     // Update with a DIFFERENT bmc_ip_address -- should succeed but
     // not touch the interface (it already has an address).
     env.api
-        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .update_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-LEAVE-001".into(),
             bmc_ip_address: "192.0.1.193".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1284,14 +1284,14 @@ async fn test_update_with_bmc_ip_assigns_to_empty_interface(
 
     // Add expected power shelf WITHOUT bmc_ip_address.
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-EMPTY-001".into(),
             bmc_ip_address: "".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1299,14 +1299,14 @@ async fn test_update_with_bmc_ip_assigns_to_empty_interface(
 
     // Update with bmc_ip_address -- should succeed since interface has no addresses.
     env.api
-        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .update_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-EMPTY-001".into(),
             bmc_ip_address: "192.0.1.194".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1340,14 +1340,14 @@ async fn test_update_with_bmc_ip_creates_interface_if_none_exists(
 
     // Add expected power shelf without bmc_ip_address.
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-CREATE-001".into(),
             bmc_ip_address: "".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1361,14 +1361,14 @@ async fn test_update_with_bmc_ip_creates_interface_if_none_exists(
 
     // Update with bmc_ip_address -- should create a new interface.
     env.api
-        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .update_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-CREATE-001".into(),
             bmc_ip_address: bmc_ip.into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1395,14 +1395,14 @@ async fn test_update_without_bmc_ip_does_not_touch_interface(
 
     // Add with bmc_ip_address -- creates an interface.
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-NOTOUCH-001".into(),
             bmc_ip_address: bmc_ip.into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1410,14 +1410,14 @@ async fn test_update_without_bmc_ip_does_not_touch_interface(
 
     // Update without bmc_ip_address (just changing credentials).
     env.api
-        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .update_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "NEW-ADMIN".into(),
             bmc_password: "NEW-PASS".into(),
             shelf_serial_number: "PS-NOTOUCH-001".into(),
             bmc_ip_address: "".into(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1445,14 +1445,14 @@ async fn test_add_expected_power_shelf_with_bmc_retain_credentials(
     let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:80".parse().unwrap();
 
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-RETAIN-001".into(),
             bmc_ip_address: String::new(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: Some(true),
         }))
@@ -1460,7 +1460,7 @@ async fn test_add_expected_power_shelf_with_bmc_retain_credentials(
 
     let retrieved = env
         .api
-        .get_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelfRequest {
+        .get_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelfRequest {
             bmc_mac_address: bmc_mac.to_string(),
             expected_power_shelf_id: None,
         }))
@@ -1487,14 +1487,14 @@ async fn test_update_expected_power_shelf_preserves_bmc_retain_credentials(
 
     // Create with bmc_retain_credentials = true.
     env.api
-        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .add_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             shelf_serial_number: "PS-RETAIN-UPD-001".into(),
             bmc_ip_address: String::new(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: Some(true),
         }))
@@ -1502,14 +1502,14 @@ async fn test_update_expected_power_shelf_preserves_bmc_retain_credentials(
 
     // Update without setting bmc_retain_credentials (None).
     env.api
-        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+        .update_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac.to_string(),
             bmc_username: "NEW-ADMIN".into(),
             bmc_password: "NEW-PASS".into(),
             shelf_serial_number: "PS-RETAIN-UPD-001".into(),
             bmc_ip_address: String::new(),
-            metadata: Some(rpc::forge::Metadata::default()),
+            metadata: Some(rpc::nico::Metadata::default()),
             rack_id: None,
             bmc_retain_credentials: None,
         }))
@@ -1517,7 +1517,7 @@ async fn test_update_expected_power_shelf_preserves_bmc_retain_credentials(
 
     let retrieved = env
         .api
-        .get_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelfRequest {
+        .get_expected_power_shelf(tonic::Request::new(rpc::nico::ExpectedPowerShelfRequest {
             bmc_mac_address: bmc_mac.to_string(),
             expected_power_shelf_id: None,
         }))

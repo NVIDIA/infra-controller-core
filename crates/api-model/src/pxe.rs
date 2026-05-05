@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineInterfaceId;
-use rpc::forge::MachineArchitecture;
+use nico_uuid::machine::MachineInterfaceId;
+use rpc::nico::MachineArchitecture;
 
 pub struct PxeInstructionRequest {
     pub interface_id: MachineInterfaceId,
@@ -24,10 +24,10 @@ pub struct PxeInstructionRequest {
     pub product: Option<String>,
 }
 
-impl TryFrom<rpc::forge::PxeInstructionRequest> for PxeInstructionRequest {
+impl TryFrom<rpc::nico::PxeInstructionRequest> for PxeInstructionRequest {
     type Error = rpc::errors::RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::PxeInstructionRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::nico::PxeInstructionRequest) -> Result<Self, Self::Error> {
         let interface_id =
             value
                 .interface_id
@@ -35,7 +35,7 @@ impl TryFrom<rpc::forge::PxeInstructionRequest> for PxeInstructionRequest {
                     "Interface ID",
                 ))?;
 
-        let arch = rpc::forge::MachineArchitecture::try_from(value.arch).map_err(|_| {
+        let arch = rpc::nico::MachineArchitecture::try_from(value.arch).map_err(|_| {
             rpc::errors::RpcDataConversionError::InvalidArgument(
                 "Unknown arch received.".to_string(),
             )

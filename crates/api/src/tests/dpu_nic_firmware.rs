@@ -23,7 +23,7 @@ use model::machine_update_module::{
     AutomaticFirmwareUpdateReference, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
 
-use crate::CarbideResult;
+use crate::NicoResult;
 use crate::machine_update_manager::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use crate::machine_update_manager::machine_update_module::MachineUpdateModule;
 use crate::tests::common;
@@ -321,7 +321,7 @@ impl TestManagedHost {
     pub async fn update_nic_firmware_version(
         &self,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> NicoResult<()> {
         update_nic_firmware_version(txn, &self.dpu().id, "11.10.1000").await
     }
 }

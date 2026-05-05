@@ -23,7 +23,7 @@ use mac_address::MacAddress;
 use crate::machine::Machine;
 use crate::metrics::set_service_healthy;
 use crate::vendor_class::VendorClass;
-use crate::{CONFIG, CarbideDhcpContext, cache, tls};
+use crate::{CONFIG, NicoDhcpContext, cache, tls};
 
 /// Enumerates results of setting discovery options on the Builder
 #[repr(C)]
@@ -42,7 +42,7 @@ pub enum DiscoveryBuilderResult {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn discovery_builder_result_as_str(result: DiscoveryBuilderResult) -> *const c_char {
-    // If you add a variant here, please don't forget adding \0 at the end of the
+    // If you add a variant here, please don't nicot adding \0 at the end of the
     // string to make it null terminated and compatible to what C expects
     CStr::from_bytes_with_nul(
         match result {
@@ -408,7 +408,7 @@ unsafe fn discovery_fetch_machine_at(
                     }
                     cache::CacheEntryStatus::DiscoveryFailing(count) => {
                         log::info!(
-                            "retrying carbide-api for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id} {desired_ip}). failure count: {count}."
+                            "retrying nico-api for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id} {desired_ip}). failure count: {count}."
                         );
                         cache_entry_status = cache_entry.status;
                     }
@@ -426,22 +426,22 @@ unsafe fn discovery_fetch_machine_at(
             //
             // TODO(ajf): how to reason about FFI code with async.
             //
-            let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+            let runtime: &tokio::runtime::Runtime = NicoDhcpContext::get_tokio_runtime();
 
-            let forge_client_config = tls::build_forge_client_config();
+            let nico_client_config = tls::build_nico_client_config();
 
             match runtime.block_on(Machine::try_fetch(
                 discovery,
                 url,
                 vendor_class.clone(),
-                &forge_client_config,
+                &nico_client_config,
             )) {
                 Ok(machine) => {
                     // If any DHCP record had been invalidated after the KEA process started,
                     // KEAs internal cache (not the Rust cache) might be in inconsistent state.
                     // Since we don't have any API to invalidate the KEA cache we restart
                     // the process. This will happen very rarely, since Interface deletions
-                    // in Forge are not common.
+                    // in Nico are not common.
                     // See https://nvbugspro.nvidia.com/bug/4792034 for details
                     if let Some(last_invalidation) = machine.inner.last_invalidation_time.as_ref() {
                         let startup_time = CONFIG.read().unwrap().startup_time;
@@ -451,7 +451,7 @@ unsafe fn discovery_fetch_machine_at(
                             && last_invalidation >= startup_time
                         {
                             log::error!(
-                                "Restarting KEA since invalidation was reported by Carbide. Startup: {}. Last_Invalidation: {}",
+                                "Restarting KEA since invalidation was reported by Nico. Startup: {}. Last_Invalidation: {}",
                                 startup_time.to_rfc3339(),
                                 last_invalidation.to_rfc3339()
                             );
@@ -500,7 +500,7 @@ unsafe fn discovery_fetch_machine_at(
 /// This function dereferences a pointer to a Discovery object which is an opaque pointer
 /// consumed in C code.
 ///
-/// This does not forget the memory afterwards, so the opaque pointer in the C code is now
+/// This does not nicot the memory afterwards, so the opaque pointer in the C code is now
 /// unusable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_builder_free(ctx: *mut DiscoveryBuilderFFI) {
@@ -539,7 +539,7 @@ mod tests {
     fn test_discovery_fetch_machine_success() {
         // Start the mock API server, spawning a task to run hyper.
         // We call block_on in discovery_fetch_machine_at, which allows hyper to make progress.
-        let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        let rt: &tokio::runtime::Runtime = NicoDhcpContext::get_tokio_runtime();
         let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
 
         // Input packet, found by printing a real one
@@ -594,7 +594,7 @@ mod tests {
     #[test]
     fn test_discovery_fetch_machine_multi_threading() {
         // Start the mock API server
-        let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        let rt: &tokio::runtime::Runtime = NicoDhcpContext::get_tokio_runtime();
         let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
 
         let endpoint_url = api_server.local_http_addr();
@@ -649,7 +649,7 @@ mod tests {
     #[test]
     fn test_discovery_fetch_machine_success_after_failure() {
         // Start the mock API server.
-        let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        let rt: &tokio::runtime::Runtime = NicoDhcpContext::get_tokio_runtime();
         let mut api_server = rt.block_on(mock_api_server::MockAPIServer::start());
 
         // Input packet, found by printing a real one
@@ -707,7 +707,7 @@ mod tests {
     #[test]
     fn test_discovery_fetch_machine_multi_failure() {
         // Start the mock API server.
-        let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        let rt: &tokio::runtime::Runtime = NicoDhcpContext::get_tokio_runtime();
         let mut api_server = rt.block_on(mock_api_server::MockAPIServer::start());
 
         // Input packet, found by printing a real one

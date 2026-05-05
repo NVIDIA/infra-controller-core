@@ -16,7 +16,7 @@
 # limitations under the License.
 #
 #
-# Delete all but the most recent core file. This is called by forge-dpu-agent's ExecStartPre.
+# Delete all but the most recent core file. This is called by nico-dpu-agent's ExecStartPre.
 #
 # - Find all files (`-type f`) directly within the specified directory (`-maxdepth 1`).
 # - `-printf '%T+ %p\n'` prints the modification time and file path of each file, which allows us to sort them.

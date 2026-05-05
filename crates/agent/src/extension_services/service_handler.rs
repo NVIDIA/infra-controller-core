@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use async_trait::async_trait;
 use config_version::ConfigVersion;
 use eyre::Result;

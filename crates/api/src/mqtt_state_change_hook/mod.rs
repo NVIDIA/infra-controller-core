@@ -17,7 +17,7 @@
 
 //! MQTT state change hook for publishing ManagedHostState transitions.
 //!
-//! This module implements the AsyncAPI specification defined in `carbide.yaml`,
+//! This module implements the AsyncAPI specification defined in `nico.yaml`,
 //! publishing state changes to `nico/v1/machine/{machineId}/state` over MQTT 3.1.1.
 
 pub mod hook;

@@ -21,10 +21,10 @@ use sqlx::FromRow;
 
 // RouteServerSourceType exists because route server addresses are
 // stored with a source type annotating where the address was sourced
-// from, currently either the Carbide config file (ConfigFile), or via
+// from, currently either the Nico config file (ConfigFile), or via
 // the API (AdminApi). This allows route servers to be independently
 // managed by either the config file (update config and restart),
-// the API (make forge-admin-cli calls to dynamically update), or
+// the API (make nico-admin-cli calls to dynamically update), or
 // both. The nice thing is it's entirely up to the site operator
 // as to how they want to manage them.
 #[derive(Copy, Debug, Eq, Hash, PartialEq, Clone, Serialize, Deserialize, sqlx::Type)]
@@ -47,7 +47,7 @@ pub struct RouteServer {
 // Impl to allow us to convert RouteServer instances
 // into gRPC RouteServer messages for returning
 // API responses.
-impl From<RouteServer> for rpc::forge::RouteServer {
+impl From<RouteServer> for rpc::nico::RouteServer {
     fn from(rs: RouteServer) -> Self {
         Self {
             address: rs.address.to_string(),
@@ -59,20 +59,20 @@ impl From<RouteServer> for rpc::forge::RouteServer {
 // Impl to allow us to convert RouteServerSourceType instances
 // into gRPC RouteServerSourceType messages for returning
 // API responses.
-impl From<RouteServerSourceType> for rpc::forge::RouteServerSourceType {
+impl From<RouteServerSourceType> for rpc::nico::RouteServerSourceType {
     fn from(source_type: RouteServerSourceType) -> Self {
         match source_type {
-            RouteServerSourceType::ConfigFile => rpc::forge::RouteServerSourceType::ConfigFile,
-            RouteServerSourceType::AdminApi => rpc::forge::RouteServerSourceType::AdminApi,
+            RouteServerSourceType::ConfigFile => rpc::nico::RouteServerSourceType::ConfigFile,
+            RouteServerSourceType::AdminApi => rpc::nico::RouteServerSourceType::AdminApi,
         }
     }
 }
 
-impl From<rpc::forge::RouteServerSourceType> for RouteServerSourceType {
-    fn from(source_type: rpc::forge::RouteServerSourceType) -> Self {
+impl From<rpc::nico::RouteServerSourceType> for RouteServerSourceType {
+    fn from(source_type: rpc::nico::RouteServerSourceType) -> Self {
         match source_type {
-            rpc::forge::RouteServerSourceType::ConfigFile => RouteServerSourceType::ConfigFile,
-            rpc::forge::RouteServerSourceType::AdminApi => RouteServerSourceType::AdminApi,
+            rpc::nico::RouteServerSourceType::ConfigFile => RouteServerSourceType::ConfigFile,
+            rpc::nico::RouteServerSourceType::AdminApi => RouteServerSourceType::AdminApi,
         }
     }
 }

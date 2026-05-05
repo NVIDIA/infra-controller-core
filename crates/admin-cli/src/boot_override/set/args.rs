@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::MachineBootOverride;
-use carbide_uuid::machine::MachineInterfaceId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::MachineBootOverride;
+use nico_uuid::machine::MachineInterfaceId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
@@ -30,11 +30,11 @@ pub struct Args {
 }
 
 impl TryFrom<Args> for MachineBootOverride {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
 
-    fn try_from(args: Args) -> CarbideCliResult<Self> {
+    fn try_from(args: Args) -> NicoCliResult<Self> {
         if args.custom_pxe.is_none() && args.custom_user_data.is_none() {
-            return Err(CarbideCliError::GenericError(
+            return Err(NicoCliError::GenericError(
                 "Either custom pxe or custom user data is required".to_owned(),
             ));
         }

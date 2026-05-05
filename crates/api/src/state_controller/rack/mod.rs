@@ -17,7 +17,7 @@
 
 //! State Controller implementation for Racks.
 
-use carbide_uuid::rack::{RackId, RackProfileId};
+use nico_uuid::rack::{RackId, RackProfileId};
 use db::machine;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;

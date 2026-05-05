@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::IpxeTemplateParameter;
+use ::rpc::nico::IpxeTemplateParameter;
 use clap::Parser;
 
 use crate::operating_system::common::parse_param;

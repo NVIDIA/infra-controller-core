@@ -18,17 +18,17 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 
-// This is a work-around for FORGE-7085.  Due to an issue with interface reporting in the host BMC
+// This is a work-around for NICO-7085.  Due to an issue with interface reporting in the host BMC
 // its possible that the primary DPU is not the lowest slot DPU.  Functionally this is not a problem
 // but the host names interfaces by pci address so the behavior between machines of the same type
 // is different.
@@ -50,10 +50,10 @@ pub(crate) async fn set_primary_dpu(
     let request = request.into_inner();
     let host_machine_id = request
         .host_machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("Host Machine ID is required".to_string()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("Host Machine ID is required".to_string()))?;
     let dpu_machine_id = request
         .dpu_machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("DPU Machine ID is required".to_string()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("DPU Machine ID is required".to_string()))?;
 
     log_machine_id(&host_machine_id);
 
@@ -66,12 +66,12 @@ pub(crate) async fn set_primary_dpu(
     let snapshot =
         db::managed_host::load_snapshot(&mut txn, &host_machine_id, LoadSnapshotOptions::default())
             .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "Machine",
                 id: host_machine_id.to_string(),
             })?;
     if snapshot.is_zero_dpu() {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "Host {host_machine_id} has no DPUs; set-primary-dpu does not apply to zero-DPU hosts."
         ))
         .into());
@@ -83,7 +83,7 @@ pub(crate) async fn set_primary_dpu(
     let interface_snapshots =
         interface_map
             .get(&host_machine_id)
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "Machine",
                 id: host_machine_id.to_string(),
             })?;
@@ -97,7 +97,7 @@ pub(crate) async fn set_primary_dpu(
     for interface_snapshot in interface_snapshots {
         if interface_snapshot.primary_interface {
             let Some(attached_dpu_machine_id) = interface_snapshot.attached_dpu_machine_id else {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Primary interface is not associated with a DPU.  Operation not supported"
                         .to_string(),
                 )
@@ -105,7 +105,7 @@ pub(crate) async fn set_primary_dpu(
             };
 
             if attached_dpu_machine_id == dpu_machine_id {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Requested DPU is already primary".to_string(),
                 )
                 .into());
@@ -122,7 +122,7 @@ pub(crate) async fn set_primary_dpu(
     // the same BMC info is used if a reboot was requested.
     let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "Machine",
             id: host_machine_id.to_string(),
         })?;
@@ -130,24 +130,24 @@ pub(crate) async fn set_primary_dpu(
     let bmc_addr_str = machine
         .bmc_info
         .ip
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "BMC IP",
             id: host_machine_id.to_string(),
         })?;
 
-    let bmc_addr = IpAddr::from_str(&bmc_addr_str).map_err(CarbideError::AddressParseError)?;
+    let bmc_addr = IpAddr::from_str(&bmc_addr_str).map_err(NicoError::AddressParseError)?;
     let bmc_socket_addr = SocketAddr::new(bmc_addr, 443);
 
     let bmc_interface = db::machine_interface::find_by_ip(&mut txn, bmc_addr)
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "BMC Interface",
             id: bmc_addr.to_string(),
         })?;
 
     let primary_interface_mac_address = new_primary_interface
         .ok_or_else(|| {
-            CarbideError::internal("Primary interface disappeared during update".to_string())
+            NicoError::internal("Primary interface disappeared during update".to_string())
         })?
         .mac_address
         .to_string();
@@ -155,13 +155,13 @@ pub(crate) async fn set_primary_dpu(
     txn.rollback().await?;
 
     let Some(current_primary_interface_id) = current_primary_interface_id else {
-        return Err(CarbideError::internal(
+        return Err(NicoError::internal(
             "Could not determing old primary interface id".to_string(),
         )
         .into());
     };
     let Some(new_primary_interface) = new_primary_interface else {
-        return Err(CarbideError::internal(
+        return Err(NicoError::internal(
             "Could not determing new primary interface id".to_string(),
         )
         .into());
@@ -175,7 +175,7 @@ pub(crate) async fn set_primary_dpu(
             &primary_interface_mac_address,
         )
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -222,7 +222,7 @@ pub(crate) async fn set_primary_dpu(
                 libredfish::SystemPowerControl::ForceRestart,
             )
             .await
-            .map_err(|e| CarbideError::internal(e.to_string()))?;
+            .map_err(|e| NicoError::internal(e.to_string()))?;
     }
     Ok(Response::new(()))
 }
@@ -246,7 +246,7 @@ pub(crate) async fn set_maintenance(
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
     if host_machine.is_dpu() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "DPU ID provided. Need managed host.".to_string(),
         )
         .into());
@@ -259,13 +259,13 @@ pub(crate) async fn set_maintenance(
         rpc::MaintenanceOperation::Enable => {
             let Some(reference) = req.reference else {
                 return Err(
-                    CarbideError::InvalidArgument("Missing reference url".to_string()).into(),
+                    NicoError::InvalidArgument("Missing reference url".to_string()).into(),
                 );
             };
 
             let reference = reference.trim().to_string();
             if reference.len() < 5 {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Provide some valid reference. Minimum expected length is 5.".into(),
                 )
                 .into());
@@ -276,7 +276,7 @@ pub(crate) async fn set_maintenance(
                 api,
                 Request::new(rpc::InsertMachineHealthReportRequest {
                     machine_id: req.host_id,
-                    health_report_entry: Some(::rpc::forge::HealthReportEntry {
+                    health_report_entry: Some(::rpc::nico::HealthReportEntry {
                         report: Some(health_report::HealthReport {
                             source: "maintenance".to_string(),
                             triggered_by,
@@ -295,7 +295,7 @@ pub(crate) async fn set_maintenance(
                             }],
                         }
                                      .into()),
-                        mode: ::rpc::forge::HealthReportApplyMode::Merge.into(),
+                        mode: ::rpc::nico::HealthReportApplyMode::Merge.into(),
                     }),
                 }),
             )
@@ -304,7 +304,7 @@ pub(crate) async fn set_maintenance(
         rpc::MaintenanceOperation::Disable => {
             for dpu_machine in dpu_machines.iter() {
                 if dpu_machine.reprovision_requested.is_some() {
-                    return Err(CarbideError::InvalidArgument(format!(
+                    return Err(NicoError::InvalidArgument(format!(
                         "Reprovisioning request is set on DPU: {}. Clear it first.",
                         &dpu_machine.id
                     ))

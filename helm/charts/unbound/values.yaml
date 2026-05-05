@@ -42,8 +42,8 @@ localConfig:
   verbosity.conf: |
     server:
         verbosity: 1
-  forge_local_unknowndomain.conf: |
-    # This .unknowndomain value is hardcoded in carbide as a default if a VPC
+  nico_local_unknowndomain.conf: |
+    # This .unknowndomain value is hardcoded in nico as a default if a VPC
     # doesn't have one configured. We shouldn't forward any of these queries further
     # upstream.
     local-zone: "unknowndomain." static

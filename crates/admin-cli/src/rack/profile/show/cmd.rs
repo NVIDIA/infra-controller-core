@@ -18,7 +18,7 @@
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::GetRackProfileResponse;
+use rpc::nico::GetRackProfileResponse;
 use serde::Serialize;
 
 use super::args::Args;
@@ -71,7 +71,7 @@ impl From<&GetRackProfileResponse> for ProfileOutput {
                 .unwrap_or_else(|| "N/A".to_string()),
             rack_hardware_topology: profile
                 .map(|p| {
-                    rpc::forge::RackHardwareTopology::try_from(p.rack_hardware_topology)
+                    rpc::nico::RackHardwareTopology::try_from(p.rack_hardware_topology)
                         .unwrap_or_default()
                         .as_str_name()
                         .to_string()
@@ -79,7 +79,7 @@ impl From<&GetRackProfileResponse> for ProfileOutput {
                 .unwrap_or_else(|| "N/A".to_string()),
             rack_hardware_class: profile
                 .map(|p| {
-                    rpc::forge::RackHardwareClass::try_from(p.rack_hardware_class)
+                    rpc::nico::RackHardwareClass::try_from(p.rack_hardware_class)
                         .unwrap_or_default()
                         .as_str_name()
                         .to_string()
@@ -174,7 +174,7 @@ fn show_detail(r: &GetRackProfileResponse) {
         "Hardware Topology",
         profile
             .map(
-                |p| rpc::forge::RackHardwareTopology::try_from(p.rack_hardware_topology)
+                |p| rpc::nico::RackHardwareTopology::try_from(p.rack_hardware_topology)
                     .unwrap_or_default()
                     .as_str_name()
                     .to_string()
@@ -185,7 +185,7 @@ fn show_detail(r: &GetRackProfileResponse) {
         "Hardware Class",
         profile
             .map(
-                |p| rpc::forge::RackHardwareClass::try_from(p.rack_hardware_class)
+                |p| rpc::nico::RackHardwareClass::try_from(p.rack_hardware_class)
                     .unwrap_or_default()
                     .as_str_name()
                     .to_string()

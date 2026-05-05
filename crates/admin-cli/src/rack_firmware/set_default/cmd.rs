@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::admin_cli::NicoCliError;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn set_default(opts: Args, api_client: &ApiClient) -> Result<(), CarbideCliError> {
+pub async fn set_default(opts: Args, api_client: &ApiClient) -> Result<(), NicoCliError> {
     let firmware_id = opts.firmware_id.clone();
     api_client.0.rack_firmware_set_default(opts).await?;
     println!("Set firmware '{}' as default.", firmware_id);

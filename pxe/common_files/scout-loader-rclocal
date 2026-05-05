@@ -34,7 +34,7 @@ then
     newrootfsurl=$(cat /proc/cmdline | sed -e 's/.*newrootfs=//' -e 's/ .*//')
 else
     arch=$(uname -m)
-    newrootfsurl="http://carbide-static-pxe.forge/public/blobs/internal/${arch}/scout.cpio.zst"
+    newrootfsurl="http://nico-static-pxe.nico/public/blobs/internal/${arch}/scout.cpio.zst"
 fi
 
 # Respect the console info from the kernel command line

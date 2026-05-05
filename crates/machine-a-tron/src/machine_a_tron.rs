@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use futures::future::try_join_all;
-use rpc::forge::VpcVirtualizationType;
+use rpc::nico::VpcVirtualizationType;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -124,25 +124,25 @@ impl MachineATron {
     ) -> eyre::Result<()> {
         let mut vpc_handles: Vec<Vpc> = Vec::new();
         let mut subnet_handles: Vec<Subnet> = Vec::new();
-        // Represents the mat_id of machines which are Assigned to a forge Instance
+        // Represents the mat_id of machines which are Assigned to a nico Instance
         let mut assigned_mat_ids: HashSet<Uuid> = HashSet::new();
 
         if let Some(host_str) = self
             .app_context
             .app_config
-            .configure_carbide_bmc_proxy_host
+            .configure_nico_bmc_proxy_host
             .as_ref()
         {
             let host_port_str =
                 format!("{}:{}", host_str, self.app_context.app_config.bmc_mock_port);
-            tracing::info!("Configuring carbide API to use {host_port_str} as bmc_proxy",);
+            tracing::info!("Configuring nico API to use {host_port_str} as bmc_proxy",);
             _ = self
                 .app_context
                 .api_client()
                 .configure_bmc_proxy_host(host_port_str)
                 .await
                 .inspect_err(
-                    |e| tracing::warn!(error = ?e, "Could not configure carbide bmc_proxy"),
+                    |e| tracing::warn!(error = ?e, "Could not configure nico bmc_proxy"),
                 )
         }
 
@@ -255,7 +255,7 @@ impl MachineATron {
                 tracing::info!("Attempting to delete VPC with id: {} from db.", vpc.vpc_id);
                 if let Err(e) = self
                     .app_context
-                    .forge_api_client
+                    .nico_api_client
                     .delete_vpc(vpc.vpc_id)
                     .await
                 {
@@ -270,7 +270,7 @@ impl MachineATron {
                 );
                 if let Err(e) = self
                     .app_context
-                    .forge_api_client
+                    .nico_api_client
                     .delete_network_segment(subnet.segment_id)
                     .await
                 {
@@ -282,17 +282,17 @@ impl MachineATron {
         if self
             .app_context
             .app_config
-            .configure_carbide_bmc_proxy_host
+            .configure_nico_bmc_proxy_host
             .is_some()
         {
-            tracing::info!("Removing bmc_proxy configuration from carbide API");
+            tracing::info!("Removing bmc_proxy configuration from nico API");
             _ = self
                 .app_context
                 .api_client()
                 .configure_bmc_proxy_host("".to_string())
                 .await
                 .inspect_err(
-                    |e| tracing::warn!(error = ?e, "Could not configure carbide bmc_proxy"),
+                    |e| tracing::warn!(error = ?e, "Could not configure nico bmc_proxy"),
                 )
         }
 

@@ -24,16 +24,16 @@ use bmc_mock::{CombinedServer, HostnameQuerying, ListenerOrAddress};
 use clap::Parser;
 use figment::Figment;
 use figment::providers::{Format, Toml};
-use forge_tls::client_config::{
-    get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
+use nico_tls::client_config::{
+    get_client_cert_info, get_config_from_file, get_nico_root_ca_path, get_proxy_info,
 };
 use machine_a_tron::{
     AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MachineATronArgs,
     MachineATronConfig, MachineATronContext, MockSshServerHandle, PromptBehavior, Tui, TuiHostLogs,
     api_throttler, spawn_mock_ssh_server,
 };
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-use rpc::protos::forge_api_client::ForgeApiClient;
+use rpc::nico_tls_client::{ApiConfig, NicoClientConfig};
+use rpc::protos::nico_api_client::NicoApiClient;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
@@ -92,8 +92,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let file_config = get_config_from_file();
 
-    let forge_root_ca_path = get_forge_root_ca_path(args.forge_root_ca_path, file_config.as_ref());
-    let forge_client_cert = get_client_cert_info(
+    let nico_root_ca_path = get_nico_root_ca_path(args.nico_root_ca_path, file_config.as_ref());
+    let nico_client_cert = get_client_cert_info(
         args.client_cert_path,
         args.client_key_path,
         file_config.as_ref(),
@@ -101,11 +101,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let proxy =
         get_proxy_info().inspect_err(|e| tracing::error!("Failed to get proxy info: {}", e))?;
 
-    let mut forge_client_config =
-        ForgeClientConfig::new(forge_root_ca_path.clone(), Some(forge_client_cert));
-    forge_client_config.socks_proxy(proxy);
-    forge_client_config.connect_retries_max = Some(60);
-    forge_client_config.connect_retries_interval = Some(Duration::from_secs(1));
+    let mut nico_client_config =
+        NicoClientConfig::new(nico_root_ca_path.clone(), Some(nico_client_cert));
+    nico_client_config.socks_proxy(proxy);
+    nico_client_config.connect_retries_max = Some(60);
+    nico_client_config.connect_retries_interval = Some(Duration::from_secs(1));
 
     let bmc_registration_mode = if app_config.use_single_bmc_mock {
         // Machines will register their BMC's with the shared registry
@@ -115,16 +115,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         BmcRegistrationMode::None(app_config.bmc_mock_port)
     };
 
-    let api_config = ApiConfig::new(&app_config.carbide_api_url, &forge_client_config);
+    let api_config = ApiConfig::new(&app_config.nico_api_url, &nico_client_config);
 
-    let forge_api_client = ForgeApiClient::new(&api_config);
+    let nico_api_client = NicoApiClient::new(&api_config);
 
     let api_throttler = api_throttler::run(
         tokio::time::interval(Duration::from_secs(2)),
-        forge_api_client.clone().into(),
+        nico_api_client.clone().into(),
     );
 
-    let desired_firmware_versions = forge_api_client
+    let desired_firmware_versions = nico_api_client
         .get_desired_firmware_versions()
         .await?
         .entries;
@@ -139,15 +139,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let app_context = Arc::new(MachineATronContext {
         app_config,
-        forge_client_config,
+        nico_client_config,
         bmc_mock_certs_dir: None,
         bmc_registration_mode,
         api_throttler,
         desired_firmware_versions,
-        forge_api_client,
+        nico_api_client,
     });
 
-    let info = app_context.forge_api_client.version(false).await?;
+    let info = app_context.nico_api_client.version(false).await?;
     tracing::info!("version: {}", info.build_version);
 
     let mut mat = MachineATron::new(app_context.clone());
@@ -156,7 +156,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let maybe_bmc_mock_handles: Option<(CombinedServer, Option<MockSshServerHandle>)> =
         match &app_context.bmc_registration_mode {
             BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
-                let certs_dir = PathBuf::from(forge_root_ca_path.clone())
+                let certs_dir = PathBuf::from(nico_root_ca_path.clone())
                     .parent()
                     .map(Path::to_path_buf);
 
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 let bmc_ssh_mock = if app_context.app_config.mock_bmc_ssh_server {
                     // Spawn a single mock SSH server too. ssh-console can be configured to talk to
-                    // this instead of the carbide-assigned BMC IP for each host, so that
+                    // this instead of the nico-assigned BMC IP for each host, so that
                     // machine-a-tron-based dev environments can have a "working" ssh-console too.
                     Some(
                         spawn_mock_ssh_server(

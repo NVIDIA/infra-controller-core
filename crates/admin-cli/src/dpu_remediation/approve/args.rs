@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::dpu_remediations::RemediationId;
+use nico_uuid::dpu_remediations::RemediationId;
 use clap::Parser;
-use rpc::forge::ApproveRemediationRequest;
+use rpc::nico::ApproveRemediationRequest;
 
 #[derive(Parser, Debug)]
 pub struct Args {

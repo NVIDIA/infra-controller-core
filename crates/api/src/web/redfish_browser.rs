@@ -22,10 +22,10 @@ use axum::Extension;
 use axum::extract::{Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum_extra::extract::PrivateCookieJar;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use http::HeaderMap;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use serde::Deserialize;
 
 use super::{Base, Oauth2Layer};
@@ -133,7 +133,7 @@ pub async fn query(
     };
 
     let response = match state
-        .redfish_browse(tonic::Request::new(rpc::forge::RedfishBrowseRequest {
+        .redfish_browse(tonic::Request::new(rpc::nico::RedfishBrowseRequest {
             uri: browser.url.clone(),
         }))
         .await
@@ -157,7 +157,7 @@ pub async fn query(
     };
 
     let requests = match state
-        .redfish_list_actions(tonic::Request::new(rpc::forge::RedfishListActionsRequest {
+        .redfish_list_actions(tonic::Request::new(rpc::nico::RedfishListActionsRequest {
             machine_ip: Some(bmc_ip.to_string()),
         }))
         .await

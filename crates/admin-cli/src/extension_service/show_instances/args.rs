@@ -26,7 +26,7 @@ pub struct Args {
     pub version: Option<String>,
 }
 
-impl From<Args> for ::rpc::forge::FindInstancesByDpuExtensionServiceRequest {
+impl From<Args> for ::rpc::nico::FindInstancesByDpuExtensionServiceRequest {
     fn from(args: Args) -> Self {
         Self {
             service_id: args.service_id,

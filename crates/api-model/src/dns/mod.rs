@@ -32,7 +32,7 @@ pub use snapshot::SoaSnapshot;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Domain {
-    pub id: carbide_uuid::domain::DomainId,
+    pub id: nico_uuid::domain::DomainId,
     pub name: String,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,

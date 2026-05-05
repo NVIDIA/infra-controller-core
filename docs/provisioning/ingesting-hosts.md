@@ -6,9 +6,9 @@ Once you have NVIDIA Infra Controller (NICo) up and running, you can begin inges
 
 Ensure you have the following prerequisites met before ingesting machines:
 
-1. You have the `carbide-admin-cli` command available: You can compile it from sources or you can use the pre-compiled binary. Another choice is to use a containerized version.
+1. You have the `nico-admin-cli` command available: You can compile it from sources or you can use the pre-compiled binary. Another choice is to use a containerized version.
 
-2. You can access the NICo site using the `carbide-admin-cli`.
+2. You can access the NICo site using the `nico-admin-cli`.
 
 3. The NICo API service is running at IP address `NICo_API_EXTERNAL`. It is recommended that you add this IP address to your trusted list.
    
@@ -44,7 +44,7 @@ https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>
 Run this command to update the desired Host and DPU BMC password:
 
 ```bash
-carbide-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='x'
+nico-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='x'
 ```
 
 ### Update Host UEFI Password
@@ -52,14 +52,14 @@ carbide-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --passwo
 Run this command to update the desired host UEFI password:
 
 ```bash
-carbide-admin-cli -c <api-url> host generate-host-uefi-password
+nico-admin-cli -c <api-url> host generate-host-uefi-password
 ```
 
 
 Run this command to update host uefi password:
 
 ```bash
-carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='x'
+nico-admin-cli -c <api-url> credential add-uefi --kind=host --password='x'
 ```
 
 {/* TODO: Need to add "update DPU UEFI password" command. */}
@@ -122,7 +122,7 @@ Each entry supports additional optional fields:
 When the file is ready, upload it to the site with the following command:
 
 ```bash
-carbide-admin-cli -c <api-url> em replace-all --filename expected_machines.json
+nico-admin-cli -c <api-url> em replace-all --filename expected_machines.json
 ```
 
 ## Approve all Machines for Ingestion
@@ -131,12 +131,12 @@ NICo uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to 
 The following command configures NICo to approve all pending machines based on PCR Registers 0, 3, 5, and 6.
 
 ```bash
-carbide-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
+nico-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
 ## Managing the Expected Machines Table
 
-The expected machines table in the carbide-api database holds the following fields per host:
+The expected machines table in the nico-api database holds the following fields per host:
 - Chassis Serial Number
 - BMC MAC Address
 - BMC manufacturer's set login
@@ -145,12 +145,12 @@ The expected machines table in the carbide-api database holds the following fiel
 
 ### Individual operations
 
-Use `carbide-admin-cli` to operate on individual entries:
+Use `nico-admin-cli` to operate on individual entries:
 
 ```bash
-carbide-admin-cli -c <api-url> em update ...
-carbide-admin-cli -c <api-url> em add ...
-carbide-admin-cli -c <api-url> em delete ...
+nico-admin-cli -c <api-url> em update ...
+nico-admin-cli -c <api-url> em add ...
+nico-admin-cli -c <api-url> em delete ...
 ```
 
 ### Bulk operations
@@ -158,13 +158,13 @@ carbide-admin-cli -c <api-url> em delete ...
 Replace all entries from a JSON file:
 
 ```bash
-carbide-admin-cli -c <api-url> em replace-all --filename expected_machines.json
+nico-admin-cli -c <api-url> em replace-all --filename expected_machines.json
 ```
 
 Erase all entries:
 
 ```bash
-carbide-admin-cli -c <api-url> em erase
+nico-admin-cli -c <api-url> em erase
 ```
 
 ### Export
@@ -172,5 +172,5 @@ carbide-admin-cli -c <api-url> em erase
 Export the current table as JSON:
 
 ```bash
-carbide-admin-cli -c <api-url> -f json em show
+nico-admin-cli -c <api-url> -f json em show
 ```

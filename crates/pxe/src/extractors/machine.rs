@@ -17,10 +17,10 @@
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum_client_ip::ClientIp;
-use forge_tls::client_config::ClientCert;
-use rpc::forge::CloudInitInstructionsRequest;
-use rpc::forge_tls_client;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_tls::client_config::ClientCert;
+use rpc::nico::CloudInitInstructionsRequest;
+use rpc::nico_tls_client;
+use rpc::nico_tls_client::{ApiConfig, NicoClientConfig};
 
 use crate::common::{AppState, Machine};
 use crate::rpc_error::PxeRequestError;
@@ -32,8 +32,8 @@ impl FromRequestParts<AppState> for Machine {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let client_config = ForgeClientConfig::new(
-            state.runtime_config.forge_root_ca_path.clone(),
+        let client_config = NicoClientConfig::new(
+            state.runtime_config.nico_root_ca_path.clone(),
             Some(ClientCert {
                 cert_path: state.runtime_config.server_cert_path.clone(),
                 key_path: state.runtime_config.server_key_path.clone(),
@@ -41,11 +41,11 @@ impl FromRequestParts<AppState> for Machine {
         );
         let api_config = ApiConfig::new(&state.runtime_config.internal_api_url, &client_config);
 
-        let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
+        let mut client = nico_tls_client::NicoTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| {
                 eprintln!(
-                    "error connecting to forge api from pxe - {:?} - url: {:?}",
+                    "error connecting to nico api from pxe - {:?} - url: {:?}",
                     err, state.runtime_config.internal_api_url
                 );
                 PxeRequestError::MissingClientConfig
@@ -66,6 +66,6 @@ impl FromRequestParts<AppState> for Machine {
             .map(|response| Machine {
                 instructions: response.into_inner(),
             })
-            .map_err(PxeRequestError::CarbideApiError)
+            .map_err(PxeRequestError::NicoApiError)
     }
 }

@@ -14,15 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico as rpc;
+use nico_uuid::machine::MachineId;
 use itertools::Itertools;
 use model::machine::{
     HostReprovisionState, LoadSnapshotOptions, ManagedHostState, ScoutUpgradeResult,
 };
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data, truncate};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -46,7 +46,7 @@ pub(crate) async fn trigger_host_reprovisioning(
     api: &Api,
     request: Request<rpc::HostReprovisioningRequest>,
 ) -> Result<Response<()>, Status> {
-    use ::rpc::forge::host_reprovisioning_request::Mode;
+    use ::rpc::nico::host_reprovisioning_request::Mode;
 
     log_request_data(&request);
     let req = request.into_inner();
@@ -57,7 +57,7 @@ pub(crate) async fn trigger_host_reprovisioning(
     let snapshot =
         db::managed_host::load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
             .await?
-            .ok_or(CarbideError::NotFoundError {
+            .ok_or(NicoError::NotFoundError {
                 kind: "machine",
                 id: machine_id.to_string(),
             })?;
@@ -66,7 +66,7 @@ pub(crate) async fn trigger_host_reprovisioning(
         && request.started_at.is_some()
     {
         return Err(
-            CarbideError::internal("Reprovisioning is already started.".to_string()).into(),
+            NicoError::internal("Reprovisioning is already started.".to_string()).into(),
         );
     }
 
@@ -173,7 +173,7 @@ pub async fn report_scout_firmware_upgrade_status(
         retry_count,
     } = machine.current_state().clone()
     else {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "Machine {machine_id} is not in WaitingForScoutUpgrade state"
         ))
         .into());
@@ -186,7 +186,7 @@ pub async fn report_scout_firmware_upgrade_status(
             reported_upgrade_task_id = %req.upgrade_task_id,
             "Rejecting stale scout firmware upgrade status report",
         );
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "Scout firmware upgrade status task ID mismatch for machine {machine_id}"
         ))
         .into());

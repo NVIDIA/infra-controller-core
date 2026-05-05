@@ -20,7 +20,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::carbide_utils::metrics::SharedMetricsHolder;
+use ::nico_utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 
@@ -293,7 +293,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         shared_metrics_holder: SharedMetricsHolder<Self::IterationMetrics>,
     ) -> Self {
         {
-            // The code below is what creates counters like forge_network_segments_total
+            // The code below is what creates counters like nico_network_segments_total
             let metrics = shared_metrics_holder.clone();
             meter
                 .u64_observable_gauge(format!("{object_type}_total"))

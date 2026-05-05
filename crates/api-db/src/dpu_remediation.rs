@@ -16,8 +16,8 @@
  */
 use std::ops::DerefMut;
 
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::machine::MachineId;
 use model::dpu_remediation::{
     AppliedRemediation, ApproveRemediation, DisableRemediation, EnableRemediation,
     NewAppliedRemediation, NewRemediation, Remediation, RemediationApplicationStatus,

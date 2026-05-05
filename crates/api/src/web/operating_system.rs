@@ -22,13 +22,13 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::Base;
 use crate::api::Api;
 
-fn sanitize_os(os: &mut forgerpc::OperatingSystem) {
+fn sanitize_os(os: &mut nicorpc::OperatingSystem) {
     for artifact in &mut os.ipxe_template_artifacts {
         artifact.auth_token = None;
     }
@@ -50,12 +50,12 @@ struct OsRowDisplay {
     is_active: bool,
 }
 
-impl From<&forgerpc::OperatingSystem> for OsRowDisplay {
-    fn from(os: &forgerpc::OperatingSystem) -> Self {
-        let os_type = forgerpc::OperatingSystemType::try_from(os.r#type)
+impl From<&nicorpc::OperatingSystem> for OsRowDisplay {
+    fn from(os: &nicorpc::OperatingSystem) -> Self {
+        let os_type = nicorpc::OperatingSystemType::try_from(os.r#type)
             .map(|t| format!("{t:?}"))
             .unwrap_or_else(|_| "Unknown".to_string());
-        let status = forgerpc::TenantState::try_from(os.status)
+        let status = nicorpc::TenantState::try_from(os.status)
             .map(|s| format!("{s:?}"))
             .unwrap_or_else(|_| "Unknown".to_string());
         Self {
@@ -110,8 +110,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 
 async fn fetch_operating_systems(
     api: Arc<Api>,
-) -> Result<Vec<forgerpc::OperatingSystem>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::OperatingSystemSearchFilter {
+) -> Result<Vec<nicorpc::OperatingSystem>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::OperatingSystemSearchFilter {
         tenant_organization_id: None,
     });
     let id_list = api
@@ -124,7 +124,7 @@ async fn fetch_operating_systems(
         return Ok(Vec::new());
     }
 
-    let request = tonic::Request::new(forgerpc::OperatingSystemsByIdsRequest { ids: id_list });
+    let request = tonic::Request::new(nicorpc::OperatingSystemsByIdsRequest { ids: id_list });
     let mut oss = api
         .find_operating_systems_by_ids(request)
         .await?
@@ -169,12 +169,12 @@ struct OsArtifact {
     cache_strategy: String,
 }
 
-impl From<forgerpc::OperatingSystem> for OsDetail {
-    fn from(os: forgerpc::OperatingSystem) -> Self {
-        let os_type = forgerpc::OperatingSystemType::try_from(os.r#type)
+impl From<nicorpc::OperatingSystem> for OsDetail {
+    fn from(os: nicorpc::OperatingSystem) -> Self {
+        let os_type = nicorpc::OperatingSystemType::try_from(os.r#type)
             .map(|t| format!("{t:?}"))
             .unwrap_or_else(|_| "Unknown".to_string());
-        let status = forgerpc::TenantState::try_from(os.status)
+        let status = nicorpc::TenantState::try_from(os.status)
             .map(|s| format!("{s:?}"))
             .unwrap_or_else(|_| "Unknown".to_string());
 
@@ -192,7 +192,7 @@ impl From<forgerpc::OperatingSystem> for OsDetail {
             .iter()
             .map(|a| {
                 let cache_strategy =
-                    forgerpc::IpxeTemplateArtifactCacheStrategy::try_from(a.cache_strategy)
+                    nicorpc::IpxeTemplateArtifactCacheStrategy::try_from(a.cache_strategy)
                         .map(|s| format!("{s:?}"))
                         .unwrap_or_else(|_| "Unknown".to_string());
                 OsArtifact {
@@ -238,7 +238,7 @@ pub async fn detail(
         None => (false, os_id),
     };
 
-    let os_id_msg: carbide_uuid::operating_system::OperatingSystemId = match os_id.parse() {
+    let os_id_msg: nico_uuid::operating_system::OperatingSystemId = match os_id.parse() {
         Ok(id) => id,
         Err(_) => return super::not_found_response(os_id),
     };

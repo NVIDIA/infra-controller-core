@@ -16,8 +16,8 @@
  */
 
 use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::{VpcPeeringIdList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use rpc::nico::{VpcPeeringIdList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -27,7 +27,7 @@ pub async fn show(
     args: &Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
     let vpc_peering_ids = match (&args.id, &args.vpc_id) {
@@ -57,7 +57,7 @@ pub async fn show(
     if is_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&vpc_peering_list).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&vpc_peering_list).map_err(NicoCliError::JsonError)?
         );
     } else {
         convert_vpc_peerings_to_table(&vpc_peering_list.vpc_peerings)?.printstd();

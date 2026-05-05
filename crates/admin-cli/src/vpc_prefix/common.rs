@@ -17,11 +17,11 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::admin_cli::CarbideCliError::GenericError;
-use carbide_uuid::vpc::VpcPrefixId;
+use ::rpc::admin_cli::NicoCliError;
+use ::rpc::admin_cli::NicoCliError::GenericError;
+use nico_uuid::vpc::VpcPrefixId;
 use ipnet::IpNet;
-use rpc::forge::{PrefixMatchType, VpcPrefix, VpcPrefixSearchQuery};
+use rpc::nico::{PrefixMatchType, VpcPrefix, VpcPrefixSearchQuery};
 
 use crate::rpc::ApiClient;
 
@@ -32,7 +32,7 @@ pub enum VpcPrefixSelector {
 }
 
 impl VpcPrefixSelector {
-    pub async fn fetch(self, api_client: &ApiClient) -> Result<VpcPrefix, CarbideCliError> {
+    pub async fn fetch(self, api_client: &ApiClient) -> Result<VpcPrefix, NicoCliError> {
         match self {
             VpcPrefixSelector::Id(id) => get_one_by_id(api_client, id).await,
             VpcPrefixSelector::Prefix(prefix) => {
@@ -61,7 +61,7 @@ impl VpcPrefixSelector {
 }
 
 impl FromStr for VpcPrefixSelector {
-    type Err = CarbideCliError;
+    type Err = NicoCliError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parsed_vpc_prefix_id = VpcPrefixId::from_str(s);
@@ -93,7 +93,7 @@ pub fn match_all() -> VpcPrefixSearchQuery {
 pub async fn search(
     api_client: &ApiClient,
     query: VpcPrefixSearchQuery,
-) -> Result<Vec<VpcPrefixId>, CarbideCliError> {
+) -> Result<Vec<VpcPrefixId>, NicoCliError> {
     Ok(api_client
         .0
         .search_vpc_prefixes(query)
@@ -105,10 +105,10 @@ pub async fn get_by_ids(
     api_client: &ApiClient,
     batch_size: usize,
     ids: &[VpcPrefixId],
-) -> Result<Vec<VpcPrefix>, CarbideCliError> {
+) -> Result<Vec<VpcPrefix>, NicoCliError> {
     let mut vpc_prefixes = Vec::with_capacity(ids.len());
     for ids in ids.chunks(batch_size) {
-        let vpc_id_list = rpc::forge::VpcPrefixGetRequest {
+        let vpc_id_list = rpc::nico::VpcPrefixGetRequest {
             vpc_prefix_ids: ids.to_owned(),
         };
         let prefixes_batch = api_client
@@ -124,11 +124,11 @@ pub async fn get_by_ids(
 pub async fn get_one_by_id(
     api_client: &ApiClient,
     id: VpcPrefixId,
-) -> Result<VpcPrefix, CarbideCliError> {
+) -> Result<VpcPrefix, NicoCliError> {
     let mut prefixes = get_by_ids(api_client, 1, &[id]).await?;
     match (prefixes.len(), prefixes.pop()) {
         (1, Some(prefix)) => Ok(prefix),
-        (0, None) => Err(CarbideCliError::GenericError(format!(
+        (0, None) => Err(NicoCliError::GenericError(format!(
             "VPC prefix not found: {id}"
         ))),
         (n, _) => {

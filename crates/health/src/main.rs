@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_health::{Config, HealthError};
+use nico_health::{Config, HealthError};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -36,16 +36,16 @@ async fn main() -> Result<(), HealthError> {
         .init();
 
     tracing::info!(
-        version = carbide_version::v!(build_version),
+        version = nico_version::v!(build_version),
         config = ?config,
-        "Started carbide-hw-health"
+        "Started nico-hw-health"
     );
 
-    carbide_health::run_service(config).await?;
+    nico_health::run_service(config).await?;
 
     tracing::info!(
-        version = carbide_version::v!(build_version),
-        "Stopped carbide-hw-health"
+        version = nico_version::v!(build_version),
+        "Stopped nico-hw-health"
     );
 
     Ok(())

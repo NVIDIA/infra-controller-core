@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::{
     IpxeTemplateArtifactCacheStrategy, OperatingSystemSearchFilter, OperatingSystemType,
 };
 use prettytable::{Cell, Row, Table};
@@ -29,7 +29,7 @@ pub async fn handle_show(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if opts.id.as_deref().unwrap_or("").is_empty() {
         list_all(opts, format, api_client).await
     } else {
@@ -41,7 +41,7 @@ async fn list_all(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let id_list = api_client
         .0
         .find_operating_system_ids(OperatingSystemSearchFilter {
@@ -54,7 +54,7 @@ async fn list_all(
     } else {
         api_client
             .0
-            .find_operating_systems_by_ids(::rpc::forge::OperatingSystemsByIdsRequest {
+            .find_operating_systems_by_ids(::rpc::nico::OperatingSystemsByIdsRequest {
                 ids: id_list.ids,
             })
             .await?
@@ -68,7 +68,7 @@ async fn list_all(
             .collect();
         println!(
             "{}",
-            serde_json::to_string_pretty(&serializable).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&serializable).map_err(NicoCliError::JsonError)?
         );
         return Ok(());
     }
@@ -138,25 +138,25 @@ async fn show_one(
     id_str: &str,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let id = str_to_os_id(id_str)?;
 
     let os = match api_client.0.get_operating_system(id).await {
         Ok(os) => os,
         Err(status) if status.code() == tonic::Code::NotFound => {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "Operating system not found: {}",
                 id_str
             )));
         }
-        Err(err) => return Err(CarbideCliError::from(err)),
+        Err(err) => return Err(NicoCliError::from(err)),
     };
 
     if format == OutputFormat::Json {
         let serializable: SerializableOs = os.into();
         println!(
             "{}",
-            serde_json::to_string_pretty(&serializable).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&serializable).map_err(NicoCliError::JsonError)?
         );
         return Ok(());
     }

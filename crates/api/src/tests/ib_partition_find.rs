@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_ib_fabric::config::IBFabricConfig;
-use carbide_uuid::infiniband::IBPartitionId;
-use rpc::forge_server::Forge;
+use ::rpc::nico as rpc;
+use nico_ib_fabric::config::IBFabricConfig;
+use nico_uuid::infiniband::IBPartitionId;
+use rpc::nico_server::Nico;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::ib_partition::create_ib_partition;

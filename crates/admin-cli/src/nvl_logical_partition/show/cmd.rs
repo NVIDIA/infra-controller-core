@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico as nicorpc;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -30,7 +30,7 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
         show_all_logical_partitions(is_json, api_client, page_size, args.name).await?;
@@ -45,7 +45,7 @@ async fn show_all_logical_partitions(
     api_client: &ApiClient,
     page_size: usize,
     name: Option<String>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let all_logical_partitions = match api_client.get_all_logical_partitions(name, page_size).await
     {
         Ok(all_logical_partition_ids) => all_logical_partition_ids,
@@ -63,9 +63,9 @@ async fn show_logical_partition_details(
     id: String,
     json: bool,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let partition_id: NvLinkLogicalPartitionId = uuid::Uuid::parse_str(&id)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
+        .map_err(|_| NicoCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
     let logical_partition = api_client.get_one_logical_partition(partition_id).await?;
 
@@ -81,7 +81,7 @@ async fn show_logical_partition_details(
 }
 
 fn convert_partitions_to_nice_table(
-    partitions: forgerpc::NvLinkLogicalPartitionList,
+    partitions: nicorpc::NvLinkLogicalPartitionList,
 ) -> Box<Table> {
     let mut table = Table::new();
 
@@ -90,7 +90,7 @@ fn convert_partitions_to_nice_table(
     for partition in partitions.partitions {
         table.add_row(row![
             partition.id.unwrap_or_default(),
-            forgerpc::TenantState::try_from(partition.status.unwrap_or_default().state,)
+            nicorpc::TenantState::try_from(partition.status.unwrap_or_default().state,)
                 .unwrap_or_default()
                 .as_str_name()
                 .to_string()
@@ -101,8 +101,8 @@ fn convert_partitions_to_nice_table(
 }
 
 fn convert_partition_to_nice_format(
-    partition: forgerpc::NvLinkLogicalPartition,
-) -> CarbideCliResult<String> {
+    partition: nicorpc::NvLinkLogicalPartition,
+) -> NicoCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
@@ -126,7 +126,7 @@ fn convert_partition_to_nice_format(
         ),
         (
             "STATUS",
-            forgerpc::TenantState::try_from(partition.status.unwrap_or_default().state)
+            nicorpc::TenantState::try_from(partition.status.unwrap_or_default().state)
                 .unwrap_or_default()
                 .as_str_name()
                 .to_string(),

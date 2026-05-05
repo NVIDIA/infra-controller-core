@@ -17,11 +17,11 @@
 
 use std::net::TcpListener;
 
-use forge_secrets::credentials::{
+use nico_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialPrefix, CredentialWriter, Credentials,
     MqttCredentialType,
 };
-use forge_secrets::{ForgeVaultClient, VaultConfig, create_vault_client};
+use nico_secrets::{NicoVaultClient, VaultConfig, create_vault_client};
 use mac_address::MacAddress;
 use serial_test::serial;
 
@@ -42,7 +42,7 @@ fn cred(user: &str, pass: &str) -> Credentials {
 /// alive), the client, and the populated secrets.
 async fn setup_vault_with_secrets() -> Option<(
     api_test_helper::vault::Vault,
-    std::sync::Arc<ForgeVaultClient>,
+    std::sync::Arc<NicoVaultClient>,
     Vec<(CredentialKey, Credentials)>,
 )> {
     // Skip if vault not in PATH.
@@ -61,8 +61,8 @@ async fn setup_vault_with_secrets() -> Option<(
     let config = VaultConfig {
         address: Some(format!("https://{addr}")),
         kv_mount_location: Some("secret".to_string()),
-        pki_mount_location: Some("forgeca".to_string()),
-        pki_role_name: Some("forge-cluster".to_string()),
+        pki_mount_location: Some("nicoca".to_string()),
+        pki_role_name: Some("nico-cluster".to_string()),
         token: Some(vault.token.clone()),
         vault_cacert: Some(vault.ca_cert.clone()),
     };

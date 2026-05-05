@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use crate::cfg::runtime::RuntimeContext;
 
@@ -28,5 +28,5 @@ pub(crate) trait Run {
     fn run(
         self,
         ctx: &mut RuntimeContext,
-    ) -> impl std::future::Future<Output = CarbideCliResult<()>>;
+    ) -> impl std::future::Future<Output = NicoCliResult<()>>;
 }

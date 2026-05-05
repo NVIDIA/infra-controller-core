@@ -21,7 +21,7 @@ pub mod cmds;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 pub use args::Cmd;
 
 use crate::cfg::dispatch::Dispatch;
@@ -29,15 +29,15 @@ use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Cmd {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         cmds::jump(self, ctx)
             .await
-            .map_err(|e| ::rpc::admin_cli::CarbideCliError::GenericError(e.to_string()))
+            .map_err(|e| ::rpc::admin_cli::NicoCliError::GenericError(e.to_string()))
     }
 }
 
 impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
+    async fn dispatch(self, mut ctx: RuntimeContext) -> NicoCliResult<()> {
         self.run(&mut ctx).await
     }
 }

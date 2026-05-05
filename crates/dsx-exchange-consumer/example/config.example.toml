@@ -1,13 +1,13 @@
-# Example configuration for carbide-dsx-exchange-consumer service
+# Example configuration for nico-dsx-exchange-consumer service
 
 # ==============================================================================
 # MQTT Configuration - DSX Exchange Event Bus
 # ==============================================================================
 
 [mqtt]
-endpoint = "mqtt.forge"
+endpoint = "mqtt.nico"
 port = 1884
-client_id = "carbide-dsx-exchange-consumer"
+client_id = "nico-dsx-exchange-consumer"
 topic_prefix = "BMS/v1"
 # Maximum number of messages to buffer before dropping (default: 1024)
 queue_capacity = 1024
@@ -23,14 +23,14 @@ metadata_ttl = "1h"
 value_state_ttl = "1h"
 
 # ==============================================================================
-# Carbide API Configuration - for submitting rack health reports
+# Nico API Configuration - for submitting rack health reports
 # ==============================================================================
 
-[carbide_api]
+[nico_api]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 
 # ==============================================================================
 # Metrics

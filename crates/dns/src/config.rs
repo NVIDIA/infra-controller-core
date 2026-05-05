@@ -16,9 +16,9 @@
  */
 use std::path::{Path, PathBuf};
 
-use forge_tls::client_config::ClientCert;
+use nico_tls::client_config::ClientCert;
 use local_ip_address::local_ip;
-use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::nico_tls_client::NicoClientConfig;
 use serde::{Deserialize, Serialize};
 use tonic::codegen::http;
 
@@ -32,13 +32,13 @@ pub struct Config {
     #[serde(default = "Defaults::socket_path")]
     pub socket_path: PathBuf,
     #[serde(
-        default = "Defaults::carbide_uri",
+        default = "Defaults::nico_uri",
         serialize_with = "serialize_uri",
         deserialize_with = "deserialize_uri"
     )]
-    pub carbide_uri: http::Uri,
-    #[serde(default = "Defaults::forge_root_ca")]
-    pub forge_root_ca: PathBuf,
+    pub nico_uri: http::Uri,
+    #[serde(default = "Defaults::nico_root_ca")]
+    pub nico_root_ca: PathBuf,
     #[serde(default = "Defaults::client_cert")]
     pub client_cert_path: PathBuf,
     #[serde(default = "Defaults::client_key")]
@@ -57,10 +57,10 @@ pub struct Config {
 pub struct Defaults;
 
 impl Defaults {
-    pub fn carbide_uri() -> http::Uri {
-        "https://carbide-api.forge-system.svc.cluster.local:1079"
+    pub fn nico_uri() -> http::Uri {
+        "https://nico-api.nico-system.svc.cluster.local:1079"
             .try_into()
-            .expect("BUG: default carbide URI is invalid")
+            .expect("BUG: default nico URI is invalid")
     }
 
     pub fn otlp_endpoint() -> http::Uri {
@@ -74,7 +74,7 @@ impl Defaults {
     pub fn socket_permissions() -> u32 {
         SOCKET_PERMISSIONS
     }
-    pub fn forge_root_ca() -> PathBuf {
+    pub fn nico_root_ca() -> PathBuf {
         "/var/run/secrets/spiffe.io/ca.crt".into()
     }
     pub fn client_cert() -> PathBuf {
@@ -108,8 +108,8 @@ impl Default for Config {
         Self {
             socket_permissions: Defaults::socket_permissions(),
             socket_path: Defaults::socket_path(),
-            carbide_uri: Defaults::carbide_uri(),
-            forge_root_ca: Defaults::forge_root_ca(),
+            nico_uri: Defaults::nico_uri(),
+            nico_root_ca: Defaults::nico_root_ca(),
             client_cert_path: Defaults::client_cert(),
             client_key_path: Defaults::client_key(),
             otlp_endpoint: Defaults::otlp_endpoint(),
@@ -132,11 +132,11 @@ where
     uri_str.parse().map_err(serde::de::Error::custom)
 }
 impl Config {
-    pub fn forge_client_config(&self) -> ForgeClientConfig {
-        let forge_root_ca = self
-            .forge_root_ca
+    pub fn nico_client_config(&self) -> NicoClientConfig {
+        let nico_root_ca = self
+            .nico_root_ca
             .to_str()
-            .expect("forge root CA path is not valid UTF-8")
+            .expect("nico root CA path is not valid UTF-8")
             .to_string();
         let client_cert = ClientCert {
             cert_path: self
@@ -150,7 +150,7 @@ impl Config {
                 .expect("client key path is not valid UTF-8")
                 .to_string(),
         };
-        ForgeClientConfig::new(forge_root_ca, Some(client_cert))
+        NicoClientConfig::new(nico_root_ca, Some(client_cert))
     }
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let cfg = std::fs::read_to_string(path).map_err(|error| ConfigError::CouldNotRead {

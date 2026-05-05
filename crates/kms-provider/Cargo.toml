@@ -15,14 +15,14 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-kms-provider"
+name = "nico-kms-provider"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_kms_provider"
+name = "nico_kms_provider"
 
 [dependencies]
 aes-gcm = { workspace = true }

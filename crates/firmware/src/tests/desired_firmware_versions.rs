@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_macros::sqlx_test;
+use nico_macros::sqlx_test;
 use sqlx::FromRow;
 
 use crate::FirmwareConfig;

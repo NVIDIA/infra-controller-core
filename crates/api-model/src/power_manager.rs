@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
@@ -58,9 +58,9 @@ impl PowerHandlingOutcome {
 /// Represents the power management options for a specific host, including
 /// details about the last fetched power information, the desired power state,
 /// and the status of triggering power-on operations.
-/// Carbide will poll for the actual power state of the machine, once in a 5 mins.
+/// Nico will poll for the actual power state of the machine, once in a 5 mins.
 /// `next_try_at` will be now()+5 mins if power state is On. If machine is Off, next_try will be
-/// now()+2 mins, if desired state is On. If machine remains off for 2 cycles (2+2 mins), carbide
+/// now()+2 mins, if desired state is On. If machine remains off for 2 cycles (2+2 mins), nico
 /// would take the next decision.
 /// If power manager tried to power on the host, wait until DPUs are up or wait_expiry_time is
 /// expired (which is around 15 mins). If DPUs come up by this time, reboot the host, else ignore
@@ -77,8 +77,8 @@ pub struct PowerOptions {
     pub desired_power_state_version: ConfigVersion,
     /// Tenant/SRE can set the desired power option.
     /// If there is some operation is being performed on any host, make the desired state
-    /// off. Carbide won't try to turn on the machine and process any event in state machine.
-    /// If desired state is On and machines state is Off, carbide will try to turn-on the machine.
+    /// off. Nico won't try to turn on the machine and process any event in state machine.
+    /// If desired state is On and machines state is Off, nico will try to turn-on the machine.
     pub desired_power_state: PowerState,
     /// In the case if state machine decides to power on the host, state machine must wait until
     /// the DPUs come up and again reboot the host to force it to boot via pxe.
@@ -92,32 +92,32 @@ pub struct PowerOptions {
     pub tried_triggering_on_counter: i32,
 }
 
-impl From<::rpc::forge::PowerState> for PowerState {
-    fn from(value: ::rpc::forge::PowerState) -> Self {
+impl From<::rpc::nico::PowerState> for PowerState {
+    fn from(value: ::rpc::nico::PowerState) -> Self {
         match value {
-            rpc::forge::PowerState::On => PowerState::On,
-            rpc::forge::PowerState::Off => PowerState::Off,
-            rpc::forge::PowerState::PowerManagerDisabled => PowerState::PowerManagerDisabled,
+            rpc::nico::PowerState::On => PowerState::On,
+            rpc::nico::PowerState::Off => PowerState::Off,
+            rpc::nico::PowerState::PowerManagerDisabled => PowerState::PowerManagerDisabled,
         }
     }
 }
 
-impl From<PowerState> for ::rpc::forge::PowerState {
+impl From<PowerState> for ::rpc::nico::PowerState {
     fn from(value: PowerState) -> Self {
         match value {
-            PowerState::Off => ::rpc::forge::PowerState::Off,
-            PowerState::On => ::rpc::forge::PowerState::On,
-            PowerState::PowerManagerDisabled => ::rpc::forge::PowerState::PowerManagerDisabled,
+            PowerState::Off => ::rpc::nico::PowerState::Off,
+            PowerState::On => ::rpc::nico::PowerState::On,
+            PowerState::PowerManagerDisabled => ::rpc::nico::PowerState::PowerManagerDisabled,
         }
     }
 }
 
-impl From<PowerOptions> for ::rpc::forge::PowerOptions {
+impl From<PowerOptions> for ::rpc::nico::PowerOptions {
     fn from(value: PowerOptions) -> Self {
         Self {
-            desired_state: rpc::forge::PowerState::from(value.desired_power_state) as i32,
+            desired_state: rpc::nico::PowerState::from(value.desired_power_state) as i32,
             desired_state_updated_at: Some(value.desired_power_state_version.timestamp().into()),
-            actual_state: rpc::forge::PowerState::from(value.last_fetched_power_state) as i32,
+            actual_state: rpc::nico::PowerState::from(value.last_fetched_power_state) as i32,
             actual_state_updated_at: Some(value.last_fetched_updated_at.into()),
             host_id: Some(value.host_id),
             desired_power_state_version: value.desired_power_state_version.to_string(),
@@ -147,7 +147,7 @@ pub fn get_updated_power_options_for_desired_on_state_off(
     updated_power_options.last_fetched_power_state = PowerState::Off;
     // In case of mismatch, next try can be soon to avoid delay.
     updated_power_options.last_fetched_next_try_at = now + next_try_duration_on_failure;
-    // Carbide found the host OFF for at least 2 cycles.
+    // Nico found the host OFF for at least 2 cycles.
     if last_fetched_off_counter >= 2 && updated_power_options.tried_triggering_on_counter < 3 {
         // Try power on here.
         try_power_on = true;

@@ -38,14 +38,14 @@ fn main() {
         .with_config(cbindgen::Config::from_file("cbindgen.toml").expect("Config file missing"))
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file(format!("{kea_shim_root}/carbide_rust.h"));
+        .write_to_file(format!("{kea_shim_root}/nico_rust.h"));
 
     cc::Build::new()
         .cpp(true)
         .file(format!("{kea_shim_root}/logger.cc"))
         .file(format!("{kea_shim_root}/loader.cc"))
         .file(format!("{kea_shim_root}/callouts.cc"))
-        .file(format!("{kea_shim_root}/carbide_logger.cc"))
+        .file(format!("{kea_shim_root}/nico_logger.cc"))
         .include(kea_include_path)
         .pic(true)
         .compile("keashim");
@@ -54,9 +54,9 @@ fn main() {
     println!("cargo:rerun-if-changed=src/kea/callouts.h");
     println!("cargo:rerun-if-changed=src/kea/loader.cc");
     println!("cargo:rerun-if-changed=src/kea/logger.cc");
-    println!("cargo:rerun-if-changed=src/kea/carbide_rust.h");
-    println!("cargo:rerun-if-changed=src/kea/carbide_logger.cc");
-    println!("cargo:rerun-if-changed=src/kea/carbide_logger.h");
+    println!("cargo:rerun-if-changed=src/kea/nico_rust.h");
+    println!("cargo:rerun-if-changed=src/kea/nico_logger.cc");
+    println!("cargo:rerun-if-changed=src/kea/nico_logger.h");
 
     println!("cargo:rustc-link-search={kea_lib_path}");
     println!("cargo:rustc-link-lib=keashim");

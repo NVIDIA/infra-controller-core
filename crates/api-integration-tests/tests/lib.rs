@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{self, Duration};
 
-use ::carbide_utils::HostPortPair;
+use ::nico_utils::HostPortPair;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
@@ -41,10 +41,10 @@ fn setup() {
     api_test_helper::setup_logging()
 }
 
-/// Run multiple machine-a-tron integration tests in parallel against a shared carbide API instance.
+/// Run multiple machine-a-tron integration tests in parallel against a shared nico API instance.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_integration() -> eyre::Result<()> {
-    // NOTE: These tests run two carbide-api servers, and the clients are configured to randomly
+    // NOTE: These tests run two nico-api servers, and the clients are configured to randomly
     // switch between them on every API call. This helps prevent issues that arise when multiple API
     // severs may be running in production.
     let Some(test_env) =
@@ -54,7 +54,7 @@ async fn test_integration() -> eyre::Result<()> {
         return Ok(());
     };
 
-    let carbide_api_addrs = &test_env.carbide_api_addrs;
+    let nico_api_addrs = &test_env.nico_api_addrs;
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
@@ -69,9 +69,9 @@ async fn test_integration() -> eyre::Result<()> {
         server_config,
     );
 
-    // For preingestion firmware checks to work, carbide needs a directory which exists to be
+    // For preingestion firmware checks to work, nico needs a directory which exists to be
     // configured as the firmware_directory. It can be empty, because our mocks should be showing
-    // the desired firmware verisions to carbide (and thus it won't try to update.) This folder will
+    // the desired firmware verisions to nico (and thus it won't try to update.) This folder will
     // be deleted on Drop.
     let empty_firmware_dir = temp_dir::TempDir::with_prefix("firmware")?;
 
@@ -106,23 +106,23 @@ async fn test_integration() -> eyre::Result<()> {
     );
 
     let tenant_org_id = "tenant_organization";
-    tenant::create(carbide_api_addrs, tenant_org_id, "Tenant Organization").await?;
-    let tenant1_vpc = vpc::create(carbide_api_addrs, tenant_org_id).await?;
-    let domain_id = domain::create(carbide_api_addrs, "tenant-1.local").await?;
+    tenant::create(nico_api_addrs, tenant_org_id, "Tenant Organization").await?;
+    let tenant1_vpc = vpc::create(nico_api_addrs, tenant_org_id).await?;
+    let domain_id = domain::create(nico_api_addrs, "tenant-1.local").await?;
     let managed_segment_id =
-        subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 10, false).await?;
-    subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 11, true).await?;
+        subnet::create(nico_api_addrs, &tenant1_vpc, &domain_id, 10, false).await?;
+    subnet::create(nico_api_addrs, &tenant1_vpc, &domain_id, 11, true).await?;
 
     // Create FNN VPC + VPC prefixes (IPv4 + IPv6) for dual-stack L3 linknet testing.
-    let fnn_vpc = vpc::create_fnn(carbide_api_addrs, tenant_org_id).await?;
+    let fnn_vpc = vpc::create_fnn(nico_api_addrs, tenant_org_id).await?;
     let v4_vpc_prefix_id =
-        vpc_prefix::create(carbide_api_addrs, &fnn_vpc, "10.10.12.0/24", "fnn-v4").await?;
+        vpc_prefix::create(nico_api_addrs, &fnn_vpc, "10.10.12.0/24", "fnn-v4").await?;
     let v6_vpc_prefix_id =
-        vpc_prefix::create(carbide_api_addrs, &fnn_vpc, "2001:db8:12::/48", "fnn-v6").await?;
+        vpc_prefix::create(nico_api_addrs, &fnn_vpc, "2001:db8:12::/48", "fnn-v6").await?;
 
     // Create dual-stack L2 segment on the FNN VPC for L2 dual-stack testing.
     let dual_stack_l2_segment_id =
-        subnet::create_dual_stack(carbide_api_addrs, &fnn_vpc, &domain_id, 13).await?;
+        subnet::create_dual_stack(nico_api_addrs, &fnn_vpc, &domain_id, 13).await?;
 
     // Run several tests in parallel.
     let all_tests = join_all([
@@ -197,7 +197,7 @@ async fn test_integration() -> eyre::Result<()> {
         }
     }
 
-    generate_core_metric_docs(&test_env.carbide_metrics_addrs);
+    generate_core_metric_docs(&test_env.nico_metrics_addrs);
 
     cancel_token.cancel();
     server_handle_1.wait().await?;
@@ -275,9 +275,9 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     // Save typing...
     let IntegrationTestEnvironment {
-        carbide_api_addrs,
+        nico_api_addrs,
         root_dir: _,
-        carbide_metrics_addrs,
+        nico_metrics_addrs,
         db_pool,
         metrics: _,
         db_url: _,
@@ -298,9 +298,9 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         server_config,
     );
 
-    // For preingestion firmware checks to work, carbide needs a directory which exists to be
+    // For preingestion firmware checks to work, nico needs a directory which exists to be
     // configured as the firmware_directory. It can be empty, because our mocks should be showing
-    // the desired firmware verisions to carbide (and thus it won't try to update.) This folder will
+    // the desired firmware verisions to nico (and thus it won't try to update.) This folder will
     // be deleted on Drop.
     let empty_firmware_dir = temp_dir::TempDir::with_prefix("firmware")?;
 
@@ -334,8 +334,8 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         Ipv4Addr::new(172, 20, 0, 1),
         |machine_handle| {
             let db_pool = db_pool.clone();
-            let carbide_api_addrs = carbide_api_addrs.to_vec();
-            let carbide_metrics_addrs = carbide_metrics_addrs.to_vec();
+            let nico_api_addrs = nico_api_addrs.to_vec();
+            let nico_metrics_addrs = nico_metrics_addrs.to_vec();
             async move {
                 machine_handle.dpus()[0].wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90)).await?;
 
@@ -351,11 +351,11 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 // time since the emitted metrics are for states at the start of the iteration.
                 // Therefore wait for the updated metrics to show up.
                 let metrics = metrics::wait_for_metric_line(
-                    &carbide_metrics_addrs,
-                    r#"carbide_machines_per_state{fresh="true",state="ready",substate=""} 1"#,
+                    &nico_metrics_addrs,
+                    r#"nico_machines_per_state{fresh="true",state="ready",substate=""} 1"#,
                 )
                     .await?;
-                metrics::assert_metric_line(&metrics, r#"carbide_machines_total{fresh="true"} 1"#);
+                metrics::assert_metric_line(&metrics, r#"nico_machines_total{fresh="true"} 1"#);
                 // Also check that metrics are emitted under the configured `alt_metric_prefix`
                 metrics::assert_metric_line(&metrics, r#"alt_metric_machines_total{fresh="true"} 1"#);
                 metrics::assert_not_metric_line(
@@ -364,15 +364,15 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 );
 
                 let tenant_org_id = "tenant_organization";
-                tenant::create(&carbide_api_addrs, tenant_org_id, "Tenant Organization").await?;
-                let vpc_id = vpc::create(&carbide_api_addrs, tenant_org_id).await?;
-                let domain_id = domain::create(&carbide_api_addrs, "tenant-1.local").await?;
-                let segment_id = subnet::create(&carbide_api_addrs, &vpc_id, &domain_id, 10, false).await?;
+                tenant::create(&nico_api_addrs, tenant_org_id, "Tenant Organization").await?;
+                let vpc_id = vpc::create(&nico_api_addrs, tenant_org_id).await?;
+                let domain_id = domain::create(&nico_api_addrs, "tenant-1.local").await?;
+                let segment_id = subnet::create(&nico_api_addrs, &vpc_id, &domain_id, 10, false).await?;
                 let host_machine_id = machine_handle.observed_machine_id().expect("Should have gotten a machine ID by now");
 
                 // Create instance with phone_home enabled
                 let instance_id = instance::create(
-                    &carbide_api_addrs,
+                    &nico_api_addrs,
                     &host_machine_id,
                     Some(&segment_id),
                     Some("test"),
@@ -382,73 +382,73 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 ).await?;
 
                 let metrics = metrics::wait_for_metric_line(
-                    &carbide_metrics_addrs,
-                    r#"carbide_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
+                    &nico_metrics_addrs,
+                    r#"nico_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
                 )
                     .await?;
-                metrics::assert_metric_line(&metrics, r#"carbide_machines_total{fresh="true"} 1"#);
+                metrics::assert_metric_line(&metrics, r#"nico_machines_total{fresh="true"} 1"#);
                 metrics::assert_not_metric_line(
                     &metrics,
-                    r#"carbide_machines_per_state{fresh="true",state="ready",substate=""}"#,
+                    r#"nico_machines_per_state{fresh="true",state="ready",substate=""}"#,
                 );
                 metrics::assert_not_metric_line(
                     &metrics,
                     "machine_reboot_attempts_in_booting_with_discovery_image",
                 );
 
-                instance::release(&carbide_api_addrs, &host_machine_id, &instance_id, true).await?;
+                instance::release(&nico_api_addrs, &host_machine_id, &instance_id, true).await?;
 
-                let metrics = metrics::wait_for_metric_line(&carbide_metrics_addrs, r#"carbide_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
-                metrics::assert_metric_line(&metrics, r#"carbide_machines_total{fresh="true"} 1"#);
+                let metrics = metrics::wait_for_metric_line(&nico_metrics_addrs, r#"nico_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
+                metrics::assert_metric_line(&metrics, r#"nico_machines_total{fresh="true"} 1"#);
 
                 machine::wait_for_state(
-                    &carbide_api_addrs,
+                    &nico_api_addrs,
                     &host_machine_id,
                     "MachineValidation",
                 ).await?;
 
-                machine::wait_for_state(&carbide_api_addrs, &host_machine_id, "Discovered").await?;
+                machine::wait_for_state(&nico_api_addrs, &host_machine_id, "Discovered").await?;
 
                 // It stays in Discovered until we notify that reboot happened, which this test doesn't
                 let metrics = metrics::wait_for_metric_line(
-                    &carbide_metrics_addrs,
-                    r#"carbide_machines_per_state{fresh="true",state="hostnotready",substate="discovered"} 1"#,
+                    &nico_metrics_addrs,
+                    r#"nico_machines_per_state{fresh="true",state="hostnotready",substate="discovered"} 1"#,
                 )
                     .await?;
                 metrics::assert_not_metric_line(
                     &metrics,
-                    r#"carbide_machines_per_state{fresh="true",state="assigned""#,
+                    r#"nico_machines_per_state{fresh="true",state="assigned""#,
                 );
 
-                // Explicitly test that the histogram for `carbide_reboot_attempts_in_booting_with_discovery_image_bucket`
+                // Explicitly test that the histogram for `nico_reboot_attempts_in_booting_with_discovery_image_bucket`
                 // uses the custom buckets we defined for retries/attempts
                 for &(bucket, count) in &[(0, 0), (1, 1), (2, 1), (3, 1), (5, 1), (10, 1)] {
                     metrics::assert_metric_line(
                         &metrics,
                         &format!(
-                            r#"carbide_reboot_attempts_in_booting_with_discovery_image_bucket{{le="{bucket}"}} {count}"#
+                            r#"nico_reboot_attempts_in_booting_with_discovery_image_bucket{{le="{bucket}"}} {count}"#
                         ),
                     );
                 }
                 metrics::assert_not_metric_line(
                     &metrics,
-                    r#"carbide_reboot_attempts_in_booting_with_discovery_image_bucket{le="4"}"#,
+                    r#"nico_reboot_attempts_in_booting_with_discovery_image_bucket{le="4"}"#,
                 );
                 metrics::assert_not_metric_line(
                     &metrics,
-                    r#"carbide_reboot_attempts_in_booting_with_discovery_image_bucket{le="6"}"#,
+                    r#"nico_reboot_attempts_in_booting_with_discovery_image_bucket{le="6"}"#,
                 );
                 metrics::assert_metric_line(
                     &metrics,
-                    r#"carbide_reboot_attempts_in_booting_with_discovery_image_bucket{le="+Inf"} 1"#,
+                    r#"nico_reboot_attempts_in_booting_with_discovery_image_bucket{le="+Inf"} 1"#,
                 );
                 metrics::assert_metric_line(
                     &metrics,
-                    "carbide_reboot_attempts_in_booting_with_discovery_image_sum 1",
+                    "nico_reboot_attempts_in_booting_with_discovery_image_sum 1",
                 );
                 metrics::assert_metric_line(
                     &metrics,
-                    "carbide_reboot_attempts_in_booting_with_discovery_image_count 1",
+                    "nico_reboot_attempts_in_booting_with_discovery_image_count 1",
                 );
 
                 Ok(())
@@ -481,7 +481,7 @@ async fn test_machine_a_tron_multidpu(
         admin_dhcp_relay_address,
         |machine_handle| {
             let segment_id = segment_id.to_string();
-            let carbide_api_addrs = &test_env.carbide_api_addrs;
+            let nico_api_addrs = &test_env.nico_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -491,7 +491,7 @@ async fn test_machine_a_tron_multidpu(
                     .expect("Machine ID should be set if host is ready");
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
                 let instance_id = instance::create(
-                    carbide_api_addrs,
+                    nico_api_addrs,
                     &machine_id,
                     Some(&segment_id),
                     None,
@@ -506,7 +506,7 @@ async fn test_machine_a_tron_multidpu(
                     .await?;
 
                 let instance_json = instance::get_instance_json_by_machine_id(
-                    carbide_api_addrs,
+                    nico_api_addrs,
                     machine_handle
                         .observed_machine_id()
                         .expect("HostMachine should have a Machine ID once it's in ready state")
@@ -534,7 +534,7 @@ async fn test_machine_a_tron_multidpu(
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
                 );
-                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
+                instance::release(nico_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -562,7 +562,7 @@ async fn test_machine_a_tron_zerodpu(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_handle| {
-            let carbide_api_addrs = &test_env.carbide_api_addrs;
+            let nico_api_addrs = &test_env.nico_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -576,7 +576,7 @@ async fn test_machine_a_tron_zerodpu(
                 // auto-picks a HostInband segment for them (which is covered as part of
                 // the test_zero_dpu_instance_allocation_no_network_config test).
                 let instance_id = instance::create(
-                    carbide_api_addrs,
+                    nico_api_addrs,
                     &machine_id,
                     None,
                     None,
@@ -593,7 +593,7 @@ async fn test_machine_a_tron_zerodpu(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
                 );
 
-                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
+                instance::release(nico_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -621,7 +621,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_handle| {
-            let carbide_api_addrs = &test_env.carbide_api_addrs;
+            let nico_api_addrs = &test_env.nico_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -635,7 +635,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                 // allocation goes through HostInband the same way the zero-DPU path
                 // allocation does; no network config, and the allocator auto-picks.
                 let instance_id = instance::create(
-                    carbide_api_addrs,
+                    nico_api_addrs,
                     &machine_id,
                     None,
                     None,
@@ -652,7 +652,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
                 );
 
-                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
+                instance::release(nico_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -684,7 +684,7 @@ async fn test_machine_a_tron_dual_stack(
         |machine_handle| {
             let v4_prefix_id = v4_vpc_prefix_id.to_string();
             let v6_prefix_id = v6_vpc_prefix_id.to_string();
-            let carbide_api_addrs = &test_env.carbide_api_addrs;
+            let nico_api_addrs = &test_env.nico_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -696,7 +696,7 @@ async fn test_machine_a_tron_dual_stack(
                     "Machine {machine_id} is Ready, allocating dual-stack instance via ipv6 config"
                 );
                 let instance_id = instance::create_with_vpc_prefixes(
-                    carbide_api_addrs,
+                    nico_api_addrs,
                     &machine_id,
                     &[&v4_prefix_id, &v6_prefix_id],
                 )
@@ -716,7 +716,7 @@ async fn test_machine_a_tron_dual_stack(
                 let mut addrs = vec![];
                 for _ in 0..30 {
                     let instance_json = instance::get_instance_json_by_machine_id(
-                        carbide_api_addrs,
+                        nico_api_addrs,
                         &machine_id_str,
                     )
                     .await?;
@@ -754,7 +754,7 @@ async fn test_machine_a_tron_dual_stack(
                     "Machine {machine_id} dual-stack allocation verified: addresses = {addr_strings:?}"
                 );
 
-                instance::release(carbide_api_addrs, &machine_id, &instance_id, false)
+                instance::release(nico_api_addrs, &machine_id, &instance_id, false)
                     .await?;
 
                 machine_handle
@@ -790,7 +790,7 @@ async fn test_machine_a_tron_dual_stack_l2(
         admin_dhcp_relay_address,
         |machine_handle| {
             let segment_id = dual_stack_segment_id.to_string();
-            let carbide_api_addrs = &test_env.carbide_api_addrs;
+            let nico_api_addrs = &test_env.nico_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -802,7 +802,7 @@ async fn test_machine_a_tron_dual_stack_l2(
                     "Machine {machine_id} is Ready, allocating dual-stack L2 instance"
                 );
                 let instance_id = instance::create(
-                    carbide_api_addrs,
+                    nico_api_addrs,
                     &machine_id,
                     Some(&segment_id),
                     None,
@@ -823,7 +823,7 @@ async fn test_machine_a_tron_dual_stack_l2(
                     "Machine {machine_id} dual-stack L2 instance allocated and reached Assigned/Ready"
                 );
 
-                instance::release(carbide_api_addrs, &machine_id, &instance_id, false)
+                instance::release(nico_api_addrs, &machine_id, &instance_id, false)
                     .await?;
 
                 machine_handle
@@ -855,11 +855,11 @@ where
     O: Future<Output = eyre::Result<()>>,
 {
     let api_addr = test_env
-        .carbide_api_addrs
+        .nico_api_addrs
         .first()
         .copied()
-        .context("No carbide API addresses configured")?;
-    let additional_api_urls = test_env.carbide_api_addrs[1..]
+        .context("No nico API addresses configured")?;
+    let additional_api_urls = test_env.nico_api_addrs[1..]
         .iter()
         .map(|a| format!("https://{}:{}", a.ip(), a.port()))
         .collect();
@@ -892,7 +892,7 @@ where
                 dpu_agent_version: None,
             }),
         )]),
-        carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
+        nico_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         log_file: None,
         use_pxe_api: true,
         pxe_server_host: None,
@@ -901,7 +901,7 @@ where
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
         use_single_bmc_mock: false, // unused, we're constructing machines ourselves
-        configure_carbide_bmc_proxy_host: None,
+        configure_nico_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
         api_refresh_interval: Duration::from_millis(500),

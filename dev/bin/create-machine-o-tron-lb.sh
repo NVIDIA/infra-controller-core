@@ -56,7 +56,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: $service_name
-  namespace: forge-system
+  namespace: nico-system
   annotations:
     metallb.universe.tf/loadBalancerIPs: $current_ip
 spec:
@@ -112,7 +112,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nginx-config-machine-a-tron-proxy
-  namespace: forge-system
+  namespace: nico-system
 data:
   nginx.conf: |
     events {
@@ -120,7 +120,7 @@ data:
     }
     http {
       upstream machine_a_tron_backend {
-        server machine-a-tron-bmc-mock.forge-system:1266;
+        server machine-a-tron-bmc-mock.nico-system:1266;
       }
       server {
         listen 443 ssl;
@@ -145,7 +145,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: machine-a-tron-proxy
-  namespace: forge-system
+  namespace: nico-system
 spec:
   replicas: 1
   selector:

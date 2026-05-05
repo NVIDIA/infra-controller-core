@@ -16,7 +16,7 @@
  */
 use std::sync::Arc;
 
-use carbide_authn::middleware::Principal;
+use nico_authn::middleware::Principal;
 use futures_util::future::BoxFuture;
 use hyper::{Request, Response, StatusCode};
 use tonic::service::AxumBody;
@@ -54,8 +54,8 @@ where
         Box::pin(async move {
             use RequestClass::*;
             let request_permitted = match RequestClass::from(&request) {
-                // Forge-owned endpoints must go through access control.
-                ForgeMethod(method_name) => {
+                // Nico-owned endpoints must go through access control.
+                NicoMethod(method_name) => {
                     let req_auth_context = request
                         .extensions_mut()
                         .get_mut::<AuthContext>()
@@ -71,7 +71,7 @@ where
                         })?;
 
                     let principals = req_auth_context.principals.as_slice();
-                    let predicate = Predicate::ForgeCall(method_name.clone());
+                    let predicate = Predicate::NicoCall(method_name.clone());
                     match authorizer.authorize(&principals, predicate) {
                         Ok(authorization) => {
                             if let Some(Principal::ExternalUser(info)) = principals
@@ -92,7 +92,7 @@ where
                             tracing::info!(
                                 method_name,
                                 ?principals,
-                                "Denied a call to Forge method because of authorizer result '{e}'"
+                                "Denied a call to Nico method because of authorizer result '{e}'"
                             );
                             false
                         }
@@ -125,7 +125,7 @@ where
 // We use this to classify requests for readability inside the authorization
 // middleware.
 enum RequestClass {
-    ForgeMethod(String),
+    NicoMethod(String),
     GrpcReflection,
     Unrecognized,
 }
@@ -142,7 +142,7 @@ impl<B> From<&Request<B>> for RequestClass {
 
         if let Some((service_name, method_name)) = endpoint_path.split_once('/') {
             match (service_name, method_name) {
-                ("forge.Forge", m) => ForgeMethod(m.into()),
+                ("nico.Nico", m) => NicoMethod(m.into()),
                 (s, "ServerReflectionInfo") if s.ends_with(".ServerReflection") => GrpcReflection,
                 _ => Unrecognized,
             }
@@ -183,8 +183,8 @@ where
     fn authorize(&mut self, mut request: Request<B>) -> Self::Future {
         Box::pin(async move {
             let request_permitted = match RequestClass::from(&request) {
-                // Forge-owned endpoints must go through access control.
-                RequestClass::ForgeMethod(method_name) => {
+                // Nico-owned endpoints must go through access control.
+                RequestClass::NicoMethod(method_name) => {
                     let extensions = request.extensions_mut();
                     let req_auth_context = extensions.get::<AuthContext>().ok_or_else(|| {
                         tracing::warn!(
@@ -202,7 +202,7 @@ where
 
                     if !allowed {
                         let client_address = if let Some(conn_attrs) =
-                            extensions.get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
+                            extensions.get::<Arc<nico_authn::middleware::ConnectionAttributes>>()
                         {
                             conn_attrs.peer_address.to_string()
                         } else {

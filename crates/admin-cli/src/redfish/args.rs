@@ -67,7 +67,7 @@ pub enum Cmd {
     /// Is everything MachineSetup does already done? What's missing?
     MachineSetupStatus(MachineSetupStatusArgs),
     /// Set our password policy
-    SetForgePasswordPolicy,
+    SetNicoPasswordPolicy,
     /// List one or all BIOS boot options
     GetBootOption(BootOptionSelector),
     /// Is this thing on?

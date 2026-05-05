@@ -19,13 +19,13 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 
-use carbide_utils::cmd::TokioCmd;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_utils::cmd::TokioCmd;
+use nico_uuid::machine::MachineId;
+use nico_uuid::machine_validation::MachineValidationId;
 use chrono::Utc;
-use forge_tls::client_config::ClientCert;
-use rpc::forge_tls_client;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_tls::client_config::ClientCert;
+use rpc::nico_tls_client;
+use rpc::nico_tls_client::{ApiConfig, NicoClientConfig};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace};
 
@@ -64,10 +64,10 @@ impl MachineValidation {
             path.file_name().unwrap().to_str().unwrap().to_string()
         };
 
-        let mut client = self.create_forge_client().await?;
+        let mut client = self.create_nico_client().await?;
 
         let request =
-            tonic::Request::new(rpc::forge::GetMachineValidationExternalConfigRequest { name });
+            tonic::Request::new(rpc::nico::GetMachineValidationExternalConfigRequest { name });
         let response = match client.get_machine_validation_external_config(request).await {
             Ok(res) => res,
             Err(e) => {
@@ -88,10 +88,10 @@ impl MachineValidation {
         })?;
         Ok(())
     }
-    pub(crate) async fn create_forge_client(
+    pub(crate) async fn create_nico_client(
         self,
-    ) -> Result<forge_tls_client::ForgeClientT, MachineValidationError> {
-        let client_config = ForgeClientConfig::new(
+    ) -> Result<nico_tls_client::NicoClientT, MachineValidationError> {
+        let client_config = NicoClientConfig::new(
             self.options.root_ca,
             Some(ClientCert {
                 cert_path: self.options.client_cert,
@@ -100,7 +100,7 @@ impl MachineValidation {
         );
         let api_config = ApiConfig::new(&self.options.api, &client_config);
 
-        let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
+        let client = nico_tls_client::NicoTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| MachineValidationError::Generic(err.to_string()))?;
         Ok(client)
@@ -108,12 +108,12 @@ impl MachineValidation {
 
     pub(crate) async fn persist(
         self,
-        data: Option<rpc::forge::MachineValidationResult>,
+        data: Option<rpc::nico::MachineValidationResult>,
     ) -> Result<(), MachineValidationError> {
         tracing::info!("{}", data.clone().unwrap().name);
-        let mut client = self.create_forge_client().await?;
+        let mut client = self.create_nico_client().await?;
         let request =
-            tonic::Request::new(rpc::forge::MachineValidationResultPostRequest { result: data });
+            tonic::Request::new(rpc::nico::MachineValidationResultPostRequest { result: data });
         client
             .persist_validation_result(request)
             .await
@@ -128,10 +128,10 @@ impl MachineValidation {
 
     pub(crate) async fn get_machine_validation_tests(
         self,
-        test_request: rpc::forge::MachineValidationTestsGetRequest,
-    ) -> Result<Vec<rpc::forge::MachineValidationTest>, MachineValidationError> {
+        test_request: rpc::nico::MachineValidationTestsGetRequest,
+    ) -> Result<Vec<rpc::nico::MachineValidationTest>, MachineValidationError> {
         tracing::info!("{:?}", test_request);
-        let mut client = self.create_forge_client().await?;
+        let mut client = self.create_nico_client().await?;
         let request = tonic::Request::new(test_request);
         let response = client
             .get_machine_validation_tests(request)
@@ -225,11 +225,11 @@ impl MachineValidation {
     async fn execute_machinevalidation_command(
         self,
         machine_id: &MachineId,
-        test: &rpc::forge::MachineValidationTest,
+        test: &rpc::nico::MachineValidationTest,
         in_context: String,
         validation_id: MachineValidationId,
-    ) -> Option<rpc::forge::MachineValidationResult> {
-        let mut mc_result = rpc::forge::MachineValidationResult {
+    ) -> Option<rpc::nico::MachineValidationResult> {
+        let mut mc_result = rpc::nico::MachineValidationResult {
             test_id: Some(test.test_id.clone()),
             name: test.name.clone(),
             description: test.description.clone().unwrap_or_default(),
@@ -237,7 +237,7 @@ impl MachineValidation {
             args: test.args.clone(),
             context: in_context.clone(),
             validation_id: Some(validation_id),
-            ..rpc::forge::MachineValidationResult::default()
+            ..rpc::nico::MachineValidationResult::default()
         };
         if test.external_config_file.is_some() {
             let file_name = test.external_config_file.clone().unwrap_or_default();
@@ -309,8 +309,8 @@ impl MachineValidation {
         };
         info!("Executing command '{}'", command_string);
 
-        let _ = std::fs::remove_file("/tmp/forge_env_variables");
-        match File::create("/tmp/forge_env_variables") {
+        let _ = std::fs::remove_file("/tmp/nico_env_variables");
+        match File::create("/tmp/nico_env_variables") {
             Ok(mut file) => {
                 let mut envs = HashMap::new();
                 envs.insert("CONTEXT".to_owned(), in_context.clone());
@@ -395,10 +395,10 @@ impl MachineValidation {
 
     pub(crate) async fn update_machine_validation_run(
         self,
-        data: rpc::forge::MachineValidationRunRequest,
+        data: rpc::nico::MachineValidationRunRequest,
     ) -> Result<(), MachineValidationError> {
         tracing::info!("{:?}", data.clone());
-        let mut client = self.create_forge_client().await?;
+        let mut client = self.create_nico_client().await?;
         let request = tonic::Request::new(data);
         let _response = client
             .update_machine_validation_run(request)
@@ -414,7 +414,7 @@ impl MachineValidation {
     pub async fn run(
         self,
         machine_id: &MachineId,
-        tests: Vec<rpc::forge::MachineValidationTest>,
+        tests: Vec<rpc::nico::MachineValidationTest>,
         context: String,
         validation_id: MachineValidationId,
         execute_tests_sequentially: bool,

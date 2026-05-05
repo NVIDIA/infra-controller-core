@@ -20,8 +20,8 @@ use std::fmt::Display;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::dpa_interface::DpaInterfaceId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use itertools::Itertools;
@@ -361,10 +361,10 @@ impl NewDpaInterface {
     }
 }
 
-impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
+impl TryFrom<rpc::nico::DpaInterfaceCreationRequest> for NewDpaInterface {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::DpaInterfaceCreationRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::nico::DpaInterfaceCreationRequest) -> Result<Self, Self::Error> {
         let machine_id = value
             .machine_id
             .ok_or(RpcDataConversionError::MissingArgument("id"))?;
@@ -413,7 +413,7 @@ impl<'r> FromRow<'r, PgRow> for DpaInterface {
     }
 }
 
-impl From<DpaInterface> for rpc::forge::DpaInterface {
+impl From<DpaInterface> for rpc::nico::DpaInterface {
     fn from(src: DpaInterface) -> Self {
         let (controller_state, controller_state_version) = src.controller_state.take();
         let (network_config, network_config_version) = src.network_config.take();
@@ -443,7 +443,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             None => String::new(),
         };
 
-        let history: Vec<rpc::forge::StateHistoryRecord> = src
+        let history: Vec<rpc::nico::StateHistoryRecord> = src
             .history
             .into_iter()
             .sorted_by(|s1: &StateHistoryRecord, s2: &StateHistoryRecord| {
@@ -452,7 +452,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             .map(Into::into)
             .collect();
 
-        rpc::forge::DpaInterface {
+        rpc::nico::DpaInterface {
             id: Some(src.id),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),

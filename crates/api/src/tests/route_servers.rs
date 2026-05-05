@@ -21,8 +21,8 @@ use std::str::FromStr;
 use common::api_fixtures::create_test_env;
 use itertools::Itertools;
 use model::route_server::{RouteServer, RouteServerSourceType};
-use rpc::forge::{RouteServerSourceType as RouteServerSourceTypePb, RouteServers};
-use rpc::protos::forge::forge_server::Forge;
+use rpc::nico::{RouteServerSourceType as RouteServerSourceTypePb, RouteServers};
+use rpc::protos::nico::nico_server::Nico;
 
 use crate::tests::common;
 

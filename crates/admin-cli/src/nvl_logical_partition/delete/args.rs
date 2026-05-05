@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge as forgerpc;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
+use ::rpc::admin_cli::NicoCliError;
+use ::rpc::nico as nicorpc;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
@@ -26,12 +26,12 @@ pub struct Args {
     pub name: String,
 }
 
-impl TryFrom<Args> for forgerpc::NvLinkLogicalPartitionDeletionRequest {
-    type Error = CarbideCliError;
+impl TryFrom<Args> for nicorpc::NvLinkLogicalPartitionDeletionRequest {
+    type Error = NicoCliError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
         let uuid: NvLinkLogicalPartitionId = uuid::Uuid::parse_str(&args.name)
-            .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
+            .map_err(|_| NicoCliError::GenericError("UUID Conversion failed.".to_string()))?
             .into();
         Ok(Self { id: Some(uuid) })
     }

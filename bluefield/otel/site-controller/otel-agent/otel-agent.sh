@@ -45,7 +45,7 @@ IMAGE_TAR=/usr/lib/otel-agent/docker/otel-agent-image.tar.gz
 FORCE_REBUILD=false
 STATE_DIR=/var/lib/otel-agent
 STATE_FILE="$STATE_DIR/otel-agent-build.hash"
-CARBIDE_API=carbide-api.forge
+NICO_API=nico-api.nico
 TAR_DIR=/var/lib/otelcol-contrib
 CERTS_DIR=/etc/otelcol-contrib/certs
 TEMPLATE=/usr/share/otelcol-contrib/docker/otel-agent/otel-agent.yaml.template
@@ -92,10 +92,10 @@ fi
 
 mkdir -p "$STATE_DIR"
 
-CARBIDE_API_IP_ADDR=$(getent hosts "$CARBIDE_API" | awk '{print $1}') || true
+NICO_API_IP_ADDR=$(getent hosts "$NICO_API" | awk '{print $1}') || true
 
-if [[ -z "$CARBIDE_API_IP_ADDR" ]]; then
-    echo "Failed to resolve $CARBIDE_API" >&2
+if [[ -z "$NICO_API_IP_ADDR" ]]; then
+    echo "Failed to resolve $NICO_API" >&2
     exit 1
 fi
 
@@ -206,7 +206,7 @@ fi
 
 # Generate and verify the container config and install it in /etc/kubelet.d where
 # crictl will pick it up and run it automatically.
-sed "s|\${CARBIDE_API_IP_ADDR}|${CARBIDE_API_IP_ADDR}|g" "$TEMPLATE" > "$GENERATED_YAML"
+sed "s|\${NICO_API_IP_ADDR}|${NICO_API_IP_ADDR}|g" "$TEMPLATE" > "$GENERATED_YAML"
 python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$GENERATED_YAML"
 install -m 0644 "$GENERATED_YAML" "$OTEL_AGENT_CONFIG"
 

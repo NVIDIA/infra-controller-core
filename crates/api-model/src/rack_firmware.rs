@@ -50,7 +50,7 @@ impl<'r> FromRow<'r, PgRow> for RackFirmware {
     }
 }
 
-impl From<&RackFirmware> for rpc::forge::RackFirmware {
+impl From<&RackFirmware> for rpc::nico::RackFirmware {
     fn from(db: &RackFirmware) -> Self {
         let parsed_components = db
             .parsed_components
@@ -58,7 +58,7 @@ impl From<&RackFirmware> for rpc::forge::RackFirmware {
             .map(|p| p.0.to_string())
             .unwrap_or_else(|| "{}".to_string());
 
-        rpc::forge::RackFirmware {
+        rpc::nico::RackFirmware {
             id: db.id.clone(),
             config_json: db.config.0.to_string(),
             available: db.available,
@@ -78,8 +78,8 @@ pub struct RackFirmwareSearchFilter {
     pub rack_hardware_type: Option<RackHardwareType>,
 }
 
-impl From<rpc::forge::RackFirmwareSearchFilter> for RackFirmwareSearchFilter {
-    fn from(filter: rpc::forge::RackFirmwareSearchFilter) -> Self {
+impl From<rpc::nico::RackFirmwareSearchFilter> for RackFirmwareSearchFilter {
+    fn from(filter: rpc::nico::RackFirmwareSearchFilter) -> Self {
         let rack_hardware_type = filter
             .rack_hardware_type
             .filter(|t| !t.value.is_empty())
@@ -103,9 +103,9 @@ pub struct RackFirmwareApplyHistoryRecord {
     pub firmware_available: bool,
 }
 
-impl From<RackFirmwareApplyHistoryRecord> for rpc::forge::RackFirmwareHistoryRecord {
+impl From<RackFirmwareApplyHistoryRecord> for rpc::nico::RackFirmwareHistoryRecord {
     fn from(record: RackFirmwareApplyHistoryRecord) -> Self {
-        rpc::forge::RackFirmwareHistoryRecord {
+        rpc::nico::RackFirmwareHistoryRecord {
             firmware_id: record.firmware_id,
             rack_id: record.rack_id,
             firmware_type: record.firmware_type,
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_search_filter_from_proto_with_hardware_type() {
-        let proto = rpc::forge::RackFirmwareSearchFilter {
+        let proto = rpc::nico::RackFirmwareSearchFilter {
             only_available: true,
             rack_hardware_type: Some(rpc::common::RackHardwareType {
                 value: "any".to_string(),
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_search_filter_from_proto_none_becomes_none() {
-        let proto = rpc::forge::RackFirmwareSearchFilter {
+        let proto = rpc::nico::RackFirmwareSearchFilter {
             only_available: false,
             rack_hardware_type: None,
         };
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_search_filter_from_proto_empty_value_becomes_none() {
-        let proto = rpc::forge::RackFirmwareSearchFilter {
+        let proto = rpc::nico::RackFirmwareSearchFilter {
             only_available: false,
             rack_hardware_type: Some(rpc::common::RackHardwareType {
                 value: String::new(),
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn test_search_filter_from_proto_specific_type() {
-        let proto = rpc::forge::RackFirmwareSearchFilter {
+        let proto = rpc::nico::RackFirmwareSearchFilter {
             only_available: true,
             rack_hardware_type: Some(rpc::common::RackHardwareType {
                 value: "dsx_gb200nvl_72x1".to_string(),

@@ -22,9 +22,9 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -32,7 +32,7 @@ use crate::api::Api;
 #[derive(Template)]
 #[template(path = "rack_show.html")]
 struct Racks {
-    racks: Vec<rpc::forge::Rack>,
+    racks: Vec<rpc::nico::Rack>,
 }
 
 #[derive(Template)]
@@ -82,8 +82,8 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(racks)).into_response()
 }
 
-pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Status> {
-    let request = tonic::Request::new(rpc::forge::RackSearchFilter::default());
+pub async fn fetch_racks(api: &Api) -> Result<rpc::nico::RackList, tonic::Status> {
+    let request = tonic::Request::new(rpc::nico::RackSearchFilter::default());
 
     let rack_ids = api.find_rack_ids(request).await?.into_inner().rack_ids;
 
@@ -94,7 +94,7 @@ pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Statu
         let page_size = PAGE_SIZE.min(rack_ids.len() - offset);
         let next_ids = &rack_ids[offset..offset + page_size];
         let next_racks = api
-            .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+            .find_racks_by_ids(tonic::Request::new(rpc::nico::RacksByIdsRequest {
                 rack_ids: next_ids.to_vec(),
             }))
             .await?
@@ -104,14 +104,14 @@ pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Statu
         offset += page_size;
     }
 
-    Ok(rpc::forge::RackList { racks })
+    Ok(rpc::nico::RackList { racks })
 }
 
 pub async fn fetch_rack(
     api: &Api,
     rack_id: &RackId,
-) -> Result<Option<::rpc::forge::Rack>, Response> {
-    let request = tonic::Request::new(rpc::forge::RacksByIdsRequest {
+) -> Result<Option<::rpc::nico::Rack>, Response> {
+    let request = tonic::Request::new(rpc::nico::RacksByIdsRequest {
         rack_ids: vec![rack_id.clone()],
     });
 
@@ -243,7 +243,7 @@ pub async fn fetch_machine_ids(
     api: Arc<Api>,
     rack_id: RackId,
 ) -> Result<Vec<String>, tonic::Status> {
-    let request = tonic::Request::new(rpc::forge::MachineSearchConfig {
+    let request = tonic::Request::new(rpc::nico::MachineSearchConfig {
         include_predicted_host: true,
         rack_id: Some(rack_id.clone()),
         ..Default::default()
@@ -260,7 +260,7 @@ pub async fn fetch_machine_ids(
 }
 
 async fn fetch_switch_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String>, tonic::Status> {
-    let request = tonic::Request::new(rpc::forge::SwitchSearchFilter {
+    let request = tonic::Request::new(rpc::nico::SwitchSearchFilter {
         rack_id: Some(rack_id.clone()),
         ..Default::default()
     });
@@ -276,7 +276,7 @@ async fn fetch_switch_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String>, to
 }
 
 async fn fetch_power_shelf_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String>, tonic::Status> {
-    let request = tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+    let request = tonic::Request::new(rpc::nico::PowerShelfSearchFilter {
         rack_id: Some(rack_id.clone()),
         ..Default::default()
     });
@@ -292,7 +292,7 @@ async fn fetch_power_shelf_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String
 }
 
 async fn fetch_rack_state_history(api: &Api, rack_id: &RackId) -> Vec<RackStateHistoryRecord> {
-    let request = tonic::Request::new(rpc::forge::RackStateHistoriesRequest {
+    let request = tonic::Request::new(rpc::nico::RackStateHistoriesRequest {
         rack_ids: vec![rack_id.clone()],
     });
 

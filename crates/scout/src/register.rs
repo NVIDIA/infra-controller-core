@@ -15,35 +15,35 @@
  * limitations under the License.
  */
 
-use carbide_host_support::hardware_enumeration::enumerate_hardware;
-use carbide_host_support::registration;
-use carbide_host_support::registration::RegistrationError;
-use carbide_uuid::machine::MachineId;
+use nico_host_support::hardware_enumeration::enumerate_hardware;
+use nico_host_support::registration;
+use nico_host_support::registration::RegistrationError;
+use nico_uuid::machine::MachineId;
 use tracing::info;
 use tss_esapi::Context;
 use tss_esapi::handles::KeyHandle;
 
-use crate::{CarbideClientError, attestation as attest};
+use crate::{NicoClientError, attestation as attest};
 
 pub async fn run(
-    forge_api: &str,
+    nico_api: &str,
     root_ca: String,
     machine_interface_id: Option<uuid::Uuid>,
     retry: &registration::DiscoveryRetry,
     tpm_path: &str,
-) -> Result<(MachineId, Option<uuid::Uuid>), CarbideClientError> {
+) -> Result<(MachineId, Option<uuid::Uuid>), NicoClientError> {
     let mut hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
 
     let is_dpu = hardware_info.tpm_ek_certificate.is_none();
 
     if machine_interface_id.is_none() && !is_dpu {
-        return Err(CarbideClientError::GenericError(
+        return Err(NicoClientError::GenericError(
             "--machine-interface-id=<uuid> is required for this subcommand.".to_string(),
         ));
     };
 
-    // if we are not on dpu, obtain attestation key (AK) and send it to carbide
+    // if we are not on dpu, obtain attestation key (AK) and send it to nico
     let mut endorsement_key_handle_opt: Option<KeyHandle> = None;
     let mut att_key_handle_opt: Option<KeyHandle> = None;
     let mut tss_ctx_opt: Option<Context> = None;
@@ -55,13 +55,13 @@ pub async fn run(
 
         // create tss context
         let mut tss_ctx = attest::create_context_from_path(tpm_path)
-            .map_err(|e| CarbideClientError::TpmError(format!("Could not create context: {e}")))?;
+            .map_err(|e| NicoClientError::TpmError(format!("Could not create context: {e}")))?;
 
         // CHANGETO - supply context externally
         hardware_info.tpm_description = attest::get_tpm_description(&mut tss_ctx);
 
         let result = attest::create_attest_key_info(&mut tss_ctx).map_err(|e| {
-            CarbideClientError::TpmError(format!("Could not create AttestKeyInfo: {e}"))
+            NicoClientError::TpmError(format!("Could not create AttestKeyInfo: {e}"))
         })?;
 
         hardware_info.attest_key_info = Some(result.0);
@@ -72,7 +72,7 @@ pub async fn run(
 
     let (registration_data, attest_key_challenge_opt, interface_id) =
         registration::register_machine(
-            forge_api,
+            nico_api,
             root_ca.clone(),
             machine_interface_id,
             hardware_info,
@@ -89,7 +89,7 @@ pub async fn run(
     // we do them here.
     if !is_dpu {
         // If we have received back an attestation key challenge, this means
-        // that Carbide has requested an attestation, so do it!
+        // that Nico has requested an attestation, so do it!
         //
         // This will perform:
         // -> activate_credential() - to obtain nonce
@@ -107,19 +107,19 @@ pub async fn run(
             );
 
             let Some(ek_handle) = endorsement_key_handle_opt else {
-                return Err(CarbideClientError::TpmError(
+                return Err(NicoClientError::TpmError(
                     "InternalError: EK is None".to_string(),
                 ));
             };
 
             let Some(ak_handle) = att_key_handle_opt else {
-                return Err(CarbideClientError::TpmError(
+                return Err(NicoClientError::TpmError(
                     "InternalError: AK is None".to_string(),
                 ));
             };
 
             let Some(mut tss_ctx) = tss_ctx_opt else {
-                return Err(CarbideClientError::TpmError(
+                return Err(NicoClientError::TpmError(
                     "InternalError: TSS_CTX is None".to_string(),
                 ));
             };
@@ -133,13 +133,13 @@ pub async fn run(
                 &ak_handle,
             )
             .map_err(|e| {
-                CarbideClientError::TpmError(format!("Could not activate credential: {e}"))
+                NicoClientError::TpmError(format!("Could not activate credential: {e}"))
             })?;
 
             // obtain signed attestation (a hash of pcr values) and actual pcr values
             let (attest, signature, pcr_values) = attest::get_pcr_quote(&mut tss_ctx, &ak_handle)
                 .map_err(|e| {
-                CarbideClientError::TpmError(format!("Could not get PCR Quote: {e}"))
+                NicoClientError::TpmError(format!("Could not get PCR Quote: {e}"))
             })?;
 
             tracing::info!("Obtained PCR quote");
@@ -156,11 +156,11 @@ pub async fn run(
                 &tpm_eventlog,
             )
             .map_err(|e| {
-                CarbideClientError::TpmError(format!("Could not create quote request: {e}"))
+                NicoClientError::TpmError(format!("Could not create quote request: {e}"))
             })?;
             // send to server
             if !registration::attest_quote(
-                forge_api,
+                nico_api,
                 root_ca.clone(),
                 false,
                 retry.clone(),

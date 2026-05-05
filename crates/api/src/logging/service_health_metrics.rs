@@ -32,15 +32,15 @@ pub struct ServiceHealthContext {
 pub fn start_export_service_health_metrics(health_context: ServiceHealthContext) {
     health_context
         .meter
-        .u64_observable_gauge("carbide_api_ready")
-        .with_description("Whether the Forge Site Controller API is running")
+        .u64_observable_gauge("nico_api_ready")
+        .with_description("Whether the Nico Site Controller API is running")
         .with_callback(|observer| {
             observer.observe(1, &[]);
         })
         .build();
     health_context
         .meter
-        .u64_observable_gauge("carbide_api_version")
+        .u64_observable_gauge("nico_api_version")
         .with_description("Version (git sha, build date, etc) of this service")
         .with_callback(|observer| {
             observer.observe(
@@ -48,18 +48,18 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
                 &[
                     KeyValue::new(
                         "build_version",
-                        carbide_version::v!(build_version).to_string(),
+                        nico_version::v!(build_version).to_string(),
                     ),
-                    KeyValue::new("build_date", carbide_version::v!(build_date).to_string()),
-                    KeyValue::new("git_sha", carbide_version::v!(git_sha).to_string()),
+                    KeyValue::new("build_date", nico_version::v!(build_date).to_string()),
+                    KeyValue::new("git_sha", nico_version::v!(git_sha).to_string()),
                     KeyValue::new(
                         "rust_version",
-                        carbide_version::v!(rust_version).to_string(),
+                        nico_version::v!(rust_version).to_string(),
                     ),
-                    KeyValue::new("build_user", carbide_version::v!(build_user).to_string()),
+                    KeyValue::new("build_user", nico_version::v!(build_user).to_string()),
                     KeyValue::new(
                         "build_hostname",
-                        carbide_version::v!(build_hostname).to_string(),
+                        nico_version::v!(build_hostname).to_string(),
                     ),
                 ],
             );
@@ -70,8 +70,8 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         let database_pool = health_context.database_pool.clone();
         health_context
             .meter
-            .u64_observable_gauge("carbide_db_pool_idle_conns")
-            .with_description("The amount of idle connections in the carbide database pool")
+            .u64_observable_gauge("nico_db_pool_idle_conns")
+            .with_description("The amount of idle connections in the nico database pool")
             .with_callback(move |observer| {
                 observer.observe(database_pool.num_idle() as u64, &[]);
             })
@@ -82,9 +82,9 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         let database_pool = health_context.database_pool.clone();
         health_context
             .meter
-            .u64_observable_gauge("carbide_db_pool_total_conns")
+            .u64_observable_gauge("nico_db_pool_total_conns")
             .with_description(
-                "The amount of total (active + idle) connections in the carbide database pool",
+                "The amount of total (active + idle) connections in the nico database pool",
             )
             .with_callback(move |observer| {
                 observer.observe(database_pool.size() as u64, &[]);
@@ -96,7 +96,7 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         let rp_stats = health_context.resource_pool_stats.clone();
         health_context
             .meter
-            .u64_observable_gauge("carbide_resourcepool_used_count")
+            .u64_observable_gauge("nico_resourcepool_used_count")
             .with_description("Count of values in the pool currently allocated")
             .with_callback(move |observer| {
                 for (name, stats) in rp_stats.lock().unwrap().iter() {
@@ -113,7 +113,7 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         let rp_stats = health_context.resource_pool_stats.clone();
         health_context
             .meter
-            .u64_observable_gauge("carbide_resourcepool_free_count")
+            .u64_observable_gauge("nico_resourcepool_free_count")
             .with_description("Count of values in the pool currently available for allocation")
             .with_callback(move |observer| {
                 for (name, stats) in rp_stats.lock().unwrap().iter() {

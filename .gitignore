@@ -1,7 +1,7 @@
 **/target
 **/node_modules
-bluefield/forge-dpu*.deb
-bluefield/forge-dpu*/
+bluefield/nico-dpu*.deb
+bluefield/nico-dpu*/
 bluefield/otel-dpu*/
 public/
 .vagrant
@@ -11,7 +11,7 @@ public/
 .devcontainer/
 .vscode/
 tmp/
-dev/kube/overlays/local/forge/override_api_image.json
+dev/kube/overlays/local/nico/override_api_image.json
 dev/kube/kind/ci/*
 .local_envrc
 .*.swp
@@ -19,7 +19,7 @@ dev/kube/kind/ci/*
 **/**/.mkosi*
 .skaffold/*/**
 cscope.*
-forged
+nicod
 .devspace
 
 pxe/nvinit_setup/*
@@ -36,7 +36,7 @@ dev/shell/*
 pxe/mkosi.profiles/*/mkosi.extra/build-output
 ssh-console/legacy/ssh-console
 
-dev/mac-local-dev/carbide-api-config-*.toml
+dev/mac-local-dev/nico-api-config-*.toml
 crates/dpf/doca-platform
 
 /helm/Chart.lock

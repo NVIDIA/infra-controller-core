@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-bmc-proxy"
+name = "nico-bmc-proxy"
 version = "0.0.0"
 edition.workspace = true
 description = "Authenticated HTTP proxy for talking to BMC's without sharing credentials"
@@ -23,20 +23,20 @@ license.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "carbide-bmc-proxy"
+name = "nico-bmc-proxy"
 path = "src/main.rs"
 
 [dependencies]
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 config-version = { path = "../config-version", features = ["sqlx"] }
-carbide-secrets = { path = "../secrets" }
-carbide-authn = { path = "../authn" }
-carbide-version = { path = "../version" }
-carbide-api-db = { path = "../api-db" }
+nico-secrets = { path = "../secrets" }
+nico-authn = { path = "../authn" }
+nico-version = { path = "../version" }
+nico-api-db = { path = "../api-db" }
 logfmt = { path = "../logfmt" }
 metrics-endpoint = { path = "../metrics-endpoint" }
-carbide-utils = { path = "../utils" }
+nico-utils = { path = "../utils" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
@@ -96,7 +96,7 @@ sqlx = { workspace = true, features = [
 ] }
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [lints]
 workspace = true

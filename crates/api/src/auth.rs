@@ -17,9 +17,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use carbide_authn::middleware::{ExternalUserInfo, Principal};
+use nico_authn::middleware::{ExternalUserInfo, Principal};
 
-use crate::CarbideError;
+use crate::NicoError;
 
 mod casbin_engine;
 pub mod internal_rbac_rules;
@@ -27,7 +27,7 @@ pub mod middleware;
 pub mod mqtt_auth;
 mod test_certs;
 
-pub type AuthContext = carbide_authn::middleware::AuthContext<Authorization>;
+pub type AuthContext = nico_authn::middleware::AuthContext<Authorization>;
 
 // An Authorization is sort of like a ticket that says we're allowed to do the
 // thing we're trying to do, and specifically which Principal was permitted to
@@ -38,7 +38,7 @@ pub struct Authorization {
     _predicate: Predicate, // Currently unused
 }
 
-impl carbide_authn::middleware::Authorization for Authorization {}
+impl nico_authn::middleware::Authorization for Authorization {}
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum AuthorizationError {
@@ -55,7 +55,7 @@ impl From<AuthorizationError> for tonic::Status {
 
 pub fn external_user_info<T>(
     request: &tonic::Request<T>,
-) -> Result<ExternalUserInfo, CarbideError> {
+) -> Result<ExternalUserInfo, NicoError> {
     if let Some(external_user_info) = request
         .extensions()
         .get::<AuthContext>()
@@ -63,7 +63,7 @@ pub fn external_user_info<T>(
     {
         Ok(external_user_info.clone())
     } else {
-        Err(CarbideError::ClientCertificateMissingInformation(
+        Err(NicoError::ClientCertificateMissingInformation(
             "external user info".to_string(),
         ))
     }
@@ -73,10 +73,10 @@ pub fn external_user_info<T>(
 // action that may or may not specify an object it's acting on.
 #[derive(Clone, Debug)]
 pub enum Predicate {
-    // A call to a Forge-owned gRPC method. The string is the gRPC method name,
-    // relative to the Forge service that contains it (i.e. without any slash
+    // A call to a Nico-owned gRPC method. The string is the gRPC method name,
+    // relative to the Nico service that contains it (i.e. without any slash
     // delimiters).
-    ForgeCall(String),
+    NicoCall(String),
 }
 
 pub trait PrincipalExtractor {
@@ -211,10 +211,10 @@ mod tests {
     use std::collections::HashMap;
     use std::io::BufRead;
 
-    use carbide_authn::SpiffeContext;
-    use carbide_authn::config::{AllowedCertCriteria, CertComponent};
-    use carbide_authn::middleware::CertDescriptionMiddleware;
-    use carbide_authn::spiffe_id::TrustDomain;
+    use nico_authn::SpiffeContext;
+    use nico_authn::config::{AllowedCertCriteria, CertComponent};
+    use nico_authn::middleware::CertDescriptionMiddleware;
+    use nico_authn::spiffe_id::TrustDomain;
     use eyre::Context;
 
     use super::*;
@@ -229,10 +229,10 @@ mod tests {
         use super::test_certs::*;
 
         let mut table = vec![
-            // Cert used by carbide-dhcp in local dev
+            // Cert used by nico-dhcp in local dev
             ClientCertTable {
                 cert: CLIENT_CERT_DHCP.into(),
-                desired: Principal::SpiffeServiceIdentifier("carbide-dhcp".to_string()),
+                desired: Principal::SpiffeServiceIdentifier("nico-dhcp".to_string()),
             },
             // external cert (expired, of course)
             ClientCertTable {
@@ -283,11 +283,11 @@ mod tests {
             SpiffeContext {
                 trust_domain: TrustDomain::new("example.test").unwrap(),
                 service_base_paths: vec![
-                    String::from("/carbide-system/sa/"),
+                    String::from("/nico-system/sa/"),
                     String::from("/default/sa/"),
                     String::from("/other-namespace/sa/"),
                 ],
-                machine_base_path: String::from("/carbide-system/machine/"),
+                machine_base_path: String::from("/nico-system/machine/"),
                 additional_issuer_cns: ["usercert-ca.example.com".to_string()].into(),
             },
         );

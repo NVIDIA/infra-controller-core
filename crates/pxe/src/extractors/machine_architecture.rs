@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::rpc_error::PxeRequestError;

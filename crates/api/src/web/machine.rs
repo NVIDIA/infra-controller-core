@@ -22,13 +22,13 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use carbide_rpc_utils::managed_host_display::to_time;
-use carbide_uuid::machine::{MachineId, MachineType};
+use nico_rpc_utils::managed_host_display::to_time;
+use nico_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use itertools::Itertools;
 use model::machine::network::ManagedHostQuarantineState;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{self as nicorpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
 
 use super::state_history::StateHistoryTable;
@@ -61,7 +61,7 @@ struct MachineRowDisplay {
     num_ib_ifs: usize,
     health_probe_alerts: Vec<health_report::HealthProbeAlert>,
     override_mode_counts: String,
-    metadata: rpc::forge::Metadata,
+    metadata: rpc::nico::Metadata,
     instance_type_id: String,
     instance_type: String,
     num_nvlink_gpus: usize,
@@ -81,12 +81,12 @@ impl Ord for MachineRowDisplay {
 }
 
 impl MachineRowDisplay {
-    fn new(m: forgerpc::Machine, instance_type: String) -> Self {
+    fn new(m: nicorpc::Machine, instance_type: String) -> Self {
         let mut machine_interfaces = m
             .interfaces
             .into_iter()
             .filter(|x| x.primary_interface)
-            .collect::<Vec<forgerpc::MachineInterface>>();
+            .collect::<Vec<nicorpc::MachineInterface>>();
         let (hostname, ip_address, mac_address) = if machine_interfaces.is_empty() {
             ("None".to_string(), "None".to_string(), "None".to_string())
         } else {
@@ -142,7 +142,7 @@ impl MachineRowDisplay {
                 .unwrap_or_default(),
             ip_address,
             mac_address,
-            is_host: m.machine_type == forgerpc::MachineType::Host as i32,
+            is_host: m.machine_type == nicorpc::MachineType::Host as i32,
             associated_dpu_ids: m
                 .associated_dpu_machine_ids
                 .into_iter()
@@ -202,7 +202,7 @@ pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     };
     machines
         .machines
-        .retain(|m| m.machine_type == forgerpc::MachineType::Dpu as i32);
+        .retain(|m| m.machine_type == nicorpc::MachineType::Dpu as i32);
     (StatusCode::OK, Json(machines)).into_response()
 }
 
@@ -246,9 +246,9 @@ async fn show(
     // leave `machines` as mut in this case, but hey this is
     // where we are.
     let should_show_machine =
-        |m: &forgerpc::Machine| match forgerpc::MachineType::try_from(m.machine_type) {
-            Ok(forgerpc::MachineType::Host) => include_hosts,
-            Ok(forgerpc::MachineType::Dpu) => include_dpus,
+        |m: &nicorpc::Machine| match nicorpc::MachineType::try_from(m.machine_type) {
+            Ok(nicorpc::MachineType::Host) => include_hosts,
+            Ok(nicorpc::MachineType::Dpu) => include_dpus,
             _ => false,
         };
 
@@ -313,8 +313,8 @@ async fn show(
 pub async fn fetch_machine(
     api: &Api,
     machine_id: MachineId,
-) -> Result<::rpc::forge::Machine, Response> {
-    let request = tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+) -> Result<::rpc::nico::Machine, Response> {
+    let request = tonic::Request::new(rpc::nico::MachinesByIdsRequest {
         machine_ids: vec![machine_id],
         include_history: true,
     });
@@ -361,7 +361,7 @@ pub async fn fetch_instance_type_names(
         return Ok(HashMap::new());
     }
 
-    let request = tonic::Request::new(rpc::forge::FindInstanceTypesByIdsRequest {
+    let request = tonic::Request::new(rpc::nico::FindInstanceTypesByIdsRequest {
         instance_type_ids,
         tenant_organization_id: None,
         include_allocation_stats: false,
@@ -391,8 +391,8 @@ pub async fn fetch_machines(
     api: Arc<Api>,
     include_dpus: bool,
     include_history: bool,
-) -> Result<forgerpc::MachineList, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::MachineSearchConfig {
+) -> Result<nicorpc::MachineList, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::MachineSearchConfig {
         include_dpus,
         include_predicted_host: true,
         ..Default::default()
@@ -411,7 +411,7 @@ pub async fn fetch_machines(
         let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
         let next_ids = &machine_ids[offset..offset + page_size];
         let next_machines = api
-            .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(nicorpc::MachinesByIdsRequest {
                 machine_ids: next_ids.to_vec(),
                 include_history,
             }))
@@ -422,7 +422,7 @@ pub async fn fetch_machines(
         offset += page_size;
     }
 
-    Ok(forgerpc::MachineList { machines })
+    Ok(nicorpc::MachineList { machines })
 }
 
 #[derive(Template)]
@@ -451,7 +451,7 @@ struct MachineDetail<'a> {
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
     inventory: Vec<MachineInventorySoftwareComponent>,
     health_detail: super::HealthDetail,
-    bmc_info: Option<rpc::forge::BmcInfo>,
+    bmc_info: Option<rpc::nico::BmcInfo>,
     discovery_info_json: String,
     metadata_detail: super::MetadataDetail,
     capabilities: Vec<MachineCapability>,
@@ -517,8 +517,8 @@ pub struct ValidationRun {
     pub machine_id: String,
 }
 
-impl From<forgerpc::Machine> for MachineDetail<'_> {
-    fn from(m: forgerpc::Machine) -> Self {
+impl From<nicorpc::Machine> for MachineDetail<'_> {
+    fn from(m: nicorpc::Machine) -> Self {
         let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
         let history = StateHistoryTable {
@@ -636,7 +636,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
         let quarantine_state = m
             .quarantine_state
             .and_then(|q| ManagedHostQuarantineState::try_from(q).ok());
-        let is_host = m.machine_type == forgerpc::MachineType::Host as i32;
+        let is_host = m.machine_type == nicorpc::MachineType::Host as i32;
         let host_id = m
             .associated_host_machine_id
             .map_or_else(String::default, |id| id.to_string());
@@ -808,7 +808,7 @@ pub async fn detail(
     }
 
     // Get validation results
-    let validation_request = tonic::Request::new(rpc::forge::MachineValidationRunListGetRequest {
+    let validation_request = tonic::Request::new(rpc::nico::MachineValidationRunListGetRequest {
         machine_id: Some(machine_id),
         include_history: false,
     });
@@ -825,8 +825,8 @@ pub async fn detail(
             .map(|vr| ValidationRun {
                 machine_id: vr.machine_id.map(|id| id.to_string()).unwrap_or_default(),
                 status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
-                    rpc::forge::machine_validation_status::MachineValidationState::Completed(
-                        rpc::forge::machine_validation_status::MachineValidationCompleted::Success.into(),
+                    rpc::nico::machine_validation_status::MachineValidationState::Completed(
+                        rpc::nico::machine_validation_status::MachineValidationCompleted::Success.into(),
                     ),
                 )),
                 context: vr.context.unwrap_or_default(),
@@ -845,7 +845,7 @@ pub async fn detail(
     display.action_status = ActionStatus::from_query(&params);
 
     if !display.is_host {
-        let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {
+        let request = tonic::Request::new(nicorpc::ManagedHostNetworkConfigRequest {
             dpu_machine_id: Some(machine_id),
         });
         if let Ok(netconf) = state
@@ -886,14 +886,14 @@ pub async fn maintenance(
     };
 
     let req = if form.action == "enter" {
-        forgerpc::MaintenanceRequest {
-            operation: forgerpc::MaintenanceOperation::Enable.into(),
+        nicorpc::MaintenanceRequest {
+            operation: nicorpc::MaintenanceOperation::Enable.into(),
             host_id: Some(machine_id),
             reference: form.reference,
         }
     } else if form.action == "exit" {
-        forgerpc::MaintenanceRequest {
-            operation: forgerpc::MaintenanceOperation::Disable.into(),
+        nicorpc::MaintenanceRequest {
+            operation: nicorpc::MaintenanceOperation::Disable.into(),
             host_id: Some(machine_id),
             reference: None,
         }
@@ -943,13 +943,13 @@ pub async fn quarantine(
             let mode = form
                 .mode
                 .as_deref()
-                .and_then(forgerpc::ManagedHostQuarantineMode::from_str_name)
-                .unwrap_or(forgerpc::ManagedHostQuarantineMode::BlockAllTraffic);
+                .and_then(nicorpc::ManagedHostQuarantineMode::from_str_name)
+                .unwrap_or(nicorpc::ManagedHostQuarantineMode::BlockAllTraffic);
             state
                 .set_managed_host_quarantine_state(tonic::Request::new(
-                    forgerpc::SetManagedHostQuarantineStateRequest {
+                    nicorpc::SetManagedHostQuarantineStateRequest {
                         machine_id: Some(machine_id),
-                        quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
+                        quarantine_state: Some(nicorpc::ManagedHostQuarantineState {
                             mode: mode as i32,
                             reason: form.reason,
                         }),
@@ -990,9 +990,9 @@ pub async fn set_dpu_first_boot_order(
 
     let redirect_url = match state
         .set_dpu_first_boot_order(tonic::Request::new(
-            rpc::forge::SetDpuFirstBootOrderRequest {
+            rpc::nico::SetDpuFirstBootOrderRequest {
                 machine_id: None,
-                bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
+                bmc_endpoint_request: Some(rpc::nico::BmcEndpointRequest {
                     ip_address: form.bmc_ip,
                     mac_address: None,
                 }),

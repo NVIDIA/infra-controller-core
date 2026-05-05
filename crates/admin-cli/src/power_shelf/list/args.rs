@@ -17,7 +17,7 @@
 
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::forge::DeletedFilter;
+use rpc::nico::DeletedFilter;
 
 #[derive(Parser, Debug)]
 pub struct Args {

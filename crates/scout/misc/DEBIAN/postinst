@@ -25,7 +25,7 @@ if [ "$1" = "configure" ]; then
 	# mkdir -p /var/support/core
 
 	systemctl daemon-reload
-	systemctl enable forge-scout.service
+	systemctl enable nico-scout.service
 
 	# Do not depend on starting services now, as this package is installed early in setup
 	# and should not hang or cause out of order steps in discovery workflows. The discovery

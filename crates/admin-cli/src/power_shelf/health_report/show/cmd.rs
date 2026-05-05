@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliResult, OutputFormat};
 
 use super::args::Args;
 use crate::health_utils;
@@ -25,7 +25,7 @@ pub async fn show(
     api_client: &ApiClient,
     args: Args,
     format: OutputFormat,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let response = api_client
         .0
         .list_power_shelf_health_reports(args.power_shelf_id)

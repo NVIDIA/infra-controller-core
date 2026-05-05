@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use crate::bmc_machine::common::{AdminPowerControlAction, InfiniteBootArgs};
 use crate::rpc::ApiClient;
@@ -23,7 +23,7 @@ use crate::rpc::ApiClient;
 pub async fn enable_infinite_boot(
     args: InfiniteBootArgs,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let machine = args.machine;
     api_client
         .enable_infinite_boot(None, Some(machine.clone()))

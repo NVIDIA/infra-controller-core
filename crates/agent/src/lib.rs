@@ -22,17 +22,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::rpc::DiscoveryInfo;
-use ::rpc::forge_tls_client::ForgeClientConfig;
+use ::rpc::nico_tls_client::NicoClientConfig;
 use ::rpc::machine_discovery::DpuData;
-use carbide_host_support::agent_config::AgentConfig;
-use carbide_host_support::hardware_enumeration::{
+use nico_host_support::agent_config::AgentConfig;
+use nico_host_support::hardware_enumeration::{
     enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
 };
-use carbide_host_support::registration::register_machine;
-use carbide_utils::arch::CpuArchitecture;
+use nico_host_support::registration::register_machine;
+use nico_utils::arch::CpuArchitecture;
 pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
-use forge_tls::client_config::ClientCert;
+use nico_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
 use tokio::fs;
@@ -51,7 +51,7 @@ pub mod containerd;
 mod dhcp;
 mod dhcp_server_grpc_client;
 mod ethernet_virtualization;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 pub use ethernet_virtualization::FPath;
 pub mod extension_services;
 mod fmds_client;
@@ -89,7 +89,7 @@ pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
 // Downloads cert (pem) file in case of dpu-agent is running as initcontainer.
 async fn download_cert() -> eyre::Result<()> {
-    let url = "http://carbide-pxe.forge/api/v0/tls/root_ca";
+    let url = "http://nico-pxe.nico/api/v0/tls/root_ca";
     let output_file = "/opt/forge/forge_root.pem";
     let permissions = std::fs::Permissions::from_mode(0o644);
 
@@ -105,7 +105,7 @@ async fn download_cert() -> eyre::Result<()> {
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     if cmdline.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
 
@@ -131,12 +131,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         tracing::warn!("Pretending local host is a DPU. Dev only.");
     }
 
-    let forge_client_config = Arc::new(
-        ForgeClientConfig::new(
-            agent.forge_system.root_ca.clone(),
+    let nico_client_config = Arc::new(
+        NicoClientConfig::new(
+            agent.nico_system.root_ca.clone(),
             Some(ClientCert {
-                cert_path: agent.forge_system.client_cert.clone(),
-                key_path: agent.forge_system.client_key.clone(),
+                cert_path: agent.nico_system.client_cert.clone(),
+                key_path: agent.nico_system.client_key.clone(),
             }),
         )
         .use_mgmt_vrf()?,
@@ -144,7 +144,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
     match cmdline.cmd {
         None => {
-            tracing::error!("Missing cmd. Try `forge-dpu-agent --help`");
+            tracing::error!("Missing cmd. Try `nico-dpu-agent --help`");
         }
 
         // "run" is the normal command
@@ -170,7 +170,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             main_loop::setup_and_run(
                 machine_id,
                 factory_mac_address,
-                forge_client_config,
+                nico_client_config,
                 agent,
                 *options,
             )
@@ -246,7 +246,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 network_monitor::NetworkMonitor::new(machine_id, None, pinger);
 
             network_monitor
-                .run_onetime(&agent.forge_system.api_server, &forge_client_config)
+                .run_onetime(&agent.nico_system.api_server, &nico_client_config)
                 .await;
         }
 
@@ -266,21 +266,21 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
             // Since the duppet sync also syncs out the otel machine_id and
             // host_machine_id files, we need to make a registration call to
-            // get the machine_id, and a carbide api request to get the
+            // get the machine_id, and a nico api request to get the
             // host_machine_id.
             let Registration { machine_id, .. } = register(&agent, &AgentPlatformType::DpuOs)
                 .await
                 .wrap_err("registration error")?;
 
-            let forge_api_server = agent.forge_system.api_server.clone();
+            let nico_api_server = agent.nico_system.api_server.clone();
             let periodic_config_fetcher = periodic_config_fetcher::PeriodicConfigFetcher::new(
                 periodic_config_fetcher::PeriodicConfigFetcherConfig {
                     config_fetch_interval: Duration::from_secs(
                         agent.period.network_config_fetch_secs,
                     ),
                     machine_id,
-                    forge_api: forge_api_server.clone(),
-                    forge_client_config: Arc::clone(&forge_client_config),
+                    nico_api: nico_api_server.clone(),
+                    nico_client_config: Arc::clone(&nico_client_config),
                 },
             )
             .await;
@@ -288,8 +288,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             let host_machine_id = match get_host_machine_id_retry(
                 &agent,
                 &periodic_config_fetcher,
-                Arc::clone(&forge_client_config),
-                &forge_api_server,
+                Arc::clone(&nico_client_config),
+                &nico_api_server,
             )
             .await
             {
@@ -304,7 +304,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         }
 
         // Output a templated file
-        // Normally this is (will be) done when receiving requests from carbide-api
+        // Normally this is (will be) done when receiving requests from nico-api
         Some(AgentCommand::Write(target)) => match target {
             // Legacy ETV write targets are no longer supported
             WriteTarget::Frr(_) | WriteTarget::Interfaces(_) | WriteTarget::Dhcp(_) => {
@@ -314,7 +314,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             }
 
             // Example:
-            // forge-dpu-agent write nvue
+            // nico-dpu-agent write nvue
             // --path /tmp/startup.yaml
             // --loopback-ip 10.0.0.1
             // --asn 65535
@@ -485,7 +485,7 @@ impl HBNDeviceNames {
     }
 }
 
-/// Discover hardware, register DPU with carbide-api, and return machine id.
+/// Discover hardware, register DPU with nico-api, and return machine id.
 async fn register(
     agent: &AgentConfig,
     platform_type: &AgentPlatformType,
@@ -516,12 +516,12 @@ async fn register(
     };
 
     let (registration_data, ..) = register_machine(
-        &agent.forge_system.api_server,
-        agent.forge_system.root_ca.clone(),
+        &agent.nico_system.api_server,
+        agent.nico_system.root_ca.clone(),
         agent.machine.interface_id,
         hardware_info,
         true,
-        carbide_host_support::registration::DiscoveryRetry {
+        nico_host_support::registration::DiscoveryRetry {
             secs: agent.period.discovery_retry_secs,
             max: agent.period.discovery_retries_max,
         },

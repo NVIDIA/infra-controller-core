@@ -18,7 +18,7 @@
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::dpu::dpu_discover_dhcp;
 use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
-use rpc::protos::forge::forge_server::Forge;
+use rpc::protos::nico::nico_server::Nico;
 
 use crate::DatabaseError;
 use crate::tests::common;
@@ -148,7 +148,7 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let machine_interface_id =
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await;
 
-    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+    let req = tonic::Request::new(rpc::nico::MachineBootOverride {
         machine_interface_id: Some(machine_interface_id),
         custom_pxe: expected_pxe.clone(),
         custom_user_data: expected_user_data.clone(),
@@ -223,7 +223,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let machine_interface_id =
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await;
 
-    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+    let req = tonic::Request::new(rpc::nico::MachineBootOverride {
         machine_interface_id: Some(machine_interface_id),
         custom_pxe: expected_pxe.clone(),
         custom_user_data: None,
@@ -235,7 +235,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .expect("Failed to set overrides via API")
         .into_inner();
 
-    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+    let req = tonic::Request::new(rpc::nico::MachineBootOverride {
         machine_interface_id: Some(machine_interface_id),
         custom_pxe: None,
         custom_user_data: expected_user_data.clone(),

@@ -74,7 +74,7 @@ impl<T> DerefMut for Versioned<T> {
     }
 }
 
-/// The version of any configuration that is applied in the Forge system
+/// The version of any configuration that is applied in the Nico system
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct ConfigVersion {
     /// A monotonically incrementing number that alone uniquely identify the version

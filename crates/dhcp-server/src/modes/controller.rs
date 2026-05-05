@@ -17,9 +17,9 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge::DhcpDiscovery;
+use ::rpc::nico::DhcpDiscovery;
 use lru::LruCache;
-use rpc::forge::DhcpRecord;
+use rpc::nico::DhcpRecord;
 use tokio::sync::Mutex;
 use tonic::async_trait;
 

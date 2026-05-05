@@ -15,22 +15,22 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::{self as forgerpc, InstancePowerRequest};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::{self as nicorpc, InstancePowerRequest};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn handle_reboot(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn handle_reboot(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let machine_id = api_client
         .get_one_instance(args.instance)
         .await?
         .instances
         .last()
-        .ok_or_else(|| CarbideCliError::GenericError("Unknown UUID".to_string()))?
+        .ok_or_else(|| NicoCliError::GenericError("Unknown UUID".to_string()))?
         .machine_id
         .ok_or_else(|| {
-            CarbideCliError::GenericError("Instance has no machine associated.".to_string())
+            NicoCliError::GenericError("Instance has no machine associated.".to_string())
         })?;
 
     api_client
@@ -38,7 +38,7 @@ pub async fn handle_reboot(args: Args, api_client: &ApiClient) -> CarbideCliResu
         .invoke_instance_power(InstancePowerRequest {
             instance_id: Some(args.instance),
             machine_id: Some(machine_id),
-            operation: forgerpc::instance_power_request::Operation::PowerReset as i32,
+            operation: nicorpc::instance_power_request::Operation::PowerReset as i32,
             boot_with_custom_ipxe: args.custom_pxe,
             apply_updates_on_reboot: args.apply_updates_on_reboot,
         })

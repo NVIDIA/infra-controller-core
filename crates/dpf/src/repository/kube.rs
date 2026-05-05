@@ -310,7 +310,7 @@ impl DpuSetRepository for KubeRepository {
         Ok(api
             .patch(
                 name,
-                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &PatchParams::apply("nico-dpf-sdk").force(),
                 &Patch::Apply(set),
             )
             .await?)
@@ -351,7 +351,7 @@ impl DpuDeploymentRepository for KubeRepository {
         Ok(api
             .patch(
                 name,
-                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &PatchParams::apply("nico-dpf-sdk").force(),
                 &Patch::Apply(deployment),
             )
             .await?)
@@ -400,7 +400,7 @@ impl DpuServiceTemplateRepository for KubeRepository {
         Ok(api
             .patch(
                 name,
-                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &PatchParams::apply("nico-dpf-sdk").force(),
                 &Patch::Apply(template),
             )
             .await?)
@@ -434,7 +434,7 @@ impl DpuServiceConfigurationRepository for KubeRepository {
         Ok(api
             .patch(
                 name,
-                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &PatchParams::apply("nico-dpf-sdk").force(),
                 &Patch::Apply(config),
             )
             .await?)
@@ -461,7 +461,7 @@ impl DpuServiceNADRepository for KubeRepository {
         Ok(api
             .patch(
                 name,
-                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &PatchParams::apply("nico-dpf-sdk").force(),
                 &Patch::Apply(nad),
             )
             .await?)
@@ -520,7 +520,7 @@ impl DpuServiceInterfaceRepository for KubeRepository {
         Ok(api
             .patch(
                 name,
-                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &PatchParams::apply("nico-dpf-sdk").force(),
                 &Patch::Apply(iface),
             )
             .await?)
@@ -559,7 +559,7 @@ impl K8sConfigRepository for KubeRepository {
         };
         api.patch(
             name,
-            &PatchParams::apply("carbide-dpf-sdk").force(),
+            &PatchParams::apply("nico-dpf-sdk").force(),
             &Patch::Apply(&cm),
         )
         .await?;

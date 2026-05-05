@@ -22,15 +22,15 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use carbide_rpc_utils::managed_host_display::get_memory_details;
-use carbide_rpc_utils::{ManagedHostMetadata, reason_to_user_string};
+use nico_rpc_utils::managed_host_display::get_memory_details;
+use nico_rpc_utils::{ManagedHostMetadata, reason_to_user_string};
 use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 use model::{self, machine};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{self as nicorpc};
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -649,9 +649,9 @@ pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
 async fn fetch_managed_hosts_with_metadata(
     AxumState(api): AxumState<Arc<Api>>,
     include_history: bool,
-) -> eyre::Result<Vec<carbide_rpc_utils::ManagedHostOutput>> {
+) -> eyre::Result<Vec<nico_rpc_utils::ManagedHostOutput>> {
     let machine_ids = api
-        .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(nicorpc::MachineSearchConfig {
             include_dpus: true,
             include_predicted_host: true,
             ..Default::default()
@@ -666,7 +666,7 @@ async fn fetch_managed_hosts_with_metadata(
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
         let next_ids = &machine_ids[offset..offset + page_size];
-        let request = tonic::Request::new(forgerpc::MachinesByIdsRequest {
+        let request = tonic::Request::new(nicorpc::MachinesByIdsRequest {
             machine_ids: next_ids.to_vec(),
             include_history,
         });
@@ -677,7 +677,7 @@ async fn fetch_managed_hosts_with_metadata(
     }
 
     let managed_host_metadata = ManagedHostMetadata::lookup_from_api(all_machines, api).await;
-    let managed_hosts = carbide_rpc_utils::get_managed_host_output(managed_host_metadata);
+    let managed_hosts = nico_rpc_utils::get_managed_host_output(managed_host_metadata);
     Ok(managed_hosts)
 }
 

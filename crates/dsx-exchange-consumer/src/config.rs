@@ -32,7 +32,7 @@ pub struct Config {
 
     pub cache: CacheConfig,
 
-    pub carbide_api: Option<CarbideApiConnectionConfig>,
+    pub nico_api: Option<NicoApiConnectionConfig>,
 
     pub metrics: MetricsConfig,
 }
@@ -42,7 +42,7 @@ impl Default for Config {
         Self {
             mqtt: MqttConfig::default(),
             cache: CacheConfig::default(),
-            carbide_api: Some(CarbideApiConnectionConfig::default()),
+            nico_api: Some(NicoApiConnectionConfig::default()),
             metrics: MetricsConfig::default(),
         }
     }
@@ -119,9 +119,9 @@ pub struct MqttConfig {
 impl Default for MqttConfig {
     fn default() -> Self {
         Self {
-            endpoint: "mqtt.forge".to_string(),
+            endpoint: "mqtt.nico".to_string(),
             port: 1884,
-            client_id: "carbide-dsx-exchange-consumer".to_string(),
+            client_id: "nico-dsx-exchange-consumer".to_string(),
             topic_prefix: "BMS/v1".to_string(),
             queue_capacity: 1024,
             auth: MqttAuthConfig::default(),
@@ -152,30 +152,30 @@ impl Default for CacheConfig {
     }
 }
 
-/// Carbide API connection configuration.
+/// Nico API connection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct CarbideApiConnectionConfig {
-    /// Path to the root CA certificate for Carbide API connections.
+pub struct NicoApiConnectionConfig {
+    /// Path to the root CA certificate for Nico API connections.
     pub root_ca: String,
 
-    /// Path to the client certificate for Carbide API connections.
+    /// Path to the client certificate for Nico API connections.
     pub client_cert: String,
 
-    /// Path to the client key for Carbide API connections.
+    /// Path to the client key for Nico API connections.
     pub client_key: String,
 
-    /// Carbide API server endpoint.
+    /// Nico API server endpoint.
     pub api_url: Url,
 }
 
-impl Default for CarbideApiConnectionConfig {
+impl Default for NicoApiConnectionConfig {
     fn default() -> Self {
         Self {
             root_ca: "/var/run/secrets/spiffe.io/ca.crt".to_string(),
             client_cert: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
             client_key: "/var/run/secrets/spiffe.io/tls.key".to_string(),
-            api_url: Url::parse("https://carbide-api.forge-system.svc.cluster.local:1079")
+            api_url: Url::parse("https://nico-api.nico-system.svc.cluster.local:1079")
                 .expect("valid default URL"),
         }
     }
@@ -205,7 +205,7 @@ impl Config {
             figment = figment.merge(Toml::file(path));
         }
 
-        figment = figment.merge(Env::prefixed("CARBIDE_DSX_CONSUMER__").split("__"));
+        figment = figment.merge(Env::prefixed("NICO_DSX_CONSUMER__").split("__"));
 
         let config: Config = figment
             .extract()
@@ -242,20 +242,20 @@ mod tests {
             .extract()
             .expect("could not parse config toml file");
 
-        assert_eq!(config.mqtt.endpoint, "mqtt.forge");
+        assert_eq!(config.mqtt.endpoint, "mqtt.nico");
         assert_eq!(config.mqtt.port, 1884);
-        assert_eq!(config.mqtt.client_id, "carbide-dsx-exchange-consumer");
+        assert_eq!(config.mqtt.client_id, "nico-dsx-exchange-consumer");
         assert_eq!(config.mqtt.topic_prefix, "BMS/v1");
 
-        if let Some(ref carbide_api) = config.carbide_api {
-            assert_eq!(carbide_api.root_ca, "/var/run/secrets/spiffe.io/ca.crt");
+        if let Some(ref nico_api) = config.nico_api {
+            assert_eq!(nico_api.root_ca, "/var/run/secrets/spiffe.io/ca.crt");
             assert_eq!(
-                carbide_api.client_cert,
+                nico_api.client_cert,
                 "/var/run/secrets/spiffe.io/tls.crt"
             );
-            assert_eq!(carbide_api.client_key, "/var/run/secrets/spiffe.io/tls.key");
+            assert_eq!(nico_api.client_key, "/var/run/secrets/spiffe.io/tls.key");
         } else {
-            panic!("carbide api should be enabled")
+            panic!("nico api should be enabled")
         }
 
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn test_load_defaults() {
         let config = Config::load(None).expect("should load defaults");
-        assert_eq!(config.mqtt.endpoint, "mqtt.forge");
+        assert_eq!(config.mqtt.endpoint, "mqtt.nico");
         assert_eq!(config.mqtt.port, 1884);
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
     }

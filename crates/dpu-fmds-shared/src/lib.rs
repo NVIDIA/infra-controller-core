@@ -15,6 +15,6 @@
  * limitations under the License.
  */
 
-//! Shared **carbide-agent** / **carbide-fmds** machine-identity and IMDS identity surface.
+//! Shared **nico-agent** / **nico-fmds** machine-identity and IMDS identity surface.
 
 pub mod machine_identity;

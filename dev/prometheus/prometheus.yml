@@ -20,12 +20,12 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  - job_name: 'carbide-api'
+  - job_name: 'nico-api'
     scrape_interval: 10s
     static_configs:
       - targets: ['172.20.0.14:1080']
 
-  - job_name: 'carbide-dhcp'
+  - job_name: 'nico-dhcp'
     scrape_interval: 10s
     static_configs:
       - targets: [ '172.20.0.12:1089' ]

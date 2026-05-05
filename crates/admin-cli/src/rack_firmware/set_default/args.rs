@@ -23,7 +23,7 @@ pub struct Args {
     pub firmware_id: String,
 }
 
-impl From<Args> for rpc::forge::RackFirmwareSetDefaultRequest {
+impl From<Args> for rpc::nico::RackFirmwareSetDefaultRequest {
     fn from(args: Args) -> Self {
         Self {
             firmware_id: args.firmware_id,

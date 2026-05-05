@@ -19,7 +19,7 @@ use config_version::ConfigVersion;
 use db::{self};
 use model::machine::ManagedHostState;
 use model::state_history::StateHistoryRecord;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 
 use crate::tests::common;
 
@@ -95,7 +95,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         // - FindMachineStateHistories returns the expected history
         let rpc_machine = env
             .api
-            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
                 machine_ids: vec![*machine_id],
                 include_history: true,
             }))
@@ -116,7 +116,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let mut rpc_histories = env
             .api
             .find_machine_state_histories(tonic::Request::new(
-                rpc::forge::MachineStateHistoriesRequest {
+                rpc::nico::MachineStateHistoriesRequest {
                     machine_ids: vec![*machine_id],
                 },
             ))
@@ -191,7 +191,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Test whether history is retrievable for a forced deleted Machine
     env.api
         .admin_force_delete_machine(tonic::Request::new(
-            ::rpc::forge::AdminForceDeleteMachineRequest {
+            ::rpc::nico::AdminForceDeleteMachineRequest {
                 host_query: host_machine_id.to_string(),
                 delete_interfaces: false,
                 delete_bmc_interfaces: false,
@@ -211,7 +211,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut rpc_histories = env
         .api
         .find_machine_state_histories(tonic::Request::new(
-            rpc::forge::MachineStateHistoriesRequest {
+            rpc::nico::MachineStateHistoriesRequest {
                 machine_ids: vec![host_machine_id],
             },
         ))

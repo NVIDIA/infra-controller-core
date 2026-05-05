@@ -15,21 +15,21 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-dpu-fmds-shared"
-description = "Shared machine-identity and IMDS identity surface between carbide-agent and carbide-fmds"
+name = "nico-dpu-fmds-shared"
+description = "Shared machine-identity and IMDS identity surface between nico-agent and nico-fmds"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "forge_dpu_fmds_shared"
+name = "nico_dpu_fmds_shared"
 
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
-carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
-carbide-rpc = { path = "../rpc" }
+nico-dpu-agent-utils = { path = "../dpu-agent-utils" }
+nico-rpc = { path = "../rpc" }
 governor = { workspace = true }
 reqwest = { default-features = false, features = [
   "rustls-tls",

@@ -40,7 +40,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','7z73cto1ww'],
         10,
         'V1-T1730906607144616',
-        'forge_dcgm_long_test',
+        'nico_dcgm_long_test',
         'User'
     );
 
@@ -87,6 +87,6 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','7z73cto1ww'],
         10,
         'V1-T1730906607147909',
-        'forge_shoreline_run_book',
+        'nico_shoreline_run_book',
         'User'
     );

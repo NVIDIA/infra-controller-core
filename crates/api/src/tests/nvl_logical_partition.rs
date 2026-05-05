@@ -17,9 +17,9 @@
 
 //use crate::tests::common;
 //use crate::tests::common::api_fixtures::TestEnvOverrides;
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use rpc::TenantState;
-use rpc::forge_server::Forge;
+use rpc::nico_server::Nico;
 
 use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::nvl_logical_partition::{

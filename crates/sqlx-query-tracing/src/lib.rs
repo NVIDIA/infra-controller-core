@@ -320,16 +320,16 @@ impl DatabaseMetricEmitters {
         // https://github.com/open-telemetry/semantic-conventions/tree/main/docs/database
         // The exact operation that we care about - which is just the query time - isn't modelled there
 
-        // Note that this counter does not equal the _count of `carbide-api.db.total_query_time.ms`
-        // The reason for this is the `carbide-api.db.total_query_time.ms` will only be incremented once
+        // Note that this counter does not equal the _count of `nico-api.db.total_query_time.ms`
+        // The reason for this is the `nico-api.db.total_query_time.ms` will only be incremented once
         // per span. It thereby counts the amount of spans - not the amount of DB queries.
         let db_queries_counter = meter
-            .u64_counter("carbide-api.db.queries")
+            .u64_counter("nico-api.db.queries")
             .with_description("The amount of database queries that occurred inside a span")
             .build();
 
         let db_span_query_times = meter
-            .f64_histogram("carbide-api.db.span_query_time")
+            .f64_histogram("nico-api.db.span_query_time")
             .with_description("Total time the request spent inside a span on database transactions")
             .with_unit("ms")
             .build();

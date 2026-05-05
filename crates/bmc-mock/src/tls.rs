@@ -79,7 +79,7 @@ pub fn server_config(cert_path: Option<impl AsRef<OsStr>>) -> Result<ServerConfi
             {
                 manifest_dir
             } else {
-                Path::new("/opt/carbide")
+                Path::new("/opt/nico")
             }
         }
     };

@@ -18,11 +18,11 @@
 use std::ops::DerefMut;
 use std::str::FromStr;
 
-use carbide_uuid::extension_service::ExtensionServiceId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
-use carbide_uuid::vpc::VpcId;
+use nico_uuid::extension_service::ExtensionServiceId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
+use nico_uuid::vpc::VpcId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use model::instance::NewInstance;

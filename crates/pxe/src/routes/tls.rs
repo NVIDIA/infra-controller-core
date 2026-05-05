@@ -32,7 +32,7 @@ async fn root_ca(headers: HeaderMap, state: State<AppState>) -> impl IntoRespons
     // you don't have permissions to it... but it still returns a std::io::Result so we do
     // still have to handle the apparently possible failure modes.
     match ServeFile::new_with_mime(
-        &state.runtime_config.forge_root_ca_path,
+        &state.runtime_config.nico_root_ca_path,
         &mime::APPLICATION_OCTET_STREAM,
     )
     .try_call(req)

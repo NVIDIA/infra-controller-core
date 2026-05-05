@@ -12,7 +12,7 @@ fi
 # get the first word from this string
 COMPONENT=`echo $1 | cut -d" " -f1`
 
-docker run --rm -v $REPO_ROOT:/carbide \
+docker run --rm -v $REPO_ROOT:/nico \
   -e CARGO_TARGET_DIR=/target/$COMPONENT \
   -e CARGO_HOME=/cache/cargo/$COMPONENT \
   -e SCCACHE_DIR=/cache/sccache \

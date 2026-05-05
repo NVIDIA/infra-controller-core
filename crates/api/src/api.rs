@@ -21,8 +21,8 @@ use std::panic::Location;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-pub use ::rpc::forge as rpc;
-use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
+pub use ::rpc::nico as rpc;
+use ::rpc::nico::{RemoveSkuRequest, SkuIdList};
 use ::rpc::protos::dns::{
     CreateDomainRequest, DnsResourceRecordLookupRequest, DnsResourceRecordLookupResponse, Domain,
     DomainDeletionRequest, DomainDeletionResult, DomainList, DomainMetadataRequest,
@@ -30,16 +30,16 @@ use ::rpc::protos::dns::{
     UpdateDomainRequest,
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
-use carbide_ib_fabric::ib::IBFabricManager;
-use carbide_nvlink_manager::nvlink::NmxmClientPool;
-use carbide_redfish::libredfish::RedfishClientPool;
-use carbide_site_explorer::EndpointExplorer;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_ib_fabric::ib::IBFabricManager;
+use nico_nvlink_manager::nvlink::NmxmClientPool;
+use nico_redfish::libredfish::RedfishClientPool;
+use nico_site_explorer::EndpointExplorer;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialManager;
+use nico_secrets::certificates::CertificateProvider;
+use nico_secrets::credentials::CredentialManager;
 use librms::RmsApi;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -49,8 +49,8 @@ use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 
 use self::metrics::ApiMetricsEmitter;
-use self::rpc::forge_server::Forge;
-use crate::cfg::file::CarbideConfig;
+use self::rpc::nico_server::Nico;
+use crate::cfg::file::NicoConfig;
 use crate::dpf::DpfOperations;
 use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
@@ -59,7 +59,7 @@ use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::state_controller::controller::Enqueuer;
 use crate::state_controller::machine::io::MachineStateControllerIO;
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
@@ -69,7 +69,7 @@ pub struct Api {
     pub(crate) eth_data: EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,
     pub(crate) ib_fabric_manager: Arc<dyn IBFabricManager>,
-    pub(crate) runtime_config: Arc<CarbideConfig>,
+    pub(crate) runtime_config: Arc<NicoConfig>,
     pub(crate) dpu_health_log_limiter: LogLimiter<MachineId>,
     pub dynamic_settings: DynamicSettings,
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
@@ -89,7 +89,7 @@ pub(crate) type ScoutStreamType =
     Pin<Box<dyn Stream<Item = Result<rpc::ScoutStreamScoutBoundMessage, Status>> + Send>>;
 
 #[tonic::async_trait]
-impl Forge for Api {
+impl Nico for Api {
     type ScoutStreamStream = ScoutStreamType;
 
     async fn version(
@@ -751,7 +751,7 @@ impl Forge for Api {
     }
 
     // Transitions the machine to Ready state.
-    // Called by 'forge-scout discovery' once cleanup succeeds.
+    // Called by 'nico-scout discovery' once cleanup succeeds.
     async fn cleanup_machine_completed(
         &self,
         request: Request<rpc::MachineCleanupInfo>,
@@ -759,12 +759,12 @@ impl Forge for Api {
         crate::handlers::machine_scout::cleanup_machine_completed(self, request).await
     }
 
-    // Invoked by forge-scout whenever a certain Machine can not be properly acted on
-    async fn report_forge_scout_error(
+    // Invoked by nico-scout whenever a certain Machine can not be properly acted on
+    async fn report_nico_scout_error(
         &self,
-        request: Request<rpc::ForgeScoutErrorReport>,
-    ) -> Result<Response<rpc::ForgeScoutErrorReportResult>, Status> {
-        crate::handlers::machine_scout::report_forge_scout_error(self, request)
+        request: Request<rpc::NicoScoutErrorReport>,
+    ) -> Result<Response<rpc::NicoScoutErrorReportResult>, Status> {
+        crate::handlers::machine_scout::report_nico_scout_error(self, request)
     }
 
     async fn discover_dhcp(
@@ -798,7 +798,7 @@ impl Forge for Api {
 
     async fn find_machines_by_ids(
         &self,
-        request: Request<::rpc::forge::MachinesByIdsRequest>,
+        request: Request<::rpc::nico::MachinesByIdsRequest>,
     ) -> Result<Response<::rpc::MachineList>, Status> {
         crate::handlers::machine::find_machines_by_ids(self, request).await
     }
@@ -890,8 +890,8 @@ impl Forge for Api {
         crate::handlers::credential::get_bmc_credentals(self, request).await
     }
 
-    /// Network status of each managed host, as reported by forge-dpu-agent.
-    /// For use by forge-admin-cli
+    /// Network status of each managed host, as reported by nico-dpu-agent.
+    /// For use by nico-admin-cli
     ///
     /// Currently: Status of HBN on each DPU
     async fn get_all_managed_host_network_status(
@@ -915,7 +915,7 @@ impl Forge for Api {
         crate::handlers::credential::update_machine_credentials(self, request).await
     }
 
-    // The carbide pxe server makes this RPC call
+    // The nico pxe server makes this RPC call
     async fn get_pxe_instructions(
         &self,
         request: Request<rpc::PxeInstructionRequest>,
@@ -975,7 +975,7 @@ impl Forge for Api {
     // DEPRECATED: use find_explored_endpoint_ids, find_explored_endpoints_by_ids and find_explored_managed_host_ids, find_explored_managed_hosts_by_ids instead
     async fn get_site_exploration_report(
         &self,
-        request: Request<::rpc::forge::GetSiteExplorationRequest>,
+        request: Request<::rpc::nico::GetSiteExplorationRequest>,
     ) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
         crate::handlers::site_explorer::get_site_exploration_report(self, request).await
     }
@@ -1010,7 +1010,7 @@ impl Forge for Api {
 
     async fn update_machine_hardware_info(
         &self,
-        request: Request<::rpc::forge::UpdateMachineHardwareInfoRequest>,
+        request: Request<::rpc::nico::UpdateMachineHardwareInfoRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::machine_hardware_info::handle_machine_hardware_info_update(self, request)
             .await
@@ -1019,18 +1019,18 @@ impl Forge for Api {
     // Ad-hoc BMC exploration
     async fn explore(
         &self,
-        request: Request<::rpc::forge::BmcEndpointRequest>,
+        request: Request<::rpc::nico::BmcEndpointRequest>,
     ) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
         crate::handlers::bmc_endpoint_explorer::explore(self, request).await
     }
 
-    // Called on x86 boot by 'forge-scout auto-detect --uuid=<uuid>'.
+    // Called on x86 boot by 'nico-scout auto-detect --uuid=<uuid>'.
     // Tells it whether to discover or cleanup based on current machine state.
-    async fn forge_agent_control(
+    async fn nico_agent_control(
         &self,
-        request: Request<rpc::ForgeAgentControlRequest>,
-    ) -> Result<Response<rpc::ForgeAgentControlResponse>, Status> {
-        crate::handlers::machine_scout::forge_agent_control(self, request).await
+        request: Request<rpc::NicoAgentControlRequest>,
+    ) -> Result<Response<rpc::NicoAgentControlResponse>, Status> {
+        crate::handlers::machine_scout::nico_agent_control(self, request).await
     }
 
     async fn admin_force_delete_machine(
@@ -1276,14 +1276,14 @@ impl Forge for Api {
     async fn disable_secure_boot(
         &self,
         request: Request<rpc::BmcEndpointRequest>,
-    ) -> Result<Response<::rpc::forge::DisableSecureBootResponse>, Status> {
+    ) -> Result<Response<::rpc::nico::DisableSecureBootResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::disable_secure_boot(self, request).await
     }
 
     async fn lockdown(
         &self,
         request: Request<rpc::LockdownRequest>,
-    ) -> Result<Response<::rpc::forge::LockdownResponse>, Status> {
+    ) -> Result<Response<::rpc::nico::LockdownResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::lockdown(self, request).await
     }
 
@@ -1297,32 +1297,32 @@ impl Forge for Api {
     async fn enable_infinite_boot(
         &self,
         request: Request<rpc::EnableInfiniteBootRequest>,
-    ) -> Result<Response<::rpc::forge::EnableInfiniteBootResponse>, Status> {
+    ) -> Result<Response<::rpc::nico::EnableInfiniteBootResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::enable_infinite_boot(self, request).await
     }
 
     async fn is_infinite_boot_enabled(
         &self,
         request: Request<rpc::IsInfiniteBootEnabledRequest>,
-    ) -> Result<Response<::rpc::forge::IsInfiniteBootEnabledResponse>, Status> {
+    ) -> Result<Response<::rpc::nico::IsInfiniteBootEnabledResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::is_infinite_boot_enabled(self, request).await
     }
 
     async fn machine_setup(
         &self,
         request: Request<rpc::MachineSetupRequest>,
-    ) -> Result<Response<::rpc::forge::MachineSetupResponse>, Status> {
+    ) -> Result<Response<::rpc::nico::MachineSetupResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::machine_setup(self, request).await
     }
 
     async fn set_dpu_first_boot_order(
         &self,
         request: Request<rpc::SetDpuFirstBootOrderRequest>,
-    ) -> Result<Response<::rpc::forge::SetDpuFirstBootOrderResponse>, Status> {
+    ) -> Result<Response<::rpc::nico::SetDpuFirstBootOrderResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::set_dpu_first_boot_order(self, request).await
     }
 
-    /// Should this DPU upgrade it's forge-dpu-agent?
+    /// Should this DPU upgrade it's nico-dpu-agent?
     /// Once the upgrade is complete record_dpu_network_status will receive the updated
     /// version and write the DB to say our upgrade is complete.
     async fn dpu_agent_upgrade_check(
@@ -1332,7 +1332,7 @@ impl Forge for Api {
         crate::handlers::dpu::dpu_agent_upgrade_check(self, request).await
     }
 
-    /// Get or set the forge-dpu-agent upgrade policy.
+    /// Get or set the nico-dpu-agent upgrade policy.
     async fn dpu_agent_upgrade_policy_action(
         &self,
         request: Request<rpc::DpuAgentUpgradePolicyRequest>,
@@ -1365,7 +1365,7 @@ impl Forge for Api {
 
     /// add_route_servers adds new route server entries for the
     /// provided source_type, defaulting to admin_api for calls
-    /// coming from forge-admin-cli (but can be overridden in
+    /// coming from nico-admin-cli (but can be overridden in
     /// cases where deemed appropriate).
     async fn add_route_servers(
         &self,
@@ -1376,7 +1376,7 @@ impl Forge for Api {
 
     /// remove_route_servers removes route server entries for the
     /// provided source_type, defaulting to admin_api for calls
-    /// coming from forge-admin-cli (but can be overridden in
+    /// coming from nico-admin-cli (but can be overridden in
     /// cases where deemed appropriate).
     async fn remove_route_servers(
         &self,
@@ -1387,7 +1387,7 @@ impl Forge for Api {
 
     /// replace_route_servers replaces all route server entries
     /// for the provided source_type with the given list, defaulting
-    /// to admin_api for calls coming from forge-admin-cli (but can
+    /// to admin_api for calls coming from nico-admin-cli (but can
     /// be overridden in cases where deemed appropriate).
     async fn replace_route_servers(
         &self,
@@ -2160,7 +2160,7 @@ impl Forge for Api {
 
     async fn get_operating_system(
         &self,
-        request: Request<::carbide_uuid::operating_system::OperatingSystemId>,
+        request: Request<::nico_uuid::operating_system::OperatingSystemId>,
     ) -> Result<Response<rpc::OperatingSystem>, Status> {
         crate::handlers::operating_system::get_operating_system(self, request).await
     }
@@ -2539,7 +2539,7 @@ impl Forge for Api {
 
     async fn assign_sku_to_machine(
         &self,
-        request: Request<::rpc::forge::SkuMachinePair>,
+        request: Request<::rpc::nico::SkuMachinePair>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::sku::assign_to_machine(self, request).await
     }
@@ -2725,7 +2725,7 @@ impl Forge for Api {
     }
 
     // set_dpa_network_observaction_status is for debugging purposes.
-    // In practice, the MQTT subscriber running in Carbide will update
+    // In practice, the MQTT subscriber running in Nico will update
     // the observation status
     async fn set_dpa_network_observation_status(
         &self,
@@ -2762,7 +2762,7 @@ impl Forge for Api {
         crate::handlers::firmware::list_host_firmware(self, request)
     }
 
-    // Scout is telling Carbide the mlx device configuration in its machine
+    // Scout is telling Nico the mlx device configuration in its machine
     async fn publish_mlx_device_report(
         &self,
         request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
@@ -2770,7 +2770,7 @@ impl Forge for Api {
         crate::handlers::dpa::publish_mlx_device_report(self, request).await
     }
 
-    // Scout is telling carbide the observed status (locking status, card mode) of the
+    // Scout is telling nico the observed status (locking status, card mode) of the
     // mlx devices in its host
     async fn publish_mlx_observation_report(
         &self,
@@ -3025,7 +3025,7 @@ impl Forge for Api {
     }
 
     // scout_stream handles the bidirectional streaming connection from scout agents.
-    // scout agents call scout_stream and send an Init message, and then carbide-api
+    // scout agents call scout_stream and send an Init message, and then nico-api
     // will send down "request" messages to connected agent(s) to either instruct them
     // or ask them for information (sometimes for state changes, other times for
     // feeding data back to administrative CLI/UI calls).
@@ -3178,8 +3178,8 @@ impl Forge for Api {
 
     async fn determine_machine_ingestion_state(
         &self,
-        request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
-    ) -> Result<tonic::Response<::rpc::forge::MachineIngestionStateResponse>, Status> {
+        request: tonic::Request<::rpc::nico::BmcEndpointRequest>,
+    ) -> Result<tonic::Response<::rpc::nico::MachineIngestionStateResponse>, Status> {
         crate::api::log_request_data(&request);
 
         crate::handlers::power_options::determine_machine_ingestion_state(
@@ -3191,7 +3191,7 @@ impl Forge for Api {
 
     async fn allow_ingestion_and_power_on(
         &self,
-        request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+        request: tonic::Request<::rpc::nico::BmcEndpointRequest>,
     ) -> Result<tonic::Response<()>, Status> {
         crate::api::log_request_data(&request);
 
@@ -3236,18 +3236,18 @@ impl Forge for Api {
 
     async fn get_ipxe_template(
         &self,
-        request: tonic::Request<::rpc::forge::GetIpxeTemplateRequest>,
-    ) -> Result<tonic::Response<::rpc::forge::IpxeTemplate>, Status> {
-        use carbide_ipxe_renderer::IpxeScriptRenderer;
+        request: tonic::Request<::rpc::nico::GetIpxeTemplateRequest>,
+    ) -> Result<tonic::Response<::rpc::nico::IpxeTemplate>, Status> {
+        use nico_ipxe_renderer::IpxeScriptRenderer;
 
         let req = request.into_inner();
         let id = req
             .id
             .ok_or_else(|| Status::invalid_argument("id is required"))?;
-        let renderer = carbide_ipxe_renderer::DefaultIpxeScriptRenderer::new();
+        let renderer = nico_ipxe_renderer::DefaultIpxeScriptRenderer::new();
 
         match renderer.get_template_by_id(&id.to_string()) {
-            Some(template) => Ok(tonic::Response::new(::rpc::forge::IpxeTemplate {
+            Some(template) => Ok(tonic::Response::new(::rpc::nico::IpxeTemplate {
                 id: Some(id),
                 name: template.name.clone(),
                 template: template.template.clone(),
@@ -3266,11 +3266,11 @@ impl Forge for Api {
 
     async fn list_ipxe_templates(
         &self,
-        _request: tonic::Request<::rpc::forge::ListIpxeTemplatesRequest>,
-    ) -> Result<tonic::Response<::rpc::forge::IpxeTemplateList>, Status> {
-        use carbide_ipxe_renderer::IpxeScriptRenderer;
+        _request: tonic::Request<::rpc::nico::ListIpxeTemplatesRequest>,
+    ) -> Result<tonic::Response<::rpc::nico::IpxeTemplateList>, Status> {
+        use nico_ipxe_renderer::IpxeScriptRenderer;
 
-        let renderer = carbide_ipxe_renderer::DefaultIpxeScriptRenderer::new();
+        let renderer = nico_ipxe_renderer::DefaultIpxeScriptRenderer::new();
         let template_names = renderer.list_templates();
 
         let templates = template_names
@@ -3283,7 +3283,7 @@ impl Forge for Api {
                         t.name, t.id,
                     ))
                 })?;
-                Ok(::rpc::forge::IpxeTemplate {
+                Ok(::rpc::nico::IpxeTemplate {
                     id: Some(id),
                     name: t.name.clone(),
                     template: t.template.clone(),
@@ -3296,17 +3296,17 @@ impl Forge for Api {
             })
             .collect::<Result<Vec<_>, Status>>()?;
 
-        Ok(tonic::Response::new(::rpc::forge::IpxeTemplateList {
+        Ok(tonic::Response::new(::rpc::nico::IpxeTemplateList {
             templates,
         }))
     }
 }
 
 fn ipxe_template_scope_to_proto(
-    scope: carbide_ipxe_renderer::IpxeTemplateScope,
-) -> ::rpc::forge::IpxeTemplateScope {
-    use ::rpc::forge::IpxeTemplateScope as ProtoScope;
-    use carbide_ipxe_renderer::IpxeTemplateScope as RendererScope;
+    scope: nico_ipxe_renderer::IpxeTemplateScope,
+) -> ::rpc::nico::IpxeTemplateScope {
+    use ::rpc::nico::IpxeTemplateScope as ProtoScope;
+    use nico_ipxe_renderer::IpxeTemplateScope as RendererScope;
     match scope {
         RendererScope::Internal => ProtoScope::Internal,
         RendererScope::Public => ProtoScope::Public,
@@ -3333,7 +3333,7 @@ pub(crate) fn log_request_data_redacted(s: impl AsRef<str>) {
 
 /// Logs the Machine ID in the current tracing span
 pub(crate) fn log_machine_id(machine_id: &MachineId) {
-    tracing::Span::current().record("forge.machine_id", tracing::field::display(machine_id));
+    tracing::Span::current().record("nico.machine_id", tracing::field::display(machine_id));
 }
 
 pub(crate) fn log_tenant_organization_id(organization_id: &str) {
@@ -3373,7 +3373,7 @@ impl Api {
         &self,
         machine_id: &MachineId,
         search_config: MachineSearchConfig,
-    ) -> impl Future<Output = CarbideResult<(Machine, db::Transaction<'_>)>> {
+    ) -> impl Future<Output = NicoResult<(Machine, db::Transaction<'_>)>> {
         let loc = Location::caller();
         let machine_id = *machine_id;
         async move {
@@ -3383,13 +3383,13 @@ impl Api {
             let machine = match db::machine::find_one(&mut txn, &machine_id, search_config).await {
                 Err(err) => {
                     tracing::warn!(%machine_id, error = %err, "failed loading machine");
-                    return Err(CarbideError::InvalidArgument(
+                    return Err(NicoError::InvalidArgument(
                         "err loading machine".to_string(),
                     ));
                 }
                 Ok(None) => {
                     tracing::info!(%machine_id, "machine not found");
-                    return Err(CarbideError::NotFoundError {
+                    return Err(NicoError::NotFoundError {
                         kind: "machine",
                         id: machine_id.to_string(),
                     });

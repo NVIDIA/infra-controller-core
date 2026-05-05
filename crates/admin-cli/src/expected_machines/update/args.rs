@@ -38,7 +38,7 @@ use clap::Parser;
 ///    }
 ///
 /// Usage:
-///   forge-admin-cli expected-machine update --filename machine.json
+///   nico-admin-cli expected-machine update --filename machine.json
 #[derive(Parser, Debug)]
 #[clap(verbatim_doc_comment)]
 pub struct Args {

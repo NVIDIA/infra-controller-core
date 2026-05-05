@@ -18,7 +18,7 @@ use std::net::SocketAddrV4;
 use std::sync::Arc;
 
 use lru::LruCache;
-use rpc::forge::{DhcpDiscovery, DhcpRecord};
+use rpc::nico::{DhcpDiscovery, DhcpRecord};
 use tokio::sync::Mutex;
 use tonic::async_trait;
 

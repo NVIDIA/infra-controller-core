@@ -16,16 +16,16 @@
 
 set -euo pipefail
 
-# Copy otel's mTLS certs from forge-dpu-agent.
+# Copy otel's mTLS certs from nico-dpu-agent.
 
 # Number of days before otel certs are considered "old" (should have beeen
 # renewed by now if the the mTLS renewal agent is running properly).
 MAX_AGE_DAYS=10
 MAX_SNAPSHOT_ATTEMPTS=5
 
-SRC_CA="/opt/forge/forge_root.pem"
-SRC_CERT="/opt/forge/machine_cert.pem"
-SRC_KEY="/opt/forge/machine_cert.key"
+SRC_CA="/opt/nico/nico_root.pem"
+SRC_CERT="/opt/nico/machine_cert.pem"
+SRC_KEY="/opt/nico/machine_cert.key"
 
 DST_CA="/etc/otelcol-contrib/certs/ca.pem"
 DST_CERT="/etc/otelcol-contrib/certs/otel-cert.pem"
@@ -139,6 +139,6 @@ fi
 
 # Fail if the required certs are still missing.
 if any_missing; then
-    echo "Failed to copy mTLS certs from forge-dpu-agent"
+    echo "Failed to copy mTLS certs from nico-dpu-agent"
     exit 1
 fi

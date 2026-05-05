@@ -15,20 +15,20 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-api-integration-tests"
+name = "nico-api-integration-tests"
 version = "0.0.0"
 edition.workspace = true
-description = "Integration tests for carbide-api"
+description = "Integration tests for nico-api"
 license.workspace = true
 authors.workspace = true
 
 [dev-dependencies]
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
-carbide-machine-a-tron = { path = "../machine-a-tron" }
-carbide-utils = { path = "../utils", features = ["sqlx"] }
-carbide-api-test-helper = { path = "../api-test-helper" }
-carbide-secrets = { path = "../secrets" }
+nico-machine-a-tron = { path = "../machine-a-tron" }
+nico-utils = { path = "../utils", features = ["sqlx"] }
+nico-api-test-helper = { path = "../api-test-helper" }
+nico-secrets = { path = "../secrets" }
 bmc-mock = { path = "../bmc-mock" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 

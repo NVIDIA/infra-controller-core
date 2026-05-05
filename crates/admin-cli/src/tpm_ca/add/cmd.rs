@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 use x509_parser::certificate::X509Certificate;
 use x509_parser::pem::parse_x509_pem;
 use x509_parser::prelude::FromDer;
@@ -27,14 +27,14 @@ use x509_parser::validate::*;
 
 use crate::rpc::ApiClient;
 
-pub async fn add_filename(filename: &str, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn add_filename(filename: &str, api_client: &ApiClient) -> NicoCliResult<()> {
     let filepath = Path::new(filename);
     let is_pem = filepath.with_extension("pem").is_file();
     let is_der =
         filepath.with_extension("cer").is_file() || filepath.with_extension("der").is_file();
 
     if !is_der && !is_pem {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "The certificate must exist and be with PEM or CER or DER extension".to_string(),
         ));
     }
@@ -46,14 +46,14 @@ pub(crate) async fn add_individual(
     filepath: &Path,
     is_pem: bool,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     println!("Adding CA Certificate {0}", filepath.to_string_lossy());
-    let mut ca_file = File::open(filepath).map_err(CarbideCliError::IOError)?;
+    let mut ca_file = File::open(filepath).map_err(NicoCliError::IOError)?;
 
     let mut ca_file_bytes: Vec<u8> = Vec::new();
     ca_file
         .read_to_end(&mut ca_file_bytes)
-        .map_err(CarbideCliError::IOError)?;
+        .map_err(NicoCliError::IOError)?;
 
     let ca_file_bytes_der;
     if is_pem {
@@ -62,7 +62,7 @@ pub(crate) async fn add_individual(
         match res {
             Ok((rem, pem)) => {
                 if !rem.is_empty() && (pem.label != *"CERTIFICATE") {
-                    return Err(CarbideCliError::GenericError(
+                    return Err(NicoCliError::GenericError(
                         "PEM certificate validation failed".to_string(),
                     ));
                 }
@@ -70,7 +70,7 @@ pub(crate) async fn add_individual(
                 ca_file_bytes_der = pem.contents;
             }
             _ => {
-                return Err(CarbideCliError::GenericError(
+                return Err(NicoCliError::GenericError(
                     "Could not parse PEM certificate".to_string(),
                 ));
             }
@@ -96,15 +96,15 @@ pub(crate) async fn add_individual(
     Ok(())
 }
 
-fn validate_ca_cert(ca_cert_bytes: &[u8]) -> CarbideCliResult<()> {
+fn validate_ca_cert(ca_cert_bytes: &[u8]) -> NicoCliResult<()> {
     let ca_cert = X509Certificate::from_der(ca_cert_bytes)
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
+        .map_err(|e| NicoCliError::GenericError(e.to_string()))?
         .1;
 
     let mut logger = VecLogger::default();
 
     if !X509StructureValidator.validate(&ca_cert, &mut logger) {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "Validation Error".to_string(),
         ));
     }

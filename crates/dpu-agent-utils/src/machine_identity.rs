@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-//! Machine-identity bounds and serde defaults shared by agent config validation (**carbide-host-support**)
-//! and by **carbide-dpu-fmds-shared** (FMDS / agent IMDS identity). IMDS handlers and protobuf mapping live in
-//! **carbide-dpu-fmds-shared**.
+//! Machine-identity bounds and serde defaults shared by agent config validation (**nico-host-support**)
+//! and by **nico-dpu-fmds-shared** (FMDS / agent IMDS identity). IMDS handlers and protobuf mapping live in
+//! **nico-dpu-fmds-shared**.
 
 /// Default numeric values for agent `[machine-identity]` (TOML serde) and
-/// `MachineIdentityParams` [`Default`] (**carbide-dpu-fmds-shared**). Each lies within [`limits`].
+/// `MachineIdentityParams` [`Default`] (**nico-dpu-fmds-shared**). Each lies within [`limits`].
 pub mod defaults {
     pub const REQUESTS_PER_SECOND: u8 = 3;
     pub const BURST: u8 = 8;

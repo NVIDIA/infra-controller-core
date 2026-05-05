@@ -21,9 +21,9 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-use carbide_health::metrics::MetricsManager;
-use carbide_health::sink::{
+use nico_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+use nico_health::metrics::MetricsManager;
+use nico_health::sink::{
     CollectorEvent, CompositeDataSink, DataSink, EventContext, FirmwareInfo, LogRecord,
     PrometheusSink, SensorHealthData,
 };

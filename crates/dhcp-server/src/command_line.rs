@@ -17,7 +17,7 @@
 use clap::{Parser, ValueEnum};
 
 #[derive(Parser, Debug, Clone)]
-#[clap(name = "forge-dhcp-server")]
+#[clap(name = "nico-dhcp-server")]
 #[clap(author = "Slack channel #swngc-forge-dev")]
 pub struct Args {
     #[arg(long, help = "Interface name where to bind this server.")]
@@ -26,14 +26,14 @@ pub struct Args {
     #[arg(
         long,
         help = "DHCP Config file path.",
-        default_value = "/var/support/forge-dhcp/conf/dhcp.yaml"
+        default_value = "/var/support/nico-dhcp/conf/dhcp.yaml"
     )]
     pub dhcp_config: String,
 
     #[arg(
         long,
         help = "DPU Agent provided input file path for IP selection. Defaults to \
-                /var/support/forge-dhcp/conf/host.yaml when --grpc-listen-addr is set."
+                /var/support/nico-dhcp/conf/host.yaml when --grpc-listen-addr is set."
     )]
     pub host_config: Option<String>,
 

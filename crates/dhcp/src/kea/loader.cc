@@ -21,9 +21,9 @@
 #include <asiolink/io_address.h>
 #include <asiolink/io_error.h>
 
-#include "carbide_logger.h"
+#include "nico_logger.h"
 #include "callouts.h"
-#include "carbide_rust.h"
+#include "nico_rust.h"
 
 isc::log::Logger loader_logger("kea-shim-loader");
 
@@ -37,15 +37,15 @@ extern "C" {
 
 	int shim_load(void *handle_ptr) {
 		if (!handle_ptr) {
-			LOG_INFO(loader_logger, isc::log::LOG_CARBIDE_INVALID_HANDLE);
+			LOG_INFO(loader_logger, isc::log::LOG_NICO_INVALID_HANDLE);
 			return 1;
 		}
 
 		LibraryHandle *handle = static_cast<LibraryHandle *>(handle_ptr);
 
-		LOG_INFO(loader_logger, isc::log::LOG_CARBIDE_INITIALIZATION);
+		LOG_INFO(loader_logger, isc::log::LOG_NICO_INITIALIZATION);
 
-		ConstElementPtr next_server  = handle->getParameter("carbide-provisioning-server-ipv4");
+		ConstElementPtr next_server  = handle->getParameter("nico-provisioning-server-ipv4");
 		if (next_server) {
 			if(next_server->getType() != Element::string) {
 				// TODO(ajf): handle invalid data here
@@ -55,14 +55,14 @@ extern "C" {
 					auto nextserver_ipv4 = isc::asiolink::IOAddress(next_server->stringValue());
 
 					if (nextserver_ipv4.isV4()) {
-						carbide_set_config_next_server_ipv4(nextserver_ipv4.toUint32());
+						nico_set_config_next_server_ipv4(nextserver_ipv4.toUint32());
 					} else {
-						LOG_ERROR(loader_logger, isc::log::LOG_CARBIDE_INVALID_NEXTSERVER_IPV4).arg("");
+						LOG_ERROR(loader_logger, isc::log::LOG_NICO_INVALID_NEXTSERVER_IPV4).arg("");
 						return 1;
 					}
 
 				} catch(const isc::asiolink::IOError &e) {
-					LOG_ERROR(loader_logger, isc::log::LOG_CARBIDE_INVALID_NEXTSERVER_IPV4).arg(e.getMessage());
+					LOG_ERROR(loader_logger, isc::log::LOG_NICO_INVALID_NEXTSERVER_IPV4).arg(e.getMessage());
 					return 1;
 				}
 			}
@@ -70,58 +70,58 @@ extern "C" {
 
 		// TODO(ajf): add config options for mutual TLS authentication to the API
 
-		ConstElementPtr api_endpoint = handle->getParameter("carbide-api-url");
+		ConstElementPtr api_endpoint = handle->getParameter("nico-api-url");
 		if (api_endpoint) {
 			if(api_endpoint->getType() != Element::string) {
-				// TODO: handle invalid data type for carbide-api-url
+				// TODO: handle invalid data type for nico-api-url
 				return (1);
 			} else {
 				// TODO: proper logging
-				carbide_set_config_api(api_endpoint->stringValue().c_str());
+				nico_set_config_api(api_endpoint->stringValue().c_str());
 			}
 		}
 
-        ConstElementPtr ntpservers = handle->getParameter("carbide-ntpserver");
+        ConstElementPtr ntpservers = handle->getParameter("nico-ntpserver");
         if (ntpservers) {
             if(ntpservers->getType() != Element::string) {
                 // TODO: handle invalid data type for ntpserver
                 return (1);
             } else {
                 // TODO: proper logging
-                carbide_set_config_ntp(ntpservers->stringValue().c_str());
+                nico_set_config_ntp(ntpservers->stringValue().c_str());
             }
         }
 
-        ConstElementPtr nameservers = handle->getParameter("carbide-nameservers");
+        ConstElementPtr nameservers = handle->getParameter("nico-nameservers");
         if (nameservers) {
             if(nameservers->getType() != Element::string) {
                 // TODO: handle invalid data type for nameservers
                 return (1);
             } else {
                 // TODO: proper logging
-                carbide_set_config_name_servers(nameservers->stringValue().c_str());
+                nico_set_config_name_servers(nameservers->stringValue().c_str());
             }
         }
 
-        ConstElementPtr mqtt_server = handle->getParameter("carbide-mqtt-server");
+        ConstElementPtr mqtt_server = handle->getParameter("nico-mqtt-server");
         if (mqtt_server) {
             if(mqtt_server->getType() != Element::string) {
                 // TODO: handle invalid data type for mqtt_server.
                 return (1);
             } else {
                 // TODO: proper logging
-                carbide_set_config_mqtt_server(mqtt_server->stringValue().c_str());
+                nico_set_config_mqtt_server(mqtt_server->stringValue().c_str());
             }
         }
 
-        ConstElementPtr metrics_endpoint = handle->getParameter("carbide-metrics-endpoint");
+        ConstElementPtr metrics_endpoint = handle->getParameter("nico-metrics-endpoint");
         if (metrics_endpoint) {
             if(metrics_endpoint->getType() != Element::string) {
-                // TODO: handle invalid data type for carbide-metrics-endpoint
+                // TODO: handle invalid data type for nico-metrics-endpoint
                 return (1);
             } else {
                 // TODO: proper logging
-                carbide_set_config_metrics_endpoint(metrics_endpoint->stringValue().c_str());
+                nico_set_config_metrics_endpoint(metrics_endpoint->stringValue().c_str());
             }
         }
 

@@ -14,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::{ObjectColumnFilter, nvl_partition};
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 pub(crate) async fn find_ids(
@@ -49,13 +49,13 @@ pub(crate) async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if partition_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if partition_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -87,7 +87,7 @@ pub(crate) async fn for_tenant(
     let tenant_org_id_str: String = match tenant_organization_id {
         Some(id) => id,
         None => {
-            return Err(CarbideError::MissingArgument("tenant_organization_id").into());
+            return Err(NicoError::MissingArgument("tenant_organization_id").into());
         }
     };
 
@@ -120,14 +120,14 @@ pub(crate) async fn nmxm_browse(
             .nmxm_pool
             .create_client(&nvlink_config.nmx_m_endpoint, None)
             .await
-            .map_err(|e| CarbideError::internal(format!("Failed to create NMX-M client: {e}")))?;
+            .map_err(|e| NicoError::internal(format!("Failed to create NMX-M client: {e}")))?;
 
         let response = nmx_m_client
             .raw_get(&request.path)
             .await
-            .map_err(|e| CarbideError::internal(format!("Failed to get raw response: {e}")))?;
+            .map_err(|e| NicoError::internal(format!("Failed to get raw response: {e}")))?;
 
-        Ok(tonic::Response::new(::rpc::forge::NmxmBrowseResponse {
+        Ok(tonic::Response::new(::rpc::nico::NmxmBrowseResponse {
             body: response.body,
             code: response.code.into(),
             headers: response
@@ -142,6 +142,6 @@ pub(crate) async fn nmxm_browse(
                 .collect(),
         }))
     } else {
-        Err(CarbideError::internal("nvlink config not enabled".to_string()).into())
+        Err(NicoError::internal("nvlink config not enabled".to_string()).into())
     }
 }

@@ -18,7 +18,7 @@
 //! DSX Exchange Consumer microservice for BMS leak detection events.
 //!
 //! This service consumes leak detection events from the BMS MQTT event bus
-//! and updates rack-level health overrides in the Carbide API.
+//! and updates rack-level health overrides in the Nico API.
 
 use std::sync::Arc;
 
@@ -58,7 +58,7 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
 
     // Set up OpenTelemetry + Prometheus metrics
     let metrics_setup =
-        metrics_endpoint::new_metrics_setup("carbide-dsx-exchange-consumer", "carbide", false)
+        metrics_endpoint::new_metrics_setup("nico-dsx-exchange-consumer", "nico", false)
             .map_err(|e| DsxConsumerError::Metrics(e.to_string()))?;
 
     let registry = metrics_setup.registry;
@@ -76,8 +76,8 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     // Create consumer metrics
     let consumer_metrics = ConsumerMetrics::new(&meter);
 
-    let credential_manager = forge_secrets::create_credential_manager(
-        &forge_secrets::CredentialConfig::default(),
+    let credential_manager = nico_secrets::create_credential_manager(
+        &nico_secrets::CredentialConfig::default(),
         meter.clone(),
     )
     .await
@@ -92,7 +92,7 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     .await?;
 
     // Set up API client and create health updater
-    let join_updater = if let Some(api_config) = config.carbide_api {
+    let join_updater = if let Some(api_config) = config.nico_api {
         let api_client = Arc::new(ApiClientWrapper::new(
             api_config.root_ca,
             api_config.client_cert,
@@ -108,7 +108,7 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
         );
         tokio::spawn(async move { health_updater.run(rx).await })
     } else {
-        tracing::warn!("Carbide API disabled, using console sink");
+        tracing::warn!("Nico API disabled, using console sink");
         let api_client = Arc::new(ConsoleRackHealthSink);
         let health_updater = HealthUpdater::new(
             config.mqtt.topic_prefix,

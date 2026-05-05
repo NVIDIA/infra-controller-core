@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentType};
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentType};
 use sqlx::PgConnection;
 use tonic::Request;
 
@@ -31,7 +31,7 @@ pub struct NetworkSegmentHelper {
 
 impl NetworkSegmentHelper {
     pub fn new_with_tenant_prefix(prefix: &str, gateway: &str, vpc_id: VpcId) -> Self {
-        let prefixes = vec![rpc::forge::NetworkPrefix {
+        let prefixes = vec![rpc::nico::NetworkPrefix {
             id: None,
             prefix: prefix.into(),
             gateway: Some(gateway.into()),
@@ -66,7 +66,7 @@ pub async fn create_network_segment_with_api(
     id: Option<NetworkSegmentId>,
     segment_type: i32,
     num_reserved: i32,
-) -> rpc::forge::NetworkSegment {
+) -> rpc::nico::NetworkSegment {
     let vpc_id = if use_vpc {
         env.api
             .create_vpc(
@@ -81,11 +81,11 @@ pub async fn create_network_segment_with_api(
         None
     };
 
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = rpc::nico::NetworkSegmentCreationRequest {
         id,
         mtu: Some(1500),
         name: "TEST_SEGMENT".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![rpc::nico::NetworkPrefix {
             id: None,
             prefix: "192.0.2.0/24".to_string(),
             gateway: Some("192.0.2.1".to_string()),
@@ -105,9 +105,9 @@ pub async fn create_network_segment_with_api(
         .into_inner()
 }
 
-pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::forge::TenantState {
+pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::nico::TenantState {
     let segment = api
-        .find_network_segments_by_ids(Request::new(rpc::forge::NetworkSegmentsByIdsRequest {
+        .find_network_segments_by_ids(Request::new(rpc::nico::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_id],
             include_history: false,
             include_num_free_ips: false,
@@ -122,8 +122,8 @@ pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::
 
 pub async fn get_segments(
     api: &Api,
-    request: rpc::forge::NetworkSegmentsByIdsRequest,
-) -> rpc::forge::NetworkSegmentList {
+    request: rpc::nico::NetworkSegmentsByIdsRequest,
+) -> rpc::nico::NetworkSegmentList {
     api.find_network_segments_by_ids(Request::new(request))
         .await
         .unwrap()

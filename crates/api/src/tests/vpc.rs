@@ -17,15 +17,15 @@
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_uuid::vpc::VpcId;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_uuid::vpc::VpcId;
 use common::api_fixtures::{create_test_env, populate_network_security_groups};
 use config_version::ConfigVersion;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter};
 use model::metadata::Metadata;
 use model::vpc::{UpdateVpc, UpdateVpcVirtualization};
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
@@ -41,10 +41,10 @@ async fn create_vpc_for_tenant_without_profile(
     // Create a tenant.
     let tenant = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "sizzle".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "sizzle".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -62,8 +62,8 @@ async fn create_vpc_for_tenant_without_profile(
         env.api
             .create_vpc(
                 VpcCreationRequest::builder("", "")
-                    .metadata(rpc::forge::Metadata {
-                        name: "Forge".to_string(),
+                    .metadata(rpc::nico::Metadata {
+                        name: "Nico".to_string(),
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
@@ -81,8 +81,8 @@ async fn create_vpc_for_tenant_without_profile(
         env.api
             .create_vpc(
                 VpcCreationRequest::builder("", tenant.organization_id)
-                    .metadata(rpc::forge::Metadata {
-                        name: "Forge".to_string(),
+                    .metadata(rpc::nico::Metadata {
+                        name: "Nico".to_string(),
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
@@ -144,10 +144,10 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // Create a tenant using the current string field.
     let tenant = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "sizzle".to_string(),
             routing_profile_type: Some("INTERNAL".to_string()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "sizzle".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -165,8 +165,8 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         env.api
             .create_vpc(
                 VpcCreationRequest::builder("", &tenant.organization_id)
-                    .metadata(rpc::forge::Metadata {
-                        name: "Forge".to_string(),
+                    .metadata(rpc::nico::Metadata {
+                        name: "Nico".to_string(),
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
@@ -185,8 +185,8 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         env.api
             .create_vpc(
                 VpcCreationRequest::builder("", &tenant.organization_id)
-                    .metadata(rpc::forge::Metadata {
-                        name: "Forge".to_string(),
+                    .metadata(rpc::nico::Metadata {
+                        name: "Nico".to_string(),
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
@@ -202,10 +202,10 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // Create another tenant.
     let tenant = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: "fizzle".to_string(),
             routing_profile_type: Some("INTERNAL".to_string()),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "fizzle".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -223,8 +223,8 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         env.api
             .create_vpc(
                 VpcCreationRequest::builder("", &tenant.organization_id)
-                    .metadata(rpc::forge::Metadata {
-                        name: "Forge".to_string(),
+                    .metadata(rpc::nico::Metadata {
+                        name: "Nico".to_string(),
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
@@ -239,13 +239,13 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     // Create a VPC by explicitly selecting a VNI from
     // the allowed pool.
-    let forge_vpc = env
+    let nico_vpc = env
         .api
         .create_vpc(
             VpcCreationRequest::builder("", &tenant.organization_id)
                 .vni(60001u32)
-                .metadata(rpc::forge::Metadata {
-                    name: "Forge_with_vni".to_string(),
+                .metadata(rpc::nico::Metadata {
+                    name: "Nico_with_vni".to_string(),
                     description: "".to_string(),
                     labels: Vec::new(),
                 })
@@ -256,9 +256,9 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .into_inner();
 
     // A VNI is allocated
-    assert!(forge_vpc.status.and_then(|s| s.vni).is_some());
+    assert!(nico_vpc.status.and_then(|s| s.vni).is_some());
     // The 'config' VNI and the status VNI match
-    assert_eq!(forge_vpc.vni, forge_vpc.status.and_then(|s| s.vni));
+    assert_eq!(nico_vpc.vni, nico_vpc.status.and_then(|s| s.vni));
 
     // Create another VPC by explicitly selecting a VNI from
     // the allowed pool, but use the same VNI, so it should fail.
@@ -267,8 +267,8 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .create_vpc(
             VpcCreationRequest::builder("", &tenant.organization_id)
                 .vni(60001u32)
-                .metadata(rpc::forge::Metadata {
-                    name: "Forge_with_vni_dupe".to_string(),
+                .metadata(rpc::nico::Metadata {
+                    name: "Nico_with_vni_dupe".to_string(),
                     description: "".to_string(),
                     labels: Vec::new(),
                 })
@@ -281,7 +281,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     env.api
         .delete_vpc(
             VpcDeletionRequest::builder()
-                .id(forge_vpc.id.unwrap())
+                .id(nico_vpc.id.unwrap())
                 .tonic_request(),
         )
         .await
@@ -289,12 +289,12 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .into_inner();
 
     // No network_virtualization_type, should default
-    let forge_vpc = env
+    let nico_vpc = env
         .api
         .create_vpc(
             VpcCreationRequest::builder("", &tenant.organization_id)
-                .metadata(rpc::forge::Metadata {
-                    name: "Forge".to_string(),
+                .metadata(rpc::nico::Metadata {
+                    name: "Nico".to_string(),
                     description: "".to_string(),
                     labels: Vec::new(),
                 })
@@ -304,24 +304,24 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .unwrap()
         .into_inner();
 
-    let version: ConfigVersion = forge_vpc.version.parse()?;
+    let version: ConfigVersion = nico_vpc.version.parse()?;
     assert_eq!(version.version_nr(), 1);
     // A VNI is allocated
-    assert!(forge_vpc.status.and_then(|s| s.vni).is_some());
+    assert!(nico_vpc.status.and_then(|s| s.vni).is_some());
     // The 'config' VNI is still None because this was an auto-allocated VNI
-    assert!(forge_vpc.vni.is_none());
+    assert!(nico_vpc.vni.is_none());
     // We default to EthernetVirtualizer (proto value 0).
-    assert_eq!(forge_vpc.network_virtualization_type, Some(0));
+    assert_eq!(nico_vpc.network_virtualization_type, Some(0));
 
     let no_org_vpc = env
         .api
         .create_vpc(
             VpcCreationRequest::builder("", &tenant.organization_id)
-                .network_virtualization_type(rpc::forge::VpcVirtualizationType::from(
+                .network_virtualization_type(rpc::nico::VpcVirtualizationType::from(
                     VpcVirtualizationType::EthernetVirtualizer,
                 ))
                 .metadata(Metadata {
-                    name: "Forge no Org".to_string(),
+                    name: "Nico no Org".to_string(),
                     ..Metadata::default()
                 })
                 .tonic_request(),
@@ -347,7 +347,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
         let invalid_updated_vpc = env
             .api
-            .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
+            .update_vpc(tonic::Request::new(rpc::nico::VpcUpdateRequest {
                 name: "".to_string(),
                 id: Some(no_org_vpc_id),
                 if_version_match: None,
@@ -516,10 +516,10 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let mut txn = env.pool.begin().await?;
     let vpcs = db::vpc::find_by(txn.as_mut(), ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert_eq!(vpcs.len(), 1);
-    let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id");
-    assert_eq!(vpcs[0].id, forge_vpc_id);
+    let nico_vpc_id: VpcId = nico_vpc.id.expect("should have id");
+    assert_eq!(vpcs[0].id, nico_vpc_id);
 
-    let vpc = db::vpc::try_delete(&mut txn, forge_vpc_id).await?.unwrap();
+    let vpc = db::vpc::try_delete(&mut txn, nico_vpc_id).await?.unwrap();
     assert!(vpc.deleted.is_some());
     txn.commit().await?;
 
@@ -566,8 +566,8 @@ async fn create_vpc_without_fnn_rejects_explicit_routing_profile(
         env.api
             .create_vpc(
                 VpcCreationRequest::builder("", &tenant_organization_id)
-                    .metadata(rpc::forge::Metadata {
-                        name: "Forge".to_string(),
+                    .metadata(rpc::nico::Metadata {
+                        name: "Nico".to_string(),
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
@@ -587,10 +587,10 @@ async fn create_vpc_without_fnn_rejects_explicit_routing_profile(
 async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let forge_vpc = env
+    let nico_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("", "Forge_unit_tests")
+            VpcCreationRequest::builder("", "Nico_unit_tests")
                 .metadata(Metadata {
                     name: "test_VPC_with_labels".to_string(),
                     description: "this VPC must have labels.".to_string(),
@@ -605,20 +605,20 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         .unwrap()
         .into_inner();
 
-    let vpc_id: VpcId = forge_vpc.id.expect("should have id");
+    let vpc_id: VpcId = nico_vpc.id.expect("should have id");
 
     assert_eq!(
-        &forge_vpc.metadata.clone().unwrap().name,
+        &nico_vpc.metadata.clone().unwrap().name,
         "test_VPC_with_labels"
     );
     assert_eq!(
-        forge_vpc.metadata.clone().unwrap().description,
+        nico_vpc.metadata.clone().unwrap().description,
         "this VPC must have labels."
     );
-    assert!(forge_vpc.metadata.clone().unwrap().labels.len() == 2);
+    assert!(nico_vpc.metadata.clone().unwrap().labels.len() == 2);
 
     assert_eq!(
-        forge_vpc
+        nico_vpc
             .metadata
             .clone()
             .unwrap()
@@ -630,7 +630,7 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     );
 
     assert_eq!(
-        forge_vpc
+        nico_vpc
             .metadata
             .clone()
             .unwrap()
@@ -641,7 +641,7 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         None
     );
 
-    let request_vpcs = tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+    let request_vpcs = tonic::Request::new(rpc::nico::VpcsByIdsRequest {
         vpc_ids: vec![vpc_id],
     });
 
@@ -659,7 +659,7 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         &fetched_vpc.metadata.clone().unwrap().name,
         "test_VPC_with_labels"
     );
-    assert_eq!(&fetched_vpc.tenant_organization_id, "Forge_unit_tests");
+    assert_eq!(&fetched_vpc.tenant_organization_id, "Nico_unit_tests");
     assert_eq!(
         fetched_vpc.metadata.clone().unwrap().description,
         "this VPC must have labels."
@@ -702,7 +702,7 @@ async fn create_vpc_with_invalid_metadata(
         let result = env
             .api
             .create_vpc(
-                VpcCreationRequest::builder("", "Forge_unit_tests")
+                VpcCreationRequest::builder("", "Nico_unit_tests")
                     .metadata(invalid_metadata.clone())
                     .tonic_request(),
             )
@@ -728,10 +728,10 @@ async fn create_vpc_with_invalid_metadata(
 async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let forge_vpc1 = env
+    let nico_vpc1 = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("vpc_name", "Forge_unit_tests")
+            VpcCreationRequest::builder("vpc_name", "Nico_unit_tests")
                 .metadata(Metadata {
                     name: "vpc_another_name".to_string(),
                     description: "No description.".to_string(),
@@ -741,7 +741,7 @@ async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         )
         .await;
 
-    match forge_vpc1 {
+    match nico_vpc1 {
         Ok(..) => panic!("Expected VPC creation failure when two names are passed."),
         Err(e) => {
             assert_eq!(
@@ -751,10 +751,10 @@ async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         }
     };
 
-    let forge_vpc2 = env
+    let nico_vpc2 = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("vpc_name", "Forge_unit_tests")
+            VpcCreationRequest::builder("vpc_name", "Nico_unit_tests")
                 .metadata(Metadata {
                     description: "No description.".to_string(),
                     ..Default::default()
@@ -763,7 +763,7 @@ async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         )
         .await;
 
-    match forge_vpc2 {
+    match nico_vpc2 {
         Ok(..) => {
             panic!("Expected VPC creation failure when metadata exists but vpc.name is not empty.")
         }
@@ -806,13 +806,13 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     let id = VpcId::new();
 
     // No network_virtualization_type, should default
-    let forge_vpc = env
+    let nico_vpc = env
         .api
         .create_vpc(
             VpcCreationRequest::builder("", "")
                 .id(id)
                 .metadata(Metadata {
-                    name: "Forge".to_string(),
+                    name: "Nico".to_string(),
                     ..Default::default()
                 })
                 .tonic_request(),
@@ -821,7 +821,7 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
         .unwrap()
         .into_inner();
 
-    assert_eq!(forge_vpc.id.unwrap(), id);
+    assert_eq!(nico_vpc.id.unwrap(), id);
     Ok(())
 }
 
@@ -842,7 +842,7 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 
     let vpc_list = env
         .api
-        .find_vpcs_by_ids(tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+        .find_vpcs_by_ids(tonic::Request::new(rpc::nico::VpcsByIdsRequest {
             vpc_ids: vec![vpc_id],
         }))
         .await
@@ -854,7 +854,7 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 
     // Delete the first time. Queries should now yield no results
     env.api
-        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+        .delete_vpc(tonic::Request::new(rpc::nico::VpcDeletionRequest {
             id: Some(vpc_id),
         }))
         .await
@@ -863,7 +863,7 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 
     let vpc_list = env
         .api
-        .find_vpcs_by_ids(tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+        .find_vpcs_by_ids(tonic::Request::new(rpc::nico::VpcsByIdsRequest {
             vpc_ids: vec![vpc_id],
         }))
         .await
@@ -872,7 +872,7 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
     assert!(vpc_list.vpcs.is_empty());
     let vpc_list = env
         .api
-        .find_vpc_ids(tonic::Request::new(rpc::forge::VpcSearchFilter {
+        .find_vpc_ids(tonic::Request::new(rpc::nico::VpcSearchFilter {
             name: Some("test_vpc".to_string()),
             tenant_org_id: None,
             label: None,
@@ -885,7 +885,7 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
     // With a duplicated delete query, we want to return NotFound
     let delete_result = env
         .api
-        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+        .delete_vpc(tonic::Request::new(rpc::nico::VpcDeletionRequest {
             id: Some(vpc_id),
         }))
         .await;

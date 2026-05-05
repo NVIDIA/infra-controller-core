@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use clap::{Args as ClapArgs, Subcommand, ValueEnum};
 
 const MAX_FAILURE_DETAILS: usize = 10;
@@ -32,7 +32,7 @@ pub enum NvSwitchComponentArg {
     Nvos,
 }
 
-impl From<NvSwitchComponentArg> for rpc::forge::NvSwitchComponent {
+impl From<NvSwitchComponentArg> for rpc::nico::NvSwitchComponent {
     fn from(component: NvSwitchComponentArg) -> Self {
         match component {
             NvSwitchComponentArg::Bmc => Self::Bmc,
@@ -50,7 +50,7 @@ pub enum PowerShelfComponentArg {
     Psu,
 }
 
-impl From<PowerShelfComponentArg> for rpc::forge::PowerShelfComponent {
+impl From<PowerShelfComponentArg> for rpc::nico::PowerShelfComponent {
     fn from(component: PowerShelfComponentArg) -> Self {
         match component {
             PowerShelfComponentArg::Pmc => Self::Pmc,
@@ -66,7 +66,7 @@ pub enum ComputeTrayComponentArg {
     Bios,
 }
 
-impl From<ComputeTrayComponentArg> for rpc::forge::ComputeTrayComponent {
+impl From<ComputeTrayComponentArg> for rpc::nico::ComputeTrayComponent {
     fn from(component: ComputeTrayComponentArg) -> Self {
         match component {
             ComputeTrayComponentArg::Bmc => Self::Bmc,
@@ -87,7 +87,7 @@ pub struct SwitchTargetArgs {
     pub switch_ids: Vec<SwitchId>,
 }
 
-impl From<SwitchTargetArgs> for rpc::forge::SwitchIdList {
+impl From<SwitchTargetArgs> for rpc::nico::SwitchIdList {
     fn from(args: SwitchTargetArgs) -> Self {
         Self {
             ids: args.switch_ids,
@@ -107,7 +107,7 @@ pub struct PowerShelfTargetArgs {
     pub power_shelf_ids: Vec<PowerShelfId>,
 }
 
-impl From<PowerShelfTargetArgs> for rpc::forge::PowerShelfIdList {
+impl From<PowerShelfTargetArgs> for rpc::nico::PowerShelfIdList {
     fn from(args: PowerShelfTargetArgs) -> Self {
         Self {
             ids: args.power_shelf_ids,
@@ -147,7 +147,7 @@ pub struct RackTargetArgs {
     pub rack_ids: Vec<RackId>,
 }
 
-impl From<RackTargetArgs> for rpc::forge::RackIdList {
+impl From<RackTargetArgs> for rpc::nico::RackIdList {
     fn from(args: RackTargetArgs) -> Self {
         Self {
             rack_ids: args.rack_ids,
@@ -171,38 +171,38 @@ pub enum DeviceTargetArgs {
 }
 
 pub fn component_result_status_name(status: i32) -> &'static str {
-    match rpc::forge::ComponentManagerStatusCode::try_from(status) {
-        Ok(rpc::forge::ComponentManagerStatusCode::Success) => "success",
-        Ok(rpc::forge::ComponentManagerStatusCode::InvalidArgument) => "invalid-argument",
-        Ok(rpc::forge::ComponentManagerStatusCode::InternalError) => "internal-error",
-        Ok(rpc::forge::ComponentManagerStatusCode::NotFound) => "not-found",
-        Ok(rpc::forge::ComponentManagerStatusCode::AlreadyExists) => "already-exists",
-        Ok(rpc::forge::ComponentManagerStatusCode::Unavailable) => "unavailable",
+    match rpc::nico::ComponentManagerStatusCode::try_from(status) {
+        Ok(rpc::nico::ComponentManagerStatusCode::Success) => "success",
+        Ok(rpc::nico::ComponentManagerStatusCode::InvalidArgument) => "invalid-argument",
+        Ok(rpc::nico::ComponentManagerStatusCode::InternalError) => "internal-error",
+        Ok(rpc::nico::ComponentManagerStatusCode::NotFound) => "not-found",
+        Ok(rpc::nico::ComponentManagerStatusCode::AlreadyExists) => "already-exists",
+        Ok(rpc::nico::ComponentManagerStatusCode::Unavailable) => "unavailable",
         Err(_) => "unknown",
     }
 }
 
 pub fn firmware_state_name(state: i32) -> &'static str {
-    match rpc::forge::FirmwareUpdateState::try_from(state) {
-        Ok(rpc::forge::FirmwareUpdateState::FwStateUnknown) => "unknown",
-        Ok(rpc::forge::FirmwareUpdateState::FwStateQueued) => "queued",
-        Ok(rpc::forge::FirmwareUpdateState::FwStateInProgress) => "in-progress",
-        Ok(rpc::forge::FirmwareUpdateState::FwStateVerifying) => "verifying",
-        Ok(rpc::forge::FirmwareUpdateState::FwStateCompleted) => "completed",
-        Ok(rpc::forge::FirmwareUpdateState::FwStateFailed) => "failed",
-        Ok(rpc::forge::FirmwareUpdateState::FwStateCancelled) => "cancelled",
+    match rpc::nico::FirmwareUpdateState::try_from(state) {
+        Ok(rpc::nico::FirmwareUpdateState::FwStateUnknown) => "unknown",
+        Ok(rpc::nico::FirmwareUpdateState::FwStateQueued) => "queued",
+        Ok(rpc::nico::FirmwareUpdateState::FwStateInProgress) => "in-progress",
+        Ok(rpc::nico::FirmwareUpdateState::FwStateVerifying) => "verifying",
+        Ok(rpc::nico::FirmwareUpdateState::FwStateCompleted) => "completed",
+        Ok(rpc::nico::FirmwareUpdateState::FwStateFailed) => "failed",
+        Ok(rpc::nico::FirmwareUpdateState::FwStateCancelled) => "cancelled",
         Err(_) => "unknown",
     }
 }
 
-pub fn component_result_failed(result: Option<&rpc::forge::ComponentResult>) -> bool {
+pub fn component_result_failed(result: Option<&rpc::nico::ComponentResult>) -> bool {
     result
-        .map(|r| r.status != rpc::forge::ComponentManagerStatusCode::Success as i32)
+        .map(|r| r.status != rpc::nico::ComponentManagerStatusCode::Success as i32)
         .unwrap_or(true)
 }
 
 pub fn component_failure_count_and_summary<'a>(
-    results: impl IntoIterator<Item = Option<&'a rpc::forge::ComponentResult>>,
+    results: impl IntoIterator<Item = Option<&'a rpc::nico::ComponentResult>>,
 ) -> (usize, String) {
     let mut failures = 0;
     let mut details = Vec::new();
@@ -231,7 +231,7 @@ pub fn component_failure_count_and_summary<'a>(
     (failures, summary)
 }
 
-fn component_failure_detail(result: Option<&rpc::forge::ComponentResult>) -> String {
+fn component_failure_detail(result: Option<&rpc::nico::ComponentResult>) -> String {
     let Some(result) = result else {
         return "unknown=missing-result".to_string();
     };
@@ -249,7 +249,7 @@ fn component_failure_detail(result: Option<&rpc::forge::ComponentResult>) -> Str
 }
 
 pub fn component_result_fields(
-    result: Option<&rpc::forge::ComponentResult>,
+    result: Option<&rpc::nico::ComponentResult>,
 ) -> (String, String, String) {
     match result {
         Some(result) => (
@@ -265,7 +265,7 @@ pub fn component_result_fields(
     }
 }
 
-pub fn component_result_json(result: Option<&rpc::forge::ComponentResult>) -> serde_json::Value {
+pub fn component_result_json(result: Option<&rpc::nico::ComponentResult>) -> serde_json::Value {
     match result {
         Some(result) => serde_json::json!({
             "component_id": result.component_id,

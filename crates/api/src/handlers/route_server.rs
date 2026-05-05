@@ -18,11 +18,11 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use tonic::Status;
 
 use crate::api::{Api, log_request_data};
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 // get returns all RouteServer entries, including the
 // address and source_type.
@@ -53,7 +53,7 @@ pub(crate) async fn add(
     let source_type: rpc::RouteServerSourceType = request
         .source_type
         .try_into()
-        .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
+        .map_err(|_| NicoError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
     db::route_servers::add(&mut txn, &route_servers, source_type.into()).await?;
@@ -76,7 +76,7 @@ pub(crate) async fn remove(
     let source_type: rpc::RouteServerSourceType = request
         .source_type
         .try_into()
-        .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
+        .map_err(|_| NicoError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
     db::route_servers::remove(&mut txn, &route_servers, source_type.into()).await?;
@@ -100,7 +100,7 @@ pub(crate) async fn replace(
     let source_type: rpc::RouteServerSourceType = request
         .source_type
         .try_into()
-        .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
+        .map_err(|_| NicoError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
     db::route_servers::replace(&mut txn, &route_servers, source_type.into()).await?;
@@ -112,10 +112,10 @@ pub(crate) async fn replace(
 // get_route_server_ip_addrs is a little helper to
 // pluck out the route server addresses from an
 // incoming request and convert them into IpAddrs.
-fn get_route_server_ip_addrs(route_servers: &[String]) -> CarbideResult<Vec<IpAddr>> {
+fn get_route_server_ip_addrs(route_servers: &[String]) -> NicoResult<Vec<IpAddr>> {
     route_servers
         .iter()
         .map(|rs| IpAddr::from_str(rs))
         .collect::<Result<Vec<IpAddr>, _>>()
-        .map_err(CarbideError::AddressParseError)
+        .map_err(NicoError::AddressParseError)
 }

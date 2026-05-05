@@ -18,8 +18,8 @@ use std::net::IpAddr;
 use std::time::SystemTime;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico as rpc;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use health_report::HealthReport;
@@ -86,14 +86,14 @@ impl MachineNetworkStatusObservation {
     ) -> Option<HealthReport> {
         let Some(agent_version) = self.agent_version.as_ref() else {
             return Some(health_report::HealthReport::stale_agent_version(
-                "forge-dpu-agent".to_string(),
+                "nico-dpu-agent".to_string(),
                 self.machine_id.to_string(),
                 "Agent version is not known".to_string(),
                 prevent_allocations,
             ));
         };
 
-        if agent_version == carbide_version::v!(build_version) {
+        if agent_version == nico_version::v!(build_version) {
             // Same version as the server, all good.
             return None;
         }
@@ -103,7 +103,7 @@ impl MachineNetworkStatusObservation {
                 let staleness = Utc::now().signed_duration_since(superseded_at);
                 if staleness > staleness_threshold {
                     Some(health_report::HealthReport::stale_agent_version(
-                        "forge-dpu-agent".to_string(),
+                        "nico-dpu-agent".to_string(),
                         self.machine_id.to_string(),
                         format!(
                             "Agent version is {}, which is out of date since {}",
@@ -216,10 +216,10 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
     }
 }
 
-// TODO: This API is only used by the carbide-web generating the Network Status page
+// TODO: This API is only used by the nico-web generating the Network Status page
 // It improperly returns the values of a lot of things - since those are not actually
 // persisted.
-// It would be preferable to migrate carbide-web from reading the status to using
+// It would be preferable to migrate nico-web from reading the status to using
 // a better supported API. E.g. the FindMachinesByIds one.
 impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
     fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {

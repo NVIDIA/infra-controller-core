@@ -57,7 +57,7 @@ pub fn setup_logging(debug: bool) -> SetupResult<()> {
 }
 
 pub fn setup_metrics() -> SetupResult<MetricsSetup> {
-    metrics_endpoint::new_metrics_setup("carbide-bmc-proxy", "carbide-system", true)
+    metrics_endpoint::new_metrics_setup("nico-bmc-proxy", "nico-system", true)
         .map_err(|e| SetupError::Metrics(e.to_string()))
 }
 

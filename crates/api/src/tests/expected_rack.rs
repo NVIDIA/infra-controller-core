@@ -15,19 +15,19 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::{RackId, RackProfileId};
+use nico_uuid::rack::{RackId, RackProfileId};
 use common::api_fixtures::{create_test_env, create_test_env_with_overrides, get_config};
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
     RackProfile, RackProfileConfig,
 };
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ExpectedRackList, ExpectedRackRequest};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{ExpectedRackList, ExpectedRackRequest};
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 
-fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
+fn config_with_rack_profiles() -> crate::cfg::file::NicoConfig {
     let mut config = get_config();
     config.rack_profiles = RackProfileConfig {
         rack_profiles: [
@@ -336,13 +336,13 @@ async fn test_add_expected_rack(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = rpc::nico::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_profile_id: Some(RackProfileId::new("NVL72")),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(rpc::nico::Metadata {
             name: "test-rack".to_string(),
             description: "A test NVL72 rack".to_string(),
-            labels: vec![rpc::forge::Label {
+            labels: vec![rpc::nico::Label {
                 key: "env".to_string(),
                 value: Some("test".to_string()),
             }],
@@ -377,7 +377,7 @@ async fn test_add_expected_rack_invalid_type(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = rpc::nico::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_profile_id: Some(RackProfileId::new("INVALID_TYPE")),
         metadata: None,
@@ -402,7 +402,7 @@ async fn test_add_expected_rack_empty_type(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = rpc::nico::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_profile_id: Some(RackProfileId::new("")),
         metadata: None,
@@ -426,7 +426,7 @@ async fn test_add_expected_rack_missing_rack_id(pool: sqlx::PgPool) {
     let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = rpc::nico::ExpectedRack {
         rack_id: None,
         rack_profile_id: Some(RackProfileId::new("NVL72")),
         metadata: None,
@@ -471,7 +471,7 @@ async fn test_delete_expected_rack(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = rpc::nico::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_profile_id: Some(RackProfileId::new("NVL72")),
         metadata: None,
@@ -529,10 +529,10 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
 
     // Add a rack first.
     env.api
-        .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .add_expected_rack(tonic::Request::new(rpc::nico::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL72")),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "original".to_string(),
                 ..Default::default()
             }),
@@ -542,10 +542,10 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
 
     // Update it.
     env.api
-        .update_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .update_expected_rack(tonic::Request::new(rpc::nico::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL36")),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: "updated".to_string(),
                 description: "Updated rack".to_string(),
                 ..Default::default()
@@ -582,7 +582,7 @@ async fn test_update_expected_rack_not_found(pool: sqlx::PgPool) {
     let rack_id = new_rack_id();
     let err = env
         .api
-        .update_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .update_expected_rack(tonic::Request::new(rpc::nico::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL72")),
             metadata: None,
@@ -615,10 +615,10 @@ async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
     for i in 0..2 {
         let rack_id = new_rack_id();
         env.api
-            .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+            .add_expected_rack(tonic::Request::new(rpc::nico::ExpectedRack {
                 rack_id: Some(rack_id),
                 rack_profile_id: Some(RackProfileId::new("NVL72")),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(rpc::nico::Metadata {
                     name: format!("rack-{}", i),
                     ..Default::default()
                 }),
@@ -642,7 +642,7 @@ async fn test_add_expected_rack_duplicate(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = rpc::nico::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_profile_id: Some(RackProfileId::new("NVL72")),
         metadata: None,
@@ -676,7 +676,7 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
     // Add one initial rack.
     let initial_rack_id = new_rack_id();
     env.api
-        .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .add_expected_rack(tonic::Request::new(rpc::nico::ExpectedRack {
             rack_id: Some(initial_rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL72")),
             metadata: None,
@@ -689,18 +689,18 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
     let rack_id_2 = new_rack_id();
     let replacement = ExpectedRackList {
         expected_racks: vec![
-            rpc::forge::ExpectedRack {
+            rpc::nico::ExpectedRack {
                 rack_id: Some(rack_id_1),
                 rack_profile_id: Some(RackProfileId::new("NVL72")),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(rpc::nico::Metadata {
                     name: "replacement-1".to_string(),
                     ..Default::default()
                 }),
             },
-            rpc::forge::ExpectedRack {
+            rpc::nico::ExpectedRack {
                 rack_id: Some(rack_id_2),
                 rack_profile_id: Some(RackProfileId::new("NVL36")),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(rpc::nico::Metadata {
                     name: "replacement-2".to_string(),
                     ..Default::default()
                 }),
@@ -741,7 +741,7 @@ async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
     for _ in 0..2 {
         let rack_id = new_rack_id();
         env.api
-            .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+            .add_expected_rack(tonic::Request::new(rpc::nico::ExpectedRack {
                 rack_id: Some(rack_id),
                 rack_profile_id: Some(RackProfileId::new("NVL72")),
                 metadata: None,
@@ -781,7 +781,7 @@ async fn test_add_expected_rack_creates_rack_entry(pool: sqlx::PgPool) {
 
     let rack_id = new_rack_id();
     env.api
-        .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .add_expected_rack(tonic::Request::new(rpc::nico::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL72")),
             metadata: None,

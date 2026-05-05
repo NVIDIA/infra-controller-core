@@ -17,16 +17,16 @@
 
 use std::net::IpAddr;
 
-use rpc::forge as rpc;
+use rpc::nico as rpc;
 use tonic::{Request, Response};
 
 use crate::api::Api;
-use crate::errors::CarbideError;
+use crate::errors::NicoError;
 
 pub async fn expire_dhcp_lease(
     api: &Api,
     request: Request<rpc::ExpireDhcpLeaseRequest>,
-) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, CarbideError> {
+) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, NicoError> {
     let ip_address: IpAddr = request.into_inner().ip_address.parse()?;
 
     let mut txn = api.txn_begin().await?;

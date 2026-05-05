@@ -18,12 +18,12 @@ use std::borrow::Cow;
 use std::fmt::Write;
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc, Vpc, VpcsByIdsRequest};
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::{self as nicorpc, Vpc, VpcsByIdsRequest};
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -33,9 +33,9 @@ use crate::{async_write, async_writeln, invalid_machine_id};
 
 async fn convert_instance_to_nice_format(
     api_client: &ApiClient,
-    instance: &forgerpc::Instance,
+    instance: &nicorpc::Instance,
     extrainfo: bool,
-) -> CarbideCliResult<String> {
+) -> NicoCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
@@ -69,7 +69,7 @@ async fn convert_instance_to_nice_format(
                 .status
                 .as_ref()
                 .and_then(|status| status.tenant.as_ref())
-                .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
+                .and_then(|tenant| nicorpc::TenantState::try_from(tenant.state).ok())
                 .map(|state| Cow::Owned(format!("{state:?}")))
                 .unwrap_or_default(),
         ),
@@ -95,7 +95,7 @@ async fn convert_instance_to_nice_format(
             instance
                 .status
                 .as_ref()
-                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .and_then(|status| nicorpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| Cow::Owned(format!("{state:?}")))
                 .unwrap_or_default(),
         ),
@@ -106,7 +106,7 @@ async fn convert_instance_to_nice_format(
                 .status
                 .as_ref()
                 .and_then(|status| status.network.as_ref())
-                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .and_then(|status| nicorpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| Cow::Owned(format!("{state:?}")))
                 .unwrap_or_default(),
         ),
@@ -126,14 +126,14 @@ async fn convert_instance_to_nice_format(
             "IPXE SCRIPT",
             instance_os
                 .and_then(|os| match os.variant.as_ref() {
-                    Some(::rpc::forge::instance_operating_system_config::Variant::Ipxe(
+                    Some(::rpc::nico::instance_operating_system_config::Variant::Ipxe(
                         ipxe_os,
                     )) => Some(Cow::Borrowed(ipxe_os.ipxe_script.as_str())),
-                    Some(::rpc::forge::instance_operating_system_config::Variant::OsImageId(
+                    Some(::rpc::nico::instance_operating_system_config::Variant::OsImageId(
                         image,
                     )) => Some(Cow::Owned(format!("OS Image ID: {}", image.value))),
                     Some(
-                        ::rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(
+                        ::rpc::nico::instance_operating_system_config::Variant::OperatingSystemId(
                             id,
                         ),
                     ) => Some(Cow::Owned(format!("Operating System ID: {}", id))),
@@ -206,7 +206,7 @@ async fn convert_instance_to_nice_format(
             let data: &[(&str, Cow<str>)] = &[
                 (
                     "FUNCTION_TYPE",
-                    forgerpc::InterfaceFunctionType::try_from(interface.function_type)
+                    nicorpc::InterfaceFunctionType::try_from(interface.function_type)
                         .ok()
                         .map(|ty| format!("{ty:?}").into())
                         .unwrap_or_else(|| "INVALID".into()),
@@ -229,10 +229,10 @@ async fn convert_instance_to_nice_format(
                 (
                     "VPC PREFIX ID",
                     match &interface.network_details {
-                        Some(forgerpc::instance_interface_config::NetworkDetails::SegmentId(_)) => {
+                        Some(nicorpc::instance_interface_config::NetworkDetails::SegmentId(_)) => {
                             "Segment Based Allocation".into()
                         }
-                        Some(forgerpc::instance_interface_config::NetworkDetails::VpcPrefixId(
+                        Some(nicorpc::instance_interface_config::NetworkDetails::VpcPrefixId(
                             x,
                         )) => x.to_string().into(),
                         None => "NA".into(),
@@ -290,7 +290,7 @@ async fn convert_instance_to_nice_format(
             let data: &[(&str, Cow<str>)] = &[
                 (
                     "FUNCTION_TYPE",
-                    forgerpc::InterfaceFunctionType::try_from(interface.function_type)
+                    nicorpc::InterfaceFunctionType::try_from(interface.function_type)
                         .ok()
                         .map(|ty| format!("{ty:?}").into())
                         .unwrap_or_else(|| "INVALID".into()),
@@ -364,7 +364,7 @@ async fn convert_instance_to_nice_format(
     Ok(lines)
 }
 
-fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Table> {
+fn convert_instances_to_nice_table(instances: nicorpc::InstanceList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -392,14 +392,14 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .status
             .as_ref()
             .and_then(|status| status.tenant.as_ref())
-            .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
+            .and_then(|tenant| nicorpc::TenantState::try_from(tenant.state).ok())
             .map(|state| format!("{state:?}"))
             .unwrap_or_default();
 
         let configs_synced = instance
             .status
             .as_ref()
-            .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+            .and_then(|status| nicorpc::SyncState::try_from(status.configs_synced).ok())
             .map(|state| format!("{state:?}"))
             .unwrap_or_default();
 
@@ -438,12 +438,12 @@ async fn show_instance_details(
     output_format: &OutputFormat,
     api_client: &ApiClient,
     extrainfo: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let instance = if let Ok(id) = MachineId::from_str(&id) {
         api_client.0.find_instance_by_machine_id(id).await?
     } else {
         let instance_id = InstanceId::from_str(&id)
-            .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?;
+            .map_err(|_| NicoCliError::GenericError("UUID Conversion failed.".to_string()))?;
         match api_client.get_one_instance(instance_id).await {
             Ok(instance) => instance,
             Err(e) => return Err(e),
@@ -451,7 +451,7 @@ async fn show_instance_details(
     };
 
     if instance.instances.len() != 1 {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "Unknown Instance ID".to_string(),
         ));
     }
@@ -469,12 +469,12 @@ async fn show_instance_details(
             )?;
         }
         OutputFormat::Csv => {
-            return Err(CarbideCliError::NotImplemented(
+            return Err(NicoCliError::NotImplemented(
                 "CSV formatted output".to_string(),
             ));
         }
         OutputFormat::Yaml => {
-            return Err(CarbideCliError::NotImplemented(
+            return Err(NicoCliError::NotImplemented(
                 "YAML formatted output".to_string(),
             ));
         }
@@ -489,7 +489,7 @@ pub async fn handle_show(
     api_client: &ApiClient,
     page_size: usize,
     sort_by: &SortField,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if args.id.is_empty() {
         let mut all_instances = api_client
             .get_all_instances(
@@ -509,14 +509,14 @@ pub async fn handle_show(
                     .status
                     .as_ref()
                     .and_then(|status| status.tenant.as_ref())
-                    .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
+                    .and_then(|tenant| nicorpc::TenantState::try_from(tenant.state).ok())
                     .map(|state| format!("{state:?}"))
                     .unwrap_or_default();
                 let tenant_status2 = i2
                     .status
                     .as_ref()
                     .and_then(|status| status.tenant.as_ref())
-                    .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
+                    .and_then(|tenant| nicorpc::TenantState::try_from(tenant.state).ok())
                     .map(|state| format!("{state:?}"))
                     .unwrap_or_default();
                 tenant_status1.cmp(&tenant_status2)
@@ -535,12 +535,12 @@ pub async fn handle_show(
                 async_write!(output_file, "{}", table)?;
             }
             OutputFormat::Csv => {
-                return Err(CarbideCliError::NotImplemented(
+                return Err(NicoCliError::NotImplemented(
                     "CSV formatted output".to_string(),
                 ));
             }
             OutputFormat::Yaml => {
-                return Err(CarbideCliError::NotImplemented(
+                return Err(NicoCliError::NotImplemented(
                     "YAML formatted output".to_string(),
                 ));
             }
@@ -561,7 +561,7 @@ pub async fn handle_show(
 async fn get_vpc_for_interface_network_segment(
     api_client: &ApiClient,
     network_segment_id: NetworkSegmentId,
-) -> CarbideCliResult<Option<Vpc>> {
+) -> NicoCliResult<Option<Vpc>> {
     let network_segments = api_client
         .get_segments_by_ids(&[network_segment_id])
         .await?;

@@ -17,7 +17,7 @@
 
 //! Message types for the MQTT state change hook.
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use model::machine::ManagedHostState;
 use serde::Serialize;

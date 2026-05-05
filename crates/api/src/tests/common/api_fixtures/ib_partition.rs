@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use carbide_uuid::infiniband::IBPartitionId;
+use nico_uuid::infiniband::IBPartitionId;
 use tonic::Request;
 
 use super::TestEnv;
-use crate::api::rpc::forge_server::Forge;
+use crate::api::rpc::nico_server::Nico;
 use crate::api::rpc::{IbPartitionConfig, IbPartitionCreationRequest};
 
 pub const DEFAULT_TENANT: &str = "Tenant1";
@@ -54,7 +54,7 @@ pub async fn create_ib_partition(
 
     let ib_partition = env
         .api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(rpc::nico::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![ib_partition_id],
             include_history: false,
         }))

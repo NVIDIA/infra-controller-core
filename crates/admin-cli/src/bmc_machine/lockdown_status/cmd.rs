@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn lockdown_status(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn lockdown_status(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let response = api_client.0.lockdown_status(args).await?;
     // Convert status enum to string
     let status_str = match response.status {

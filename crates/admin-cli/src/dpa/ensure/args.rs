@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -30,7 +30,7 @@ pub struct Args {
     pub pci_name: String,
 }
 
-impl From<Args> for ::rpc::forge::DpaInterfaceCreationRequest {
+impl From<Args> for ::rpc::nico::DpaInterfaceCreationRequest {
     fn from(args: Args) -> Self {
         Self {
             machine_id: Some(args.machine_id),

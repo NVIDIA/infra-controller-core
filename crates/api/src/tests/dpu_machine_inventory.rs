@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use common::api_fixtures::dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION};
 use common::api_fixtures::{create_managed_host, create_test_env};
 

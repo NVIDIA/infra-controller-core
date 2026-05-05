@@ -97,7 +97,7 @@ fn parse_list_with_filters() {
 
     match cmd {
         Cmd::List(args) => {
-            assert!(matches!(args.deleted, rpc::forge::DeletedFilter::Only));
+            assert!(matches!(args.deleted, rpc::nico::DeletedFilter::Only));
             assert_eq!(args.controller_state, Some("ready".to_string()));
             assert!(args.bmc_mac.is_some());
         }

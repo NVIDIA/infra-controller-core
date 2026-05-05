@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn clear(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn clear(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     api_client.0.clear_machine_boot_override(args).await?;
     Ok(())
 }

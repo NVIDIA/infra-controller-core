@@ -18,17 +18,17 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use base64::prelude::*;
 use bmc_mock::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, MachineInfo};
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::machine_validation::MachineValidationId;
 use mac_address::MacAddress;
-use rpc::forge::instance_operating_system_config::Variant;
-use rpc::forge::machine_cleanup_info::CleanupStepResult;
-use rpc::forge::{
+use rpc::nico::instance_operating_system_config::Variant;
+use rpc::nico::machine_cleanup_info::CleanupStepResult;
+use rpc::nico::{
     ConfigSetting, ExpectedMachine, InlineIpxe, InstanceOperatingSystemConfig,
     MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest, VpcVirtualizationType,
 };
-use rpc::protos::forge_api_client::ForgeApiClient;
+use rpc::protos::nico_api_client::NicoApiClient;
 
 use crate::MachineConfig;
 
@@ -37,10 +37,10 @@ pub enum ClientApiError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
 
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("Unable to connect to nico API: {0}")]
     ConnectFailed(String),
 
-    #[error("The API call to the Forge API server returned {0}")]
+    #[error("The API call to the Nico API server returned {0}")]
     InvocationError(#[from] tonic::Status),
 }
 
@@ -56,10 +56,10 @@ static SUBNET_COUNTER: AtomicU32 = AtomicU32::new(0);
 static VPC_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Debug, Clone)]
-pub struct ApiClient(pub ForgeApiClient);
+pub struct ApiClient(pub NicoApiClient);
 
-impl From<ForgeApiClient> for ApiClient {
-    fn from(value: ForgeApiClient) -> Self {
+impl From<NicoApiClient> for ApiClient {
+    fn from(value: NicoApiClient) -> Self {
         ApiClient(value)
     }
 }
@@ -70,7 +70,7 @@ pub struct DpuNetworkStatusArgs<'a> {
     pub instance_network_config_version: Option<String>,
     pub instance_config_version: Option<String>,
     pub instance_id: Option<InstanceId>,
-    pub interfaces: Vec<rpc::forge::InstanceInterfaceStatusObservation>,
+    pub interfaces: Vec<rpc::nico::InstanceInterfaceStatusObservation>,
     pub machine_config: &'a MachineConfig,
 }
 
@@ -81,19 +81,19 @@ impl ApiClient {
         template_dir: String,
         relay_address: String,
         circuit_id: Option<String>,
-    ) -> ClientApiResult<rpc::forge::DhcpRecord> {
+    ) -> ClientApiResult<rpc::nico::DhcpRecord> {
         let json_path = format!("{}/{}", &template_dir, "dhcp_discovery.json");
         let dhcp_string = std::fs::read_to_string(&json_path).map_err(|e| {
             ClientApiError::ConfigError(format!("Unable to read {json_path}: {e}",))
         })?;
-        let default_data: rpc::forge::DhcpDiscovery =
+        let default_data: rpc::nico::DhcpDiscovery =
             serde_json::from_str(&dhcp_string).map_err(|e| {
                 ClientApiError::ConfigError(format!(
                     "{template_dir}/dhcp_discovery.json does not have correct format: {e}"
                 ))
             })?;
 
-        let dhcp_discovery = rpc::forge::DhcpDiscovery {
+        let dhcp_discovery = rpc::nico::DhcpDiscovery {
             mac_address: mac_address.to_string(),
             circuit_id,
             relay_address,
@@ -111,8 +111,8 @@ impl ApiClient {
     pub async fn get_machine_interface(
         &self,
         id: MachineInterfaceId,
-    ) -> ClientApiResult<rpc::forge::InterfaceList> {
-        let interface_search_query = rpc::forge::InterfaceSearchQuery {
+    ) -> ClientApiResult<rpc::nico::InterfaceList> {
+        let interface_search_query = rpc::nico::InterfaceSearchQuery {
             id: Some(id),
             ip: None,
         };
@@ -129,7 +129,7 @@ impl ApiClient {
         &self,
         machine_info: &MachineInfo,
         discovery_data: MockDiscoveryData,
-    ) -> ClientApiResult<rpc::forge::MachineDiscoveryResult> {
+    ) -> ClientApiResult<rpc::nico::MachineDiscoveryResult> {
         let MockDiscoveryData {
             machine_interface_id,
             tpm_ek_certificate,
@@ -141,7 +141,7 @@ impl ApiClient {
                     ClientApiError::ConfigError("No TPM EK certificate waa supplied".to_string()),
                 )?))
         }
-        let mdi = rpc::forge::MachineDiscoveryInfo {
+        let mdi = rpc::nico::MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(rpc::DiscoveryData::Info(machine_discovery_info)),
             create_machine: true,
@@ -190,12 +190,12 @@ impl ApiClient {
         let dpu_agent_version = machine_config
             .dpu_agent_version
             .clone()
-            .or(Some(carbide_version::v!(build_version).to_string()));
+            .or(Some(nico_version::v!(build_version).to_string()));
 
         self.0
-            .record_dpu_network_status(rpc::forge::DpuNetworkStatus {
+            .record_dpu_network_status(rpc::nico::DpuNetworkStatus {
                 dpu_health: Some(rpc::health::HealthReport {
-                    source: "forge-dpu-agent".to_string(),
+                    source: "nico-dpu-agent".to_string(),
                     triggered_by: None,
                     observed_at: None,
                     successes: Vec::new(),
@@ -224,8 +224,8 @@ impl ApiClient {
         &self,
         host_machine_id: MachineId,
         network_segment_name: &str,
-    ) -> ClientApiResult<rpc::forge::Instance> {
-        let segment_request = rpc::forge::NetworkSegmentSearchFilter {
+    ) -> ClientApiResult<rpc::nico::Instance> {
+        let segment_request = rpc::nico::NetworkSegmentSearchFilter {
             name: Some(network_segment_name.to_owned()),
             tenant_org_id: None,
         };
@@ -252,11 +252,11 @@ impl ApiClient {
             )));
         };
 
-        let interface_config = rpc::forge::InstanceInterfaceConfig {
-            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+        let interface_config = rpc::nico::InstanceInterfaceConfig {
+            function_type: rpc::nico::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(network_segment_id),
             network_details: Some(
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                rpc::nico::instance_interface_config::NetworkDetails::SegmentId(
                     network_segment_id,
                 ),
             ),
@@ -268,7 +268,7 @@ impl ApiClient {
         };
 
         let tenant_config = rpc::TenantConfig {
-            tenant_organization_id: "Forge-simulation-tenant".to_string(),
+            tenant_organization_id: "Nico-simulation-tenant".to_string(),
             tenant_keyset_ids: vec![],
             hostname: None,
         };
@@ -313,9 +313,9 @@ impl ApiClient {
     pub async fn force_delete_machine(
         &self,
         machine_id: String,
-    ) -> ClientApiResult<rpc::forge::AdminForceDeleteMachineResponse> {
+    ) -> ClientApiResult<rpc::nico::AdminForceDeleteMachineResponse> {
         self.0
-            .admin_force_delete_machine(rpc::forge::AdminForceDeleteMachineRequest {
+            .admin_force_delete_machine(rpc::nico::AdminForceDeleteMachineRequest {
                 host_query: machine_id,
                 delete_interfaces: true,
                 delete_bmc_interfaces: true,
@@ -334,7 +334,7 @@ impl ApiClient {
 
         let vpc_ids_all = self
             .0
-            .find_vpc_ids(rpc::forge::VpcSearchFilter {
+            .find_vpc_ids(rpc::nico::VpcSearchFilter {
                 tenant_org_id: None,
                 name: Some(vpc_name.clone()),
                 label: None,
@@ -358,7 +358,7 @@ impl ApiClient {
 
                 let is_fnn = network_virtualization_type == Some(VpcVirtualizationType::Fnn);
 
-                let mut prefixes = vec![rpc::forge::NetworkPrefix {
+                let mut prefixes = vec![rpc::nico::NetworkPrefix {
                     id: None,
                     prefix: format!("192.5.{subnet_count}.12/24"),
                     gateway: Some(format!("192.5.{subnet_count}.13")),
@@ -368,7 +368,7 @@ impl ApiClient {
                 }];
 
                 if is_fnn {
-                    prefixes.push(rpc::forge::NetworkPrefix {
+                    prefixes.push(rpc::nico::NetworkPrefix {
                         id: None,
                         prefix: format!("2001:db8:{subnet_count}::/112"),
                         gateway: None,
@@ -379,11 +379,11 @@ impl ApiClient {
                 }
 
                 self.0
-                    .create_network_segment(rpc::forge::NetworkSegmentCreationRequest {
+                    .create_network_segment(rpc::nico::NetworkSegmentCreationRequest {
                         id: None,
                         vpc_id: vpc_id_list.vpc_ids.first().copied(),
                         name: format!("subnet_{subnet_count}"),
-                        segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
+                        segment_type: rpc::nico::NetworkSegmentType::Tenant.into(),
                         prefixes,
                         mtu: Some(1500),
                         subdomain_id: None,
@@ -401,23 +401,23 @@ impl ApiClient {
     pub async fn create_vpc(
         &self,
         network_virtualization_type: Option<VpcVirtualizationType>,
-    ) -> ClientApiResult<rpc::forge::Vpc> {
+    ) -> ClientApiResult<rpc::nico::Vpc> {
         let vpc_count = VPC_COUNTER.fetch_add(1, Ordering::Acquire);
         self.0
-            .create_vpc(rpc::forge::VpcCreationRequest {
+            .create_vpc(rpc::nico::VpcCreationRequest {
                 id: None,
                 name: "".to_string(),
-                tenant_organization_id: "Forge-simulation-tenant".to_string(),
+                tenant_organization_id: "Nico-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
                 network_security_group_id: None,
                 network_virtualization_type: network_virtualization_type.map(|t| t as i32),
                 vni: None,
                 routing_profile_type: None,
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(rpc::nico::Metadata {
                     name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),
-                    labels: vec![rpc::forge::Label {
-                        key: "Forge-simulation-vpc".to_string(),
+                    labels: vec![rpc::nico::Label {
+                        key: "Nico-simulation-vpc".to_string(),
                         value: Some("Machine-a-tron".to_string()),
                     }],
                 }),
@@ -433,7 +433,7 @@ impl ApiClient {
         validation_id: &MachineValidationId,
     ) -> ClientApiResult<()> {
         self.0
-            .machine_validation_completed(rpc::forge::MachineValidationCompletedRequest {
+            .machine_validation_completed(rpc::nico::MachineValidationCompletedRequest {
                 machine_id: Some(*machine_id),
                 machine_validation_error: None,
                 validation_id: Some(*validation_id),
@@ -474,12 +474,12 @@ impl ApiClient {
 
     pub async fn get_pxe_instructions(
         &self,
-        arch: rpc::forge::MachineArchitecture,
+        arch: rpc::nico::MachineArchitecture,
         interface_id: MachineInterfaceId,
         product: Option<String>,
     ) -> ClientApiResult<PxeInstructions> {
         self.0
-            .get_pxe_instructions(rpc::forge::PxeInstructionRequest {
+            .get_pxe_instructions(rpc::nico::PxeInstructionRequest {
                 arch: arch.into(),
                 interface_id: Some(interface_id),
                 product,

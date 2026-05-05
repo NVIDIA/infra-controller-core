@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-utils"
+name = "nico-utils"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -25,7 +25,7 @@ authors.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-sqlx = ["carbide-network/sqlx", "dep:sqlx"]
+sqlx = ["nico-network/sqlx", "dep:sqlx"]
 test-support = [
   "dep:opentelemetry_sdk",
   "dep:prometheus",
@@ -33,7 +33,7 @@ test-support = [
 ]
 
 [dependencies]
-carbide-network = { path = "../network" }
+nico-network = { path = "../network" }
 
 byte-unit = { workspace = true }
 chrono = { workspace = true }

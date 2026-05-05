@@ -18,7 +18,7 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use carbide_uuid::infiniband::IBPartitionId;
+use nico_uuid::infiniband::IBPartitionId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -60,11 +60,11 @@ pub struct MachineIbInterfaceStatusObservation {
     pub associated_partition_ids: Option<HashSet<IBPartitionId>>,
 }
 
-impl From<MachineInfinibandStatusObservation> for rpc::forge::InfinibandStatusObservation {
+impl From<MachineInfinibandStatusObservation> for rpc::nico::InfinibandStatusObservation {
     fn from(
         ib_status: MachineInfinibandStatusObservation,
-    ) -> rpc::forge::InfinibandStatusObservation {
-        rpc::forge::InfinibandStatusObservation {
+    ) -> rpc::nico::InfinibandStatusObservation {
+        rpc::nico::InfinibandStatusObservation {
             ib_interfaces: ib_status
                 .ib_interfaces
                 .into_iter()
@@ -75,11 +75,11 @@ impl From<MachineInfinibandStatusObservation> for rpc::forge::InfinibandStatusOb
     }
 }
 
-impl From<MachineIbInterfaceStatusObservation> for rpc::forge::MachineIbInterface {
+impl From<MachineIbInterfaceStatusObservation> for rpc::nico::MachineIbInterface {
     fn from(
         machine_ib_interface: MachineIbInterfaceStatusObservation,
-    ) -> rpc::forge::MachineIbInterface {
-        rpc::forge::MachineIbInterface {
+    ) -> rpc::nico::MachineIbInterface {
+        rpc::nico::MachineIbInterface {
             pf_guid: None,
             guid: Some(machine_ib_interface.guid),
             lid: Some(machine_ib_interface.lid as u32),
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_ib_config_synced_ok_when_synced() {
-        use carbide_uuid::infiniband::IBPartitionId;
+        use nico_uuid::infiniband::IBPartitionId;
 
         use crate::instance::config::network::InterfaceFunctionId;
         let partition_id: IBPartitionId =

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::network::NetworkSegmentId;
+use nico_uuid::network::NetworkSegmentId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -24,7 +24,7 @@ pub struct Args {
     pub id: NetworkSegmentId,
 }
 
-impl From<Args> for ::rpc::forge::NetworkSegmentDeletionRequest {
+impl From<Args> for ::rpc::nico::NetworkSegmentDeletionRequest {
     fn from(args: Args) -> Self {
         Self { id: Some(args.id) }
     }

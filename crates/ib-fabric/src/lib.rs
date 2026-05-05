@@ -26,9 +26,9 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_utils::periodic_timer::PeriodicTimer;
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::machine::MachineId;
+use nico_utils::periodic_timer::PeriodicTimer;
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::machine::MachineId;
 use chrono::Utc;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
@@ -60,7 +60,7 @@ pub struct IbFabricMonitor {
 
     fabrics: HashMap<String, IbFabricDefinition>,
     metric_holder: Arc<metrics::MetricHolder>,
-    /// API for interaction with Forge IBFabricManager
+    /// API for interaction with Nico IBFabricManager
     fabric_manager: Arc<dyn IBFabricManager>,
 
     host_health: HostHealthConfig,
@@ -400,7 +400,7 @@ impl IbFabricMonitor {
             }
 
             for (fabric, guid, pkey) in report.unexpected_guid_pkeys {
-                // Only unbind pkeys that are within this Carbide's managed range.
+                // Only unbind pkeys that are within this Nico's managed range.
                 // Pkeys outside the configured range should be left alone.
                 // Note: We only enforce expected pkeys for GUIDs configured on the instance.
                 // Unconfigured GUIDs with out-of-range pkeys will be ignored.

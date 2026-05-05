@@ -18,8 +18,8 @@
 use std::collections::HashSet;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::extension_service::ExtensionServiceId;
+use ::rpc::nico as rpc;
+use nico_uuid::extension_service::ExtensionServiceId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
@@ -233,7 +233,7 @@ impl TryFrom<InstanceExtensionServicesConfig> for rpc::InstanceDpuExtensionServi
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::extension_service::ExtensionServiceId;
+    use nico_uuid::extension_service::ExtensionServiceId;
     use chrono::Utc;
     use config_version::ConfigVersion;
 

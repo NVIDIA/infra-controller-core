@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::Utc;
 use opentelemetry::KeyValue;
 use ringbuf::LocalRb;
@@ -239,7 +239,7 @@ pub enum ConsoleActivateError {
     Timeout,
 }
 
-/// Builds and authenticates an SSH client to a machine, using credentials from carbide-api or
+/// Builds and authenticates an SSH client to a machine, using credentials from nico-api or
 /// overridden by config.
 async fn make_authenticated_client(
     ConnectionDetails {

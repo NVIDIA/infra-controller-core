@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::machine_validation::MachineValidationId;
 use clap::{Parser, Subcommand, ValueEnum};
-use forge_tls::default as tls_default;
+use nico_tls::default as tls_default;
 use libmlx::device::cmd::device::args::DeviceAction;
 use libmlx::lockdown::cmd::args::LockdownAction;
 
@@ -48,7 +48,7 @@ pub(crate) struct Options {
     #[clap(
         short,
         long,
-        help = "The machine interface ID to send to carbide-api. Most commands need this."
+        help = "The machine interface ID to send to nico-api. Most commands need this."
     )]
     pub machine_interface_id: Option<uuid::Uuid>,
 
@@ -114,11 +114,11 @@ pub(crate) struct Options {
 
 #[derive(Parser, Clone)]
 pub(crate) enum Command {
-    #[clap(about = "Fetch command from Forge API server")]
+    #[clap(about = "Fetch command from Nico API server")]
     AutoDetect(AutoDetect),
     #[clap(about = "Run deprovision")]
     Deprovision(Deprovision),
-    #[clap(about = "Send error report to Carbide API ")]
+    #[clap(about = "Send error report to Nico API ")]
     Logerror(Logerror),
     #[clap(about = "Run Discovery")]
     Discovery(Discovery),

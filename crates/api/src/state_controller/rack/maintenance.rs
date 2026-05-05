@@ -17,7 +17,7 @@
 
 //! Handler for RackState::Maintenance.
 
-use carbide_uuid::rack::{RackId, RackProfileId};
+use nico_uuid::rack::{RackId, RackProfileId};
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
     machine_topology as db_machine_topology, rack as db_rack, rack_firmware as db_rack_firmware,
@@ -80,8 +80,8 @@ async fn clear_rv_labels(
 async fn trigger_rack_firmware_reprovisioning_requests(
     txn: &mut sqlx::PgConnection,
     rack_id: &RackId,
-    machine_ids: &[carbide_uuid::machine::MachineId],
-    switch_ids: &[carbide_uuid::switch::SwitchId],
+    machine_ids: &[nico_uuid::machine::MachineId],
+    switch_ids: &[nico_uuid::switch::SwitchId],
     continue_after_firmware_upgrade: bool,
 ) -> Result<(), StateHandlerError> {
     for machine_id in machine_ids {
@@ -172,7 +172,7 @@ fn resolve_nvos_artifact_from_firmware(
             firmware_id: firmware.id.clone(),
             image_filename: image_filename.to_string(),
             local_file_path: format!(
-                "/forge-boot-artifacts/blobs/internal/fw/rack_firmware/{}/{}",
+                "/nico-boot-artifacts/blobs/internal/fw/rack_firmware/{}/{}",
                 firmware.id, image_filename
             ),
             version,
@@ -266,8 +266,8 @@ async fn resolve_requested_or_default_nvos_artifact(
 
 async fn clear_rack_firmware_device_statuses(
     txn: &mut sqlx::PgConnection,
-    machine_ids: &[carbide_uuid::machine::MachineId],
-    switch_ids: &[carbide_uuid::switch::SwitchId],
+    machine_ids: &[nico_uuid::machine::MachineId],
+    switch_ids: &[nico_uuid::switch::SwitchId],
 ) -> Result<(), StateHandlerError> {
     for machine_id in machine_ids {
         db_machine::update_rack_fw_details(txn, machine_id, None).await?;
@@ -280,7 +280,7 @@ async fn clear_rack_firmware_device_statuses(
 
 async fn clear_nvos_update_statuses(
     txn: &mut sqlx::PgConnection,
-    switch_ids: &[carbide_uuid::switch::SwitchId],
+    switch_ids: &[nico_uuid::switch::SwitchId],
 ) -> Result<(), StateHandlerError> {
     for switch_id in switch_ids {
         db_switch::update_nvos_update_status(txn, *switch_id, None).await?;
@@ -465,7 +465,7 @@ fn filter_inventory_by_scope(
         let allowed: std::collections::HashSet<_> = scope.machine_ids.iter().collect();
         inventory.machine_ids.retain(|id| allowed.contains(id));
         inventory.machines.retain(|d| {
-            match d.node_id.parse::<carbide_uuid::machine::MachineId>() {
+            match d.node_id.parse::<nico_uuid::machine::MachineId>() {
                 Ok(ref id) => allowed.contains(id),
                 Err(_) => false,
             }
@@ -479,7 +479,7 @@ fn filter_inventory_by_scope(
         let allowed: std::collections::HashSet<_> = scope.switch_ids.iter().collect();
         inventory.switch_ids.retain(|id| allowed.contains(id));
         inventory.switches.retain(
-            |d| match d.node_id.parse::<carbide_uuid::switch::SwitchId>() {
+            |d| match d.node_id.parse::<nico_uuid::switch::SwitchId>() {
                 Ok(ref id) => allowed.contains(id),
                 Err(_) => false,
             },
@@ -504,7 +504,7 @@ fn filter_switch_inventory_by_scope(
         let allowed: std::collections::HashSet<_> = scope.switch_ids.iter().collect();
         inventory.switch_ids.retain(|id| allowed.contains(id));
         inventory.switches.retain(
-            |d| match d.node_id.parse::<carbide_uuid::switch::SwitchId>() {
+            |d| match d.node_id.parse::<nico_uuid::switch::SwitchId>() {
                 Ok(ref id) => allowed.contains(id),
                 Err(_) => false,
             },
@@ -1302,7 +1302,7 @@ pub async fn handle_maintenance(
                     let machine_id = if !device.node_id.is_empty() {
                         device
                             .node_id
-                            .parse::<carbide_uuid::machine::MachineId>()
+                            .parse::<nico_uuid::machine::MachineId>()
                             .ok()
                     } else {
                         let mac: mac_address::MacAddress = match device.mac.parse() {
@@ -1326,7 +1326,7 @@ pub async fn handle_maintenance(
                     let switch_id = if !device.node_id.is_empty() {
                         device
                             .node_id
-                            .parse::<carbide_uuid::switch::SwitchId>()
+                            .parse::<nico_uuid::switch::SwitchId>()
                             .ok()
                     } else {
                         let mac: mac_address::MacAddress = match device.mac.parse() {
@@ -1597,7 +1597,7 @@ pub async fn handle_maintenance(
                     let switch_id = if !switch.node_id.is_empty() {
                         switch
                             .node_id
-                            .parse::<carbide_uuid::switch::SwitchId>()
+                            .parse::<nico_uuid::switch::SwitchId>()
                             .ok()
                     } else {
                         let mac: mac_address::MacAddress = match switch.mac.parse() {
@@ -1976,14 +1976,14 @@ mod tests {
     };
     use crate::rack::firmware_update::RackFirmwareInventory;
 
-    fn test_machine_id(byte: u8) -> carbide_uuid::machine::MachineId {
-        use carbide_uuid::machine::{MachineIdSource, MachineType};
-        carbide_uuid::machine::MachineId::new(MachineIdSource::Tpm, [byte; 32], MachineType::Host)
+    fn test_machine_id(byte: u8) -> nico_uuid::machine::MachineId {
+        use nico_uuid::machine::{MachineIdSource, MachineType};
+        nico_uuid::machine::MachineId::new(MachineIdSource::Tpm, [byte; 32], MachineType::Host)
     }
 
-    fn test_switch_id(byte: u8) -> carbide_uuid::switch::SwitchId {
-        use carbide_uuid::switch::{SwitchIdSource, SwitchType};
-        carbide_uuid::switch::SwitchId::new(SwitchIdSource::Tpm, [byte; 32], SwitchType::NvLink)
+    fn test_switch_id(byte: u8) -> nico_uuid::switch::SwitchId {
+        use nico_uuid::switch::{SwitchIdSource, SwitchType};
+        nico_uuid::switch::SwitchId::new(SwitchIdSource::Tpm, [byte; 32], SwitchType::NvLink)
     }
 
     fn test_device_info(node_id: &str) -> FirmwareUpgradeDeviceInfo {

@@ -16,9 +16,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM runtime-container-localdev:latest as carbide
-WORKDIR ./carbide
+FROM runtime-container-localdev:latest as nico
+WORKDIR ./nico
 
 RUN mkdir -p /var/log/consoles
 
-COPY .skaffold/target/carbide-ssh-console/debug/ssh-console /opt/carbide/
+COPY .skaffold/target/nico-ssh-console/debug/ssh-console /opt/nico/

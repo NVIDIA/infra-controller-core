@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use clap::{ArgAction, Parser};
 
 #[derive(Parser)]
-#[clap(name = "carbide-api")]
+#[clap(name = "nico-api")]
 pub struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
@@ -47,8 +47,8 @@ pub struct Daemon {
     /// site specific configuration overrides via an additional config file at
     /// `site-config-path`.
     /// Additionally all configuration file contents can be overridden using
-    /// environmental variables that are prefixed with `CARBIDE_API_`.
-    /// E.g. an environmental variable with the name `CARBIDE_API_DATABASE_URL`
+    /// environmental variables that are prefixed with `NICO_API_`.
+    /// E.g. an environmental variable with the name `NICO_API_DATABASE_URL`
     /// will take precedence over the field `database_url` in the site specific
     /// configuration. And the field `database_url` in the site specific configuration
     /// will take precedence over the same field in the global configuration.

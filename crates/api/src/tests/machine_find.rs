@@ -16,8 +16,8 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId, MachineType};
-use carbide_uuid::rack::RackId;
+use nico_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId, MachineType};
+use nico_uuid::rack::RackId;
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::{create_managed_host, create_test_env, site_explorer};
@@ -30,8 +30,8 @@ use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     AssociateMachinesWithInstanceTypeRequest, FindInstanceTypeIdsRequest, MachinesByIdsRequest,
 };
 use sha2::{Digest, Sha256};
@@ -162,7 +162,7 @@ async fn test_find_machine_without_sku(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_with_sku(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let sku = serde_json::de::from_str::<rpc::forge::Sku>(FULL_SKU_DATA)
+    let sku = serde_json::de::from_str::<rpc::nico::Sku>(FULL_SKU_DATA)
         .unwrap()
         .into();
 
@@ -191,7 +191,7 @@ async fn test_find_machine_without_rack_id(pool: sqlx::PgPool) {
 
     let machines = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
             rack_id: Some("rack1".to_string().into()),
             ..Default::default()
         }))
@@ -227,7 +227,7 @@ async fn test_find_machine_by_rack_id(pool: sqlx::PgPool) {
 
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
             rack_id: Some(rack_id),
             ..Default::default()
         }))
@@ -326,7 +326,7 @@ async fn test_find_machine_ids_with_and_without_dpus(pool: sqlx::PgPool) {
     // With DPUs
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
             include_dpus: true,
             ..Default::default()
         }))
@@ -347,7 +347,7 @@ async fn test_find_machine_ids_with_and_without_dpus(pool: sqlx::PgPool) {
     // No DPUs
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
             include_dpus: false,
             ..Default::default()
         }))
@@ -620,7 +620,7 @@ async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
 async fn test_find_machines_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let request = tonic::Request::new(::rpc::forge::MachinesByIdsRequest::default());
+    let request = tonic::Request::new(::rpc::nico::MachinesByIdsRequest::default());
 
     let response = env.api.find_machines_by_ids(request).await;
     // validate
@@ -655,12 +655,12 @@ async fn test_machine_capabilities_response(
     assert!(!caps.cpu.is_empty());
 
     caps.sort();
-    let caps_from_machine = rpc::protos::forge::MachineCapabilitiesSet::from(caps);
+    let caps_from_machine = rpc::protos::nico::MachineCapabilitiesSet::from(caps);
 
     // Find the new host through the API
     let machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
             include_history: false,
             machine_ids: vec![mh.host_snapshot.id],
         }))
@@ -689,7 +689,7 @@ async fn test_find_machine_by_instance_type(
     let existing_instance_type_ids = env
         .api
         .find_instance_type_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypeIdsRequest {},
+            rpc::nico::FindInstanceTypeIdsRequest {},
         ))
         .await
         .unwrap()
@@ -699,7 +699,7 @@ async fn test_find_machine_by_instance_type(
     let existing_instance_types = env
         .api
         .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
+            rpc::nico::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
                 include_allocation_stats: false,
                 tenant_organization_id: None,
@@ -718,7 +718,7 @@ async fn test_find_machine_by_instance_type(
     // Find the new host through the API
     let machines = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
             instance_type_id: Some(instance_type_id.clone()),
             ..Default::default()
         }))
@@ -735,7 +735,7 @@ async fn test_find_machine_by_instance_type(
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![tmp_machine_id.to_string()],
             },
@@ -746,7 +746,7 @@ async fn test_find_machine_by_instance_type(
     // Find the new host through the API
     let machines = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
             instance_type_id: Some(instance_type_id),
             ..Default::default()
         }))

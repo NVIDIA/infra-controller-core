@@ -21,7 +21,7 @@ pub mod common;
 
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
-pub mod forge;
+pub mod nico;
 
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
@@ -53,7 +53,7 @@ pub mod fmds;
 
 #[allow(clippy::all, deprecated)]
 #[rustfmt::skip]
-pub mod forge_api_client;
+pub mod nico_api_client;
 
 #[allow(clippy::all)]
 #[rustfmt::skip]

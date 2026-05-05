@@ -8,7 +8,7 @@
   },
   "data": [
     {
-      "user": "forge_admin",
+      "user": "nico_admin",
       "password": "notforprod",
       "role": 1
     }

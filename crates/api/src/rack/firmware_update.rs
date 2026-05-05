@@ -17,12 +17,12 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use db::{machine as db_machine, machine_topology as db_machine_topology, switch as db_switch};
 use eyre::{Result, eyre};
-use forge_secrets::credentials::{
+use nico_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
 use librms::RmsApi;
@@ -368,7 +368,7 @@ fn build_firmware_targets(
         .map(|(_, filename, target)| rms::FirmwareTarget {
             target,
             filename: format!(
-                "/forge-boot-artifacts/blobs/internal/fw/rack_firmware/{}/{}",
+                "/nico-boot-artifacts/blobs/internal/fw/rack_firmware/{}/{}",
                 firmware_id, filename
             ),
         })

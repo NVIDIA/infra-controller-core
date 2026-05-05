@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-agent"
+name = "nico-agent"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -25,8 +25,8 @@ authors.workspace = true
 name = "agent"
 
 [[bin]]
-# TODO: rename to carbide-dpu-agent
-name = "forge-dpu-agent"
+# TODO: rename to nico-dpu-agent
+name = "nico-dpu-agent"
 path = "src/main.rs"
 
 [dependencies]
@@ -34,21 +34,21 @@ path = "src/main.rs"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 config-version = { path = "../config-version" }
-carbide-certs = { path = "../certs" }
-carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
-carbide-dpu-fmds-shared = { path = "../dpu-fmds-shared" }
-carbide-dpu-remediation = { path = "../dpu-remediation" }
-carbide-host-support = { path = "../host-support" }
-carbide-http-connector = { path = "../http-connector" }
-carbide-network = { path = "../network" }
-carbide-systemd = { path = "../systemd" }
-carbide-tls = { path = "../tls" }
-carbide-uuid = { path = "../uuid" }
-carbide-version = { path = "../version" }
-carbide-health-report = { path = "../health-report" }
-carbide-rpc = { path = "../rpc" }
-carbide-rpc-utils = { path = "../rpc-utils" }
-carbide-utils = { path = "../utils" }
+nico-certs = { path = "../certs" }
+nico-dpu-agent-utils = { path = "../dpu-agent-utils" }
+nico-dpu-fmds-shared = { path = "../dpu-fmds-shared" }
+nico-dpu-remediation = { path = "../dpu-remediation" }
+nico-host-support = { path = "../host-support" }
+nico-http-connector = { path = "../http-connector" }
+nico-network = { path = "../network" }
+nico-systemd = { path = "../systemd" }
+nico-tls = { path = "../tls" }
+nico-uuid = { path = "../uuid" }
+nico-version = { path = "../version" }
+nico-health-report = { path = "../health-report" }
+nico-rpc = { path = "../rpc" }
+nico-rpc-utils = { path = "../rpc-utils" }
+nico-utils = { path = "../utils" }
 nvue-client = { path = "../nvue-client" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
@@ -125,7 +125,7 @@ version-compare = { workspace = true }
 #these are alphabetized
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]

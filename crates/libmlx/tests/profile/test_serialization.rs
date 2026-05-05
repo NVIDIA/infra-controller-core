@@ -626,7 +626,7 @@ PCI_DOWNSTREAM_PORT_OWNER = [
 #[test]
 fn test_toml_multiple_profiles_hashmap() {
     // Define a container struct similar what would be in
-    // the carbide-api-site-config.toml file.
+    // the nico-api-site-config.toml file.
     #[derive(Deserialize)]
     struct ServerConfig {
         #[serde(rename = "mlx-config-profiles")]

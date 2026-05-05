@@ -32,13 +32,13 @@ use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
     MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
 };
-use carbide_uuid::{DbTable, UuidEmptyStringError};
+use nico_uuid::{DbTable, UuidEmptyStringError};
 use chrono::{DateTime, Utc};
 #[cfg(feature = "cli")]
 use rpc::admin_cli::{ToTable, serde_just_print_summary};

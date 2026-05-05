@@ -20,7 +20,7 @@ use clap::{Parser, ValueEnum};
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
     #[clap(
-        help = "Path to devenv config file. Usually this is in forged repo at envs/local-dev/site/site-controller/files/generated/devenv_config.toml"
+        help = "Path to devenv config file. Usually this is in nicod repo at envs/local-dev/site/site-controller/files/generated/devenv_config.toml"
     )]
     pub path: String,
 

@@ -16,7 +16,7 @@
  */
 use std::ops::DerefMut;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use itertools::Itertools;
 use model::hardware_info::LldpSwitchData;
 use model::network_devices::{

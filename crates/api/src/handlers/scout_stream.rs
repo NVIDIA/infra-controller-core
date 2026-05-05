@@ -15,17 +15,17 @@
  * limitations under the License.
  */
 
-use ::rpc::protos::forge as rpc;
+use ::rpc::protos::nico as rpc;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, ScoutStreamType, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 // scout_stream handles the bidirectional streaming connection from scout agents.
-// scout agents call scout_stream and send an Init message, and then carbide-api
+// scout agents call scout_stream and send an Init message, and then nico-api
 // will send down "request" messages to connected agent(s) to either instruct them
 // or ask them for information (sometimes for state changes, other times for
 // feeding data back to administrative CLI/UI calls).
@@ -40,7 +40,7 @@ pub(crate) async fn scout_stream(
     let init_message = stream
         .message()
         .await?
-        .ok_or_else(|| CarbideError::InvalidArgument("invalid message received".to_string()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("invalid message received".to_string()))?;
 
     // As part of "constructing" the new scout stream, we expect
     // an Init message as the first thing from the client (in this
@@ -50,7 +50,7 @@ pub(crate) async fn scout_stream(
             convert_and_log_machine_id(init.machine_id.as_ref())?
         }
         _ => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "first ScoutStream client message must be an Init message".into(),
             )
             .into());
@@ -143,7 +143,7 @@ pub async fn ping(
 
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout agent connection",
             id: machine_id.to_string(),
         }
@@ -160,7 +160,7 @@ pub async fn ping(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to send ping request to scout: {}",
                 status.message()
@@ -175,7 +175,7 @@ pub async fn ping(
                 Ok(Response::new(rpc::ScoutStreamAdminPingResponse { pong }))
             }
             Some(rpc::scout_stream_agent_ping_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error attempting to ping agent (machine_id={machine_id}): {}",
                         error.message
@@ -183,14 +183,14 @@ pub async fn ping(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty ping reply (machine_id={machine_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for ping response (machine_id={machine_id})"
             ),

@@ -25,10 +25,10 @@ ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
 
 ARG VERSION
 ENV VERSION $VERSION
-ENV CONTAINER_REPO_ROOT=/carbide
+ENV CONTAINER_REPO_ROOT=/nico
 
-RUN USER=root cargo new --bin carbide
-WORKDIR ./carbide
+RUN USER=root cargo new --bin nico
+WORKDIR ./nico
 COPY . ./
 
 # --mount=type=cache persists the sccache directory across docker build invocations.
@@ -45,30 +45,30 @@ RUN --mount=type=cache,id=sccache-aarch64,target=/sccache \
   createdb root && \
   cargo make build-and-test-release-container-services && \
   echo "$(date): Finished cargo make build-and-test-release-container-services\n" && \
-  mkdir -p /carbide/target/bin && \
-  find /carbide/target/release -maxdepth 1 -type f -exec cp -t /carbide/target/bin {} + && \
-  rm -rf /carbide/target/debug && \
-  rm -rf /carbide/target/release && \
+  mkdir -p /nico/target/bin && \
+  find /nico/target/release -maxdepth 1 -type f -exec cp -t /nico/target/bin {} + && \
+  rm -rf /nico/target/debug && \
+  rm -rf /nico/target/release && \
   echo "$(date): Deleted artifacts"
 
 # After build, copy the release into the runtime container
 FROM $CONTAINER_RUNTIME_AARCH64
-RUN mkdir -p /opt/carbide/migrations && \
-  mkdir -p /opt/carbide/pxe/templates && \
-  mkdir -p /opt/carbide/static
+RUN mkdir -p /opt/nico/migrations && \
+  mkdir -p /opt/nico/pxe/templates && \
+  mkdir -p /opt/nico/static
 
 RUN echo "$(date): Start runtime container build"
 
-COPY --from=builder ["/carbide/target/bin/carbide-api", "/carbide/target/bin/carbide", "/carbide/target/bin/carbide-dns", "/carbide/target/bin/carbide-admin-cli", "/carbide/target/bin/carbide-dsx-exchange-consumer", "/carbide/target/bin/forge-dpu-agent", "/carbide/target/bin/forge-dhcp-server", "/carbide/target/bin/forge-hw-health", "/carbide/target/bin/forge-log-parser", "/carbide/target/bin/ssh-console", "/carbide/target/bin/carbide-bmc-proxy", "/opt/carbide/"]
+COPY --from=builder ["/nico/target/bin/nico-api", "/nico/target/bin/nico", "/nico/target/bin/nico-dns", "/nico/target/bin/nico-admin-cli", "/nico/target/bin/nico-dsx-exchange-consumer", "/nico/target/bin/nico-dpu-agent", "/nico/target/bin/nico-dhcp-server", "/nico/target/bin/nico-hw-health", "/nico/target/bin/nico-log-parser", "/nico/target/bin/ssh-console", "/nico/target/bin/nico-bmc-proxy", "/opt/nico/"]
 # Note: aarch64 uses different library path than x86_64
-COPY --from=builder /carbide/target/bin/libdhcp.so /usr/lib/aarch64-linux-gnu/kea/hooks
-RUN ln -s /opt/carbide/carbide-admin-cli /opt/carbide/forge-admin-cli
+COPY --from=builder /nico/target/bin/libdhcp.so /usr/lib/aarch64-linux-gnu/kea/hooks
+RUN ln -s /opt/nico/nico-admin-cli /opt/nico/nico-admin-cli
 
 RUN echo "$(date): Finished copies"
 
-COPY crates/api-db/migrations/ /opt/carbide/migrations/
-COPY pxe/templates/*  /opt/carbide/pxe/templates/
-COPY crates/api/casbin-policy.csv /opt/carbide/
+COPY crates/api-db/migrations/ /opt/nico/migrations/
+COPY pxe/templates/*  /opt/nico/pxe/templates/
+COPY crates/api/casbin-policy.csv /opt/nico/
 
-ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv
+ENV CASBIN_POLICY_FILE=/opt/nico/casbin-policy.csv
 

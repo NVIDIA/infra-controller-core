@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico as rpc;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::infiniband::MachineInfinibandStatusObservation;
@@ -290,7 +290,7 @@ impl MachineCapabilityInfiniband {
 
         for infiniband_interface_info in sorted_ib_interfaces.iter() {
             // Skip any interface where we can't get PCI details.
-            // This is how this data is handled in forge-cloud, but
+            // This is how this data is handled in nico-cloud, but
             // does it make sense here?
             let pci_properties = match infiniband_interface_info.pci_properties.as_ref() {
                 None => continue,
@@ -570,7 +570,7 @@ impl MachineCapabilitiesSet {
 
         for network_interface_info in hardware_info.network_interfaces.into_iter() {
             // Skip any interface where we can't get PCI details.
-            // This is how this data is handled in forge-cloud, but
+            // This is how this data is handled in nico-cloud, but
             // does it make sense here?
             let pci_properties = match network_interface_info.pci_properties {
                 None => continue,
@@ -639,10 +639,10 @@ impl MachineCapabilitiesSet {
                 vec![]
             } else {
                 vec![MachineCapabilityDpu {
-                    // This name value is what forge-cloud currently does/expects from machine capabilities.
+                    // This name value is what nico-cloud currently does/expects from machine capabilities.
                     // It needs to have _something_ that won't change.  If we decide to start
                     // pulling actual DPU details in the future, it would probably require
-                    // forge cloud to also start allowing `name` as an optional field
+                    // nico cloud to also start allowing `name` as an optional field
                     // for instance type capability filters, and we'd have to update existing
                     // instance types in cloud to drop the `name` value while we transition.
                     name: "DPU".to_string(),
@@ -668,7 +668,7 @@ impl MachineCapabilitiesSet {
 mod tests {
     use std::str::FromStr;
 
-    use ::rpc::forge as rpc;
+    use ::rpc::nico as rpc;
 
     use super::*;
     use crate::hardware_info::*;

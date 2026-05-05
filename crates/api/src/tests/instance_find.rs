@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use base64::prelude::*;
-use carbide_uuid::instance::InstanceId;
-use rpc::forge_server::Forge;
+use nico_uuid::instance::InstanceId;
+use rpc::nico_server::Nico;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::instance::{

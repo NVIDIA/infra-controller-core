@@ -20,7 +20,7 @@ pub mod cmd;
 
 use std::path::Path;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 pub use args::Args;
 
 use crate::cfg::run::Run;
@@ -31,7 +31,7 @@ use crate::expected_machines::common::ExpectedMachineJson;
 /// `patch_expected_machine` with every field from the file (full replacement style), including
 /// optional `bmc_ip_address` when present in JSON.
 impl Run for Args {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         let json_file_path = Path::new(&self.filename);
         let file_content = std::fs::read_to_string(json_file_path)?;
         let expected_machine: ExpectedMachineJson = serde_json::from_str(&file_content)?;
@@ -69,7 +69,7 @@ impl Run for Args {
                 expected_machine.bmc_ip_address,
                 expected_machine.bmc_retain_credentials,
                 expected_machine.host_lifecycle_profile.map(|hlp| {
-                    ::rpc::forge::HostLifecycleProfile {
+                    ::rpc::nico::HostLifecycleProfile {
                         disable_lockdown: hlp.disable_lockdown,
                     }
                 }),

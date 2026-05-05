@@ -20,7 +20,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use model::machine::ManagedHostState;
 use mqttea::{MqtteaClient, MqtteaClientError};
 use opentelemetry::metrics::Meter;
@@ -68,7 +68,7 @@ impl<T: MqttPublisher> MqttPublisher for Arc<T> {
 
 /// MQTT hook that publishes `ManagedHostState` changes to the MQTT broker.
 ///
-/// Implements the AsyncAPI specification in `carbide.yaml`, publishing to
+/// Implements the AsyncAPI specification in `nico.yaml`, publishing to
 /// `nico/v1/machine/{machineId}/state`.
 ///
 /// This hook maintains an internal queue and processes events in a background task.
@@ -84,8 +84,8 @@ impl MqttStateChangeHook {
     ///
     /// Spawns a background task to process queued events.
     /// Emits metrics:
-    /// - `forge_dsx_event_bus_publish_count`: Total number of MQTT publish attempts
-    /// - `forge_dsx_event_bus_queue_depth`: Current queue depth
+    /// - `nico_dsx_event_bus_publish_count`: Total number of MQTT publish attempts
+    /// - `nico_dsx_event_bus_queue_depth`: Current queue depth
     pub fn new<P: MqttPublisher>(
         client: P,
         join_set: &mut JoinSet<()>,
@@ -196,7 +196,7 @@ mod tests {
     }
 
     fn test_machine_id() -> MachineId {
-        use carbide_uuid::machine::{MachineIdSource, MachineType};
+        use nico_uuid::machine::{MachineIdSource, MachineType};
         MachineId::new(
             MachineIdSource::ProductBoardChassisSerial,
             [0; 32],

@@ -34,8 +34,8 @@ distro_release=
 serial_port=
 serial_port_num=
 log_output=
-forge_test_user=
-forge_test_pass=
+nico_test_user=
+nico_test_pass=
 update_grub_template="yes"
 update_grub_cfg="yes"
 
@@ -142,7 +142,7 @@ function get_distro_image() {
 function add_cloud_init() {
 	echo "fetching from cloud-init url: $cloud_init_url" | tee $log_output
 	if [ -d /mnt/etc/cloud/cloud.cfg.d ]; then
-		echo "datasource_list: [ NoCloud, None ]" | tee /mnt/etc/cloud/cloud.cfg.d/98-forge-dslist.cfg
+		echo "datasource_list: [ NoCloud, None ]" | tee /mnt/etc/cloud/cloud.cfg.d/98-nico-dslist.cfg
 		curl --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/99-user-data.cfg 2>&1 | tee $log_output
 	fi
 }
@@ -321,15 +321,15 @@ function mount_efi() {
 }
 
 function add_testing_user() {
-	if [ -z "$forge_test_user" ]; then
+	if [ -z "$nico_test_user" ]; then
 		return 0
 	fi
 	if [ ! -f "/mnt/etc/passwd" ]; then
 		return 0
 	fi
-	echo "useradd -s /bin/bash -d /home/$forge_test_user -m -G sudo $forge_test_user" > /mnt/test_user.sh 2>&1 | tee $log_output
-	echo "echo \"$forge_test_user:$forge_test_pass\" | chpasswd" >> /mnt/test_user.sh 2>&1 | tee $log_output
-	echo "passwd --expire $forge_test_user" >> /mnt/test_user.sh 2>&1 | tee $log_output
+	echo "useradd -s /bin/bash -d /home/$nico_test_user -m -G sudo $nico_test_user" > /mnt/test_user.sh 2>&1 | tee $log_output
+	echo "echo \"$nico_test_user:$nico_test_pass\" | chpasswd" >> /mnt/test_user.sh 2>&1 | tee $log_output
+	echo "passwd --expire $nico_test_user" >> /mnt/test_user.sh 2>&1 | tee $log_output
 	chmod +x /mnt/test_user.sh 2>&1 | tee $log_output
 	chroot /mnt /bin/sh -c ./test_user.sh 2>&1 | tee $log_output
 	rm -f /mnt/test_user.sh 2>&1 | tee $log_output
@@ -461,11 +461,11 @@ function main() {
 		if [ ! -z "$line" ]; then
 			cloud_init_url=$(echo $line|cut -d'=' -f3)
 		fi
-		line=$(echo $i|grep 'create_forge_test_user')
+		line=$(echo $i|grep 'create_nico_test_user')
 		if [ ! -z "$line" ]; then
 			user_pass=$(echo $line|cut -d'=' -f2)
-			forge_test_user=$(echo $user_pass|cut -d':' -f1)
-			forge_test_pass=$(echo $user_pass|cut -d':' -f2)
+			nico_test_user=$(echo $user_pass|cut -d':' -f1)
+			nico_test_pass=$(echo $user_pass|cut -d':' -f2)
 		fi
 		line=$(echo $i|grep 'rootfs_uuid')
 		if [ ! -z "$line" ]; then

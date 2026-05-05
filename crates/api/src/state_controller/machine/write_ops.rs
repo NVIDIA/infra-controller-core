@@ -18,7 +18,7 @@
 use std::net::IpAddr;
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use health_report::{HealthReport, HealthReportApplyMode};

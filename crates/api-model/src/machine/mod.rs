@@ -22,22 +22,22 @@ use std::ops::Deref;
 
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
-use carbide_uuid::machine_validation::MachineValidationId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::domain::DomainId;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use nico_uuid::machine_validation::MachineValidationId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use duration_str::deserialize_duration_chrono;
 use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
 use mac_address::MacAddress;
-use rpc::forge::HealthSourceOrigin;
-use rpc::forge_agent_control_response as fac;
+use rpc::nico::HealthSourceOrigin;
+use rpc::nico_agent_control_response as fac;
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -88,9 +88,9 @@ pub struct DpuInfo {
     pub loopback_ip: String,
 }
 
-impl From<DpuInfo> for rpc::forge::DpuInfo {
+impl From<DpuInfo> for rpc::nico::DpuInfo {
     fn from(info: DpuInfo) -> Self {
-        rpc::forge::DpuInfo {
+        rpc::nico::DpuInfo {
             id: info.id,
             loopback_ip: info.loopback_ip,
         }
@@ -471,7 +471,7 @@ impl ManagedHostStateSnapshot {
                 output.merge(&health_report);
             }
 
-            merge_or_timeout(&mut output, &health_report, "forge-dpu-agent".to_string());
+            merge_or_timeout(&mut output, &health_report, "nico-dpu-agent".to_string());
 
             for (source, over) in snapshot
                 .health_reports
@@ -524,10 +524,10 @@ impl ManagedHostStateSnapshot {
         &self,
         dpu_machine_id: Option<&MachineId>,
         sla_config: &slas::MachineSlaConfig,
-    ) -> Option<rpc::forge::Machine> {
+    ) -> Option<rpc::nico::Machine> {
         match dpu_machine_id {
             None => {
-                let mut rpc_machine: rpc::forge::Machine = self.host_snapshot.clone().into();
+                let mut rpc_machine: rpc::nico::Machine = self.host_snapshot.clone().into();
                 let state = &self.host_snapshot.state.value;
                 let version = &self.host_snapshot.state.version;
                 rpc_machine.health = Some(self.aggregate_health.clone().into());
@@ -548,7 +548,7 @@ impl ManagedHostStateSnapshot {
                     .dpu_snapshots
                     .iter()
                     .find(|dpu| dpu.id == *dpu_machine_id)?;
-                let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
+                let mut rpc_machine: rpc::nico::Machine = dpu_snapshot.clone().into();
                 // In case the DPU does not know the associated Host - we can backfill the data here
                 rpc_machine.associated_host_machine_id = Some(self.host_snapshot.id);
                 rpc_machine.state_sla = Some(
@@ -767,7 +767,7 @@ impl Default for MachineLastRebootRequested {
 #[derive(Debug, Clone)]
 pub struct Machine {
     /// The ID of the machine, this is an internal identifier in the database that's unique for
-    /// all machines managed by this instance of carbide.
+    /// all machines managed by this instance of nico.
     pub id: MachineId,
 
     /// The current state of the machine.
@@ -777,7 +777,7 @@ pub struct Machine {
     /// configuration. The latter will be tracked as part of the InstanceNetworkConfig.
     pub network_config: Versioned<ManagedHostNetworkConfig>,
 
-    /// The most recent status forge-dpu-agent observed. Tells us if network_config has been
+    /// The most recent status nico-dpu-agent observed. Tells us if network_config has been
     /// applied yet, and other useful things.
     pub network_status_observation: Option<MachineNetworkStatusObservation>,
 
@@ -820,7 +820,7 @@ pub struct Machine {
     /// Last time when host reprovision requested
     pub host_reprovision_requested: Option<HostReprovisionRequest>,
 
-    /// Does the forge-dpu-agent on this DPU need upgrading?
+    /// Does the nico-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
     /// All health report sources
@@ -952,7 +952,7 @@ impl HostProfile {
     }
 }
 
-impl From<Machine> for ::rpc::forge::dpf_state_response::DpfState {
+impl From<Machine> for ::rpc::nico::dpf_state_response::DpfState {
     fn from(value: Machine) -> Self {
         Self {
             machine_id: value.id.into(),
@@ -987,7 +987,7 @@ impl Machine {
         }
     }
 
-    /// Does the forge-dpu-agent on this DPU need upgrading?
+    /// Does the nico-dpu-agent on this DPU need upgrading?
     pub fn needs_agent_upgrade(&self) -> bool {
         self.dpu_agent_upgrade_requested
             .as_ref()
@@ -1005,7 +1005,7 @@ impl Machine {
         self.state.version
     }
 
-    /// Latest health report received from forge-dpu-agent.
+    /// Latest health report received from nico-dpu-agent.
     pub fn dpu_agent_health_report(&self) -> Option<&HealthReport> {
         self.health_reports
             .merges
@@ -1077,7 +1077,7 @@ impl Machine {
     /// If this machine is a DPU, returns whether the version of the
     /// given ManagedHostNetworkConfig (which is a host-level versioned
     /// config that is kept in sync across all DPUs on a host) has been
-    /// applied + reported back as same by the carbide-dpu-agent.
+    /// applied + reported back as same by the nico-dpu-agent.
     pub fn managed_host_network_config_version_synced(&self, host_version: ConfigVersion) -> bool {
         let dpu_observation = self.network_status_observation.as_ref();
 
@@ -1096,7 +1096,7 @@ impl Machine {
         host_version == dpu_observed_version
     }
 
-    pub fn instance_network_restrictions(&self) -> rpc::forge::InstanceNetworkRestrictions {
+    pub fn instance_network_restrictions(&self) -> rpc::nico::InstanceNetworkRestrictions {
         let inband_interfaces = self
             .interfaces
             .iter()
@@ -1106,9 +1106,9 @@ impl Machine {
         // If there are no HostInband interfaces, this currently means this machine has DPUs and is
         // not restricted to being in particular network segments
         if inband_interfaces.is_empty() {
-            return rpc::forge::InstanceNetworkRestrictions {
+            return rpc::nico::InstanceNetworkRestrictions {
                 network_segment_membership_type:
-                    rpc::forge::InstanceNetworkSegmentMembershipType::TenantConfigurable as i32,
+                    rpc::nico::InstanceNetworkSegmentMembershipType::TenantConfigurable as i32,
                 network_segment_ids: vec![],
             };
         }
@@ -1122,9 +1122,9 @@ impl Machine {
             .map(|iface| iface.segment_id)
             .collect::<HashSet<_>>();
 
-        rpc::forge::InstanceNetworkRestrictions {
+        rpc::nico::InstanceNetworkRestrictions {
             network_segment_membership_type:
-                rpc::forge::InstanceNetworkSegmentMembershipType::Static as i32,
+                rpc::nico::InstanceNetworkSegmentMembershipType::Static as i32,
             network_segment_ids: inband_network_segment_ids.into_iter().collect(),
         }
     }
@@ -1206,25 +1206,25 @@ impl Machine {
     }
 }
 
-pub struct RpcMachineTypeWrapper(rpc::forge::MachineType);
+pub struct RpcMachineTypeWrapper(rpc::nico::MachineType);
 
 impl From<MachineType> for RpcMachineTypeWrapper {
     fn from(value: MachineType) -> Self {
         RpcMachineTypeWrapper(match value {
-            MachineType::PredictedHost | MachineType::Host => rpc::forge::MachineType::Host,
-            MachineType::Dpu => rpc::forge::MachineType::Dpu,
+            MachineType::PredictedHost | MachineType::Host => rpc::nico::MachineType::Host,
+            MachineType::Dpu => rpc::nico::MachineType::Dpu,
         })
     }
 }
 
 impl Deref for RpcMachineTypeWrapper {
-    type Target = rpc::forge::MachineType;
+    type Target = rpc::nico::MachineType;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Machine> for rpc::forge::Machine {
+impl From<Machine> for rpc::nico::Machine {
     fn from(mut machine: Machine) -> Self {
         let health = match machine.is_dpu() {
             true => {
@@ -1370,7 +1370,7 @@ impl From<Machine> for rpc::forge::Machine {
             nvlink_status_observation: machine
                 .nvlink_status_observation
                 .map(|status| status.into()),
-            placement_in_rack: Some(rpc::forge::PlacementInRack {
+            placement_in_rack: Some(rpc::nico::PlacementInRack {
                 slot_number: machine.slot_number,
                 tray_index: machine.tray_index,
             }),
@@ -1670,9 +1670,9 @@ pub enum NetworkConfigUpdateState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum HostReprovisionState {
-    // deprecated, kept for backwards compatibility with existing database entries: FORGE-7975
+    // deprecated, kept for backwards compatibility with existing database entries: NICO-7975
     CheckingFirmware,
-    // deprecated, kept for backwards compatibility with existing database entries: FORGE-7975
+    // deprecated, kept for backwards compatibility with existing database entries: NICO-7975
     CheckingFirmwareRepeat,
     CheckingFirmwareV2 {
         firmware_type: Option<FirmwareComponentType>,
@@ -1907,7 +1907,7 @@ pub enum DpuInitState {
 
 /// DPF operator integration states.
 ///
-/// The DPF operator manages all internal provisioning logic. Carbide only
+/// The DPF operator manages all internal provisioning logic. Nico only
 /// declares the setup, waits for completion, and handles cleanup.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpfstate", rename_all = "lowercase")]
@@ -1918,11 +1918,11 @@ pub enum DpfState {
     /// Watcher callbacks drive transitions (DPU ready, reboot required).
     WaitingForReady {
         /// Current DPU phase detail from DPF SDK while Provisioning (for debugging/observability only).
-        /// Carbide should not care about non actionable DPF internal phases.
+        /// Nico should not care about non actionable DPF internal phases.
         #[serde(default)]
         phase_detail: Option<String>,
     },
-    /// DPU device reported ready by the DPF operator. Carbide
+    /// DPU device reported ready by the DPF operator. Nico
     /// waits for all DPUs to reach this state before proceeding.
     DeviceReady,
     /// Triggering reprovisioning via DPF operator.
@@ -2255,7 +2255,7 @@ pub struct HostReprovisionRequest {
 
 pub use crate::rack::RackFirmwareUpgradeStatus;
 
-/// Should a forge-dpu-agent upgrade itself?
+/// Should a nico-dpu-agent upgrade itself?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpgradeDecision {
     pub should_upgrade: bool,
@@ -2263,10 +2263,10 @@ pub struct UpgradeDecision {
     pub last_updated: DateTime<Utc>,
 }
 
-impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateStatus {
+impl From<ReprovisionRequest> for ::rpc::nico::InstanceUpdateStatus {
     fn from(value: ReprovisionRequest) -> Self {
-        ::rpc::forge::InstanceUpdateStatus {
-            module: ::rpc::forge::instance_update_status::Module::Dpu as i32,
+        ::rpc::nico::InstanceUpdateStatus {
+            module: ::rpc::nico::instance_update_status::Module::Dpu as i32,
             initiator: value.initiator,
             trigger_received_at: Some(value.requested_at.into()),
             update_triggered_at: value.started_at.map(|x| x.into()),
@@ -2615,7 +2615,7 @@ pub fn get_action_for_dpu_state(
                         dpu_machine_id = %dpu_machine_id,
                         machine_type = "DPU",
                         %state,
-                        "forge agent control",
+                        "nico agent control",
                     );
                     fac::Action::noop()
                 }
@@ -2637,7 +2637,7 @@ pub fn get_action_for_dpu_state(
                         dpu_machine_id = %dpu_machine_id,
                         machine_type = "DPU",
                         %state,
-                        "forge agent control",
+                        "nico agent control",
                     );
                     fac::Action::noop()
                 }
@@ -2649,7 +2649,7 @@ pub fn get_action_for_dpu_state(
                 dpu_machine_id = %dpu_machine_id,
                 machine_type = "DPU",
                 %state,
-                "forge agent control",
+                "nico agent control",
             );
             fac::Action::noop()
         }
@@ -2839,8 +2839,8 @@ pub struct MachineValidationFilter {
     pub contexts: Option<Vec<String>>,
 }
 
-impl From<rpc::forge_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
-    fn from(filter: rpc::forge_agent_control_response::MachineValidationFilter) -> Self {
+impl From<rpc::nico_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
+    fn from(filter: rpc::nico_agent_control_response::MachineValidationFilter) -> Self {
         Self {
             tags: filter.tags,
             allowed_tests: filter.allowed_tests,
@@ -3370,7 +3370,7 @@ mod tests {
             id: "dpu-123".to_string(),
             loopback_ip: "10.0.0.1".to_string(),
         };
-        let rpc_info: rpc::forge::DpuInfo = info.into();
+        let rpc_info: rpc::nico::DpuInfo = info.into();
         assert_eq!(rpc_info.id, "dpu-123");
         assert_eq!(rpc_info.loopback_ip, "10.0.0.1");
     }

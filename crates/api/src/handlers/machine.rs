@@ -20,10 +20,10 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_redfish::libredfish::RedfishAuth;
-use carbide_uuid::machine::MachineId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use ::rpc::nico as rpc;
+use nico_redfish::libredfish::RedfishAuth;
+use nico_uuid::machine::MachineId;
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use model::hardware_info::MachineNvLinkInfo;
@@ -32,7 +32,7 @@ use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHost
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
@@ -79,7 +79,7 @@ pub(crate) async fn find_machine_ids_by_bmc_ips(
 
 pub(crate) async fn find_machines_by_ids(
     api: &Api,
-    request: Request<::rpc::forge::MachinesByIdsRequest>,
+    request: Request<::rpc::nico::MachinesByIdsRequest>,
 ) -> Result<Response<::rpc::MachineList>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
@@ -90,13 +90,13 @@ pub(crate) async fn find_machines_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if machine_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if machine_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -135,13 +135,13 @@ pub(crate) async fn find_machine_state_histories(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if machine_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if machine_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -158,7 +158,7 @@ pub(crate) async fn find_machine_state_histories(
     for (machine_id, records) in results {
         response.histories.insert(
             machine_id,
-            ::rpc::forge::MachineStateHistoryRecords {
+            ::rpc::nico::MachineStateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -180,13 +180,13 @@ pub(crate) async fn find_machine_health_histories(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if machine_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if machine_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -195,12 +195,12 @@ pub(crate) async fn find_machine_health_histories(
         .start_time
         .map(chrono::DateTime::<chrono::Utc>::try_from)
         .transpose()
-        .map_err(|_| CarbideError::InvalidArgument("Invalid start_time timestamp".to_string()))?;
+        .map_err(|_| NicoError::InvalidArgument("Invalid start_time timestamp".to_string()))?;
     let end_time = request
         .end_time
         .map(chrono::DateTime::<chrono::Utc>::try_from)
         .transpose()
-        .map_err(|_| CarbideError::InvalidArgument("Invalid end_time timestamp".to_string()))?;
+        .map_err(|_| NicoError::InvalidArgument("Invalid end_time timestamp".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -217,7 +217,7 @@ pub(crate) async fn find_machine_health_histories(
     for (machine_id, records) in results {
         response.histories.insert(
             machine_id.to_string(),
-            ::rpc::forge::HealthHistoryRecords {
+            ::rpc::nico::HealthHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -242,7 +242,7 @@ pub(crate) async fn machine_set_auto_update(
     let Some(_machine) =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?
     else {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "machine",
             id: request.machine_id.unwrap_or_default().to_string(),
         }
@@ -271,14 +271,14 @@ pub(crate) async fn update_machine_metadata(
 
     // Prepare the metadata
     let metadata = match request.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     let (machine, mut txn) = api
         .load_machine(
@@ -292,7 +292,7 @@ pub(crate) async fn update_machine_metadata(
         .await?;
 
     let expected_version: config_version::ConfigVersion = match request.if_version_match {
-        Some(version) => version.parse().map_err(CarbideError::from)?,
+        Some(version) => version.parse().map_err(NicoError::from)?,
         None => machine.version,
     };
 
@@ -351,7 +351,7 @@ pub(crate) async fn admin_force_delete_machine(
     );
 
     if machine.instance_type_id.is_some() {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "association with instance type must be removed before deleting machine {}",
             &machine.id
         ))
@@ -532,13 +532,13 @@ pub(crate) async fn admin_force_delete_machine(
                 }
             } else {
                 tracing::warn!(
-                    "Failed to unlock this host because Forge could not retrieve the BMC MAC address for machine {}",
+                    "Failed to unlock this host because Nico could not retrieve the BMC MAC address for machine {}",
                     machine.id
                 );
             }
         } else {
             tracing::warn!(
-                "Failed to unlock this host because Forge could not retrieve the BMC IP address for machine {}",
+                "Failed to unlock this host because Nico could not retrieve the BMC IP address for machine {}",
                 machine.id
             );
         }
@@ -548,18 +548,18 @@ pub(crate) async fn admin_force_delete_machine(
         {
             let host_dpf_id = machine
                 .dpf_id()
-                .ok_or_else(|| CarbideError::internal("BMC MAC not set for host".to_string()))?;
+                .ok_or_else(|| NicoError::internal("BMC MAC not set for host".to_string()))?;
             let dpu_device_names: Vec<String> = dpu_machines
                 .iter()
                 .map(|d| {
                     d.dpf_id().ok_or_else(|| {
-                        CarbideError::internal("BMC MAC not set for DPU".to_string())
+                        NicoError::internal("BMC MAC not set for DPU".to_string())
                     })
                 })
                 .collect::<Result<_, _>>()?;
             ops.force_delete_host(&host_dpf_id, &dpu_device_names)
                 .await
-                .map_err(CarbideError::DpfError)?;
+                .map_err(NicoError::DpfError)?;
         }
     }
 
@@ -646,7 +646,7 @@ pub(crate) async fn admin_force_delete_machine(
                 secondary_overlay_vtep_ip,
             )
             .await
-            .map_err(CarbideError::from)?
+            .map_err(NicoError::from)?
         }
 
         db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id).await?;
@@ -743,7 +743,7 @@ fn snapshot_map_to_rpc_machines(
     result
 }
 
-async fn clear_bmc_credentials(api: &Api, machine: &Machine) -> Result<(), CarbideError> {
+async fn clear_bmc_credentials(api: &Api, machine: &Machine) -> Result<(), NicoError> {
     if let Some(mac_address) = machine.bmc_info.mac {
         tracing::info!(
             "Cleaning up BMC credentials in vault at {} for machine {}",
@@ -763,7 +763,7 @@ pub async fn get_machine_position_info(
     let request = request.into_inner();
 
     if request.machine_ids.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "At least one machine ID must be specified".to_string(),
         )
         .into());
@@ -841,10 +841,10 @@ pub(crate) async fn update_machine_nv_link_info(
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     let nvlink_info = request.nvlink_info.ok_or_else(|| {
-        CarbideError::from(RpcDataConversionError::MissingArgument("nvlink_info"))
+        NicoError::from(RpcDataConversionError::MissingArgument("nvlink_info"))
     })?;
 
-    let nvlink_info = MachineNvLinkInfo::try_from(nvlink_info).map_err(CarbideError::from)?;
+    let nvlink_info = MachineNvLinkInfo::try_from(nvlink_info).map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 

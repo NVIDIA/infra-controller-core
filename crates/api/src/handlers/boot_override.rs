@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineInterfaceId;
+use ::rpc::nico as rpc;
+use nico_uuid::machine::MachineInterfaceId;
 use model::machine_boot_override::MachineBootOverride;
 
 use crate::api::Api;

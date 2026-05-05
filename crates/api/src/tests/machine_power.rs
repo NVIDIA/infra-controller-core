@@ -14,13 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_redfish::libredfish::RedfishClientPool;
+use nico_redfish::libredfish::RedfishClientPool;
 use db::managed_host::load_snapshot;
 use db::{self};
 use model::machine::LoadSnapshotOptions;
 use model::power_manager::PowerState;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     MaintenanceOperation, MaintenanceRequest, PowerOptionRequest, PowerOptionUpdateRequest,
 };
 
@@ -59,7 +59,7 @@ async fn test_power_manager_create_entry_on_host_creation(
     env.api
         .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
             machine_id: Some(host_machine_id),
-            power_state: rpc::forge::PowerState::Off as i32,
+            power_state: rpc::nico::PowerState::Off as i32,
         }))
         .await?;
 
@@ -97,7 +97,7 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
         .api
         .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
             machine_id: Some(host_machine_id),
-            power_state: rpc::forge::PowerState::Off as i32,
+            power_state: rpc::nico::PowerState::Off as i32,
         }))
         .await;
 
@@ -113,7 +113,7 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
 }
 
 pub async fn update_next_try_now(
-    host_id: &::carbide_uuid::machine::MachineId,
+    host_id: &::nico_uuid::machine::MachineId,
     txn: &mut sqlx::PgConnection,
 ) {
     let query = "UPDATE power_options SET 
@@ -301,7 +301,7 @@ async fn test_power_manager_state_machine_desired_off_machine_off(
     env.api
         .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
             machine_id: Some(host_machine_id),
-            power_state: rpc::forge::PowerState::Off as i32,
+            power_state: rpc::nico::PowerState::Off as i32,
         }))
         .await?;
 

@@ -15,16 +15,16 @@
  * limitations under the License.
  */
 
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use forge_tls::client_config::ClientCert;
-pub use scout::{CarbideClientError, CarbideClientResult};
+use ::rpc::nico_tls_client::{self, ApiConfig, NicoClientConfig};
+use nico_tls::client_config::ClientCert;
+pub use scout::{NicoClientError, NicoClientResult};
 
 use crate::Options;
 
-pub(crate) async fn create_forge_client(
+pub(crate) async fn create_nico_client(
     config: &Options,
-) -> CarbideClientResult<forge_tls_client::ForgeClientT> {
-    let client_config = ForgeClientConfig::new(
+) -> NicoClientResult<nico_tls_client::NicoClientT> {
+    let client_config = NicoClientConfig::new(
         config.root_ca.clone(),
         Some(ClientCert {
             cert_path: config.client_cert.clone(),
@@ -33,8 +33,8 @@ pub(crate) async fn create_forge_client(
     );
     let api_config = ApiConfig::new(&config.api, &client_config);
 
-    let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
+    let client = nico_tls_client::NicoTlsClient::retry_build(&api_config)
         .await
-        .map_err(|err| CarbideClientError::TransportError(err.to_string()))?;
+        .map_err(|err| NicoClientError::TransportError(err.to_string()))?;
     Ok(client)
 }

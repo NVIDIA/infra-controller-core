@@ -46,11 +46,11 @@ pub static POWER_RESET_COMMAND: &str = "power reset";
 pub async fn spawn(config: Config) -> Result<SpawnHandle, SpawnError> {
     let config = Arc::new(config);
     let metrics = Arc::new(MetricsState::new());
-    let forge_api_client = config.make_forge_api_client();
+    let nico_api_client = config.make_nico_api_client();
 
     // 1) Start BMC client pool
     let mut bmc_client_pool =
-        bmc::client_pool::spawn(config.clone(), forge_api_client.clone(), &metrics.meter);
+        bmc::client_pool::spawn(config.clone(), nico_api_client.clone(), &metrics.meter);
     bmc_client_pool
         .wait_until_ready()
         .await
@@ -59,7 +59,7 @@ pub async fn spawn(config: Config) -> Result<SpawnHandle, SpawnError> {
     // 2) Start SSH server itself
     let server = ssh_server::spawn(
         config.clone(),
-        forge_api_client.clone(),
+        nico_api_client.clone(),
         bmc_client_pool.connection_store(),
         &metrics.meter,
     )

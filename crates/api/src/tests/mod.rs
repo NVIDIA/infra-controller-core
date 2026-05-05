@@ -127,7 +127,7 @@ mod web;
 pub use db::migrations::MIGRATOR;
 
 /// Make these symols available as crate::tests::MIGRATOR and crate::tests::sqlx_fixture_from_str,
-/// so that the [`carbide_macros::sqlx_test`] can delegate to them.
+/// so that the [`nico_macros::sqlx_test`] can delegate to them.
 pub use crate::tests::common::sqlx_fixtures::sqlx_fixture_from_str;
 
 /// Setup logging for tests.
@@ -156,14 +156,14 @@ fn setup_test_logging() {
                 .add_directive("hyper=warn".parse().unwrap())
                 .add_directive("h2=warn".parse().unwrap())
                 // Silence permissive mode related messages
-                .add_directive("carbide::auth=error".parse().unwrap()),
+                .add_directive("nico::auth=error".parse().unwrap()),
         )
         .try_init()
     {
         // Note: Resist the temptation to ignore this error. We really should only have one place in
         // the test binary that initializes logging.
         panic!(
-            "Failed to initialize trace logging for carbide-api tests. It's possible some earlier \
+            "Failed to initialize trace logging for nico-api tests. It's possible some earlier \
             code path has already set a global default log subscriber: {e}"
         );
     }

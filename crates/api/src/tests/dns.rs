@@ -16,10 +16,10 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use const_format::concatcp;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use sqlx::{Postgres, Row};
 
 use crate::tests::common;
@@ -372,7 +372,7 @@ async fn test_dns_aaaa_legacy(pool: sqlx::PgPool) {
 
     // Test the legacy RPC with q_type=1 (A record).
     let legacy_a_response = api
-        .lookup_record_legacy(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+        .lookup_record_legacy(tonic::Request::new(rpc::nico::dns_message::DnsQuestion {
             q_name: Some(adm_qname.clone()),
             q_class: Some(1),
             q_type: Some(1), // A
@@ -401,7 +401,7 @@ async fn test_dns_aaaa_legacy(pool: sqlx::PgPool) {
 
     // Test the legacy RPC with q_type=28 (AAAA record).
     let legacy_aaaa_response = api
-        .lookup_record_legacy(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+        .lookup_record_legacy(tonic::Request::new(rpc::nico::dns_message::DnsQuestion {
             q_name: Some(adm_qname.clone()),
             q_class: Some(1),
             q_type: Some(28), // AAAA

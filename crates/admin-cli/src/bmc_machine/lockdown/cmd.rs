@@ -15,21 +15,21 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge as forgerpc;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico as nicorpc;
 
 use super::args::Args;
 use crate::bmc_machine::common::AdminPowerControlAction;
 use crate::rpc::ApiClient;
 
-pub async fn lockdown(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn lockdown(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let machine = args.machine;
     let action = if args.enable {
-        forgerpc::LockdownAction::Enable
+        nicorpc::LockdownAction::Enable
     } else if args.disable {
-        forgerpc::LockdownAction::Disable
+        nicorpc::LockdownAction::Disable
     } else {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "Either --enable or --disable must be specified".to_string(),
         ));
     };

@@ -21,11 +21,11 @@ REPO_ROOT = { script = [
 PKG_VERSION = { script = [
   "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
 ] }
-FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
+NICO_CA_PATH = { value = "${REPO_ROOT}/dev/nico_prodroot.pem" }
 
 # BlueField Bundle (BFB) Version
 # NOTE: Update `crates/api/src/cfg/file.rs` to set the DOCA BFB component versions (BMC, NIC, CEC fw)
-# so that Carbide treats them as the expected DPU fw versions.
+# so that Nico treats them as the expected DPU fw versions.
 # There are several ways to get the DPU fw versions. After the initial test upgrade you can retrieve them from the DPU ARM OS
 # - using a Redfish call (pick values of BMC_Firmware for BF?_BMC, Bluefield_FW_ERoT for BF?_CEC, DPU_UEFI for BF?_UEFI, DPU_NIC for BF?_NIC):
 # `curl -sk -u DPU_BMC_USER:DPU_BMC_PASSWORD 'https://DPU_BMC_IP/redfish/v1/UpdateService/FirmwareInventory?$expand=.($levels=1)' \
@@ -77,8 +77,8 @@ script = '''
 [tasks.stage-disk_imaging-script]
 description = "Copies the disk_imaging.sh script to the qcow profile directories"
 script = '''
-  cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager/mkosi.extra/opt/forge/disk_imaging.sh
-  cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/forge/disk_imaging.sh
+  cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager/mkosi.extra/opt/nico/disk_imaging.sh
+  cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/nico/disk_imaging.sh
 '''
 
 [tasks.build-qcow-imager-x86]
@@ -239,8 +239,8 @@ category = "Ephemeral Image"
 dependencies = [
   "mkosi-remove-zypper-from-debian-tools",
   "mkosi-generate-build-tmpdir",
-  "copy-forge-scout-x86_64",
-  "copy-forge-prod-root-ca-x86_64",
+  "copy-nico-scout-x86_64",
+  "copy-nico-prod-root-ca-x86_64",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
@@ -262,8 +262,8 @@ dependencies = [
   "mkosi-remove-zypper-from-debian-tools",
   "mkdir-static",
   "mkosi-generate-build-tmpdir",
-  "copy-forge-scout-x86_64",
-  "copy-forge-dev-root-ca-x86_64",
+  "copy-nico-scout-x86_64",
+  "copy-nico-dev-root-ca-x86_64",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
@@ -284,8 +284,8 @@ category = "Ephemeral Image"
 dependencies = [
   "mkosi-remove-zypper-from-debian-tools",
   "mkosi-generate-build-tmpdir",
-  "copy-forge-scout-aarch64",
-  "copy-forge-prod-root-ca-aarch64",
+  "copy-nico-scout-aarch64",
+  "copy-nico-prod-root-ca-aarch64",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
@@ -307,8 +307,8 @@ dependencies = [
   "mkosi-remove-zypper-from-debian-tools",
   "mkdir-static",
   "mkosi-generate-build-tmpdir",
-  "copy-forge-scout-aarch64",
-  "copy-forge-dev-root-ca-aarch64",
+  "copy-nico-scout-aarch64",
+  "copy-nico-dev-root-ca-aarch64",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
@@ -339,71 +339,71 @@ category = "ipxe"
 script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/aarch64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
-  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu"
-  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/nico-dpu"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/nico-scout"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-amd64"
   mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output"
   mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output"
 '''
 
-[tasks.copy-forge-prod-root-ca-x86_64]
+[tasks.copy-nico-prod-root-ca-x86_64]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
-category = "Copy Forge Root CA in CI"
+category = "Copy Nico Root CA in CI"
 command = "cp"
 args = [
   "-f",
-  "${FORGE_CA_PATH}",
-  "mkosi.profiles/scout-oss-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+  "${NICO_CA_PATH}",
+  "mkosi.profiles/scout-oss-x86_64/mkosi.extra/opt/nico/nico_root.pem",
 ]
 
-[tasks.copy-forge-prod-root-ca-aarch64]
+[tasks.copy-nico-prod-root-ca-aarch64]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
-category = "Copy Forge Root CA in CI"
+category = "Copy Nico Root CA in CI"
 command = "cp"
 args = [
   "-f",
-  "${FORGE_CA_PATH}",
-  "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+  "${NICO_CA_PATH}",
+  "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/nico/nico_root.pem",
 ]
 
-[tasks.copy-forge-dev-root-ca-x86_64]
+[tasks.copy-nico-dev-root-ca-x86_64]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
-category = "Copy Forge Root CA"
+category = "Copy Nico Root CA"
 command = "cp"
 args = [
   "-f",
-  "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-  "mkosi.profiles/scout-oss-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+  "${REPO_ROOT}/dev/certs/nico_developer_local_only_root_cert_pem",
+  "mkosi.profiles/scout-oss-x86_64/mkosi.extra/opt/nico/nico_root.pem",
 ]
 
-[tasks.copy-forge-dev-root-ca-aarch64]
+[tasks.copy-nico-dev-root-ca-aarch64]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
-category = "Copy Forge Root CA"
+category = "Copy Nico Root CA"
 command = "cp"
 args = [
   "-f",
-  "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-  "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+  "${REPO_ROOT}/dev/certs/nico_developer_local_only_root_cert_pem",
+  "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/nico/nico_root.pem",
 ]
 
-[tasks.copy-forge-scout-x86_64]
-category = "Copy Forge Scout locally"
+[tasks.copy-nico-scout-x86_64]
+category = "Copy Nico Scout locally"
 script = '''
   PROFILE="scout-oss-x86_64"
   mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
-  cp ${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb \
-  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/forge-scout.deb
+  cp ${REPO_ROOT}/target/debs/nico-scout_${PKG_VERSION}_amd64.deb \
+  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/nico-scout.deb
 '''
 dependencies = ["mkdir-static"]
 
-[tasks.copy-forge-scout-aarch64]
-category = "Copy Forge Scout locally"
+[tasks.copy-nico-scout-aarch64]
+category = "Copy Nico Scout locally"
 script = '''
   PROFILE="scout-oss-aarch64"
   mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
-  cp ${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_arm64.deb \
-  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/forge-scout.deb
+  cp ${REPO_ROOT}/target/debs/nico-scout_${PKG_VERSION}_arm64.deb \
+  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/nico-scout.deb
 '''
 dependencies = ["mkdir-static"]
 
@@ -589,7 +589,7 @@ dependencies = ["mkdir-static"]
 
 [tasks.ipxe-x86_64]
 category = "iPXE Kernel"
-description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
+description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the nico static webroot"
 dependencies = [
   "ipxe-config",
   "ipxe-patch-measured-boot",
@@ -599,7 +599,7 @@ dependencies = [
 
 [tasks.ipxe-config]
 category = "iPXE Kernel"
-description = "Copy the Carbide specific iPXE config headers to the input directory"
+description = "Copy the Nico specific iPXE config headers to the input directory"
 script = "cp ipxe/local/*.h ipxe/upstream/src/config/local/"
 
 [tasks.ipxe-patch-mlnx]
@@ -681,7 +681,7 @@ dependencies = ["ipxe-build-efi-x86_64"]
 
 [tasks.ipxe-aarch64]
 category = "iPXE Kernel"
-description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+description = "Build iPXE kernel for aarch64 (EFI) and move to the nico static webroot"
 dependencies = [
   "ipxe-config",
   "ipxe-patch-mlnx",
@@ -692,7 +692,7 @@ dependencies = [
 
 [tasks.ipxe-aarch64-ci]
 category = "iPXE Kernel"
-description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+description = "Build iPXE kernel for aarch64 (EFI) and move to the nico static webroot"
 dependencies = [
   "ipxe-config",
   "ipxe-patch-mlnx",
@@ -823,7 +823,7 @@ run_task = [
 
 [tasks.internal-bfb-aarch64-sa]
 category = "iPXE Kernel"
-description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+description = "Build iPXE kernel for aarch64 (EFI) and move to the nico static webroot"
 dependencies = [
   "bfb-cleanup-tmp",
   "bfb-create-tmp",
@@ -838,14 +838,14 @@ dependencies = [
   "bfb-add-scout-to-bfb-ci",
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
-  "bfb-add-prod-forge-root-ca-to-bfb",
+  "bfb-add-prod-nico-root-ca-to-bfb",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
   "mv-hbn-scripts-to-bfb",
   "cleanup-hbn-scripts",
-  { name = "build-forge-dpu-deb-local", path = "${REPO_ROOT}/bluefield" },
-  "cp-forge-dpu-package-to-bfb",
+  { name = "build-nico-dpu-deb-local", path = "${REPO_ROOT}/bluefield" },
+  "cp-nico-dpu-package-to-bfb",
   "bfb-copy-efi-sa",
   "bfb-remove-extracted-efi",
   "replace-bfpxe-script",
@@ -855,7 +855,7 @@ dependencies = [
 ]
 [tasks.internal-bfb-aarch64-ci]
 category = "iPXE Kernel"
-description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+description = "Build iPXE kernel for aarch64 (EFI) and move to the nico static webroot"
 dependencies = [
   "bfb-cleanup-tmp",
   "bfb-create-tmp",
@@ -870,14 +870,14 @@ dependencies = [
   "bfb-add-scout-to-bfb-ci",
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
-  "bfb-add-prod-forge-root-ca-to-bfb",
+  "bfb-add-prod-nico-root-ca-to-bfb",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
   "mv-hbn-scripts-to-bfb",
   "cleanup-hbn-scripts",
-  { name = "build-forge-dpu-deb-ci", path = "${REPO_ROOT}/bluefield" },
-  "cp-forge-dpu-package-to-bfb",
+  { name = "build-nico-dpu-deb-ci", path = "${REPO_ROOT}/bluefield" },
+  "cp-nico-dpu-package-to-bfb",
   "bfb-copy-efi",
   "bfb-remove-extracted-efi",
   "replace-bfpxe-script",
@@ -888,7 +888,7 @@ dependencies = [
 
 [tasks.internal-bfb-aarch64]
 category = "iPXE Kernel"
-description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+description = "Build iPXE kernel for aarch64 (EFI) and move to the nico static webroot"
 workspace = false
 dependencies = [
   "bfb-cleanup-tmp",
@@ -904,14 +904,14 @@ dependencies = [
   "bfb-add-scout-to-bfb",
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
-  "bfb-add-dev-forge-root-ca-to-bfb",
+  "bfb-add-dev-nico-root-ca-to-bfb",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
   "mv-hbn-scripts-to-bfb",
   "cleanup-hbn-scripts",
-  { name = "build-forge-dpu-deb-local", path = "${REPO_ROOT}/bluefield" },
-  "cp-forge-dpu-package-to-bfb",
+  { name = "build-nico-dpu-deb-local", path = "${REPO_ROOT}/bluefield" },
+  "cp-nico-dpu-package-to-bfb",
   "bfb-copy-efi",
   "bfb-remove-extracted-efi",
   "replace-bfpxe-script",
@@ -996,21 +996,21 @@ command = "tar"
 args = ["xJf", "ubuntu/image.tar.xz", "./usr/sbin/ifconfig"]
 cwd = "${BUILD_LOCATION}"
 
-[tasks.bfb-add-prod-forge-root-ca-to-bfb]
+[tasks.bfb-add-prod-nico-root-ca-to-bfb]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
-description = "Add the Forge Root CA to the BFB"
+description = "Add the Nico Root CA to the BFB"
 command = "cp"
-args = ["${FORGE_CA_PATH}", "${BUILD_LOCATION}/forge_root.pem"]
+args = ["${NICO_CA_PATH}", "${BUILD_LOCATION}/nico_root.pem"]
 
-[tasks.bfb-add-dev-forge-root-ca-to-bfb]
+[tasks.bfb-add-dev-nico-root-ca-to-bfb]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
-description = "Add the Forge Root CA to the BFB"
+description = "Add the Nico Root CA to the BFB"
 command = "cp"
 args = [
-  "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-  "${BUILD_LOCATION}/forge_root.pem",
+  "${REPO_ROOT}/dev/certs/nico_developer_local_only_root_cert_pem",
+  "${BUILD_LOCATION}/nico_root.pem",
 ]
 
 [tasks.cleanup-old-debs]
@@ -1054,7 +1054,7 @@ category = "iPXE Kernel"
 description = "Add the scout to the BFB"
 command = "cp"
 args = [
-  "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
+  "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/nico-scout",
   "${BUILD_LOCATION}",
 ]
 
@@ -1063,7 +1063,7 @@ category = "iPXE Kernel"
 description = "Add the scout to the BFB"
 command = "cp"
 args = [
-  "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
+  "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/nico-scout",
   "${BUILD_LOCATION}",
 ]
 dependencies = [
@@ -1139,24 +1139,24 @@ command = "rm"
 args = ["-rf", "temp"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
-[tasks.cp-forge-dpu-package-to-bfb]
+[tasks.cp-nico-dpu-package-to-bfb]
 category = "iPXE Kernel"
 description = "Copy aarch64 EFI iPXE debian file"
 command = "cp"
 args = [
-  "${REPO_ROOT}/target/debs/forge-dpu_${PKG_VERSION}_arm64.deb",
-  "${BUILD_LOCATION}/forge-dpu.deb",
+  "${REPO_ROOT}/target/debs/nico-dpu_${PKG_VERSION}_arm64.deb",
+  "${BUILD_LOCATION}/nico-dpu.deb",
 ]
 
 [tasks.setup-apt-repo-arm64]
 category = "iPXE Kernel"
 dependencies = ["mkdir-static"]
-description = "Setup apt repo for arm64 forge-dpu and forge-scout package"
+description = "Setup apt repo for arm64 nico-dpu and nico-scout package"
 script = '''
-  cp "${REPO_ROOT}/target/debs/forge-dpu_${PKG_VERSION}_arm64.deb" \
-  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu/"
-  cp "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_arm64.deb" \
-  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout/"
+  cp "${REPO_ROOT}/target/debs/nico-dpu_${PKG_VERSION}_arm64.deb" \
+  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/nico-dpu/"
+  cp "${REPO_ROOT}/target/debs/nico-scout_${PKG_VERSION}_arm64.deb" \
+  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/nico-scout/"
 
   cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
   dpkg-scanpackages -a arm64 -m pool > dists/focal/main/binary-arm64/Packages
@@ -1168,7 +1168,7 @@ Version: 20.04
 Codename: focal
 Architectures: arm64
 Components: main
-Description: Forge apt repo" > Release
+Description: Nico apt repo" > Release
   echo "Date: `LANG=C date -Ru`" >> Release
   echo 'SHA256:' >> Release
   find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
@@ -1184,10 +1184,10 @@ Architecture: arm64" > Release
 [tasks.setup-apt-repo-amd64]
 category = "iPXE Kernel"
 dependencies = ["mkdir-static"]
-description = "Setup apt repo for amd64 forge-scout package"
+description = "Setup apt repo for amd64 nico-scout package"
 script = '''
-  cp "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb" \
-  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout/"
+  cp "${REPO_ROOT}/target/debs/nico-scout_${PKG_VERSION}_amd64.deb" \
+  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/nico-scout/"
 
   cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
   dpkg-scanpackages --arch amd64 -m pool > dists/focal/main/binary-amd64/Packages
@@ -1199,7 +1199,7 @@ Version: 20.04
 Codename: focal
 Architectures: amd64
 Components: main
-Description: Forge apt repo" > Release
+Description: Nico apt repo" > Release
   echo "Date: `LANG=C date -Ru`" >> Release
   echo 'SHA256:' >> Release
   find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
@@ -1220,9 +1220,9 @@ script = '''
   # Check that efi kernel is compressed
   efi_kernel="/tmp/bfb-dump/dump-image-v0"
   if file -b "$efi_kernel" | grep -q 'LZMA compressed data'; then
-    xz --format=lzma -d "$efi_kernel" -c > carbide.efi
+    xz --format=lzma -d "$efi_kernel" -c > nico.efi
   else
-    cp "$efi_kernel" carbide.efi
+    cp "$efi_kernel" nico.efi
   fi
 '''
 cwd = "static/blobs/internal/aarch64"
@@ -1236,9 +1236,9 @@ script = '''
   # Check that efi kernel is compressed
   efi_kernel="/tmp/bfb-dump/dump-image-v0"
   if file -b "$efi_kernel" | grep -q 'LZMA compressed data'; then
-    xz --format=lzma -d "$efi_kernel" -c > carbide.efi
+    xz --format=lzma -d "$efi_kernel" -c > nico.efi
   else
-    cp "$efi_kernel" carbide.efi
+    cp "$efi_kernel" nico.efi
   fi
 '''
 cwd = "static/blobs/internal/aarch64"
@@ -1281,7 +1281,7 @@ cwd = "${BUILD_LOCATION}"
 category = "iPXE Kernel"
 description = "Copy the BFB root fs on aarch64 gitlab runner"
 command = "cp"
-args = ["/tmp/bfb-dump/dump-initramfs-v0", "carbide.root"]
+args = ["/tmp/bfb-dump/dump-initramfs-v0", "nico.root"]
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-create-bfb]
@@ -1294,7 +1294,7 @@ args = [
   "--initramfs",
   "/tmp/bfb-dump/dump-initramfs-v0",
   "/tmp/bfb-dump/${BFB_NAME}",
-  "forge_tmp.bfb",
+  "nico_tmp.bfb",
 ]
 cwd = "static/blobs/internal/aarch64"
 
@@ -1312,10 +1312,10 @@ script = '''
     set -e
     dhclient oob_net0
     cd /mnt/tmp/
-    curl http://carbide-pxe.forge/api/v0/cloud-init/user-data -o user_data.sh
+    curl http://nico-pxe.nico/api/v0/cloud-init/user-data -o user_data.sh
     sed -i '/ZOF/d' user_data.sh
     source user_data.sh
-    carbide_modify_os
+    nico_modify_os
   }" >> bf.cfg
 '''
 cwd = "static/blobs/internal/aarch64"
@@ -1325,8 +1325,8 @@ category = "iPXE Kernel"
 dependencies = ["bfb-create-bfb", "bfb-add-custom_action"]
 description = "Rebuild BFB with modified FS"
 script = '''
-cat forge_tmp.bfb bf.cfg > forge.bfb
-rm forge_tmp.bfb
+cat nico_tmp.bfb bf.cfg > nico.bfb
+rm nico_tmp.bfb
 '''
 cwd = "static/blobs/internal/aarch64"
 

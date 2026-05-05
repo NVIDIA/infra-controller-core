@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::db::work_lock_manager::WorkLockManagerHandle;
-use carbide_utils::periodic_timer::PeriodicTimer;
+use nico_utils::periodic_timer::PeriodicTimer;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -30,7 +30,7 @@ use crate::io::StateControllerIO;
 
 /// Periodically enqueues state handling tasks for all objects that are managed by the
 /// state controller.
-/// The task is guaranteed to only run on a single carbide instance at a time.
+/// The task is guaranteed to only run on a single nico instance at a time.
 pub(super) struct PeriodicEnqueuer<IO: StateControllerIO> {
     /// A database connection pool that can be used for additional queries
     pub(super) pool: sqlx::PgPool,

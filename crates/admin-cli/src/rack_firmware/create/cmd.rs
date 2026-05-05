@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, OutputFormat};
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -25,8 +25,8 @@ pub async fn create(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
-    let request: rpc::forge::RackFirmwareCreateRequest = opts.try_into()?;
+) -> Result<(), NicoCliError> {
+    let request: rpc::nico::RackFirmwareCreateRequest = opts.try_into()?;
     let result = api_client.0.create_rack_firmware(request).await?;
 
     if format == OutputFormat::Json {

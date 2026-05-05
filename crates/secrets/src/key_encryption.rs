@@ -164,7 +164,7 @@ pub fn decrypt(
 /// Computes key_id as hex(sha256(public_key)).
 /// Works with any public key representation (PEM, DER, etc.).
 ///
-/// API domain code should prefer `KeyId::from_public_key_material` in `carbide-api-model`, which
+/// API domain code should prefer `KeyId::from_public_key_material` in `nico-api-model`, which
 /// delegates to this function (one implementation).
 pub fn key_id_from_public_key(public_key: &str) -> String {
     let hash = Sha256::digest(public_key.as_bytes());
@@ -173,7 +173,7 @@ pub fn key_id_from_public_key(public_key: &str) -> String {
 
 /// Generates an ES256 (ECDSA P-256) signing key pair (PKCS#8 private + SPKI public PEM via `p256`).
 ///
-/// The public PEM matches `p256::PublicKey::from_public_key_pem` (same as carbide-api JWKS).
+/// The public PEM matches `p256::PublicKey::from_public_key_pem` (same as nico-api JWKS).
 /// Returns (private_key_pem_bytes, public_key_pem).
 pub fn generate_es256_key_pair() -> Result<(Vec<u8>, String), KeyEncryptionError> {
     let secret_key = SecretKey::random(&mut OsRng);

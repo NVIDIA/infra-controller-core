@@ -54,7 +54,7 @@
         enable: on
       policy:
         prefix-list:
-          FORGE_FROM_UNDERLAY:
+          NICO_FROM_UNDERLAY:
             rule:
               '10':
                 action: permit
@@ -211,4 +211,4 @@
                   ipv4-unicast:
                     policy:
                       inbound:
-                        prefix-list: FORGE_FROM_UNDERLAY
+                        prefix-list: NICO_FROM_UNDERLAY

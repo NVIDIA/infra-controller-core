@@ -20,14 +20,14 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use ::rpc::forge::forge_server::Forge;
-use ::rpc::forge::{
+use ::rpc::nico::nico_server::Nico;
+use ::rpc::nico::{
     AdminForceDeleteMachineRequest, IbPartitionStatus, InstancesByIdsRequest, TenantState,
 };
-use carbide_ib_fabric::config::IBFabricConfig;
-use carbide_ib_fabric::ib::{self, IBFabricManager};
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::machine::{MachineId, MachineType};
+use nico_ib_fabric::config::IBFabricConfig;
+use nico_ib_fabric::ib::{self, IBFabricManager};
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::machine::{MachineId, MachineType};
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::host_discover_dhcp;
 use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
@@ -51,7 +51,7 @@ use crate::tests::common;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(rpc::nico::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![ib_partition_id],
             include_history: false,
         }))
@@ -235,7 +235,7 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
     // The MachineInterface for the host should now exist and be linked to the DPU
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(rpc::nico::InterfaceSearchQuery {
             id: Some(host_machine_interface_id),
             ip: None,
         }))
@@ -262,7 +262,7 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
     // The MachineInterface for the host should still exist
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(rpc::nico::InterfaceSearchQuery {
             id: Some(host_machine_interface_id),
             ip: None,
         }))
@@ -277,7 +277,7 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
 async fn force_delete(
     env: &TestEnv,
     machine_id: &MachineId,
-) -> rpc::forge::AdminForceDeleteMachineResponse {
+) -> rpc::nico::AdminForceDeleteMachineResponse {
     env.api
         .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
             host_query: machine_id.to_string(),
@@ -291,7 +291,7 @@ async fn force_delete(
 }
 
 fn validate_delete_response(
-    response: &rpc::forge::AdminForceDeleteMachineResponse,
+    response: &rpc::nico::AdminForceDeleteMachineResponse,
     host_machine_id: Option<&MachineId>,
     dpu_machine_id: &MachineId,
 ) {
@@ -311,9 +311,9 @@ fn validate_delete_response(
 }
 
 fn validate_delete_response_multi_dpu(
-    response: &rpc::forge::AdminForceDeleteMachineResponse,
+    response: &rpc::nico::AdminForceDeleteMachineResponse,
     host_machine_id: Option<&MachineId>,
-    dpu_machine_ids: &[carbide_uuid::machine::MachineId],
+    dpu_machine_ids: &[nico_uuid::machine::MachineId],
 ) {
     assert_eq!(
         response
@@ -478,9 +478,9 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     );
     assert_eq!(ib_fabric.find_ib_port(None).await.unwrap().len(), 6);
 
-    let ib_config = rpc::forge::InstanceInfinibandConfig {
-        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
-            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+    let ib_config = rpc::nico::InstanceInfinibandConfig {
+        ib_interfaces: vec![rpc::nico::InstanceIbInterfaceConfig {
+            function_type: rpc::nico::InterfaceFunctionType::Physical as i32,
             virtual_function_id: None,
             ib_partition_id: Some(ib_partition_id),
             device: "MT2910 Family [ConnectX-7]".to_string(),
@@ -566,7 +566,7 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
 
     assert!(
         env.api
-            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
                 machine_ids: dpu_ids.clone(),
                 ..Default::default()
             }))
@@ -594,7 +594,7 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
         .dpu_ids
         .clone()
         .into_iter()
-        .collect::<Vec<carbide_uuid::machine::MachineId>>();
+        .collect::<Vec<nico_uuid::machine::MachineId>>();
     assert_eq!(
         mh.dpu_ids.len(),
         2,
@@ -603,7 +603,7 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
 
     assert!(
         env.api
-            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
                 machine_ids: rpc_dpu_ids.clone(),
                 ..Default::default()
             }))
@@ -657,7 +657,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    // 3) verify instance's tenant state is rpc::forge::TenantState::Terminating
+    // 3) verify instance's tenant state is rpc::nico::TenantState::Terminating
     let request_instances = tonic::Request::new(InstancesByIdsRequest {
         instance_ids: vec![tinstance.id],
     });
@@ -679,7 +679,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
         .as_ref()
         .unwrap()
         .state();
-    let expected_tenant_state = rpc::forge::TenantState::Terminating;
+    let expected_tenant_state = rpc::nico::TenantState::Terminating;
     assert_eq!(
         current_tenant_state, expected_tenant_state,
         "The instance has a tenant state of {current_tenant_state:#?} instead of {expected_tenant_state:#?}"
@@ -698,7 +698,7 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            rpc::nico::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: instance_type_id.clone(),
                 machine_ids: vec![tmp_machine_id.to_string()],
             },
@@ -722,7 +722,7 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
     let _ = env
         .api
         .remove_machine_instance_type_association(tonic::Request::new(
-            rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
+            rpc::nico::RemoveMachineInstanceTypeAssociationRequest {
                 machine_id: tmp_machine_id.to_string(),
             },
         ))
@@ -751,7 +751,7 @@ async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
     mock.expect_is_reboot_required().returning(|_| Ok(false));
     mock.expect_verify_node_labels().returning(|_| Ok(true));
     mock.expect_get_dpu_phase()
-        .returning(|_, _| Ok(carbide_dpf::DpuPhase::Ready));
+        .returning(|_, _| Ok(nico_dpf::DpuPhase::Ready));
 
     let cap = captured_calls.clone();
     mock.expect_force_delete_host()

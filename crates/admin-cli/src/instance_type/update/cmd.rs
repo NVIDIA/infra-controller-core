@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::{
     FindInstanceTypesByIdsRequest, InstanceTypeAttributes, UpdateInstanceTypeRequest,
 };
 
@@ -31,7 +31,7 @@ pub async fn update(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
     let id = args.id;
@@ -46,7 +46,7 @@ pub async fn update(
         .await?
         .instance_types
         .pop()
-        .ok_or(CarbideCliError::Empty)?;
+        .ok_or(NicoCliError::Empty)?;
 
     let mut metadata = itype.metadata.unwrap_or_default();
 
@@ -81,12 +81,12 @@ pub async fn update(
         })
         .await?
         .instance_type
-        .ok_or(CarbideCliError::Empty)?;
+        .ok_or(NicoCliError::Empty)?;
 
     if is_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&itype).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&itype).map_err(NicoCliError::JsonError)?
         );
     } else {
         convert_itypes_to_table(&[itype], true)?.printstd();

@@ -17,7 +17,7 @@
 
 use std::time::Duration;
 
-use carbide_firmware::FirmwareConfig;
+use nico_firmware::FirmwareConfig;
 
 #[derive(Clone)]
 pub struct PreingestionManagerConfig {

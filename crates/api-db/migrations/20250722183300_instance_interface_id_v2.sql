@@ -1,7 +1,7 @@
 --- 20250722183300_instance_interface_id_v2.sql
 ---
 --- This migration is an enhancement on 20250711040508_instance_interface_id.sql
---- and was created in response to https://jirasw.nvidia.com/browse/FORGE-6604.
+--- and was created in response to https://jirasw.nvidia.com/browse/NICO-6604.
 ---
 --- The key enhancements here are:
 --- 1) It generates a unique UUID for each interface. While technically it only

@@ -29,7 +29,7 @@ use crate::{
 };
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
-/// state we get from carbide like IP addresses or machine ID's.) Intended to be immutable and
+/// state we get from nico like IP addresses or machine ID's.) Intended to be immutable and
 /// easily cloneable.
 #[derive(Debug, Clone)]
 pub enum MachineInfo {

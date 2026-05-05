@@ -18,32 +18,32 @@
 use std::io;
 use std::io::Write;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 use clap::CommandFactory;
 
 use super::args::Shell;
 use crate::cfg::cli_options::CliOptions;
 
-pub fn generate(shell: Shell) -> CarbideCliResult<()> {
+pub fn generate(shell: Shell) -> NicoCliResult<()> {
     let mut cmd = CliOptions::command();
     match shell {
         Shell::Bash => {
             clap_complete::generate(
                 clap_complete::shells::Bash,
                 &mut cmd,
-                "forge-admin-cli",
+                "nico-admin-cli",
                 &mut io::stdout(),
             );
             // Make completion work for alias `fa`
             io::stdout().write_all(
-                b"complete -F _forge-admin-cli -o nosort -o bashdefault -o default fa\n",
+                b"complete -F _nico-admin-cli -o nosort -o bashdefault -o default fa\n",
             )?;
         }
         Shell::Fish => {
             clap_complete::generate(
                 clap_complete::shells::Fish,
                 &mut cmd,
-                "forge-admin-cli",
+                "nico-admin-cli",
                 &mut io::stdout(),
             );
         }
@@ -51,7 +51,7 @@ pub fn generate(shell: Shell) -> CarbideCliResult<()> {
             clap_complete::generate(
                 clap_complete::shells::Zsh,
                 &mut cmd,
-                "forge-admin-cli",
+                "nico-admin-cli",
                 &mut io::stdout(),
             );
         }

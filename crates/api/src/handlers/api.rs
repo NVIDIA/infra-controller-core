@@ -19,11 +19,11 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use ::rpc::forge as rpc;
-use carbide_utils::HostPortPair;
+use ::rpc::nico as rpc;
+use nico_utils::HostPortPair;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 
 pub(crate) fn version(
@@ -34,12 +34,12 @@ pub(crate) fn version(
     let version_request = request.into_inner();
 
     let v = rpc::BuildInfo {
-        build_version: carbide_version::v!(build_version).to_string(),
-        build_date: carbide_version::v!(build_date).to_string(),
-        git_sha: carbide_version::v!(git_sha).to_string(),
-        rust_version: carbide_version::v!(rust_version).to_string(),
-        build_user: carbide_version::v!(build_user).to_string(),
-        build_hostname: carbide_version::v!(build_hostname).to_string(),
+        build_version: nico_version::v!(build_version).to_string(),
+        build_date: nico_version::v!(build_date).to_string(),
+        git_sha: nico_version::v!(git_sha).to_string(),
+        rust_version: nico_version::v!(rust_version).to_string(),
+        build_user: nico_version::v!(build_user).to_string(),
+        build_hostname: nico_version::v!(build_hostname).to_string(),
 
         runtime_config: if version_request.display_config {
             Some(api.runtime_config.redacted().into())
@@ -73,11 +73,11 @@ pub(crate) fn set_dynamic_config(
     let req = request.into_inner();
     let exp_str = req.expiry.as_deref().unwrap_or("1h");
     let expiry = duration_str::parse(exp_str).map_err(|err| {
-        CarbideError::InvalidArgument(format!("Invalid expiry string '{exp_str}'. {err}"))
+        NicoError::InvalidArgument(format!("Invalid expiry string '{exp_str}'. {err}"))
     })?;
     const MAX_SET_INTERNAL_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
     if MAX_SET_INTERNAL_EXPIRY < expiry {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Expiry exceeds max allowed of 60 hours".to_string(),
         )
         .into());
@@ -85,7 +85,7 @@ pub(crate) fn set_dynamic_config(
     let expire_at = chrono::Utc::now() + expiry;
 
     let Ok(requested_setting) = rpc::ConfigSetting::try_from(req.setting) else {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Not a supported dynamic config setting: {}",
             req.setting
         ))
@@ -93,14 +93,14 @@ pub(crate) fn set_dynamic_config(
     };
 
     if req.value.is_empty() && !matches!(requested_setting, rpc::ConfigSetting::BmcProxy) {
-        return Err(CarbideError::InvalidArgument("'value' cannot be empty".to_string()).into());
+        return Err(NicoError::InvalidArgument("'value' cannot be empty".to_string()).into());
     }
 
     match requested_setting {
         rpc::ConfigSetting::LogFilter => {
             let level = &api.dynamic_settings.log_filter;
             level.update(&req.value, Some(expire_at)).map_err(|err| {
-                CarbideError::InvalidArgument(format!(
+                NicoError::InvalidArgument(format!(
                     "Invalid log filter string '{}'. {err}",
                     req.value
                 ))
@@ -113,7 +113,7 @@ pub(crate) fn set_dynamic_config(
         }
         rpc::ConfigSetting::CreateMachines => {
             let is_enabled = req.value.parse::<bool>().map_err(|err| {
-                CarbideError::InvalidArgument(format!(
+                NicoError::InvalidArgument(format!(
                     "Invalid create_machines string '{}'. {err}",
                     req.value
                 ))
@@ -125,7 +125,7 @@ pub(crate) fn set_dynamic_config(
         }
         rpc::ConfigSetting::SiteExplorerEnabled => {
             let is_enabled = req.value.parse::<bool>().map_err(|err| {
-                CarbideError::InvalidArgument(format!(
+                NicoError::InvalidArgument(format!(
                     "Invalid site_explorer_enabled string '{}'. {err}",
                     req.value
                 ))
@@ -137,7 +137,7 @@ pub(crate) fn set_dynamic_config(
         }
         rpc::ConfigSetting::BmcProxy => {
             let Some(true) = api.runtime_config.site_explorer.allow_changing_bmc_proxy else {
-                return Err(CarbideError::PermissionDeniedError(
+                return Err(NicoError::PermissionDeniedError(
                     "site-explorer.bmc_proxy is not allowed to be changed on this server".into(),
                 )
                 .into());
@@ -147,7 +147,7 @@ pub(crate) fn set_dynamic_config(
                 api.dynamic_settings.bmc_proxy.store(Arc::new(None))
             } else {
                 let host_port_pair = req.value.parse::<HostPortPair>().map_err(|err| {
-                    CarbideError::InvalidArgument(format!(
+                    NicoError::InvalidArgument(format!(
                         "Invalid bmc_proxy string '{}': {err}",
                         req.value
                     ))
@@ -161,7 +161,7 @@ pub(crate) fn set_dynamic_config(
         }
         rpc::ConfigSetting::TracingEnabled => {
             let enable = req.value.parse().map_err(|_| {
-                CarbideError::InvalidArgument(format!(
+                NicoError::InvalidArgument(format!(
                     "Expected bool for TracingEnabled, got {}",
                     &req.value
                 ))

@@ -17,10 +17,10 @@
 
 use std::collections::HashMap;
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 
 pub(crate) async fn grow(
@@ -36,11 +36,11 @@ pub(crate) async fn grow(
     let mut pools = HashMap::new();
     let table: toml::Table = toml_text
         .parse()
-        .map_err(|e: toml::de::Error| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e: toml::de::Error| NicoError::InvalidArgument(e.to_string()))?;
     for (name, def) in table {
         let d: model::resource_pool::ResourcePoolDef = def
             .try_into()
-            .map_err(|e: toml::de::Error| CarbideError::InvalidArgument(e.to_string()))?;
+            .map_err(|e: toml::de::Error| NicoError::InvalidArgument(e.to_string()))?;
         pools.insert(name, d);
     }
     use db::resource_pool::DefineResourcePoolError as DE;
@@ -49,13 +49,13 @@ pub(crate) async fn grow(
             txn.commit().await?;
             Ok(Response::new(rpc::GrowResourcePoolResponse {}))
         }
-        Err(DE::InvalidArgument(msg)) => Err(CarbideError::InvalidArgument(msg).into()),
-        Err(DE::InvalidToml(err)) => Err(CarbideError::InvalidArgument(err.to_string()).into()),
-        Err(DE::ResourcePoolError(msg)) => Err(CarbideError::Internal {
+        Err(DE::InvalidArgument(msg)) => Err(NicoError::InvalidArgument(msg).into()),
+        Err(DE::InvalidToml(err)) => Err(NicoError::InvalidArgument(err.to_string()).into()),
+        Err(DE::ResourcePoolError(msg)) => Err(NicoError::Internal {
             message: msg.to_string(),
         }
         .into()),
-        Err(DE::DatabaseError(err)) => Err(CarbideError::Internal {
+        Err(DE::DatabaseError(err)) => Err(NicoError::Internal {
             message: err.to_string(),
         }
         .into()),
@@ -73,7 +73,7 @@ pub(crate) async fn list(
 
     let snapshot = db::resource_pool::all(&mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     txn.commit().await?;
 

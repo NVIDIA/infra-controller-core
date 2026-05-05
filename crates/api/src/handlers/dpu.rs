@@ -20,15 +20,15 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::{common as rpc_common, forge as rpc};
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_utils::arch::CpuArchitecture;
-use carbide_uuid::machine::MachineId;
+use ::rpc::{common as rpc_common, nico as rpc};
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_utils::arch::CpuArchitecture;
+use nico_uuid::machine::MachineId;
 use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
-use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
+use nico_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
@@ -46,14 +46,14 @@ use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::handlers::extension_service;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, cfg, ethernet_virtualization};
+use crate::{NicoError, cfg, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
 
 /// Consolidates host-level and DPU-level `ManagedHostNetworkConfig` into
-/// the single proto sent to `carbide-dpu-agent`. The host layer
+/// the single proto sent to `nico-dpu-agent`. The host layer
 /// contributes shared fields (e.g. `use_admin_network`); the DPU layer
 /// contributes per-DPU fields (e.g. `loopback_ip`).
 fn build_consolidated_network_config(
@@ -78,7 +78,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?
-    .ok_or(CarbideError::NotFoundError {
+    .ok_or(NicoError::NotFoundError {
         kind: "machine",
         id: dpu_machine_id.to_string(),
     })?;
@@ -90,7 +90,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     {
         Some(dpu_snapshot) => dpu_snapshot,
         None => {
-            return Err(CarbideError::FailedPrecondition(format!(
+            return Err(NicoError::FailedPrecondition(format!(
                 "DPU {dpu_machine_id} needs discovery.  DPU snapshot not found for managed host"
             ))
             .into());
@@ -98,14 +98,14 @@ pub(crate) async fn get_managed_host_network_config_inner(
     };
 
     let maybe_instance =
-        Option::<rpc::Instance>::try_from(snapshot.clone()).map_err(CarbideError::from)?;
+        Option::<rpc::Instance>::try_from(snapshot.clone()).map_err(NicoError::from)?;
 
     let primary_dpu_snapshot = snapshot
         .host_snapshot
         .interfaces
         .iter()
         .find(|x| x.primary_interface)
-        .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
+        .ok_or_else(|| NicoError::internal("Primary Interface is missing.".to_string()))?;
 
     let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
@@ -116,7 +116,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     let loopback_ip = match dpu_snapshot.loopback_ip() {
         Some(ip) => ip,
         None => {
-            return Err(CarbideError::FailedPrecondition(format!(
+            return Err(NicoError::FailedPrecondition(format!(
                 "DPU {dpu_machine_id} needs discovery. Does not have a loopback IP yet."
             ))
             .into());
@@ -134,7 +134,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .secondary_overlay_vtep_ip
             .is_none()
     {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "DPU {dpu_machine_id} needs discovery. Does not have a secondary VTEP IP yet."
         ))
         .into());
@@ -244,7 +244,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let Some(network_segment_id) = interfaces[0].network_segment_id else {
                 // Network segment allocation is done before persisting record in db. So if still
                 // network segment is empty, return error.
-                return Err(CarbideError::NetworkSegmentNotAllocated.into());
+                return Err(NicoError::NetworkSegmentNotAllocated.into());
             };
             let vpc = db::vpc::find_by_segment(&mut txn, network_segment_id)
                 .await?;
@@ -262,11 +262,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     .as_ref()
                     .map(|f| {
                         let Some(profile_type) = vpc.routing_profile_type else {
-                            return Err(CarbideError::Internal{ message: "tenant routing profile type not found in tenant record".to_string()});
+                            return Err(NicoError::Internal{ message: "tenant routing profile type not found in tenant record".to_string()});
                         };
 
                         let Some(profile) = f.routing_profiles.get(&profile_type) else {
-                            return Err(CarbideError::NotFoundError {
+                            return Err(NicoError::NotFoundError {
                                 kind: "routing profile type found in tenant record is not defined",
                                 id: profile_type,
                             });
@@ -309,7 +309,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     network_security_group::find_by_ids(&mut txn, &[nsg_id.to_owned()], Some(tenant_id), false)
                         .await?
                         .pop()
-                        .ok_or(CarbideError::NotFoundError {
+                        .ok_or(NicoError::NotFoundError {
                             kind: "NetworkSecurityGroup",
                             id: tenant_id.to_string(),
                         })?;
@@ -331,7 +331,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             });
 
             let Some(physical_iface) = physical_iface else {
-                return Err(CarbideError::internal(String::from(
+                return Err(NicoError::internal(String::from(
                     "Physical interface not found",
                 ))
                 .into());
@@ -341,7 +341,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let physical_ip: IpAddr = match physical_iface.ip_addrs.iter().next() {
                 Some((_, ip_addr)) => *ip_addr,
                 None => {
-                    return Err(CarbideError::internal(String::from(
+                    return Err(NicoError::internal(String::from(
                         "Physical IP address not found",
                     ))
                     .into())
@@ -360,7 +360,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let segment_details = segment_details.iter().map(|x|(x.id, x)).collect::<HashMap<_,_>>();
 
             let Some(segment) = segment_details.get(&network_segment_id) else {
-                return Err(CarbideError::Internal { message: format!(
+                return Err(NicoError::Internal { message: format!(
                     "Tenant segment id {network_segment_id} is not found in db."
                 ) }.into());
             };
@@ -369,8 +369,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 Some(domain_id) => {
                     db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
                         .await
-                        .map_err(CarbideError::from)?
-                        .ok_or_else(|| CarbideError::NotFoundError {
+                        .map_err(NicoError::from)?
+                        .ok_or_else(|| NicoError::NotFoundError {
                             kind: "domain",
                             id: domain_id.to_string(),
                         })?
@@ -414,13 +414,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
             ) {
                 // This can not happen as validated during instance creation.
                 let Some(iface_segment) = iface.network_segment_id else {
-                    return Err(CarbideError::Internal { message: format!(
+                    return Err(NicoError::Internal { message: format!(
                         "Tenant segment is not assigned for iface: {iface:?}."
                     ) }.into());
                 };
 
                 let Some(segment) = segment_details.get(&iface_segment) else {
-                    return Err(CarbideError::Internal { message: format!(
+                    return Err(NicoError::Internal { message: format!(
                         "Tenant segment id {iface_segment} is not found in db. Can not fetch the details."
                     ) }.into());
                 };
@@ -466,7 +466,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             );
 
             tracing::error!(message);
-            CarbideError::internal(message)
+            NicoError::internal(message)
         })?
     } else {
         api.eth_data.asn
@@ -532,7 +532,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 service_res
                     .into_iter()
                     .next()
-                    .ok_or_else(|| CarbideError::NotFoundError {
+                    .ok_or_else(|| NicoError::NotFoundError {
                         kind: "ExtensionService",
                         id: config.service_id.to_string(),
                     })?;
@@ -635,7 +635,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .policy_overrides
             .iter()
             .map(|r| ethernet_virtualization::resolve_security_group_rule(r.clone()))
-            .collect::<Result<Vec<rpc::ResolvedNetworkSecurityGroupRule>, CarbideError>>()?,
+            .collect::<Result<Vec<rpc::ResolvedNetworkSecurityGroupRule>, NicoError>>()?,
         stateful_acls_enabled: api
             .runtime_config
             .network_security_group
@@ -774,13 +774,13 @@ pub(crate) async fn update_agent_reported_inventory(
         let mut txn = api.txn_begin().await?;
 
         let inventory =
-            MachineInventory::try_from(inventory.clone()).map_err(CarbideError::from)?;
+            MachineInventory::try_from(inventory.clone()).map_err(NicoError::from)?;
         db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory).await?;
 
         txn.commit().await?;
     } else {
         return Err(
-            CarbideError::InvalidArgument("inventory missing from request".to_string()).into(),
+            NicoError::InvalidArgument("inventory missing from request".to_string()).into(),
         );
     }
 
@@ -827,17 +827,17 @@ pub(crate) async fn record_dpu_network_status(
         },
     )
     .await?
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "machine",
         id: dpu_machine_id.to_string(),
     })?;
 
     let machine_obs = {
         let mut obs = MachineNetworkStatusObservation::try_from(request.clone())
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
         if let Some(agent_version) = obs.agent_version.as_ref() {
             obs.agent_version_superseded_at =
-                db::carbide_version::date_superseded(&mut txn, agent_version.as_str()).await?;
+                db::nico_version::date_superseded(&mut txn, agent_version.as_str()).await?;
         }
         obs
     };
@@ -863,10 +863,10 @@ pub(crate) async fn record_dpu_network_status(
         request
             .dpu_health
             .as_ref()
-            .ok_or_else(|| CarbideError::MissingArgument("dpu_health"))?
+            .ok_or_else(|| NicoError::MissingArgument("dpu_health"))?
             .clone(),
     )
-    .map_err(|e| CarbideError::internal(e.to_string()))?;
+    .map_err(|e| NicoError::internal(e.to_string()))?;
     // We ignore what dpu-agent sends as timestamp and time, and replace
     // it with more accurate information
     health_report.source = health_report::HealthReport::DPU_AGENT_SOURCE.to_string();
@@ -882,7 +882,7 @@ pub(crate) async fn record_dpu_network_status(
     } in request.last_dhcp_requests.iter()
     {
         let Some(host_interface_id) = host_interface_id else {
-            return Err(CarbideError::MissingArgument(
+            return Err(NicoError::MissingArgument(
                 "applied_config.last_dhcp_request.host_interface_id",
             )
             .into());
@@ -891,7 +891,7 @@ pub(crate) async fn record_dpu_network_status(
             &mut txn,
             *host_interface_id,
             Some(timestamp.parse().map_err(|e| {
-                CarbideError::InvalidArgument(format!("Failed parsing dhcp timestamp: {e}"))
+                NicoError::InvalidArgument(format!("Failed parsing dhcp timestamp: {e}"))
             })?),
         )
         .await?;
@@ -899,8 +899,8 @@ pub(crate) async fn record_dpu_network_status(
 
     txn.commit().await?;
 
-    // Check if we need to flag this forge-dpu-agent for upgrade or mark an upgrade completed
-    // We do this here because we just learnt about which version of forge-dpu-agent is
+    // Check if we need to flag this nico-dpu-agent for upgrade or mark an upgrade completed
+    // We do this here because we just learnt about which version of nico-dpu-agent is
     // running.
     let mut txn = api.txn_begin().await?;
 
@@ -960,8 +960,8 @@ async fn wakeup_host_state_handler_by_dpu_id(
     Ok(())
 }
 
-/// Network status of each managed host, as reported by forge-dpu-agent.
-/// For use by forge-admin-cli
+/// Network status of each managed host, as reported by nico-dpu-agent.
+/// For use by nico-admin-cli
 ///
 /// Currently: Status of HBN on each DPU
 pub(crate) async fn get_all_managed_host_network_status(
@@ -982,7 +982,7 @@ pub(crate) async fn get_all_managed_host_network_status(
     }))
 }
 
-/// Should this DPU upgrade its forge-dpu-agent?
+/// Should this DPU upgrade its nico-dpu-agent?
 /// Once the upgrade is complete record_dpu_network_status will receive the updated
 /// version and write the DB to say our upgrade is complete.
 pub(crate) async fn dpu_agent_upgrade_check(
@@ -993,13 +993,13 @@ pub(crate) async fn dpu_agent_upgrade_check(
 
     let req = request.into_inner();
     let machine_id = MachineId::from_str(&req.machine_id).map_err(|_| {
-        CarbideError::from(RpcDataConversionError::InvalidMachineId(
+        NicoError::from(RpcDataConversionError::InvalidMachineId(
             req.machine_id.clone(),
         ))
     })?;
     log_machine_id(&machine_id);
     if !machine_id.machine_type().is_dpu() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Upgrade check can only be performed on DPUs".into(),
         )
         .into());
@@ -1007,8 +1007,8 @@ pub(crate) async fn dpu_agent_upgrade_check(
 
     // We usually want these two to match
     let agent_version = req.current_agent_version;
-    let server_version = carbide_version::v!(build_version);
-    BuildVersion::try_from(server_version).map_err(|_| CarbideError::Internal {
+    let server_version = nico_version::v!(build_version);
+    BuildVersion::try_from(server_version).map_err(|_| NicoError::Internal {
         message: "Invalid server version, cannot check for upgrade".into(),
     })?;
 
@@ -1016,7 +1016,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
 
     let machine =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
-    let machine = machine.ok_or(CarbideError::NotFoundError {
+    let machine = machine.ok_or(NicoError::NotFoundError {
         kind: "dpu",
         id: machine_id.to_string(),
     })?;
@@ -1026,10 +1026,10 @@ pub(crate) async fn dpu_agent_upgrade_check(
             %machine_id,
             agent_version,
             server_version,
-            "Needs forge-dpu-agent upgrade",
+            "Needs nico-dpu-agent upgrade",
         );
     } else {
-        tracing::trace!(%machine_id, agent_version, "forge-dpu-agent is up to date");
+        tracing::trace!(%machine_id, agent_version, "nico-dpu-agent is up to date");
     }
     txn.commit().await?;
 
@@ -1044,7 +1044,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
     Ok(tonic::Response::new(response))
 }
 
-/// Get or set the forge-dpu-agent upgrade policy.
+/// Get or set the nico-dpu-agent upgrade policy.
 pub(crate) async fn dpu_agent_upgrade_policy_action(
     api: &Api,
     request: tonic::Request<rpc::DpuAgentUpgradePolicyRequest>,
@@ -1063,7 +1063,7 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
     }
 
     let Some(active_policy) = dpu_agent_upgrade_policy::get(&mut txn).await? else {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "agent_upgrade_policy",
             id: "active".to_string(),
         }
@@ -1085,7 +1085,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     api: &Api,
     request: tonic::Request<rpc::DpuReprovisioningRequest>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
-    use ::rpc::forge::dpu_reprovisioning_request::Mode;
+    use ::rpc::nico::dpu_reprovisioning_request::Mode;
 
     log_request_data(&request);
     let req = request.into_inner();
@@ -1104,7 +1104,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         },
     )
     .await?
-    .ok_or(CarbideError::NotFoundError {
+    .ok_or(NicoError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
     })?;
@@ -1120,7 +1120,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .classifications
             .contains(&health_report::HealthAlertClassification::prevent_allocations())
     }) {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Machine must have a 'HostUpdateInProgress' Health Alert with 'PreventAllocations' classification.".into(),
         ).into());
     }
@@ -1133,7 +1133,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         match req.mode() {
             Mode::Restart => {}
             _ => {
-                return Err(CarbideError::internal(
+                return Err(NicoError::internal(
                     "Reprovisioning is already started.".to_string(),
                 )
                 .into());
@@ -1178,11 +1178,11 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             // Restart case.
             // Restart is valid only for host_id.
             if !machine_id.machine_type().is_host() {
-                return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
+                return Err(NicoError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
             }
 
             if snapshot.is_zero_dpu() {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "Machine has no DPUs, cannot trigger DPU reprovisioning.".to_string(),
                 )
                 .into());
@@ -1201,7 +1201,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 .collect_vec();
 
             if ids.is_empty() {
-                return Err(CarbideError::InvalidArgument(
+                return Err(NicoError::InvalidArgument(
                     "No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs.".to_string(),
                 )
                     .into());
@@ -1263,20 +1263,20 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 
 /// Get the configured BGP password.
 pub(crate) async fn get_bgp_password(
-    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
-    credential_key: forge_secrets::credentials::CredentialKey,
-) -> Result<String, CarbideError> {
+    credential_reader: &dyn nico_secrets::credentials::CredentialReader,
+    credential_key: nico_secrets::credentials::CredentialKey,
+) -> Result<String, NicoError> {
     let credential = credential_reader
         .get_credentials(&credential_key)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Could not find the credential: {}", e),
         })?;
 
     Ok(match credential {
         Some(Credentials::UsernamePassword { password, .. }) => password,
         _ => {
-            return Err(CarbideError::Internal {
+            return Err(NicoError::Internal {
                 message: "Could not find BGP credential".to_string(),
             });
         }

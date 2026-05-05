@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::vpc::VpcId;
-use carbide_uuid::vpc_peering::VpcPeeringId;
+use nico_uuid::vpc::VpcId;
+use nico_uuid::vpc_peering::VpcPeeringId;
 use clap::Parser;
-use rpc::forge::VpcPeeringCreationRequest;
+use rpc::nico::VpcPeeringCreationRequest;
 
 #[derive(Parser, Debug)]
 pub struct Args {

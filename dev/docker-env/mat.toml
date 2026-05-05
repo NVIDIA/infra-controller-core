@@ -20,7 +20,7 @@
 # config options (like IP addresses and interface) are specific to different
 # environments, and the default config will likely not work for anyone.
 
-carbide_api_url = "https://127.0.0.1:1079"
+nico_api_url = "https://127.0.0.1:1079"
 
 # tui_enabled enables a TUI view of machine-a-tron. If set to true, you need to
 # specify log_file to redirect logs.
@@ -32,26 +32,26 @@ carbide_api_url = "https://127.0.0.1:1079"
 log_file = "/tmp/mat.log"
 
 # Network interface to bind to when creating addresses for BMC mocks. BMC mocks
-# will be configured with whatever IP address carbide assigns them, so they will
+# will be configured with whatever IP address nico assigns them, so they will
 # assign new addresses to this interface via `ip address add`.
-interface = "carbide0"
+interface = "nico0"
 
 # Set use_pxe_api to true if you want to avoid running a PXE server and instead
-# have machine-a-tron use the carbide API to simulate PXE requests.
+# have machine-a-tron use the nico API to simulate PXE requests.
 # pxe_server_host and pxe_server_port can be omitted if use_pxe_api=true.
 #
 # use_pxe_api = false
 
 # pxe_server_{host,port} should point at a running PXE server, generally the
-# address of the carbide-pxe-external service in kubernetes. These must be set
+# address of the nico-pxe-external service in kubernetes. These must be set
 # if use_pxe_api = true
 pxe_server_host = "172.20.0.1"
 pxe_server_port = "1083"
 
 # Port to listen on for running bmc-mock instances for each host/DPU. We use a
 # nonstandard port to avoid needing to run as root. Note: This must correspond
-# with the value of the site_explorer.override_target_port option in carbide's
-# site-config.toml to work, otherwise carbide will use port 443 to contact the
+# with the value of the site_explorer.override_target_port option in nico's
+# site-config.toml to work, otherwise nico will use port 443 to contact the
 # mock BMC instances. Alternatively, you can leave this at 443 and use `sysctl
 # net.ipv4.ip_unprivileged_port_start=0` to allow non-root users to bind to
 # port 443.
@@ -67,9 +67,9 @@ host_reboot_delay = 20 # in units of seconds
 subnets_per_vpc = 2
 
 # These addresses must correspond to subnets defined in your
-# carbide-api-site-config.toml. Nothing actually binds to these addresses, it is
+# nico-api-site-config.toml. Nothing actually binds to these addresses, it is
 # only used for filling in gateway/relay fields in the DHCP request object
-# (which carbide uses to determine what network the request came from.)
+# (which nico uses to determine what network the request came from.)
 oob_dhcp_relay_address = "172.21.0.1"
 admin_dhcp_relay_address = "172.20.0.1"
 

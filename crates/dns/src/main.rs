@@ -16,8 +16,8 @@
  */
 use std::path::PathBuf;
 
-use carbide_dns::config::{Config, ConfigError};
-use carbide_dns::start;
+use nico_dns::config::{Config, ConfigError};
+use nico_dns::start;
 use clap::{CommandFactory, Parser};
 use eyre::WrapErr;
 use opentelemetry::trace::TracerProvider;
@@ -33,7 +33,7 @@ async fn main() -> Result<(), eyre::Report> {
     let options = Options::parse();
 
     if options.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
     let cmd = match options.command {
@@ -55,8 +55,8 @@ async fn main() -> Result<(), eyre::Report> {
         .add_directive("opentelemetry_otlp=info".parse()?)
         .add_directive("hickory_proto=info".parse()?)
         .add_directive("hickory_resolver=info".parse()?)
-        .add_directive("carbide_dns=info".parse()?)
-        .add_directive("carbide_dns::pdns=debug".parse()?)
+        .add_directive("nico_dns=info".parse()?)
+        .add_directive("nico_dns::pdns=debug".parse()?)
         .add_directive("rpc=info".parse()?);
 
     match cmd {
@@ -80,14 +80,14 @@ async fn main() -> Result<(), eyre::Report> {
                     opentelemetry_sdk::Resource::builder()
                         .with_attributes([opentelemetry::KeyValue::new(
                             "service.name",
-                            "carbide-dns",
+                            "nico-dns",
                         )])
                         .build(),
                 )
                 .build();
 
             let otel_layer =
-                tracing_opentelemetry::layer().with_tracer(tracer_provider.tracer("carbide-dns"));
+                tracing_opentelemetry::layer().with_tracer(tracer_provider.tracer("nico-dns"));
 
             tracing_subscriber::registry()
                 .with(fmt::layer().json())
@@ -102,7 +102,7 @@ async fn main() -> Result<(), eyre::Report> {
                     "Running in LEGACY DNS server mode on {}. This mode is deprecated and will be removed in future releases. Please migrate to PowerDNS backend.",
                     listen_addr
                 );
-                carbide_dns::legacy::LegacyDnsServer::run(config, listen_addr)
+                nico_dns::legacy::LegacyDnsServer::run(config, listen_addr)
                     .await
                     .wrap_err("Failed to start legacy DNS service")?;
             } else {
@@ -143,20 +143,20 @@ pub struct RunCommand {
     #[clap(short = 'p', long, help = "UNIX Permissions for the socket")]
     pub socket_permissions: Option<u32>,
 
-    #[clap(short = 'u', long, help = "URI of the Forge API Server")]
-    pub carbide_uri: Option<http::Uri>,
+    #[clap(short = 'u', long, help = "URI of the Nico API Server")]
+    pub nico_uri: Option<http::Uri>,
 
-    #[clap(short = 'r', long, help = "Path to the Forge Root CA certificate")]
-    pub forge_root_ca_path: Option<PathBuf>,
+    #[clap(short = 'r', long, help = "Path to the Nico Root CA certificate")]
+    pub nico_root_ca_path: Option<PathBuf>,
 
     #[clap(
         short = 'c',
         long,
-        help = "Path to the client certificate for Forge API"
+        help = "Path to the client certificate for Nico API"
     )]
     pub client_cert_path: Option<PathBuf>,
 
-    #[clap(short = 'k', long, help = "Path to the client key for Forge API")]
+    #[clap(short = 'k', long, help = "Path to the client key for Nico API")]
     pub client_key_path: Option<PathBuf>,
 
     // Legacy mode support for migration
@@ -169,9 +169,9 @@ pub struct RunCommand {
     // Backward compatibility alias
     #[clap(
         long,
-        help = "DEPRECATED: Use --carbide-uri instead. Will be removed in future releases."
+        help = "DEPRECATED: Use --nico-uri instead. Will be removed in future releases."
     )]
-    pub carbide_url: Option<String>,
+    pub nico_url: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -209,18 +209,18 @@ impl TryInto<Config> for RunCommand {
             config.socket_permissions = socket_permissions;
         }
 
-        if let Some(carbide_uri) = self.carbide_uri {
-            config.carbide_uri = carbide_uri;
+        if let Some(nico_uri) = self.nico_uri {
+            config.nico_uri = nico_uri;
         }
 
-        // Backward compatibility for carbide_url
-        if let Some(carbide_url) = self.carbide_url {
-            tracing::warn!("--carbide-url is deprecated, use --carbide-uri instead");
-            config.carbide_uri = carbide_url.try_into().expect("Invalid carbide URL");
+        // Backward compatibility for nico_url
+        if let Some(nico_url) = self.nico_url {
+            tracing::warn!("--nico-url is deprecated, use --nico-uri instead");
+            config.nico_uri = nico_url.try_into().expect("Invalid nico URL");
         }
 
-        if let Some(forge_root_ca_path) = self.forge_root_ca_path {
-            config.forge_root_ca = forge_root_ca_path;
+        if let Some(nico_root_ca_path) = self.nico_root_ca_path {
+            config.nico_root_ca = nico_root_ca_path;
         }
         if let Some(client_cert_path) = self.client_cert_path {
             config.client_cert_path = client_cert_path;

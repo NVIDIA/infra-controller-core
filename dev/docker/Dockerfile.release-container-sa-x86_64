@@ -22,10 +22,10 @@ ARG CONTAINER_RUNTIME_X86_64
 FROM $CONTAINER_BUILD_X86_64 as builder
 ARG VERSION
 ENV VERSION $VERSION
-ENV CONTAINER_REPO_ROOT=/carbide
+ENV CONTAINER_REPO_ROOT=/nico
 
-RUN USER=root cargo new --bin carbide
-WORKDIR ./carbide
+RUN USER=root cargo new --bin nico
+WORKDIR ./nico
 COPY . ./
 
 # --mount=type=cache persists the sccache directory on the host across docker build invocations.
@@ -43,7 +43,7 @@ RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
   createdb root && \
   # --no-workspace: runs the task once at workspace root instead of once per workspace member.
   # Without this flag, cargo-make iterates all 64 crates and invokes `cargo clippy` / `cargo build`
-  # per member, which causes shared deps (tonic, sqlx, carbide-rpc, etc.) to be recompiled
+  # per member, which causes shared deps (tonic, sqlx, nico-rpc, etc.) to be recompiled
   # repeatedly. With --no-workspace, a single invocation at the root builds everything once.
   #
   # Trade-off: per-crate feature isolation is lost — features are unified across the whole
@@ -52,8 +52,8 @@ RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
   # clippy-release shares release artifacts with build-release below, avoiding a full double-compile.
   cargo make --no-workspace clippy-release && \
   echo "$(date): Finished cargo make clippy-release\n" && \
-  cargo make carbide-lints && \
-  echo "$(date): Finished cargo make carbide-lints\n" && \
+  cargo make nico-lints && \
+  echo "$(date): Finished cargo make nico-lints\n" && \
   (taplo fmt --check || echo "Please format toml files") && \
   echo "$(date): Finished taplo fmt \n" && \
   cargo make --no-workspace check-format-nightly && \
@@ -66,30 +66,30 @@ RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
   echo "$(date): Finished cargo make check-licenses\n" && \
   cargo make --no-workspace check-bans && \
   echo "$(date): Finished cargo make check-bans\n" && \
-  mkdir -p /carbide/target/bin && \
-  find /carbide/target/release -maxdepth 1 -type f -exec cp -t /carbide/target/bin {} + && \
-  rm -rf /carbide/target/debug && \
-  rm -rf /carbide/target/release && \
+  mkdir -p /nico/target/bin && \
+  find /nico/target/release -maxdepth 1 -type f -exec cp -t /nico/target/bin {} + && \
+  rm -rf /nico/target/debug && \
+  rm -rf /nico/target/release && \
   echo "$(date): Deleted artifacts"
 
 # After build, copy the release into the runtime container
 FROM $CONTAINER_RUNTIME_X86_64
 ARG CI_COMMIT_SHORT_SHA
 ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
-RUN mkdir -p /opt/carbide/migrations && \
-  mkdir -p /opt/carbide/pxe/templates && \
-  mkdir -p /opt/carbide/static
+RUN mkdir -p /opt/nico/migrations && \
+  mkdir -p /opt/nico/pxe/templates && \
+  mkdir -p /opt/nico/static
 
 RUN echo "$(date): Start runtime container build"
 
-COPY --from=builder ["/carbide/target/bin/carbide-api", "/carbide/target/bin/carbide", "/carbide/target/bin/carbide-dns", "/carbide/target/bin/carbide-admin-cli", "/carbide/target/bin/carbide-dsx-exchange-consumer", "/carbide/target/bin/forge-dpu-agent", "/carbide/target/bin/forge-dhcp-server", "/carbide/target/bin/forge-hw-health", "/carbide/target/bin/forge-log-parser", "/carbide/target/bin/ssh-console", "/carbide/target/bin/carbide-bmc-proxy", "/opt/carbide/"]
-COPY --from=builder /carbide/target/bin/libdhcp.so /usr/lib/x86_64-linux-gnu/kea/hooks
-RUN ln -s /opt/carbide/carbide-admin-cli /opt/carbide/forge-admin-cli
+COPY --from=builder ["/nico/target/bin/nico-api", "/nico/target/bin/nico", "/nico/target/bin/nico-dns", "/nico/target/bin/nico-admin-cli", "/nico/target/bin/nico-dsx-exchange-consumer", "/nico/target/bin/nico-dpu-agent", "/nico/target/bin/nico-dhcp-server", "/nico/target/bin/nico-hw-health", "/nico/target/bin/nico-log-parser", "/nico/target/bin/ssh-console", "/nico/target/bin/nico-bmc-proxy", "/opt/nico/"]
+COPY --from=builder /nico/target/bin/libdhcp.so /usr/lib/x86_64-linux-gnu/kea/hooks
+RUN ln -s /opt/nico/nico-admin-cli /opt/nico/nico-admin-cli
 
 RUN echo "$(date): Finished copies"
 
-COPY crates/api-db/migrations/ /opt/carbide/migrations/
-COPY pxe/templates/*  /opt/carbide/pxe/templates/
-COPY crates/api/casbin-policy.csv /opt/carbide/
+COPY crates/api-db/migrations/ /opt/nico/migrations/
+COPY pxe/templates/*  /opt/nico/pxe/templates/
+COPY crates/api/casbin-policy.csv /opt/nico/
 
-ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv
+ENV CASBIN_POLICY_FILE=/opt/nico/casbin-policy.csv

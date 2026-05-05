@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
+use ::rpc::nico::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -33,7 +33,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
     let request_hardware_info =
         update_hardware_info_request
             .info
-            .ok_or(CarbideError::MissingArgument(
+            .ok_or(NicoError::MissingArgument(
                 "Missing hardware info in update request",
             ))?;
 
@@ -41,7 +41,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
         update_hardware_info_request.update_type,
     )
     .map_err(|e| {
-        CarbideError::internal(format!(
+        NicoError::internal(format!(
             "failure converting MachineHardwareInfoUpdateType gRPC type {e:?}"
         ))
     })?;
@@ -54,7 +54,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
     let machine_topology =
         machine_topology
             .get(&machine_id)
-            .ok_or(CarbideError::NotFoundError {
+            .ok_or(NicoError::NotFoundError {
                 kind: "machine topology not found",
                 id: machine_id.to_string(),
             })?;

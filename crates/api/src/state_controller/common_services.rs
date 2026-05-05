@@ -17,23 +17,23 @@
 
 use std::sync::Arc;
 
-use carbide_ib_fabric::ib::IBFabricManager;
-use carbide_ipmi::IPMITool;
-use carbide_redfish::libredfish::RedfishClientPool;
+use nico_ib_fabric::ib::IBFabricManager;
+use nico_ipmi::IPMITool;
+use nico_redfish::libredfish::RedfishClientPool;
 use db::db_read::PgPoolReader;
-use forge_secrets::credentials::CredentialManager;
+use nico_secrets::credentials::CredentialManager;
 use libredfish::Redfish;
 use librms::RmsApi;
 use model::machine::Machine;
 use model::resource_pool::common::IbPools;
 use sqlx::PgPool;
 
-use crate::cfg::file::CarbideConfig;
+use crate::cfg::file::NicoConfig;
 use crate::dpa::handler::DpaInfo;
 use crate::rack::rms_client::SwitchSystemImageRmsClient;
 use crate::state_controller::state_handler::StateHandlerError;
 
-/// Services that are accessible to all statehandlers within carbide-core
+/// Services that are accessible to all statehandlers within nico-core
 #[derive(Clone)]
 pub struct CommonStateHandlerServices {
     /// Postgres database pool
@@ -46,7 +46,7 @@ pub struct CommonStateHandlerServices {
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
 
-    /// API for interaction with Forge IBFabricManager
+    /// API for interaction with Nico IBFabricManager
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
 
     /// Resource pools for ib pkey allocation/release.
@@ -56,7 +56,7 @@ pub struct CommonStateHandlerServices {
     pub ipmi_tool: Arc<dyn IPMITool>,
 
     /// Access to the site config
-    pub site_config: Arc<CarbideConfig>,
+    pub site_config: Arc<NicoConfig>,
 
     pub dpa_info: Option<Arc<DpaInfo>>,
 

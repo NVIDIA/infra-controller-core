@@ -35,7 +35,7 @@ use ::rpc::protos::measured_boot::{
     RemoveMeasurementTrustedProfileRequest, remove_measurement_trusted_machine_request,
     remove_measurement_trusted_profile_request,
 };
-use carbide_uuid::measured_boot::{
+use nico_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };

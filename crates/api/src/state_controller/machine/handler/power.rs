@@ -152,7 +152,7 @@ pub async fn handle_power_desired_on(
         return Ok(PowerHandlingOutcome::new(
             Some(updated_power_options),
             false,
-            Some("Carbide will reboot host after DPU came up.".to_string()),
+            Some("Nico will reboot host after DPU came up.".to_string()),
         ));
     }
 

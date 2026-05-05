@@ -18,19 +18,19 @@
 use std::fs;
 use std::path::Path;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::super::add::cmd::add_individual;
 use crate::rpc::ApiClient;
 
-pub async fn add_bulk(dirname: &str, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn add_bulk(dirname: &str, api_client: &ApiClient) -> NicoCliResult<()> {
     let dirpath = Path::new(dirname);
 
     // read all files ending with .cer/.der
     // call add individually for each one of them
 
     let dir_entry_iter = fs::read_dir(dirpath)
-        .map_err(::rpc::admin_cli::CarbideCliError::IOError)?
+        .map_err(::rpc::admin_cli::NicoCliError::IOError)?
         .flatten();
 
     for dir_entry in dir_entry_iter {

@@ -18,14 +18,14 @@
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge_api_client::ForgeApiClient;
-use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use ::rpc::admin_cli::NicoCliError;
+use ::rpc::nico_api_client::NicoApiClient;
+use ::rpc::nico_tls_client::{ApiConfig, NicoClientConfig};
 use cfg::cli_options::{CliCommand, CliOptions};
 use clap::CommandFactory;
 use eyre::eyre;
-use forge_tls::client_config::{
-    get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
+use nico_tls::client_config::{
+    get_nico_api_url, get_client_cert_info, get_config_from_file, get_nico_root_ca_path,
     get_proxy_info,
 };
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
@@ -121,7 +121,7 @@ async fn main() -> color_eyre::Result<()> {
 
     let config = CliOptions::load();
     if config.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
     let file_config = get_config_from_file();
@@ -164,9 +164,9 @@ async fn main() -> color_eyre::Result<()> {
         return rms::action(rms.clone(), &config).await;
     }
 
-    let url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
-    let forge_root_ca_path =
-        get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
+    let url = get_nico_api_url(config.nico_api, file_config.as_ref());
+    let nico_root_ca_path =
+        get_nico_root_ca_path(config.nico_root_ca_path, file_config.as_ref());
 
     let command = match config.commands {
         None => {
@@ -175,7 +175,7 @@ async fn main() -> color_eyre::Result<()> {
         Some(s) => s,
     };
 
-    let forge_client_cert = if matches!(command, CliCommand::Version(_)) {
+    let nico_client_cert = if matches!(command, CliCommand::Version(_)) {
         None
     } else {
         Some(get_client_cert_info(
@@ -187,11 +187,11 @@ async fn main() -> color_eyre::Result<()> {
 
     let proxy = get_proxy_info()?;
 
-    let mut client_config = ForgeClientConfig::new(forge_root_ca_path, forge_client_cert);
+    let mut client_config = NicoClientConfig::new(nico_root_ca_path, nico_client_cert);
     client_config.socks_proxy(proxy);
 
     let ctx = RuntimeContext {
-        api_client: ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config))),
+        api_client: ApiClient(NicoApiClient::new(&ApiConfig::new(&url, &client_config))),
         config: RuntimeConfig {
             format: config.format,
             page_size: config.internal_page_size,
@@ -202,7 +202,7 @@ async fn main() -> color_eyre::Result<()> {
         output_file: get_output_file_or_stdout(config.output.as_deref()).await?,
     };
 
-    // Command to talk to Carbide API.
+    // Command to talk to Nico API.
     match command {
         CliCommand::BmcMachine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::BootOverride(cmd) => cmd.dispatch(ctx).await?,
@@ -280,7 +280,7 @@ async fn main() -> color_eyre::Result<()> {
 
 pub async fn get_output_file_or_stdout(
     output_filename: Option<&str>,
-) -> Result<Box<dyn tokio::io::AsyncWrite + Unpin>, CarbideCliError> {
+) -> Result<Box<dyn tokio::io::AsyncWrite + Unpin>, NicoCliError> {
     let output: Box<dyn tokio::io::AsyncWrite + Unpin> = if let Some(filename) = output_filename {
         let file = tokio::fs::OpenOptions::new()
             .write(true)

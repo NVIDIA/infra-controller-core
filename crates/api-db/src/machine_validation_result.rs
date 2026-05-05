@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::machine_validation::MachineValidationId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_validation::MachineValidationResult;
 use sqlx::PgConnection;

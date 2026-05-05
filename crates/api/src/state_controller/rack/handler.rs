@@ -17,7 +17,7 @@
 
 //! State Handler implementation for Racks.
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use model::rack::{Rack, RackState};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;

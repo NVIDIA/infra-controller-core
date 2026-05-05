@@ -21,7 +21,7 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use measured_boot::machine::CandidateMachine;
 use model::hardware_info::HardwareInfo;
 use model::machine::{CURRENT_STATE_MODEL_VERSION, ManagedHostState};

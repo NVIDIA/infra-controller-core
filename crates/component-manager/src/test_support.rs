@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
+use nico_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;

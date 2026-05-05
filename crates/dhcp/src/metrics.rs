@@ -24,11 +24,11 @@ use metrics_endpoint::{
     HealthController, MetricsEndpointConfig, MetricsSetup, new_metrics_setup, run_metrics_endpoint,
 };
 use opentelemetry::KeyValue;
-use rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use rpc::nico_tls_client::{self, ApiConfig, NicoClientConfig};
 use tokio::runtime::Runtime;
 use tokio::time::{interval, timeout};
 
-use crate::{CONFIG, CarbideDhcpContext, CarbideDhcpMetrics, tls};
+use crate::{CONFIG, NicoDhcpContext, NicoDhcpMetrics, tls};
 
 const METRICS_CAPTURE_FREQUENCY: Duration = Duration::from_secs(30);
 const READINESS_CHECK_FREQUENCY: Duration = Duration::from_secs(30);
@@ -43,7 +43,7 @@ pub async fn certificate_loop() {
             .metrics
             .clone();
         if let Some(metrics) = metrics
-            && let Some(client_expiry) = metrics.forge_client_config.client_cert_expiry()
+            && let Some(client_expiry) = metrics.nico_client_config.client_cert_expiry()
         {
             metrics
                 .certificate_expiration_value
@@ -52,21 +52,21 @@ pub async fn certificate_loop() {
     }
 }
 
-fn initialize_metrics(mconf: &MetricsSetup) -> CarbideDhcpMetrics {
+fn initialize_metrics(mconf: &MetricsSetup) -> NicoDhcpMetrics {
     let certificate_expiration_value = Arc::new(AtomicI64::new(0));
     // initialize metrics.
-    let metrics = CarbideDhcpMetrics {
+    let metrics = NicoDhcpMetrics {
         total_requests_counter: mconf
             .meter
-            .u64_counter("carbide-dhcp.requests")
+            .u64_counter("nico-dhcp.requests")
             .with_description("The total number of DHCP requests")
             .build(),
         dropped_requests_counter: mconf
             .meter
-            .u64_counter("carbide-dhcp.dropped_requests")
+            .u64_counter("nico-dhcp.dropped_requests")
             .with_description("The number of dropped DHCP requests")
             .build(),
-        forge_client_config: tls::build_forge_client_config(),
+        nico_client_config: tls::build_nico_client_config(),
         certificate_expiration_value: certificate_expiration_value.clone(),
     };
 
@@ -75,7 +75,7 @@ fn initialize_metrics(mconf: &MetricsSetup) -> CarbideDhcpMetrics {
     // collected.
     mconf
         .meter
-        .i64_observable_gauge("carbide-dhcp.certificate_expiration_time")
+        .i64_observable_gauge("nico-dhcp.certificate_expiration_time")
         .with_description("The certificate expiration time (epoch seconds)")
         .with_callback(move |observer| {
             let measurement = certificate_expiration_value.deref().load(Ordering::SeqCst);
@@ -93,7 +93,7 @@ pub fn metrics_server() {
         .metrics_endpoint;
 
     if let Some(metrics_endpoint) = metrics_endpoint {
-        let mconf = new_metrics_setup("carbide-dhcp", "forge-system", true);
+        let mconf = new_metrics_setup("nico-dhcp", "nico-system", true);
         match mconf {
             Ok(mconf) => {
                 // initialize metrics.
@@ -106,7 +106,7 @@ pub fn metrics_server() {
                     config.health_controller = Some(health_controller.clone());
                 }
 
-                let runtime: &Runtime = CarbideDhcpContext::get_tokio_runtime();
+                let runtime: &Runtime = NicoDhcpContext::get_tokio_runtime();
                 // start certificate loop
                 runtime.spawn(async move {
                     certificate_loop().await;
@@ -138,18 +138,18 @@ pub fn metrics_server() {
     }
 }
 
-async fn check_api_connectivity(carbide_api_url: &str, client_config: &ForgeClientConfig) -> bool {
-    let api_config: ApiConfig<'_> = ApiConfig::new(carbide_api_url, client_config);
-    match forge_tls_client::ForgeTlsClient::retry_build(&api_config).await {
+async fn check_api_connectivity(nico_api_url: &str, client_config: &NicoClientConfig) -> bool {
+    let api_config: ApiConfig<'_> = ApiConfig::new(nico_api_url, client_config);
+    match nico_tls_client::NicoTlsClient::retry_build(&api_config).await {
         Ok(mut client) => {
-            let request = tonic::Request::new(rpc::forge::EchoRequest {
+            let request = tonic::Request::new(rpc::nico::EchoRequest {
                 message: "dhcp_echo".into(),
             });
 
             match client.echo(request).await {
                 Ok(_) => true,
                 Err(e) => {
-                    log::error!("error communication with carbide API: {e:?}");
+                    log::error!("error communication with nico API: {e:?}");
                     false
                 }
             }
@@ -163,7 +163,7 @@ async fn check_api_connectivity(carbide_api_url: &str, client_config: &ForgeClie
 
 pub async fn start_readiness_monitoring() {
     let mut readiness_interval = interval(READINESS_CHECK_FREQUENCY);
-    let forge_client_config = tls::build_forge_client_config();
+    let nico_client_config = tls::build_nico_client_config();
 
     let url = &CONFIG.read().expect("config poisoned").api_endpoint.clone();
 
@@ -171,7 +171,7 @@ pub async fn start_readiness_monitoring() {
         readiness_interval.tick().await;
         match timeout(
             Duration::from_secs(10),
-            check_api_connectivity(url, &forge_client_config),
+            check_api_connectivity(url, &nico_client_config),
         )
         .await
         {
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_metrics() {
-        let mconf = new_metrics_setup("carbide-dhcp", "forge-system", false).unwrap();
+        let mconf = new_metrics_setup("nico-dhcp", "nico-system", false).unwrap();
         let metrics = initialize_metrics(&mconf);
         metrics
             .certificate_expiration_value

@@ -19,10 +19,10 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use carbide_utils::cmd::{CmdError, CmdResult, TokioCmd};
-use carbide_uuid::machine::MachineId;
+use nico_utils::cmd::{CmdError, CmdResult, TokioCmd};
+use nico_uuid::machine::MachineId;
 use eyre::eyre;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use nico_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 
 use crate::IPMITool;
 
@@ -161,7 +161,7 @@ impl IPMIToolImpl {
 mod test {
     use std::sync::Arc;
 
-    use forge_secrets::credentials::{Credentials, TestCredentialManager};
+    use nico_secrets::credentials::{Credentials, TestCredentialManager};
 
     #[test]
     pub fn test_ipmitool_new() {

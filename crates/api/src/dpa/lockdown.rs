@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
+use nico_uuid::dpa_interface::DpaInterfaceId;
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use sqlx::PgPool;

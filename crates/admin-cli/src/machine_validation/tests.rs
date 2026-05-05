@@ -23,7 +23,7 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::machine_validation::MachineValidationId;
 use clap::{CommandFactory, Parser};
 
 use super::*;

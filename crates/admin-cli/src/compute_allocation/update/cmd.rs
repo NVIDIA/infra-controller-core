@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{FindComputeAllocationsByIdsRequest, UpdateComputeAllocationRequest};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::{FindComputeAllocationsByIdsRequest, UpdateComputeAllocationRequest};
 
 use super::args::Args;
 use crate::compute_allocation::common::convert_compute_allocations_to_table;
@@ -29,7 +29,7 @@ pub async fn update(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let allocation = api_client
         .0
         .find_compute_allocations_by_ids(FindComputeAllocationsByIdsRequest { ids: vec![args.id] })
@@ -38,7 +38,7 @@ pub async fn update(
         .allocations
         .into_iter()
         .next()
-        .ok_or(CarbideCliError::Empty)?;
+        .ok_or(NicoCliError::Empty)?;
 
     let mut metadata = allocation.metadata.unwrap_or_default();
     let mut attributes = allocation.attributes.unwrap_or_default();
@@ -69,7 +69,7 @@ pub async fn update(
             id: Some(args.id),
             tenant_organization_id: args.tenant_organization_id,
             metadata: Some(metadata),
-            attributes: Some(::rpc::forge::ComputeAllocationAttributes {
+            attributes: Some(::rpc::nico::ComputeAllocationAttributes {
                 instance_type_id: attributes.instance_type_id,
                 count: attributes.count,
             }),
@@ -77,21 +77,21 @@ pub async fn update(
             updated_by: None,
         })
         .await?;
-    let updated = updated.allocation.ok_or(CarbideCliError::Empty)?;
+    let updated = updated.allocation.ok_or(NicoCliError::Empty)?;
 
     match output_format {
         OutputFormat::Json => println!(
             "{}",
-            serde_json::to_string_pretty(&updated).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&updated).map_err(NicoCliError::JsonError)?
         ),
         OutputFormat::Yaml => println!(
             "{}",
-            serde_yaml::to_string(&updated).map_err(CarbideCliError::YamlError)?
+            serde_yaml::to_string(&updated).map_err(NicoCliError::YamlError)?
         ),
         OutputFormat::Csv => {
             convert_compute_allocations_to_table(vec![updated], true)?
                 .to_csv(std::io::stdout())
-                .map_err(CarbideCliError::CsvError)?
+                .map_err(NicoCliError::CsvError)?
                 .flush()?;
         }
         _ => convert_compute_allocations_to_table(vec![updated], true)?.printstd(),

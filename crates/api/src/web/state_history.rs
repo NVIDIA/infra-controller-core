@@ -21,13 +21,13 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     MachineStateHistoriesRequest, PowerShelfStateHistoriesRequest, RackStateHistoriesRequest,
     SwitchStateHistoriesRequest,
 };
@@ -59,8 +59,8 @@ pub(super) struct StateHistoryRecord {
     pub version: String,
 }
 
-impl From<::rpc::forge::MachineEvent> for StateHistoryRecord {
-    fn from(record: ::rpc::forge::MachineEvent) -> Self {
+impl From<::rpc::nico::MachineEvent> for StateHistoryRecord {
+    fn from(record: ::rpc::nico::MachineEvent) -> Self {
         Self {
             state: record.event,
             version: record.version,
@@ -68,8 +68,8 @@ impl From<::rpc::forge::MachineEvent> for StateHistoryRecord {
     }
 }
 
-impl From<::rpc::forge::StateHistoryRecord> for StateHistoryRecord {
-    fn from(record: ::rpc::forge::StateHistoryRecord) -> Self {
+impl From<::rpc::nico::StateHistoryRecord> for StateHistoryRecord {
+    fn from(record: ::rpc::nico::StateHistoryRecord) -> Self {
         Self {
             state: record.state,
             version: record.version,
@@ -189,7 +189,7 @@ define_fetch_state_history_records!(
     id_vec_field = machine_ids,
     api_method = find_machine_state_histories,
     request_type = MachineStateHistoriesRequest,
-    record_type = ::rpc::forge::MachineEvent,
+    record_type = ::rpc::nico::MachineEvent,
 );
 
 define_fetch_state_history_records!(
@@ -198,7 +198,7 @@ define_fetch_state_history_records!(
     id_vec_field = power_shelf_ids,
     api_method = find_power_shelf_state_histories,
     request_type = PowerShelfStateHistoriesRequest,
-    record_type = ::rpc::forge::StateHistoryRecord,
+    record_type = ::rpc::nico::StateHistoryRecord,
 );
 
 define_fetch_state_history_records!(
@@ -207,7 +207,7 @@ define_fetch_state_history_records!(
     id_vec_field = rack_ids,
     api_method = find_rack_state_histories,
     request_type = RackStateHistoriesRequest,
-    record_type = ::rpc::forge::StateHistoryRecord,
+    record_type = ::rpc::nico::StateHistoryRecord,
 );
 
 define_fetch_state_history_records!(
@@ -216,7 +216,7 @@ define_fetch_state_history_records!(
     id_vec_field = switch_ids,
     api_method = find_switch_state_histories,
     request_type = SwitchStateHistoriesRequest,
-    record_type = ::rpc::forge::StateHistoryRecord,
+    record_type = ::rpc::nico::StateHistoryRecord,
 );
 
 define_show_state_history_handlers!(

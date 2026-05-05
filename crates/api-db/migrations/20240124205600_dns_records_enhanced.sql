@@ -8,7 +8,7 @@
 ALTER VIEW dns_records RENAME TO dns_records_shortname_combined;
 
 --
--- Name: dns_records_adm_combined; Type: TABLE; Schema: public; Owner: carbide_development
+-- Name: dns_records_adm_combined; Type: TABLE; Schema: public; Owner: nico_development
 --
 -- This is a view of DNS records mapping the machine-id -> IP address
 -- for both the Hosts and DPUs.
@@ -27,7 +27,7 @@ FROM
 WHERE (machine_interfaces.machine_id IS NOT NULL);
 
 --
--- Name: dns_records_bmc_host_id; Type: TABLE; Schema: public; Owner: carbide_development
+-- Name: dns_records_bmc_host_id; Type: TABLE; Schema: public; Owner: nico_development
 --
 -- This is a view of DNS records mapping Host machine-id -> IP address
 -- of its corresponding Host BMC interface.
@@ -47,7 +47,7 @@ WHERE
     machine_interfaces.machine_id IS NOT NULL;
 
 --
--- Name: dns_records_bmc_dpu_id; Type: TABLE; Schema: public; Owner: carbide_development
+-- Name: dns_records_bmc_dpu_id; Type: TABLE; Schema: public; Owner: nico_development
 --
 -- This is a view of DNS records mapping DPU machine-id -> IP address
 -- of its DPU BMC interface. It's worth noting that we know it's a DPU
@@ -70,7 +70,7 @@ WHERE
     machine_interfaces.machine_id IS NOT NULL;
 
 --
--- Name: dns_records; Type: TABLE; Schema: public; Owner: carbide_development
+-- Name: dns_records; Type: TABLE; Schema: public; Owner: nico_development
 --
 -- This is a view of all DNS record reviews for both the "pretty names" and
 -- machine-ID derived names of Host & DPU admin and BMC interfaces, allowing

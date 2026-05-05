@@ -18,8 +18,8 @@
 use std::fmt::Write;
 
 use ::rpc::Timestamp;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use carbide_uuid::domain::DomainId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use nico_uuid::domain::DomainId;
 use prettytable::{Table, row};
 use tracing::warn;
 
@@ -41,7 +41,7 @@ fn timestamp_or_default(ts: &Option<Timestamp>, default: &Timestamp) -> String {
     ts.as_ref().unwrap_or(default).to_string()
 }
 
-fn convert_domain_to_nice_format(domain: &::rpc::protos::dns::Domain) -> CarbideCliResult<String> {
+fn convert_domain_to_nice_format(domain: &::rpc::protos::dns::Domain) -> NicoCliResult<String> {
     let width = 10;
     let mut lines = String::new();
 
@@ -82,7 +82,7 @@ fn convert_domain_to_nice_table(domains: ::rpc::protos::dns::DomainList) -> Box<
     table.into()
 }
 
-async fn show_all_domains(json: bool, api_client: &ApiClient) -> CarbideCliResult<()> {
+async fn show_all_domains(json: bool, api_client: &ApiClient) -> NicoCliResult<()> {
     let domains = api_client.get_domains(None).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&domains)?);
@@ -96,10 +96,10 @@ async fn show_domain_information(
     id: DomainId,
     json: bool,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let domains = api_client.get_domains(Some(id)).await?;
     if domains.domains.is_empty() {
-        return Err(CarbideCliError::DomainNotFound);
+        return Err(NicoCliError::DomainNotFound);
     }
     let domain = &domains.domains[0];
 
@@ -118,7 +118,7 @@ pub async fn handle_show(
     args: &Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if let (false, Some(domain_id)) = (args.all, args.domain) {
         show_domain_information(domain_id, is_json, api_client).await?;

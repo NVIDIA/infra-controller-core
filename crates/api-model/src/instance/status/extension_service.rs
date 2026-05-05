@@ -18,11 +18,11 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::extension_service::ExtensionServiceId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::extension_service::ExtensionServiceId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use rpc::forge as rpc;
+use rpc::nico as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::extension_service::ExtensionServiceType;

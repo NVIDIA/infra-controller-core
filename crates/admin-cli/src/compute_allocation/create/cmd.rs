@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::CreateComputeAllocationRequest;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::CreateComputeAllocationRequest;
 
 use super::args::Args;
 use crate::compute_allocation::common::convert_compute_allocations_to_table;
@@ -29,24 +29,24 @@ pub async fn create(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let req: CreateComputeAllocationRequest = args.try_into()?;
     let allocation = api_client.0.create_compute_allocation(req).await?;
-    let allocation = allocation.allocation.ok_or(CarbideCliError::Empty)?;
+    let allocation = allocation.allocation.ok_or(NicoCliError::Empty)?;
 
     match output_format {
         OutputFormat::Json => println!(
             "{}",
-            serde_json::to_string_pretty(&allocation).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&allocation).map_err(NicoCliError::JsonError)?
         ),
         OutputFormat::Yaml => println!(
             "{}",
-            serde_yaml::to_string(&allocation).map_err(CarbideCliError::YamlError)?
+            serde_yaml::to_string(&allocation).map_err(NicoCliError::YamlError)?
         ),
         OutputFormat::Csv => {
             convert_compute_allocations_to_table(vec![allocation], true)?
                 .to_csv(std::io::stdout())
-                .map_err(CarbideCliError::CsvError)?
+                .map_err(NicoCliError::CsvError)?
                 .flush()?;
         }
         _ => convert_compute_allocations_to_table(vec![allocation], true)?.printstd(),

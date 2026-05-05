@@ -8,7 +8,7 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_FioSSD';
+    test_id = 'nico_FioSSD';
 
 UPDATE
     machine_validation_tests
@@ -21,4 +21,4 @@ SET
     img_name = null,
     container_arg = null
 where
-    test_id = 'forge_FioPath';
+    test_id = 'nico_FioPath';

@@ -17,7 +17,7 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::domain::DomainId;
+use nico_uuid::domain::DomainId;
 use chrono::{DateTime, Utc};
 use hickory_proto::rr::Name;
 use model::dns::{Domain, NewDomain, SoaSnapshot};

@@ -22,7 +22,7 @@
 
 use std::convert::{Into, TryFrom};
 
-use carbide_uuid::measured_boot::MeasurementSystemProfileId;
+use nico_uuid::measured_boot::MeasurementSystemProfileId;
 use chrono::{DateTime, Utc};
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;

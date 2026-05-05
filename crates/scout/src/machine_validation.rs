@@ -15,23 +15,23 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
+use ::rpc::nico as rpc;
+use nico_uuid::machine::MachineId;
+use nico_uuid::machine_validation::MachineValidationId;
 use regex::Regex;
 use tokio::process::Command;
 
-use crate::CarbideClientError;
+use crate::NicoClientError;
 use crate::cfg::Options;
-use crate::client::create_forge_client;
+use crate::client::create_nico_client;
 
 pub(crate) async fn completed(
     config: &Options,
     machine_id: &MachineId,
     validation_id: &MachineValidationId,
     machine_validation_error: Option<String>,
-) -> Result<(), CarbideClientError> {
-    let mut client = create_forge_client(config).await?;
+) -> Result<(), NicoClientError> {
+    let mut client = create_nico_client(config).await?;
     let request = tonic::Request::new(rpc::MachineValidationCompletedRequest {
         machine_id: Some(*machine_id),
         machine_validation_error,
@@ -74,7 +74,7 @@ pub(crate) async fn run(
     validation_id: MachineValidationId,
     context: String,
     machine_validation_filter: machine_validation::MachineValidationFilter,
-) -> Result<(), CarbideClientError> {
+) -> Result<(), NicoClientError> {
     let platform_name = get_system_manufacturer_name().await;
     let options = machine_validation::MachineValidationOptions {
         api: cmd_config.api.clone(),
@@ -91,6 +91,6 @@ pub(crate) async fn run(
         machine_validation_filter,
     )
     .await
-    .map_err(|e| CarbideClientError::GenericError(format!("{e}")))?;
+    .map_err(|e| NicoClientError::GenericError(format!("{e}")))?;
     Ok(())
 }

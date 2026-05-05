@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::instance::InstanceId;
+use nico_uuid::instance::InstanceId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

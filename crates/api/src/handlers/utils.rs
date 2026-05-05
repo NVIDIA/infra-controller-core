@@ -15,18 +15,18 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::log_machine_id;
 
 /// Converts a MachineID from RPC format to Model format
 /// and logs the MachineID as MachineID for the current request.
-pub fn convert_and_log_machine_id(id: Option<&MachineId>) -> Result<MachineId, CarbideError> {
+pub fn convert_and_log_machine_id(id: Option<&MachineId>) -> Result<MachineId, NicoError> {
     let machine_id = match id {
         Some(id) => *id,
         None => {
-            return Err(CarbideError::MissingArgument("Machine ID"));
+            return Err(NicoError::MissingArgument("Machine ID"));
         }
     };
     log_machine_id(&machine_id);

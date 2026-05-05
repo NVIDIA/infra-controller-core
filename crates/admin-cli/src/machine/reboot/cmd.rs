@@ -15,17 +15,17 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn reboot(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub async fn reboot(api_client: &ApiClient, args: Args) -> NicoCliResult<()> {
     let res = api_client
         .admin_power_control(
             None,
             Some(args.machine),
-            ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart,
+            ::rpc::nico::admin_power_control_request::SystemPowerControl::ForceRestart,
         )
         .await?;
 

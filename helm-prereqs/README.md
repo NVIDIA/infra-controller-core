@@ -35,14 +35,14 @@ helm-prereqs/
 ├── unseal_vault.sh             # Vault init + unseal (called by setup.sh Phase 4)
 ├── bootstrap_ssh_host_key.sh   # SSH host key generation (called by setup.sh Phase 4)
 ├── helmfile.yaml               # Helmfile release definitions for all prerequisite components
-├── Chart.yaml                  # carbide-prereqs Helm chart metadata
+├── Chart.yaml                  # nico-prereqs Helm chart metadata
 ├── values.yaml                 # Top-level values (siteName, PostgreSQL tuning)
 ├── values/
 │   ├── ncx-core.yaml           # NCX Core deployment values (hostname, siteConfig, VIPs)
 │   ├── ncx-rest.yaml           # NCX REST deployment values (Keycloak config)
 │   ├── ncx-site-agent.yaml     # Site-agent deployment values (DB config, gRPC settings)
 │   └── metallb-config.yaml     # MetalLB IP pools, BGP peers, and advertisements
-├── templates/                  # carbide-prereqs Helm chart templates (PKI, ESO, PostgreSQL)
+├── templates/                  # nico-prereqs Helm chart templates (PKI, ESO, PostgreSQL)
 ├── operators/                  # Raw manifests and operator values (local-path, MetalLB, cert-manager, Vault, ESO)
 └── keycloak/                   # Dev Keycloak deployment and token helper scripts
 ```
@@ -68,7 +68,7 @@ Before running `setup.sh`, the following values files must be configured for you
 | Key | Default | Must change? | Description |
 |-----|---------|-------------|-------------|
 | `siteName` | `"TMP_SITE"` | **Yes** | Site identifier, injected into postgres pods as `TMP_SITE` |
-| `imagePullSecrets.ngcCarbidePull` | `""` | No (auto) | NGC API key for pulling NCX Core images. Set automatically by `setup.sh` from `REGISTRY_PULL_SECRET`. |
+| `imagePullSecrets.ngcNicoPull` | `""` | No (auto) | NGC API key for pulling NCX Core images. Set automatically by `setup.sh` from `REGISTRY_PULL_SECRET`. |
 | `postgresql.instances` | `3` | No | Number of PostgreSQL replicas |
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
 
@@ -76,8 +76,8 @@ Before running `setup.sh`, the following values files must be configured for you
 
 | Key | Default | Must change? | Description |
 |-----|---------|-------------|-------------|
-| `carbide-api.hostname` | `"api-examplesite.example.com"` | **Yes** | External DNS name for the NCX Core API |
-| `carbide-api.externalService.annotations...loadBalancerIPs` | `"10.180.126.177"` | **Yes** | MetalLB VIP for carbide-api (from external pool) |
+| `nico-api.hostname` | `"api-examplesite.example.com"` | **Yes** | External DNS name for the NCX Core API |
+| `nico-api.externalService.annotations...loadBalancerIPs` | `"10.180.126.177"` | **Yes** | MetalLB VIP for nico-api (from external pool) |
 | `siteConfig.sitename` | `"examplesite"` | **Yes** | Short site identifier (must match `siteName` in `values.yaml`) |
 | `siteConfig.initial_domain_name` | `"examplesite.example.com"` | **Yes** | Base DNS domain for the site |
 | `siteConfig.dhcp_servers` | `["10.180.126.160"]` | **Yes** | DHCP service VIP(s) from your MetalLB internal pool |
@@ -86,7 +86,7 @@ Before running `setup.sh`, the following values files must be configured for you
 | `siteConfig.[pools.lo-ip]` ranges | `{ start = "10.180.62.84", end = "10.180.62.86" }` | **Yes** | Loopback IP range for bare-metal hosts |
 | `siteConfig.[pools.vlan-id]` ranges | `{ start = "100", end = "501" }` | **Yes** | VLAN ID allocation range |
 | `siteConfig.[pools.vni]` ranges | `{ start = "1024500", end = "1024800" }` | **Yes** | VXLAN Network Identifier range |
-| `siteConfig.[networks.admin]` | example values | **Yes** | Admin/OOB network: `prefix` (CIDR), `gateway`, `mtu`, `reserve_first`. `prefix` and `gateway` must not be empty — carbide-api crashes on startup if they are. |
+| `siteConfig.[networks.admin]` | example values | **Yes** | Admin/OOB network: `prefix` (CIDR), `gateway`, `mtu`, `reserve_first`. `prefix` and `gateway` must not be empty — nico-api crashes on startup if they are. |
 | `siteConfig.[networks.<underlay>]` | `[networks.RNO1-M04-D04-IPMITOR-01]` | **Yes** | One block per underlay data-plane L3 segment: `type = "underlay"`, `prefix`, `gateway`, `mtu`, `reserve_first`. Rename the block to match your site segment name. Add additional blocks for each underlay segment. |
 | Per-service `loadBalancerIPs` | example IPs | **Yes** | Stable VIPs for DHCP, DNS, PXE, SSH console, NTP |
 
@@ -94,9 +94,9 @@ Before running `setup.sh`, the following values files must be configured for you
 
 | Key | Default | Must change? | Description |
 |-----|---------|-------------|-------------|
-| `carbide-rest-api.config.keycloak.enabled` | `true` | No | Use bundled dev Keycloak. Set `false` for BYO IdP. |
-| `carbide-rest-api.config.keycloak.baseURL` | `"http://keycloak.carbide-rest:8082"` | For prod | Internal Keycloak URL. Change if using external Keycloak. |
-| `carbide-rest-api.config.keycloak.externalBaseURL` | `"http://keycloak.carbide-rest:8082"` | For prod | External Keycloak URL returned in tokens |
+| `nico-rest-api.config.keycloak.enabled` | `true` | No | Use bundled dev Keycloak. Set `false` for BYO IdP. |
+| `nico-rest-api.config.keycloak.baseURL` | `"http://keycloak.nico-rest:8082"` | For prod | Internal Keycloak URL. Change if using external Keycloak. |
+| `nico-rest-api.config.keycloak.externalBaseURL` | `"http://keycloak.nico-rest:8082"` | For prod | External Keycloak URL returned in tokens |
 
 ### `values/ncx-site-agent.yaml`
 
@@ -105,7 +105,7 @@ Before running `setup.sh`, the following values files must be configured for you
 | `envConfig.DB_ADDR` | `"postgres.postgres.svc.cluster.local"` | For prod | PostgreSQL host address |
 | `envConfig.DB_DATABASE` | `"elektratest"` | For prod | Database name |
 | `envConfig.DEV_MODE` | `"true"` | For prod | Set to `"false"` in production |
-| `envConfig.CARBIDE_SEC_OPT` | `"2"` | No | Security mode: 0=insecure, 1=TLS, 2=mTLS (required) |
+| `envConfig.NICO_SEC_OPT` | `"2"` | No | Security mode: 0=insecure, 1=TLS, 2=mTLS (required) |
 | `CLUSTER_ID` | — | No (auto) | Site UUID. Set automatically by `setup.sh` via `--set` from `NCX_SITE_UUID`. |
 | `TEMPORAL_SUBSCRIBE_NAMESPACE` | — | No (auto) | Temporal namespace. Set automatically by `setup.sh` via `--set` from `NCX_SITE_UUID`. Must match `CLUSTER_ID`. |
 
@@ -114,7 +114,7 @@ Before running `setup.sh`, the following values files must be configured for you
 | Key | Default | Must change? | Description |
 |-----|---------|-------------|-------------|
 | `IPAddressPool (internal).spec.addresses` | `10.180.126.160/28` | **Yes** | Internal VIP CIDR for DHCP, DNS, PXE, SSH, NTP |
-| `IPAddressPool (external).spec.addresses` | `10.180.126.176/28` | **Yes** | External VIP CIDR for carbide-api |
+| `IPAddressPool (external).spec.addresses` | `10.180.126.176/28` | **Yes** | External VIP CIDR for nico-api |
 | `BGPPeer[*].spec.myASN` | `4244766850` | **Yes** | Cluster-side ASN (same for all nodes) |
 | `BGPPeer[*].spec.peerASN` | per-node | **Yes** | TOR router ASN (unique per node) |
 | `BGPPeer[*].spec.peerAddress` | per-node | **Yes** | TOR switch IP reachable from each node |
@@ -126,19 +126,19 @@ Before running `setup.sh`, the following values files must be configured for you
 ```
 local-path-provisioner     (raw manifest - StorageClasses for Vault + PostgreSQL PVCs)
 metallb                    (metallb/metallb 0.14.5 - LoadBalancer IPs via BGP or L2)
-postgres-operator          (zalando/postgres-operator 1.10.1 - manages forge-pg-cluster)
+postgres-operator          (zalando/postgres-operator 1.10.1 - manages nico-pg-cluster)
 cert-manager               (jetstack/cert-manager v1.17.1)
 vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
-carbide-prereqs            (this Helm chart - forge-system namespace)
+nico-prereqs            (this Helm chart - nico-system namespace)
 NCX Core                   (../helm - ncx-core.yaml values)
-NCX REST                   (ncx-infra-controller-rest/helm/charts/carbide-rest)
-  ├── carbide-rest-ca-issuer ClusterIssuer (cert-manager.io)
+NCX REST                   (ncx-infra-controller-rest/helm/charts/nico-rest)
+  ├── nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
   ├── postgres StatefulSet  (temporal + keycloak + NCX databases)
-  ├── keycloak              (dev OIDC IdP, carbide-dev realm)
+  ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
-  ├── carbide-rest          (API, cert-manager, workflow, site-manager)
-  └── carbide-rest-site-agent (StatefulSet, bootstrap via site-manager)
+  ├── nico-rest          (API, cert-manager, workflow, site-manager)
+  └── nico-rest-site-agent (StatefulSet, bootstrap via site-manager)
 ```
 
 ## Teardown

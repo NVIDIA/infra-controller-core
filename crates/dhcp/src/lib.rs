@@ -20,12 +20,12 @@ use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use forge_tls::default as tls_default;
+use nico_tls::default as tls_default;
 use libc::c_char;
 use metrics_endpoint::HealthController;
 use once_cell::sync::Lazy;
 use opentelemetry::metrics::Counter;
-use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::nico_tls_client::NicoClientConfig;
 use tokio::runtime::{Builder, Runtime};
 
 mod cache;
@@ -41,45 +41,45 @@ mod metrics;
 pub mod mock_api_server;
 mod tls;
 
-static CONFIG: Lazy<RwLock<CarbideDhcpContext>> =
-    Lazy::new(|| RwLock::new(CarbideDhcpContext::default()));
+static CONFIG: Lazy<RwLock<NicoDhcpContext>> =
+    Lazy::new(|| RwLock::new(NicoDhcpContext::default()));
 
 static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 
 #[derive(Debug)]
-pub struct CarbideDhcpContext {
+pub struct NicoDhcpContext {
     api_endpoint: String,
     nameservers: String,
     mqtt_server: Option<String>,
     ntpservers: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
-    forge_root_ca_path: String,
-    forge_client_cert_path: String,
-    forge_client_key_path: String,
+    nico_root_ca_path: String,
+    nico_client_cert_path: String,
+    nico_client_key_path: String,
     metrics_endpoint: Option<SocketAddr>,
-    metrics: Option<CarbideDhcpMetrics>,
+    metrics: Option<NicoDhcpMetrics>,
     health_controller: Option<HealthController>,
     startup_time: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CarbideDhcpMetrics {
+pub struct NicoDhcpMetrics {
     total_requests_counter: Counter<u64>,
     dropped_requests_counter: Counter<u64>,
-    forge_client_config: ForgeClientConfig,
+    nico_client_config: NicoClientConfig,
     certificate_expiration_value: Arc<AtomicI64>,
 }
 
-impl Default for CarbideDhcpContext {
+impl Default for NicoDhcpContext {
     fn default() -> Self {
         Self {
             api_endpoint: "https://[::1]:1079".to_string(),
             nameservers: "1.1.1.1".to_string(),
-            forge_root_ca_path: std::env::var("FORGE_ROOT_CAFILE_PATH")
+            nico_root_ca_path: std::env::var("NICO_ROOT_CAFILE_PATH")
                 .unwrap_or_else(|_| tls_default::ROOT_CA.to_string()),
-            forge_client_cert_path: std::env::var("FORGE_CLIENT_CERT_PATH")
+            nico_client_cert_path: std::env::var("NICO_CLIENT_CERT_PATH")
                 .unwrap_or_else(|_| tls_default::CLIENT_CERT.to_string()),
-            forge_client_key_path: std::env::var("FORGE_CLIENT_KEY_PATH")
+            nico_client_key_path: std::env::var("NICO_CLIENT_KEY_PATH")
                 .unwrap_or_else(|_| tls_default::CLIENT_KEY.to_string()),
             ntpservers: "172.20.0.24,172.20.0.26,172.20.0.27".to_string(), // local ntp servers
             mqtt_server: None,
@@ -92,7 +92,7 @@ impl Default for CarbideDhcpContext {
     }
 }
 
-impl CarbideDhcpContext {
+impl NicoDhcpContext {
     pub fn get_tokio_runtime() -> &'static Runtime {
         static TOKIO: Lazy<Runtime> = Lazy::new(|| {
             let runtime = Builder::new_current_thread()
@@ -115,7 +115,7 @@ impl CarbideDhcpContext {
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
+pub unsafe extern "C" fn nico_set_config_api(api: *const c_char) {
     unsafe {
         let config_api = CStr::from_ptr(api).to_str().unwrap().to_owned();
         CONFIG.write().unwrap().api_endpoint = config_api;
@@ -129,7 +129,7 @@ pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
 ///
 /// None, todo!()
 #[unsafe(no_mangle)]
-pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
+pub extern "C" fn nico_set_config_next_server_ipv4(next_server: u32) {
     CONFIG.write().unwrap().provisioning_server_ipv4 =
         Some(Ipv4Addr::from(next_server.to_be_bytes()));
 }
@@ -140,7 +140,7 @@ pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_char) {
+pub unsafe extern "C" fn nico_set_config_name_servers(nameservers: *const c_char) {
     unsafe {
         let nameserver_str = CStr::from_ptr(nameservers).to_str().unwrap().to_owned();
         CONFIG.write().unwrap().nameservers = nameserver_str;
@@ -153,7 +153,7 @@ pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_c
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_char) {
+pub unsafe extern "C" fn nico_set_config_mqtt_server(mqttserver: *const c_char) {
     unsafe {
         let mqttserver_str = CStr::from_ptr(mqttserver).to_str().unwrap().to_owned();
         CONFIG.write().unwrap().mqtt_server = Some(mqttserver_str);
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_cha
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
+pub unsafe extern "C" fn nico_set_config_ntp(ntpservers: *const c_char) {
     unsafe {
         let ntp_str = CStr::from_ptr(ntpservers).to_str().unwrap().to_owned();
         CONFIG.write().unwrap().ntpservers = ntp_str;
@@ -179,7 +179,7 @@ pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_char) {
+pub unsafe extern "C" fn nico_set_config_metrics_endpoint(endpoint: *const c_char) {
     unsafe {
         let config_metrics_endpoint = CStr::from_ptr(endpoint).to_str().unwrap().to_owned();
         match config_metrics_endpoint.parse::<SocketAddr>() {
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_
                 log::info!("metrics endpoint: {config_metrics_endpoint}");
                 CONFIG.write().unwrap().metrics_endpoint = Some(metrics_endpoint);
                 // this will initiate metrics server
-                CarbideDhcpContext::get_tokio_runtime();
+                NicoDhcpContext::get_tokio_runtime();
             }
             Err(err) => {
                 log::error!("failed to parse metrics endpoint {config_metrics_endpoint} : {err}");
@@ -202,7 +202,7 @@ pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_
 ///
 /// None
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_increment_total_requests() {
+pub unsafe extern "C" fn nico_increment_total_requests() {
     metrics::increment_total_requests();
 }
 
@@ -212,7 +212,7 @@ pub unsafe extern "C" fn carbide_increment_total_requests() {
 ///
 /// None
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_increment_dropped_requests(reason: *const c_char) {
+pub unsafe extern "C" fn nico_increment_dropped_requests(reason: *const c_char) {
     unsafe {
         let reason_value = CStr::from_ptr(reason).to_str().unwrap().to_owned();
         metrics::increment_dropped_requests(reason_value);

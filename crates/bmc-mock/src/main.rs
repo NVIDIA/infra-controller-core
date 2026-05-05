@@ -40,9 +40,9 @@ use tracing_subscriber::prelude::*;
 /// Run: 'cargo run'
 /// Try it:
 ///  - start docker-compose things
-///  - `cargo make bootstrap-forge-docker`
+///  - `cargo make bootstrap-nico-docker`
 ///  - `grpcurl -d '{"machine_id": {"value": "71363261-a95a-4964-9eb1-8dd98b870746"}}' -insecure
-///  127.0.0.1:1079 forge.Forge/CleanupMachineCompleted`
+///  127.0.0.1:1079 nico.Nico/CleanupMachineCompleted`
 ///  where that UUID is a host machine in DB.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

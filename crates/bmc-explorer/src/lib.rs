@@ -81,7 +81,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         },
         // BlueField-3 DPU (Tested on BF-25.10-9 firmware) has issue
         // with ERoT chassis. It stucks sometimes until next request
-        // of BlueField_ERoT. Because carbide doesn't need
+        // of BlueField_ERoT. Because nico doesn't need
         // BlueField_ERoT we just skip it.
         lazy_fetch: (root.vendor() == Some(Vendor::new("Nvidia"))
             && root.product() == Some(Product::new("BlueField-3 DPU")))
@@ -201,7 +201,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
 
     let secure_boot_status = explored_system
         .secure_boot_status()
-        .inspect_err(|error| tracing::warn!(%error, "Failed to fetch forge secure boot status."))
+        .inspect_err(|error| tracing::warn!(%error, "Failed to fetch nico secure boot status."))
         .ok();
 
     let machine_setup_status = hw_type

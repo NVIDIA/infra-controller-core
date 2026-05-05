@@ -19,18 +19,18 @@
 //! Identity config: issuer, audiences, TTL, signing key (Get/Set/Delete).
 //! Token delegation: token exchange config for external IdP (Get/Set/Delete).
 //! JWKS and OpenID discovery RPCs live in [`machine_identity`](super::machine_identity).
-//! (Proto message `forge.TenantIdentityConfig` is aliased as `ProtoTenantIdentityConfig` to avoid
+//! (Proto message `nico.TenantIdentityConfig` is aliased as `ProtoTenantIdentityConfig` to avoid
 //! clashing with the database row type [`TenantIdentityConfig`](TenantIdentityConfig).)
 
 use ::rpc::Timestamp;
-use ::rpc::forge::{
+use ::rpc::nico::{
     GetTenantIdentityConfigRequest, GetTokenDelegationRequest, SetTenantIdentityConfigRequest,
     TenantIdentityConfig as ProtoTenantIdentityConfig, TenantIdentityConfigResponse,
     TokenDelegationRequest, TokenDelegationResponse, token_delegation,
 };
 use db::{WithTransaction, tenant, tenant_identity_config};
-use forge_secrets::credentials::CredentialReader;
-use forge_secrets::key_encryption;
+use nico_secrets::credentials::CredentialReader;
+use nico_secrets::key_encryption;
 use model::tenant::{
     EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfig,
     IdentityConfigValidationError, InvalidNonEmptyStr, InvalidTenantOrg, KeyId, SigningKeyMaterial,
@@ -39,7 +39,7 @@ use model::tenant::{
 };
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::handlers::machine_identity::require_machine_identity_site_enabled;
 use crate::machine_identity::{
@@ -97,7 +97,7 @@ fn format_token_delegation_request_redacted(req: &TokenDelegationRequest) -> Str
 
 // --- Tenant identity configuration handlers ---
 
-/// `Forge::get_tenant_identity_configuration`: fetches per-org identity config.
+/// `Nico::get_tenant_identity_configuration`: fetches per-org identity config.
 pub(crate) async fn get_configuration(
     api: &Api,
     request: Request<GetTenantIdentityConfigRequest>,
@@ -110,12 +110,12 @@ pub(crate) async fn get_configuration(
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("organization_id is required".to_string()).into(),
+            NicoError::InvalidArgument("organization_id is required".to_string()).into(),
         );
     }
     let org_id: TenantOrganizationId = org_id
         .parse()
-        .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e: InvalidTenantOrg| NicoError::InvalidArgument(e.to_string()))?;
     let org_id_str = org_id.as_str().to_string();
 
     let cfg = api
@@ -126,7 +126,7 @@ pub(crate) async fn get_configuration(
     let cfg = match cfg {
         Some(c) => c,
         None => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "tenant_identity_config",
                 id: org_id_str.clone(),
             }
@@ -151,7 +151,7 @@ pub(crate) async fn get_configuration(
     }))
 }
 
-/// `Forge::delete_tenant_identity_configuration`: removes per-org identity config.
+/// `Nico::delete_tenant_identity_configuration`: removes per-org identity config.
 pub(crate) async fn delete_configuration(
     api: &Api,
     request: Request<GetTenantIdentityConfigRequest>,
@@ -164,12 +164,12 @@ pub(crate) async fn delete_configuration(
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("organization_id is required".to_string()).into(),
+            NicoError::InvalidArgument("organization_id is required".to_string()).into(),
         );
     }
     let org_id: TenantOrganizationId = org_id
         .parse()
-        .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e: InvalidTenantOrg| NicoError::InvalidArgument(e.to_string()))?;
     let org_id_str = org_id.as_str().to_string();
 
     let deleted = api
@@ -186,7 +186,7 @@ pub(crate) async fn delete_configuration(
         .await??;
 
     if !deleted {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "tenant_identity_config",
             id: org_id_str,
         }
@@ -196,7 +196,7 @@ pub(crate) async fn delete_configuration(
     Ok(Response::new(()))
 }
 
-/// `Forge::set_tenant_identity_configuration`: upserts per-org identity config into tenant_identity_config.
+/// `Nico::set_tenant_identity_configuration`: upserts per-org identity config into tenant_identity_config.
 /// Requires auth. Tenant must exist. Key generation is placeholder until credential-backed key provisioning.
 pub(crate) async fn set_configuration(
     api: &Api,
@@ -205,7 +205,7 @@ pub(crate) async fn set_configuration(
     log_request_data(&request);
 
     if !api.runtime_config.machine_identity.enabled {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Machine identity must be enabled in site config before setting identity configuration"
                 .to_string(),
         )
@@ -214,7 +214,7 @@ pub(crate) async fn set_configuration(
 
     let req = request.into_inner();
     let proto = req.config.ok_or_else(|| {
-        CarbideError::InvalidArgument("TenantIdentityConfig is required".to_string())
+        NicoError::InvalidArgument("TenantIdentityConfig is required".to_string())
     })?;
     let config = IdentityConfig::try_from_proto(
         proto,
@@ -222,16 +222,16 @@ pub(crate) async fn set_configuration(
             api.runtime_config.machine_identity.clone(),
         ),
     )
-    .map_err(|e: IdentityConfigValidationError| CarbideError::InvalidArgument(e.0))?;
+    .map_err(|e: IdentityConfigValidationError| NicoError::InvalidArgument(e.0))?;
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("organization_id is required".to_string()).into(),
+            NicoError::InvalidArgument("organization_id is required".to_string()).into(),
         );
     }
     let org_id: TenantOrganizationId = org_id
         .parse()
-        .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e: InvalidTenantOrg| NicoError::InvalidArgument(e.to_string()))?;
     let org_id_str = org_id.as_str().to_string();
 
     let org_id_for_find = org_id.clone();
@@ -250,18 +250,18 @@ pub(crate) async fn set_configuration(
             )
             .await?;
             let (private_pem, public_pem) = key_encryption::generate_es256_key_pair()
-                .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+                .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
             let key_id = KeyId::from_public_key_material(&public_pem);
             let encrypted_signing_key: EncryptedSigningPrivateKey =
                 key_encryption::encrypt(&private_pem, &encryption_key, &config.encryption_key_id)
-                    .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
+                    .map_err(|e| NicoError::InvalidArgument(e.to_string()))?
                     .try_into()
                     .map_err(|e: InvalidNonEmptyStr| {
-                        CarbideError::InvalidArgument(e.to_string())
+                        NicoError::InvalidArgument(e.to_string())
                     })?;
             let signing_key_public: SigningPublicKeyPem = public_pem
                 .try_into()
-                .map_err(|e: InvalidNonEmptyStr| CarbideError::InvalidArgument(e.to_string()))?;
+                .map_err(|e: InvalidNonEmptyStr| NicoError::InvalidArgument(e.to_string()))?;
             Some(SigningKeyMaterial {
                 key_id,
                 encrypted_signing_key,
@@ -315,7 +315,7 @@ pub(crate) async fn get_token_delegation(
     log_request_data(&request);
 
     if !api.runtime_config.machine_identity.enabled {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Machine identity must be enabled in site config".to_string(),
         )
         .into());
@@ -325,12 +325,12 @@ pub(crate) async fn get_token_delegation(
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("organization_id is required".to_string()).into(),
+            NicoError::InvalidArgument("organization_id is required".to_string()).into(),
         );
     }
     let org_id: TenantOrganizationId = org_id
         .parse()
-        .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e: InvalidTenantOrg| NicoError::InvalidArgument(e.to_string()))?;
     let org_id_str = org_id.as_str().to_string();
 
     let cfg = api
@@ -341,7 +341,7 @@ pub(crate) async fn get_token_delegation(
     let cfg = match cfg {
         Some(c) => c,
         None => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "tenant_identity_config",
                 id: org_id_str.clone(),
             }
@@ -350,14 +350,14 @@ pub(crate) async fn get_token_delegation(
     };
 
     if cfg.token_endpoint.is_none() || cfg.auth_method.is_none() {
-        return Err(Status::from(CarbideError::NotFoundError {
+        return Err(Status::from(NicoError::NotFoundError {
             kind: "token_delegation",
             id: org_id_str.clone(),
         }));
     }
 
     let cfg = tenant_identity_with_decrypted_token_delegation(&api.credential_manager, cfg).await?;
-    Ok(Response::new(cfg.try_into().map_err(CarbideError::from)?))
+    Ok(Response::new(cfg.try_into().map_err(NicoError::from)?))
 }
 
 pub(crate) async fn set_token_delegation(
@@ -367,7 +367,7 @@ pub(crate) async fn set_token_delegation(
     log_request_data_redacted(format_token_delegation_request_redacted(request.get_ref()));
 
     if !api.runtime_config.machine_identity.enabled {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Machine identity must be enabled in site config".to_string(),
         )
         .into());
@@ -378,23 +378,23 @@ pub(crate) async fn set_token_delegation(
         .config
         .as_ref()
         .ok_or_else(|| {
-            CarbideError::InvalidArgument("TokenDelegation config is required".to_string())
+            NicoError::InvalidArgument("TokenDelegation config is required".to_string())
         })
         .and_then(|c| {
             TokenDelegation::try_from_proto(
                 c.clone(),
                 &TokenDelegationValidationBounds::from(api.runtime_config.machine_identity.clone()),
             )
-            .map_err(|e: TokenDelegationValidationError| CarbideError::InvalidArgument(e.0))
+            .map_err(|e: TokenDelegationValidationError| NicoError::InvalidArgument(e.0))
         })?;
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("organization_id is required".to_string()).into(),
+            NicoError::InvalidArgument("organization_id is required".to_string()).into(),
         );
     }
     let org_id: TenantOrganizationId = org_id.parse().map_err(|e: InvalidTenantOrg| {
-        Status::from(CarbideError::InvalidArgument(e.to_string()))
+        Status::from(NicoError::InvalidArgument(e.to_string()))
     })?;
 
     let org_id_for_find = org_id.clone();
@@ -404,7 +404,7 @@ pub(crate) async fn set_token_delegation(
             Box::pin(async move { tenant_identity_config::find(&org_id_for_find, txn).await })
         })
         .await??
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "tenant_identity_config",
             id: org_id.as_str().to_string(),
         })?;
@@ -418,9 +418,9 @@ pub(crate) async fn set_token_delegation(
         &secret,
         &id_row.encryption_key_id,
     )
-    .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
+    .map_err(|e| NicoError::InvalidArgument(e.to_string()))?
     .try_into()
-    .map_err(|e: InvalidNonEmptyStr| CarbideError::InvalidArgument(e.to_string()))?;
+    .map_err(|e: InvalidNonEmptyStr| NicoError::InvalidArgument(e.to_string()))?;
 
     let cfg = api
         .database_connection
@@ -448,7 +448,7 @@ pub(crate) async fn set_token_delegation(
         .await??;
 
     let cfg = tenant_identity_with_decrypted_token_delegation(&api.credential_manager, cfg).await?;
-    Ok(Response::new(cfg.try_into().map_err(CarbideError::from)?))
+    Ok(Response::new(cfg.try_into().map_err(NicoError::from)?))
 }
 
 pub(crate) async fn delete_token_delegation(
@@ -458,7 +458,7 @@ pub(crate) async fn delete_token_delegation(
     log_request_data(&request);
 
     if !api.runtime_config.machine_identity.enabled {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Machine identity must be enabled in site config".to_string(),
         )
         .into());
@@ -468,12 +468,12 @@ pub(crate) async fn delete_token_delegation(
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("organization_id is required".to_string()).into(),
+            NicoError::InvalidArgument("organization_id is required".to_string()).into(),
         );
     }
     let org_id: TenantOrganizationId = org_id
         .parse()
-        .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e: InvalidTenantOrg| NicoError::InvalidArgument(e.to_string()))?;
 
     api.database_connection
         .with_txn(|txn| {

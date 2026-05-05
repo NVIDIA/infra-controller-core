@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_ib_fabric::errors::IbError;
-use carbide_ib_fabric::ib::{GetPartitionOptions, IBFabricManagerConfig};
-use carbide_uuid::infiniband::IBPartitionId;
+use nico_ib_fabric::errors::IbError;
+use nico_ib_fabric::ib::{GetPartitionOptions, IBFabricManagerConfig};
+use nico_uuid::infiniband::IBPartitionId;
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
 use model::ib_partition::{IBPartition, IBPartitionControllerState, IBPartitionStatus};
 

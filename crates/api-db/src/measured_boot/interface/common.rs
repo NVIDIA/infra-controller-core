@@ -26,7 +26,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::DerefMut;
 use std::vec::Vec;
 
-use carbide_uuid::{DbPrimaryUuid, DbTable};
+use nico_uuid::{DbPrimaryUuid, DbTable};
 use measured_boot::pcr::PcrRegisterValue;
 use sqlx::postgres::PgRow;
 use sqlx::{Encode, PgConnection, PgTransaction, Postgres};

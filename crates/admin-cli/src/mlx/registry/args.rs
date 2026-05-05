@@ -18,7 +18,7 @@
 // registry/args.rs
 // Command-line argument definitions for registry commands.
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 use rpc::protos::mlx_device as mlx_device_pb;
 
@@ -35,14 +35,14 @@ pub enum RegistryCommand {
 // RegistryListCommand lists all available registries.
 #[derive(Parser, Debug)]
 pub struct RegistryListCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 }
 
 // RegistryShowCommand shows details of a specific registry.
 #[derive(Parser, Debug)]
 pub struct RegistryShowCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Registry name to show")]

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use carbide_utils::cmd::{Cmd, CmdError};
+use nico_utils::cmd::{Cmd, CmdError};
 use regex::Regex;
 use rpc::machine_discovery::{DpuData, LldpSwitchData};
 use serde::{Deserialize, Serialize};
@@ -136,7 +136,7 @@ pub fn wait_until_all_ports_available() {
     debug!("lldp: Ports {:?} are read succesfully.", ports_read);
 }
 
-// LLDP was broken in multiple forge versions. It was fixed in HBN 2.1/ doca 2.6, as per
+// LLDP was broken in multiple nico versions. It was fixed in HBN 2.1/ doca 2.6, as per
 // https://redmine.mellanox.com/issues/3753899
 // 2.1 aligns with XX.40.1000 firmwware, so if the middle section of firmware is equal or greater
 // than 40, then LLDP should work.

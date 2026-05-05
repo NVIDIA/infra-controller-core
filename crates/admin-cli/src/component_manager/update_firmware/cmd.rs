@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, OutputFormat};
 use prettytable::{Cell, Row, Table};
 
 use super::args::Args;
@@ -26,12 +26,12 @@ pub async fn update_firmware(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     let response = api_client
         .0
         .update_component_firmware(opts)
         .await
-        .map_err(CarbideCliError::from)?;
+        .map_err(NicoCliError::from)?;
 
     if format == OutputFormat::Json {
         let results = response
@@ -64,7 +64,7 @@ pub async fn update_firmware(
         common::component_failure_count_and_summary(response.results.iter().map(Some));
 
     if failures > 0 {
-        return Err(CarbideCliError::GenericError(format!(
+        return Err(NicoCliError::GenericError(format!(
             "{failures} component firmware update request(s) failed{failure_summary}"
         )));
     }

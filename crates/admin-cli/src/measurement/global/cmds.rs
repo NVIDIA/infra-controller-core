@@ -19,7 +19,7 @@
 //! Global commands at the root of the CLI, as well as some helper
 //! functions used by main.
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 
 use crate::cfg::measurement::GlobalOptions;
 use crate::rpc::ApiClient;
@@ -45,12 +45,12 @@ pub enum IdentifierType {
     Detect,
 }
 
-pub fn get_identifier<T>(args: &T) -> CarbideCliResult<IdentifierType>
+pub fn get_identifier<T>(args: &T) -> NicoCliResult<IdentifierType>
 where
     T: IdNameIdentifier,
 {
     if args.is_id() && args.is_name() {
-        return Err(CarbideCliError::GenericError(String::from(
+        return Err(NicoCliError::GenericError(String::from(
             "identifier cant be an ID *and* a name, u so silly",
         )));
     }

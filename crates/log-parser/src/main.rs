@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-mod carbide_reporting;
+mod nico_reporting;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::SeekFrom;
@@ -24,13 +24,13 @@ use std::path::Path;
 use std::{fmt, time};
 
 use anyhow::anyhow;
-use carbide_reporting::{create_forge_client, get_client_cert_info, get_forge_root_ca_path};
+use nico_reporting::{create_nico_client, get_client_cert_info, get_nico_root_ca_path};
 use chrono::{DateTime, Utc};
 use regex::{Captures, Regex};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
-use crate::carbide_reporting::send_health_alerts;
+use crate::nico_reporting::send_health_alerts;
 const MAX_EVENTS: usize = 128;
 
 #[derive(Debug, Deserialize, Copy, Clone, Eq, PartialEq)]
@@ -482,11 +482,11 @@ async fn read_event_definition(path: &Path) -> Result<Configuration, anyhow::Err
 
 fn help() {
     println!(
-        "Usage: -c [carbide api url] -e <event definition file1,file2,..> -m <monitor|oneshot> -t [poll interval in seconds]"
+        "Usage: -c [nico api url] -e <event definition file1,file2,..> -m <monitor|oneshot> -t [poll interval in seconds]"
     );
     println!("Examples:");
     println!(
-        "log-parser -c https://carbide-api.forge-system.svc.cluster.local:1079 -e /opt/forge/event_definitions -m monitor -t 10"
+        "log-parser -c https://nico-api.nico-system.svc.cluster.local:1079 -e /opt/nico/event_definitions -m monitor -t 10"
     );
     println!("log-parser -e event_definition.json -m oneshot");
     println!("log-parser -v for application version");
@@ -496,7 +496,7 @@ fn help() {
 async fn main() -> Result<(), anyhow::Error> {
     // there's 2 modes of operation:
     // load event regex definitions from json
-    // if monitoring for sending health alerts to carbide (default mode)
+    // if monitoring for sending health alerts to nico (default mode)
     // - open log streams read-only and monitor
     // - process buffer based on delimiter (default is newline)
     // - find full or partial matches
@@ -512,7 +512,7 @@ async fn main() -> Result<(), anyhow::Error> {
     // each event definition json can point to a log or log directory path
     let mut opts = getopts::Options::new();
     opts.optflag("h", "help", "Print this help");
-    opts.optopt("c", "carbide", "carbide api url", "api");
+    opts.optopt("c", "nico", "nico api url", "api");
     opts.optopt(
         "e",
         "events",
@@ -522,7 +522,7 @@ async fn main() -> Result<(), anyhow::Error> {
     opts.optopt(
         "m",
         "mode",
-        "Operating mode, monitor|oneshot, monitor for carbide health reporting, oneshot for debugging on the terminal",
+        "Operating mode, monitor|oneshot, monitor for nico health reporting, oneshot for debugging on the terminal",
         "production/debugging",
     );
     opts.optopt(
@@ -579,7 +579,7 @@ async fn main() -> Result<(), anyhow::Error> {
         match m.as_str() {
             "monitor" => {
                 if api.is_empty() {
-                    eprintln!("-c carbide api url argument required for monitor mode");
+                    eprintln!("-c nico api url argument required for monitor mode");
                     help();
                     return Ok(());
                 }
@@ -648,11 +648,11 @@ async fn main() -> Result<(), anyhow::Error> {
         return Ok(());
     }
 
-    let root_ca = get_forge_root_ca_path(None);
+    let root_ca = get_nico_root_ca_path(None);
     let client_certs = get_client_cert_info(None, None);
 
-    let mut forge_client =
-        create_forge_client(root_ca, client_certs.cert_path, client_certs.key_path, api)
+    let mut nico_client =
+        create_nico_client(root_ca, client_certs.cert_path, client_certs.key_path, api)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
     // in monitoring mode, start at the end of each log file and monitor so that we don't send stale events
@@ -670,7 +670,7 @@ async fn main() -> Result<(), anyhow::Error> {
             }
             for log in &config.logs {
                 match send_health_alerts(
-                    &mut forge_client,
+                    &mut nico_client,
                     &log.events,
                     &config.pipeline,
                     &log.file_path,

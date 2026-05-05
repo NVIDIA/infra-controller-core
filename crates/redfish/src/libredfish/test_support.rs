@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use forge_secrets::credentials::{
+use nico_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, TestCredentialManager,
 };
 use libredfish::model::certificate::Certificate;

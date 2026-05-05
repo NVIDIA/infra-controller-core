@@ -1,7 +1,7 @@
 apiVersion: skaffold/v4beta2
 kind: Config
 metadata:
-  name: carbide
+  name: nico
 build:
   tagPolicy:
     sha256: {}
@@ -10,18 +10,18 @@ build:
     useBuildkit: true
     useDockerCLI: true
   artifacts:
-    - image: carbide-dns
+    - image: nico-dns
       sync:
         infer:
-          - "carbide-dns"
+          - "nico-dns"
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.dns.localdev
-    - image: carbide-pxe
+    - image: nico-pxe
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.pxe.localdev
       sync:
         infer:
-          - "carbide"
+          - "nico"
           - pxe/templates/*
           - pxe/static/*
     - image: nginx
@@ -29,30 +29,30 @@ build:
         dockerfile: dev/deployment/localdev/Dockerfile.nginx.localdev
       sync:
         infer:
-          - "carbide"
+          - "nico"
           - pxe/static/*
-    - image: carbide-api
+    - image: nico-api
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.api.localdev
         noCache: true
       sync:
         infer:
-          - "carbide-api"
+          - "nico-api"
           - api/casbin-policy.csv
           - pxe/static/*
-    - image: forge-admin-cli
+    - image: nico-admin-cli
       docker:
-        dockerfile: dev/deployment/localdev/Dockerfile.forge-admin-cli.localdev
+        dockerfile: dev/deployment/localdev/Dockerfile.nico-admin-cli.localdev
       sync:
         infer:
-          - "forge-admin-cli"
-    - image: carbide-dhcp-server
+          - "nico-admin-cli"
+    - image: nico-dhcp-server
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.dhcpserver.localdev
       sync:
         infer:
-          - "forge-dhcp-server"
-    - image: carbide-dhcp
+          - "nico-dhcp-server"
+    - image: nico-dhcp
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.dhcp.localdev
       sync:
@@ -76,18 +76,18 @@ build:
       sync:
         infer:
           - "nvmetal-scout-burn-in"
-    - image: carbide-hardware-health
+    - image: nico-hardware-health
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.health.localdev
       sync:
         infer:
           - "hw-health"
-    - image: carbide-bmc-proxy
+    - image: nico-bmc-proxy
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.bmc-proxy.localdev
       sync:
         infer:
-          - "carbide-bmc-proxy"
+          - "nico-bmc-proxy"
     - image: ssh-console-rs
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.ssh-console.localdev
@@ -97,12 +97,12 @@ build:
 manifests:
   kustomize:
     paths:
-      - forged/envs/local-dev/site/site-controller
+      - nicod/envs/local-dev/site/site-controller
     buildArgs: ["--enable-alpha-plugins", "--enable-exec"]
 
 deploy:
   kubeContext: k3s-dev
   kubectl:
-    defaultNamespace: forge-system
+    defaultNamespace: nico-system
   statusCheckDeadlineSeconds: 60
   tolerateFailuresUntilDeadline: true

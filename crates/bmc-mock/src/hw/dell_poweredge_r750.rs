@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use bmc_vendor::BMCVendor;
-use carbide_utils::arch::CpuArchitecture;
+use nico_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, MemoryDevice};
 use serde_json::json;
@@ -144,7 +144,7 @@ impl DellPowerEdgeR750<'_> {
                 bios_mode: redfish::computer_system::BiosMode::DellOem,
                 oem: redfish::computer_system::Oem::Generic,
                 log_services: None,
-                // Today carbide need for any Dell to have storage
+                // Today nico need for any Dell to have storage
                 // collection. It tries to find BOSS controller
                 // there. So we provide empty collection to avoid 404
                 // failure.

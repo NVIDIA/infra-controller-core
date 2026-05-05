@@ -25,7 +25,7 @@
 
 	{% if !network_config.is_empty() %}
 	<tr>
-		<th>Network config (sent to forge-dpu-agent)</th>
+		<th>Network config (sent to nico-dpu-agent)</th>
 		<td><div style="max-height: 300px; overflow: auto;"><pre><code>{{ network_config }}</code></pre></div></td>
 	</tr>
 	{% endif %}
@@ -128,7 +128,7 @@
 				<div>
 					<label for="mode">Mode:</label>
 					<select id="mode" name="mode">
-						<option value="{{ ::rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic.as_str_name() }}">
+						<option value="{{ ::rpc::nico::ManagedHostQuarantineMode::BlockAllTraffic.as_str_name() }}">
 							Block all traffic
 						</option>
 					</select>

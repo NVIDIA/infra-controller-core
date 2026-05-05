@@ -16,8 +16,8 @@
  */
 use std::ops::DerefMut;
 
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcStatus};
 use sqlx::{PgConnection, PgTransaction};

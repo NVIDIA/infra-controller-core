@@ -21,7 +21,7 @@ use std::error::Error;
 use futures_util::TryStreamExt;
 use netlink_packet_route::link::{LinkAttribute, LinkMessage};
 pub use netlink_packet_route::link::{LinkLayerType, State as LinkState};
-use rpc::forge as rpc;
+use rpc::nico as rpc;
 use {rtnetlink, tokio};
 
 #[derive(Clone, Debug)]

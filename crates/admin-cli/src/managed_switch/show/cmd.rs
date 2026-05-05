@@ -18,10 +18,10 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::forge::{LinkedExpectedSwitch, MachineInterface, Switch};
+use rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use rpc::nico::{LinkedExpectedSwitch, MachineInterface, Switch};
 use serde::Serialize;
 
 use super::args::Args;
@@ -301,14 +301,14 @@ async fn show_managed_switches(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     output_options: ManagedSwitchOutputOptions,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match output_format {
         OutputFormat::Json => {
             if output_options.single_switch_detail_view {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(
-                        managed_switches.first().ok_or(CarbideCliError::Empty)?
+                        managed_switches.first().ok_or(NicoCliError::Empty)?
                     )?
                 )
             } else {
@@ -322,7 +322,7 @@ async fn show_managed_switches(
             if output_options.single_switch_detail_view {
                 println!(
                     "{}",
-                    serde_yaml::to_string(managed_switches.first().ok_or(CarbideCliError::Empty)?)?
+                    serde_yaml::to_string(managed_switches.first().ok_or(NicoCliError::Empty)?)?
                 )
             } else {
                 let wrapped = ManagedSwitchList {
@@ -341,7 +341,7 @@ async fn show_managed_switches(
                     managed_switches
                         .into_iter()
                         .next()
-                        .ok_or(CarbideCliError::Empty)?,
+                        .ok_or(NicoCliError::Empty)?,
                 )?;
             } else {
                 let result =
@@ -353,7 +353,7 @@ async fn show_managed_switches(
     Ok(())
 }
 
-fn show_managed_switch_details_view(m: ManagedSwitchOutput) -> CarbideCliResult<()> {
+fn show_managed_switch_details_view(m: ManagedSwitchOutput) -> NicoCliResult<()> {
     let width = 27;
     let mut lines = String::new();
 
@@ -418,11 +418,11 @@ pub async fn handle_show(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let (switch_id, name) = args.parse_identifier();
     let is_single = switch_id.is_some() || name.is_some();
 
-    let query = rpc::forge::SwitchQuery { name, switch_id };
+    let query = rpc::nico::SwitchQuery { name, switch_id };
     let switches = api_client.0.find_switches(query).await?.switches;
     let linked = api_client
         .0

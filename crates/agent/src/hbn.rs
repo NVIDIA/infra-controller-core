@@ -226,7 +226,7 @@ async fn set_strict_neighbor_learning(container_id: &str) -> eyre::Result<()> {
 
 async fn write_hbn_ifupdown2_arp_policy(container_id: &str) -> eyre::Result<()> {
     const IFUPDOWN2_POLICY_DIR: &str = "/etc/network/ifupdown2/policy.d";
-    const POLICY_FILE_NAME: &str = "forge-arp-accept.json";
+    const POLICY_FILE_NAME: &str = "nico-arp-accept.json";
     const POLICY_FILE_CONTENTS: &str =
         r#"{"address":{"module_globals":{"l3_intf_arp_accept":"0"}}}"#;
     // If there are currently tenant vlan interfaces present, we'll need to
@@ -289,7 +289,7 @@ mod tests {
       "createdAt": "1678127057518777146",
       "labels": {
         "io.kubernetes.container.name": "doca-hbn",
-        "io.kubernetes.pod.name": "doca-hbn-service-idaho-hamper.forge.local",
+        "io.kubernetes.pod.name": "doca-hbn-service-idaho-hamper.nico.local",
         "io.kubernetes.pod.namespace": "default",
         "io.kubernetes.pod.uid": "949491dc6d16952d446a7d0e80da5b18"
       },

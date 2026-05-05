@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::{self as rpc, InsertPowerShelfHealthReportRequest};
+use ::rpc::admin_cli::NicoCliResult;
+use ::rpc::nico::{self as rpc, InsertPowerShelfHealthReportRequest};
 
 use super::args::Args;
 use crate::health_utils;
 use crate::rpc::ApiClient;
 
-pub async fn add(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub async fn add(api_client: &ApiClient, args: Args) -> NicoCliResult<()> {
     let report =
         health_utils::resolve_health_report(args.template, args.health_report, args.message)?;
 

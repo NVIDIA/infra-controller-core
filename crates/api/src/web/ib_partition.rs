@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -37,14 +37,14 @@ struct IbPartitionShow {
 struct IbPartitionRowDisplay {
     id: String,
     tenant_organization_id: String,
-    metadata: rpc::forge::Metadata,
+    metadata: rpc::nico::Metadata,
     state: String,
     time_in_state_above_sla: bool,
     pkey: String,
 }
 
-impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
-    fn from(partition: forgerpc::IbPartition) -> Self {
+impl From<nicorpc::IbPartition> for IbPartitionRowDisplay {
+    fn from(partition: nicorpc::IbPartition) -> Self {
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             tenant_organization_id: partition.config.unwrap_or_default().tenant_organization_id,
@@ -52,7 +52,7 @@ impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
             state: partition
                 .status
                 .as_ref()
-                .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
+                .and_then(|status| nicorpc::TenantState::try_from(status.state).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             time_in_state_above_sla: partition
@@ -106,8 +106,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(partitions)).into_response()
 }
 
-async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::IbPartitionSearchFilter::default());
+async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<nicorpc::IbPartition>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::IbPartitionSearchFilter::default());
 
     let ib_partition_ids = api
         .find_ib_partition_ids(request)
@@ -121,7 +121,7 @@ async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(ib_partition_ids.len() - offset);
         let next_ids = &ib_partition_ids[offset..offset + page_size];
-        let request = tonic::Request::new(forgerpc::IbPartitionsByIdsRequest {
+        let request = tonic::Request::new(nicorpc::IbPartitionsByIdsRequest {
             ib_partition_ids: next_ids.to_vec(),
             include_history: false,
         });
@@ -166,7 +166,7 @@ struct IbPartitionDetail {
     id: String,
     config_version: String,
     tenant_organization_id: String,
-    metadata: rpc::forge::Metadata,
+    metadata: rpc::nico::Metadata,
     state_display: super::StateDisplay,
     state_sla_detail: super::StateSlaDetail,
     pkey: String,
@@ -176,8 +176,8 @@ struct IbPartitionDetail {
     enable_sharp: String,
 }
 
-impl From<forgerpc::IbPartition> for IbPartitionDetail {
-    fn from(partition: forgerpc::IbPartition) -> Self {
+impl From<nicorpc::IbPartition> for IbPartitionDetail {
+    fn from(partition: nicorpc::IbPartition) -> Self {
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             config_version: partition.config_version,
@@ -187,7 +187,7 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
                 state: partition
                     .status
                     .as_ref()
-                    .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
+                    .and_then(|status| nicorpc::TenantState::try_from(status.state).ok())
                     .map(|state| format!("{state:?}"))
                     .unwrap_or_default(),
                 time_in_state_above_sla: partition
@@ -274,7 +274,7 @@ pub async fn detail(
         }
     };
 
-    let request = tonic::Request::new(forgerpc::IbPartitionsByIdsRequest {
+    let request = tonic::Request::new(nicorpc::IbPartitionsByIdsRequest {
         ib_partition_ids: vec![partition_id],
         include_history: true,
     });

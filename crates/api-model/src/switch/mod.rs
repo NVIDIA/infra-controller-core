@@ -18,9 +18,9 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, LifecycleStatus};
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use ::rpc::nico::{self as rpc, LifecycleStatus};
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
@@ -438,7 +438,7 @@ pub enum ReProvisioningState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SwitchControllerState {
-    /// The Switch has been created in Carbide.
+    /// The Switch has been created in Nico.
     Created,
     /// The Switch is initializing.
     Initializing {

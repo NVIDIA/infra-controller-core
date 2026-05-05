@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 
 use crate::duppet::{self, FileEnsure, SyncOptions};
 
@@ -53,7 +53,7 @@ pub fn main_sync(sync_options: SyncOptions, machine_id: &MachineId, host_machine
                 .with_perms(0o644),
         ),
         (
-            "/opt/forge/update-ovs-pipe-size.sh".into(),
+            "/opt/nico/update-ovs-pipe-size.sh".into(),
             duppet::FileSpec::new()
                 .with_content(include_str!("../templates/update-ovs-pipe-size"))
                 .with_perms(0o755)
@@ -81,7 +81,7 @@ pub fn main_sync(sync_options: SyncOptions, machine_id: &MachineId, host_machine
         // this is a part of gets deployed everywhere, and this file is
         // cleaned up.
         //
-        // https://jirasw.nvidia.com/browse/FORGE-7062
+        // https://jirasw.nvidia.com/browse/NICO-7062
         (
             "/etc/rc.local".into(),
             duppet::FileSpec::new().with_ensure(FileEnsure::Absent),

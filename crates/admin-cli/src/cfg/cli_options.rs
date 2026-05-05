@@ -31,13 +31,13 @@ use crate::{
 };
 
 #[derive(Parser, Debug)]
-#[clap(name = "carbide-admin-cli")]
+#[clap(name = "nico-admin-cli")]
 #[clap(author = "https://github.com/NVIDIA/ncx-infra-controller-core")]
 pub struct CliOptions {
     #[clap(
         long,
         default_value = "false",
-        help = "Print version number of carbide-admin-cli and exit. For API server version see 'version' command."
+        help = "Print version number of nico-admin-cli and exit. For API server version see 'version' command."
     )]
     pub version: bool,
 
@@ -49,11 +49,11 @@ pub struct CliOptions {
     )]
     pub cloud_unsafe_op: Option<String>,
 
-    #[clap(short, long, env = "CARBIDE_API_URL")]
+    #[clap(short, long, env = "NICO_API_URL")]
     #[clap(
-        help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
+        help = "Default to NICO_API_URL environment variable or $HOME/.config/nico_api_cli.json file or https://nico-api.nico-system.svc.cluster.local:1079."
     )]
-    pub carbide_api: Option<String>,
+    pub nico_api: Option<String>,
 
     #[clap(short, long, value_enum, default_value = "ascii-table")]
     pub format: OutputFormat,
@@ -61,21 +61,21 @@ pub struct CliOptions {
     #[clap(short, long)]
     pub output: Option<String>,
 
-    #[clap(long, env = "FORGE_ROOT_CA_PATH")]
+    #[clap(long, env = "NICO_ROOT_CA_PATH")]
     #[clap(
-        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to NICO_ROOT_CA_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
-    pub forge_root_ca_path: Option<String>,
+    pub nico_root_ca_path: Option<String>,
 
     #[clap(long, env = "CLIENT_CERT_PATH")]
     #[clap(
-        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_cert_path: Option<String>,
 
     #[clap(long, env = "CLIENT_KEY_PATH")]
     #[clap(
-        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_key_path: Option<String>,
 
@@ -202,14 +202,14 @@ pub enum CliCommand {
     )]
     MachineInterfaces(machine_interfaces::Cmd),
     #[clap(
-        about = "Generate shell autocomplete. Source the output of this command: `source <(carbide-admin-cli generate-shell-complete bash)`"
+        about = "Generate shell autocomplete. Source the output of this command: `source <(nico-admin-cli generate-shell-complete bash)`"
     )]
     GenerateShellComplete(generate_shell_complete::Cmd),
     #[clap(
         about = "Query the Version gRPC endpoint repeatedly printing how long it took and any failures."
     )]
     Ping(ping::Opts),
-    #[clap(about = "Set carbide-api dynamic features", subcommand)]
+    #[clap(about = "Set nico-api dynamic features", subcommand)]
     Set(set::Cmd),
     #[clap(about = "Expected machine handling", subcommand, visible_alias = "em")]
     ExpectedMachine(expected_machines::Cmd),

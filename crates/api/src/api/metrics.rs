@@ -20,7 +20,7 @@ use opentelemetry::metrics::{Histogram, Meter};
 use opentelemetry_sdk::metrics::{Aggregation, Instrument, InstrumentKind, Stream, View};
 
 /// Metric name for machine reboot duration histogram
-const MACHINE_REBOOT_DURATION_METRIC_NAME: &str = "carbide_machine_reboot_duration";
+const MACHINE_REBOOT_DURATION_METRIC_NAME: &str = "nico_machine_reboot_duration";
 
 /// Holds all metrics related to the API service
 pub struct ApiMetricsEmitter {

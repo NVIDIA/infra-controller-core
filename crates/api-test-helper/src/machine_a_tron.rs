@@ -18,15 +18,15 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_tls::client_config::get_forge_root_ca_path;
+use nico_tls::client_config::get_nico_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
     BmcMockRegistry, BmcRegistrationMode, HostMachineHandle, MachineATron, MachineATronConfig,
     MachineATronContext, api_throttler,
 };
-use rpc::forge_api_client::FailOverOn;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
-use rpc::protos::forge_api_client::ForgeApiClient;
+use rpc::nico_api_client::FailOverOn;
+use rpc::nico_tls_client::{ApiConfig, NicoClientConfig, RetryConfig};
+use rpc::protos::nico_api_client::NicoApiClient;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -42,13 +42,13 @@ pub async fn run_local(
     repo_root: &Path,
     bmc_address_registry: Option<BmcMockRegistry>,
 ) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
-    let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
-    let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
+    let nico_root_ca_path = get_nico_root_ca_path(None, None); // Will get it from the local repo
+    let nico_client_config = NicoClientConfig::new(nico_root_ca_path.clone(), None);
 
     let api_config = ApiConfig::new_with_multiple_urls(
-        &app_config.carbide_api_url,
+        &app_config.nico_api_url,
         &additional_api_urls,
-        &forge_client_config,
+        &nico_client_config,
         RetryConfig {
             retries: 10,
             interval: Duration::from_secs(1),
@@ -57,15 +57,15 @@ pub async fn run_local(
 
     // We want the API client to constantly switch between API servers if the test has more than one,
     // to emulate what a load balancer would do.
-    let forge_api_client =
-        ForgeApiClient::new_with_failover_behavior(&api_config, FailOverOn::EveryApiCall);
+    let nico_api_client =
+        NicoApiClient::new_with_failover_behavior(&api_config, FailOverOn::EveryApiCall);
 
     let api_throttler = api_throttler::run(
         tokio::time::interval(Duration::from_secs(2)),
-        forge_api_client.clone().into(),
+        nico_api_client.clone().into(),
     );
 
-    let desired_firmware = forge_api_client
+    let desired_firmware = nico_api_client
         .get_desired_firmware_versions()
         .await?
         .entries;
@@ -82,11 +82,11 @@ pub async fn run_local(
             BmcRegistrationMode::None(app_config.bmc_mock_port)
         },
         app_config,
-        forge_client_config,
+        nico_client_config,
         bmc_mock_certs_dir: Some(repo_root.join("crates/bmc-mock")),
         api_throttler,
         desired_firmware_versions: desired_firmware,
-        forge_api_client,
+        nico_api_client,
     });
 
     let mat = MachineATron::new(app_context.clone());

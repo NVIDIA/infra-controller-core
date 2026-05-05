@@ -40,12 +40,12 @@
 <table class="detailsview">
 	<tr>
 		<th>Listen Address</th>
-		<td>{{ carbide_config.listen.to_string() }}</td>
+		<td>{{ nico_config.listen.to_string() }}</td>
 	</tr>
 	<tr>
 		<th>Metrics Endpoint</th>
 		<td>
-			{% match carbide_config.metrics_endpoint %}
+			{% match nico_config.metrics_endpoint %}
 			{% when Some with (val) %}
 			{{ val.to_string() }}
 			{% else %}
@@ -54,16 +54,16 @@
 	</tr>
 	<tr>
 		<th>Database URL</th>
-		<td>{{ carbide_config.database_url }}</td>
+		<td>{{ nico_config.database_url }}</td>
 	</tr>
 	<tr>
 		<th>Max Database Connections</th>
-		<td>{{ carbide_config.max_database_connections }}</td>
+		<td>{{ nico_config.max_database_connections }}</td>
 	</tr>
 	<tr>
 		<th>IB Fabric</th>
 		<td>
-			{% match carbide_config.ib_config %}
+			{% match nico_config.ib_config %}
 				{% when Some with (config) %}
 					{% if config.enabled %}
 						Enabled
@@ -73,13 +73,13 @@
 				{% else %}
 					Disabled
 			{% endmatch %}</td></tr>
-	<tr><th>ASN</th><td>{{ carbide_config.asn }}</td></tr>
-	<tr><th>DHCP Servers</th><td>{{ carbide_config.dhcp_servers.join(", ") }}</td></tr>
-	<tr><th>Route Server State</th><td>{% if carbide_config.enable_route_servers %}Enabled{% else %}Disabled{% endif %}</td></tr>
-	<tr><th>Route Servers</th><td>{{ carbide_config.route_servers.join(", ") }}</td></tr>
+	<tr><th>ASN</th><td>{{ nico_config.asn }}</td></tr>
+	<tr><th>DHCP Servers</th><td>{{ nico_config.dhcp_servers.join(", ") }}</td></tr>
+	<tr><th>Route Server State</th><td>{% if nico_config.enable_route_servers %}Enabled{% else %}Disabled{% endif %}</td></tr>
+	<tr><th>Route Servers</th><td>{{ nico_config.route_servers.join(", ") }}</td></tr>
 	<tr><th>Deny Prefixes</th><td>
-			{% if carbide_config.deny_prefixes.len() != 0 %}
-			{% for prefix in carbide_config.deny_prefixes %}
+			{% if nico_config.deny_prefixes.len() != 0 %}
+			{% for prefix in nico_config.deny_prefixes %}
 			{{ prefix }},
 			{% endfor %}
 			{% else %}
@@ -90,8 +90,8 @@
 	<tr>
 		<th>Site Fabric Prefixes</th>
 		<td>
-			{% if carbide_config.site_fabric_prefixes.len() != 0 %}
-			{% for prefix in carbide_config.site_fabric_prefixes %}
+			{% if nico_config.site_fabric_prefixes.len() != 0 %}
+			{% for prefix in nico_config.site_fabric_prefixes %}
 			{{ prefix }},
 			{% endfor %}
 			{% else %}
@@ -102,13 +102,13 @@
 	<tr>
 		<th>VPC Isolation Behavior</th>
 		<td>
-			{{ carbide_config.vpc_isolation_behavior.to_string() }}
+			{{ nico_config.vpc_isolation_behavior.to_string() }}
 		</td>
 	</tr>
 	<tr>
 		<th>Networks</th>
 		<td>
-			{% match carbide_config.networks %}
+			{% match nico_config.networks %}
 			{% when Some with (val) %}
 			{% for network in val.keys() %}
 			{{ network }},
@@ -121,7 +121,7 @@
 	<tr>
 		<th>DPU IPMI Tool Impl</th>
 		<td>
-			{% match carbide_config.dpu_ipmi_tool_impl %}
+			{% match nico_config.dpu_ipmi_tool_impl %}
 			{% when Some with (val) %}
 			{{ val }},
 			{% else %}
@@ -132,7 +132,7 @@
 	<tr>
 		<th>DPU IPMI Reboot Attempt</th>
 		<td>
-			{% match carbide_config.dpu_ipmi_reboot_attempts %}
+			{% match nico_config.dpu_ipmi_reboot_attempts %}
 			{% when Some with (val) %}
 			{{ val }},
 			{% else %}
@@ -143,7 +143,7 @@
 	<tr>
 		<th>Initial Domain Name</th>
 		<td>
-			{% match carbide_config.initial_domain_name %}
+			{% match nico_config.initial_domain_name %}
 			{% when Some with (val) %}
 			{{ val }}
 			{% else %}
@@ -154,7 +154,7 @@
 	<tr>
 		<th>Initial DPU Agent Upgrade Policy</th>
 		<td>
-			{% match carbide_config.initial_dpu_agent_upgrade_policy %}
+			{% match nico_config.initial_dpu_agent_upgrade_policy %}
 			{% when Some with (val) %}
 			{{ val.to_string() }}
 			{% else %}
@@ -165,7 +165,7 @@
 	<tr>
 		<th>DPU NIC Firmware Versions</th>
 		<td>
-			{% for ver in carbide_config.dpu_config.dpu_nic_firmware_update_versions %}
+			{% for ver in nico_config.dpu_config.dpu_nic_firmware_update_versions %}
 			{{ ver }},
 			{% endfor %}
 		</td>
@@ -175,7 +175,7 @@
 		<th>DPU Firmware Versions</th>
 		<td style="padding: 0;">
 			<table>
-			    {% match carbide_config.dpu_config.find_bf2_entry() %}
+			    {% match nico_config.dpu_config.find_bf2_entry() %}
 			    {% when Some with (val) %}
 				<tr>
 					<td>BlueField 2</td>
@@ -184,7 +184,7 @@
 				{% else %}
 				Bf2 Firmware Not Configured
 				{% endmatch %}
-				{% match carbide_config.dpu_config.find_bf3_entry() %}
+				{% match nico_config.dpu_config.find_bf3_entry() %}
 				{% when Some with (val) %}
 				<tr>
 					<td>BlueField 3</td>
@@ -198,16 +198,16 @@
 	</tr>
 	<tr>
 		<th>DPU NIC Initial Update</th>
-		<td>{% if carbide_config.dpu_config.dpu_nic_firmware_initial_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
+		<td>{% if nico_config.dpu_config.dpu_nic_firmware_initial_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
 	</tr>
 	<tr>
 		<th>DPU NIC Reprovision Update</th>
-		<td>{% if carbide_config.dpu_config.dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
+		<td>{% if nico_config.dpu_config.dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
 	</tr>
 	<tr>
 		<th>Max Concurrent Machine Update Absolute</th>
 		<td>
-			{% match carbide_config.machine_updater.max_concurrent_machine_updates_absolute %}
+			{% match nico_config.machine_updater.max_concurrent_machine_updates_absolute %}
 			{% when Some with (val) %}
 			{{ val }}
 			{% else %}
@@ -218,7 +218,7 @@
 	<tr>
 		<th>Max Concurrent Machine Update Percentage</th>
 		<td>
-			{% match carbide_config.machine_updater.max_concurrent_machine_updates_percent %}
+			{% match nico_config.machine_updater.max_concurrent_machine_updates_percent %}
 			{% when Some with (val) %}
 			{{ val }}
 			{% else %}
@@ -229,7 +229,7 @@
 	<tr>
 		<th>Machine Update Runtime Interval</th>
 		<td>
-			{% match carbide_config.machine_update_run_interval %}
+			{% match nico_config.machine_update_run_interval %}
 			{% when Some with (val) %}
 			{{ val }}
 			{% else %}
@@ -239,12 +239,12 @@
 	</tr>
 	<tr>
 		<th>Machine Attestation Enabled</th>
-		<td>{{ carbide_config.attestation_enabled }}</td>
+		<td>{{ nico_config.attestation_enabled }}</td>
 	</tr>
 	<tr>
 		<th>DPA Enabled</th>
 		<td>
-			{% match carbide_config.dpa_config %}
+			{% match nico_config.dpa_config %}
 			{% when Some with (val) %}
 			{{ val.enabled }}
 			{% else %}
@@ -254,7 +254,7 @@
 	<tr>
 		<th>MQTT Endpoint</th>
 		<td>
-			{% match carbide_config.dpa_config %}
+			{% match nico_config.dpa_config %}
 			{% when Some with (val) %}
 			{{ val.mqtt_endpoint }}
 			{% else %}
@@ -264,13 +264,13 @@
 	<tr>
 		<th>DPU Secure Boot Enabled</th>
 		<td>
-      {{ carbide_config.dpu_config.dpu_enable_secure_boot }}
+      {{ nico_config.dpu_config.dpu_enable_secure_boot }}
     </td>
 	</tr>
 	<tr>
 		<th>DPF Enabled</th>
 		<td>
-      {{ carbide_config.dpf.enabled }}
+      {{ nico_config.dpf.enabled }}
 	  </td>
 	</tr>
 </table>

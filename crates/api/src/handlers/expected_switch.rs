@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::{DatabaseError, expected_switch as db_expected_switch};
 use mac_address::MacAddress;
 use model::expected_switch::{ExpectedSwitch, ExpectedSwitchRequest};
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 use crate::handlers::machine_interface_address::{
     preallocate_machine_interface, update_preallocated_machine_interface,
@@ -36,14 +36,14 @@ pub async fn add_expected_switch(
             .into_inner()
             .try_into()
             .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
+                NicoError::InvalidArgument(e.to_string())
             })?;
 
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
@@ -53,9 +53,9 @@ pub async fn add_expected_switch(
 
     db_expected_switch::create(&mut txn, switch)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -71,22 +71,22 @@ pub async fn delete_expected_switch(
             .into_inner()
             .try_into()
             .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
+                NicoError::InvalidArgument(e.to_string())
             })?;
 
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
     db_expected_switch::delete(&mut txn, &req)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -102,14 +102,14 @@ pub async fn update_expected_switch(
             .into_inner()
             .try_into()
             .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
+                NicoError::InvalidArgument(e.to_string())
             })?;
 
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
@@ -119,9 +119,9 @@ pub async fn update_expected_switch(
 
     db_expected_switch::update(&mut txn, &switch)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -137,21 +137,21 @@ pub async fn get_expected_switch(
             .into_inner()
             .try_into()
             .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
+                NicoError::InvalidArgument(e.to_string())
             })?;
 
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
     let expected_switch = db_expected_switch::find(&mut txn, &req)
         .await
-        .map_err(CarbideError::from)?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .map_err(NicoError::from)?
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "expected_switch",
             id: req
                 .expected_switch_id
@@ -160,7 +160,7 @@ pub async fn get_expected_switch(
                 .unwrap_or_default(),
         })?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -176,15 +176,15 @@ pub async fn get_all_expected_switches(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
     let expected_switches = db_expected_switch::find_all(&mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -206,14 +206,14 @@ pub async fn replace_all_expected_switches(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
     // Clear all existing expected switches
     db_expected_switch::clear(&mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     // Add all new expected switches
     for expected_switch in req.expected_switches {
@@ -221,16 +221,16 @@ pub async fn replace_all_expected_switches(
             expected_switch
                 .try_into()
                 .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                    CarbideError::InvalidArgument(e.to_string())
+                    NicoError::InvalidArgument(e.to_string())
                 })?;
         db_expected_switch::create(&mut txn, switch)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("Failed to create expected switch: {}", e),
             })?;
     }
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -245,15 +245,15 @@ pub async fn delete_all_expected_switches(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
     db_expected_switch::clear(&mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -268,15 +268,15 @@ pub async fn get_all_expected_switches_linked(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
     let linked_expected_switches = db_expected_switch::find_all_linked(&mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -295,15 +295,15 @@ pub async fn get_all_expected_switches_linked(
 pub(crate) async fn query(
     api: &Api,
     mac: MacAddress,
-) -> Result<Option<model::expected_switch::ExpectedSwitch>, CarbideError> {
+) -> Result<Option<model::expected_switch::ExpectedSwitch>, NicoError> {
     let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new("begin find_many_by_bmc_mac_address", e))
+        NicoError::from(DatabaseError::new("begin find_many_by_bmc_mac_address", e))
     })?;
 
     let mut expected = db_expected_switch::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
 
     txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new("commit find_many_by_bmc_mac_address", e))
+        NicoError::from(DatabaseError::new("commit find_many_by_bmc_mac_address", e))
     })?;
 
     Ok(expected.remove(&mac))

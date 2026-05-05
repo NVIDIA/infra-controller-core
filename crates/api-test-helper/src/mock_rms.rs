@@ -585,7 +585,7 @@ impl Default for MockRmsApi {
     }
 }
 
-/// Error returned when a test forgets to enqueue a response.
+/// Error returned when a test nicots to enqueue a response.
 fn no_response_queued() -> RackManagerError {
     RackManagerError::ApiInvocationError(tonic::Status::internal("mock: no response queued"))
 }

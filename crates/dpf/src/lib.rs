@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! # Carbide DPF SDK
+//! # Nico DPF SDK
 //!
 //! This crate provides a high-level SDK for interacting with the NVIDIA DPF
 //! (DOCA Platform Framework) operator via Kubernetes CRDs.

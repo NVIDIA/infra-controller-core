@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
 use db::{DatabaseError, power_shelf as db_power_shelf};
 use model::metadata::Metadata;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};

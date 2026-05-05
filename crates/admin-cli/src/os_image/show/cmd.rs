@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 
 use super::args::{Args, ShowQuery};
 use crate::rpc::ApiClient;
@@ -25,7 +25,7 @@ pub async fn show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     _page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let query: ShowQuery = args.try_into()?;
     let is_json = output_format == OutputFormat::Json;
     let images = match query {
@@ -35,7 +35,7 @@ pub async fn show(
     if is_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&images).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&images).map_err(NicoCliError::JsonError)?
         );
     } else {
         // todo: pretty print in table form

@@ -1,10 +1,10 @@
 {
-  "name": "carbide-api-styles",
+  "name": "nico-api-styles",
   "version": "1.0.0",
-  "description": "SCSS compilation for Carbide API web interface",
+  "description": "SCSS compilation for Nico API web interface",
   "main": "index.js",
   "scripts": {
-    "build:css": "sass ../../crates/api/templates/static/scss/carbide.scss:../../crates/api/templates/static/carbide.css --style=compressed --no-source-map --silence-deprecation=import"
+    "build:css": "sass ../../crates/api/templates/static/scss/nico.scss:../../crates/api/templates/static/nico.css --style=compressed --no-source-map --silence-deprecation=import"
   },
   "keywords": [],
   "author": "",

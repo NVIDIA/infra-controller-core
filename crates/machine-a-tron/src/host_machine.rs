@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
 };
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use eyre::Context;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;

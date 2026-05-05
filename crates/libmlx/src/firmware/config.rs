@@ -59,7 +59,7 @@ pub struct FirmwareSpec {
 impl FirmwareSpec {
     // map_key returns a key suitable for indexing firmware specs
     // by hardware identity, in the format "part_number:psid", like
-    // in the case of the carbide-api runtime config mappings.
+    // in the case of the nico-api runtime config mappings.
     pub fn map_key(&self) -> String {
         format!("{}:{}", self.part_number, self.psid)
     }

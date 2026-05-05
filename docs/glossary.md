@@ -1,8 +1,8 @@
 # Glossary
 
-### Forge & Carbide
+### Nico & Nico
 
-You may come across references to the name "Forge" and "Carbide". These were names for internal NVIDIA projects that were the precursors to NVIDIA Infra Controller. Some of the names live on in the source code, but references to these projects are being removed over time as we try to break as little code and commands as possible.
+You may come across references to the name "Nico" and "Nico". These were names for internal NVIDIA projects that were the precursors to NVIDIA Infra Controller. Some of the names live on in the source code, but references to these projects are being removed over time as we try to break as little code and commands as possible.
 
 ### BGP (Border Gateway Protocol)
 
@@ -46,7 +46,7 @@ DPU - A [Mellanox BlueField 2 (or 3)](https://www.nvidia.com/en-us/networking/pr
 
 ### HBN (Host Based Networking)
 
-Software networking switch running in a container on the **DPU**. Manages network routing. Runs [Cumulus Linux](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-linux/). NICo controls it via VPC and `forge-dpu-agent`.
+Software networking switch running in a container on the **DPU**. Manages network routing. Runs [Cumulus Linux](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-linux/). NICo controls it via VPC and `nico-dpu-agent`.
 
 https://docs.nvidia.com/doca/sdk/pdf/doca-hbn-service.pdf
 

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 use mac_address::MacAddress;
 
 use super::args::{
@@ -30,7 +30,7 @@ pub async fn metadata(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     format: OutputFormat,
     extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         Args::Show(cmd) => metadata_show(api_client, cmd, output_file, format, extended).await,
         Args::Set(cmd) => metadata_set(api_client, cmd).await,
@@ -42,17 +42,17 @@ pub async fn metadata(
 
 async fn fetch_switch(
     api_client: &ApiClient,
-    switch_id: carbide_uuid::switch::SwitchId,
-) -> CarbideCliResult<rpc::forge::Switch> {
+    switch_id: nico_uuid::switch::SwitchId,
+) -> NicoCliResult<rpc::nico::Switch> {
     let response = api_client
         .0
-        .find_switches(rpc::forge::SwitchQuery {
+        .find_switches(rpc::nico::SwitchQuery {
             name: None,
             switch_id: Some(switch_id),
         })
         .await?;
     response.switches.into_iter().next().ok_or_else(|| {
-        CarbideCliError::GenericError(format!("Switch with ID {} was not found", switch_id))
+        NicoCliError::GenericError(format!("Switch with ID {} was not found", switch_id))
     })
 }
 
@@ -62,16 +62,16 @@ async fn metadata_show(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     _extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let switch = fetch_switch(api_client, cmd.switch).await?;
-    let metadata = switch.metadata.ok_or(CarbideCliError::Empty)?;
+    let metadata = switch.metadata.ok_or(NicoCliError::Empty)?;
     crate::metadata::display_metadata(output_file, &output_format, &metadata).await
 }
 
 async fn metadata_set(
     api_client: &ApiClient,
     cmd: SwitchMetadataCommandSet,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let switch = fetch_switch(api_client, cmd.switch).await?;
     let metadata = crate::metadata::apply_set(switch.metadata, cmd.name, cmd.description)?;
     api_client
@@ -82,7 +82,7 @@ async fn metadata_set(
 async fn metadata_add_label(
     api_client: &ApiClient,
     cmd: SwitchMetadataCommandAddLabel,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let switch = fetch_switch(api_client, cmd.switch).await?;
     let metadata = crate::metadata::apply_add_label(switch.metadata, cmd.key, cmd.value)?;
     api_client
@@ -93,7 +93,7 @@ async fn metadata_add_label(
 async fn metadata_remove_labels(
     api_client: &ApiClient,
     cmd: SwitchMetadataCommandRemoveLabels,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let switch = fetch_switch(api_client, cmd.switch).await?;
     let metadata = crate::metadata::apply_remove_labels(switch.metadata, cmd.keys)?;
     api_client
@@ -104,7 +104,7 @@ async fn metadata_remove_labels(
 async fn metadata_from_expected_switch(
     api_client: &ApiClient,
     cmd: SwitchMetadataCommandFromExpectedSwitch,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let switch = fetch_switch(api_client, cmd.switch).await?;
     let bmc_mac: MacAddress = switch
         .bmc_info
@@ -114,7 +114,7 @@ async fn metadata_from_expected_switch(
         .transpose()
         .map_or_else(
             |e| {
-                Err(CarbideCliError::GenericError(format!(
+                Err(NicoCliError::GenericError(format!(
                     "Invalid BMC MAC address found for Switch with ID {}: {}",
                     cmd.switch, e
                 )))
@@ -122,14 +122,14 @@ async fn metadata_from_expected_switch(
             Ok,
         )?
         .ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "No BMC MAC address found for Switch with ID {}",
                 cmd.switch
             ))
         })?;
 
     let mut metadata = switch.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Switch does not carry Metadata that can be patched".into())
+        NicoCliError::GenericError("Switch does not carry Metadata that can be patched".into())
     })?;
 
     let expected_switches = api_client
@@ -145,14 +145,14 @@ async fn metadata_from_expected_switch(
                 .is_ok_and(|m| m == bmc_mac)
         })
         .ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "No expected Switch found for Switch with ID {} and BMC Mac address {}",
                 cmd.switch, bmc_mac
             ))
         })?;
 
     let expected_switch_metadata = expected_switch.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError(format!(
+        NicoCliError::GenericError(format!(
             "No expected Switch Metadata found for Switch with ID {} and BMC Mac address {}",
             cmd.switch, bmc_mac
         ))

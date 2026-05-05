@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{
@@ -23,7 +23,7 @@ use model::expected_machine::{
 use regex::Regex;
 use uuid::Uuid;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::machine_interface_address::{
     preallocate_machine_interface, update_preallocated_machine_interface,
@@ -44,7 +44,7 @@ pub(crate) async fn get(
     let req: ExpectedMachineRequest = request
         .into_inner()
         .try_into()
-        .map_err(|e| CarbideError::InvalidArgument(format!("{}", e)))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("{}", e)))?;
 
     let target_id = req
         .id
@@ -54,8 +54,8 @@ pub(crate) async fn get(
 
     let expected_machine = db::expected_machine::find(&api.database_connection, &req)
         .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
+        .map_err(NicoError::from)?
+        .ok_or(NicoError::NotFoundError {
             kind: "expected_machine",
             id: target_id,
         })?;
@@ -74,14 +74,14 @@ pub(crate) async fn add(
     log_request_data(&request);
 
     let request = request.into_inner();
-    if carbide_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+    if nico_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
         return Err(
-            CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
+            NicoError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
         );
     }
 
     if !CHASSIS_SERIAL_REGEX.is_match(&request.chassis_serial_number) {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "chassis serial is not formatted properly {}",
             request.chassis_serial_number
         ))
@@ -91,14 +91,14 @@ pub(crate) async fn add(
     let parsed_mac: MacAddress = request
         .bmc_mac_address
         .parse::<MacAddress>()
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     let id = request
         .id
         .as_ref()
         .map(|u| {
             Uuid::parse_str(&u.value).map_err(|_| {
-                CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+                NicoError::InvalidArgument("invalid expected_machine id".to_string())
             })
         })
         .transpose()?;
@@ -128,7 +128,7 @@ pub(crate) async fn add(
 pub(crate) async fn preallocate_interfaces_for(
     txn: &mut sqlx::PgConnection,
     machine: &ExpectedMachine,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
 
     if let Some(bmc_ip) = machine.data.bmc_ip_address {
@@ -138,7 +138,7 @@ pub(crate) async fn preallocate_interfaces_for(
     for nic in &machine.data.host_nics {
         if let Some(ref ip_str) = nic.fixed_ip {
             let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
-                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
+                NicoError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
             })?;
             preallocate_machine_interface(txn, nic.mac_address, ip).await?;
         }
@@ -155,7 +155,7 @@ pub(crate) async fn preallocate_interfaces_for(
 pub(crate) async fn create_missing_from(
     txn: &mut sqlx::PgConnection,
     expected_machines: &[ExpectedMachine],
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let existing_macs: std::collections::HashSet<String> =
         db::expected_machine::find_all(&mut *txn)
             .await?
@@ -188,13 +188,13 @@ pub(crate) async fn delete(
     let req: ExpectedMachineRequest = request
         .into_inner()
         .try_into()
-        .map_err(|e| CarbideError::InvalidArgument(format!("{}", e)))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("{}", e)))?;
 
     let mut txn = api.txn_begin().await?;
 
     db::expected_machine::delete(&mut txn, &req)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     txn.commit().await?;
 
@@ -211,9 +211,9 @@ pub(crate) async fn update(
     log_request_data(&request);
 
     let request = request.into_inner();
-    if carbide_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+    if nico_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
         return Err(
-            CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
+            NicoError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
         );
     }
     // Save fields needed later before moving `request` into data conversion
@@ -222,14 +222,14 @@ pub(crate) async fn update(
         .as_ref()
         .map(|u| {
             Uuid::parse_str(&u.value).map_err(|_| {
-                CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+                NicoError::InvalidArgument("invalid expected_machine id".to_string())
             })
         })
         .transpose()?;
     let parsed_mac: MacAddress = request
         .bmc_mac_address
         .parse::<MacAddress>()
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
     let data: ExpectedMachineData = request.try_into()?;
 
     let machine = ExpectedMachine {
@@ -251,7 +251,7 @@ pub(crate) async fn update(
     for nic in &machine.data.host_nics {
         if let Some(ref ip_str) = nic.fixed_ip {
             let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
-                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
+                NicoError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
             })?;
             update_preallocated_machine_interface(&mut txn, nic.mac_address, ip).await?;
         }
@@ -259,7 +259,7 @@ pub(crate) async fn update(
 
     db::expected_machine::update(&mut txn, &machine)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     txn.commit().await?;
 
@@ -356,14 +356,14 @@ pub(crate) async fn delete_all(
 /// with `primary: true`, returning an InvalidArgument if found.
 fn validate_at_most_one_primary_host_nic(
     host_nics: &[ExpectedHostNic],
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let primaries: Vec<_> = host_nics
         .iter()
         .filter(|n| n.primary == Some(true))
         .map(|n| n.mac_address.to_string())
         .collect();
     if primaries.len() > 1 {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "at most one host_nic may be flagged primary=true, got {}: {}",
             primaries.len(),
             primaries.join(", ")
@@ -377,14 +377,14 @@ fn sanitize_expected_machine_and_get_ids(
     _api: &Api,
     request: rpc::ExpectedMachine,
     _is_update: bool,
-) -> Result<(Uuid, MacAddress), CarbideError> {
+) -> Result<(Uuid, MacAddress), NicoError> {
     // Validate id is present
     let id = match &request.id {
         Some(uuid_val) => Uuid::parse_str(&uuid_val.value).map_err(|_| {
-            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+            NicoError::InvalidArgument("invalid expected_machine id".to_string())
         })?,
         None => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "id is mandatory for batch operations".to_string(),
             ));
         }
@@ -392,7 +392,7 @@ fn sanitize_expected_machine_and_get_ids(
 
     // Validate bmc_mac_address is present and parseable
     if request.bmc_mac_address.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "bmc_mac_address is mandatory".to_string(),
         ));
     }
@@ -400,18 +400,18 @@ fn sanitize_expected_machine_and_get_ids(
     let parsed_mac: MacAddress = request
         .bmc_mac_address
         .parse::<MacAddress>()
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     // Validate duplicates in fallback DPU serial numbers
-    if carbide_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
-        return Err(CarbideError::InvalidArgument(
+    if nico_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+        return Err(NicoError::InvalidArgument(
             "duplicate dpu serial number found".to_string(),
         ));
     }
 
     // Validate chassis serial format
     if !CHASSIS_SERIAL_REGEX.is_match(&request.chassis_serial_number) {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "chassis serial is not formatted properly {}",
             request.chassis_serial_number
         )));
@@ -427,7 +427,7 @@ async fn create_expected_machine(
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let db_data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -452,7 +452,7 @@ async fn update_expected_machine(
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -517,7 +517,7 @@ async fn apply_operation(
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     match op {
         BatchOperation::Create => create_expected_machine(txn, machine, id, parsed_mac).await,
         BatchOperation::Update => update_expected_machine(txn, machine, id, parsed_mac).await,
@@ -529,7 +529,7 @@ async fn process_batch_operations(
     machines: Vec<rpc::ExpectedMachine>,
     accept_partial: bool,
     op: BatchOperation,
-) -> Result<Vec<rpc::ExpectedMachineOperationResult>, CarbideError> {
+) -> Result<Vec<rpc::ExpectedMachineOperationResult>, NicoError> {
     let mut results = Vec::new();
 
     if accept_partial {
@@ -623,7 +623,7 @@ pub(crate) async fn create_expected_machines(
     let accept_partial = request.accept_partial_results;
     let machines = request
         .expected_machines
-        .ok_or_else(|| CarbideError::InvalidArgument("expected_machines is required".to_string()))?
+        .ok_or_else(|| NicoError::InvalidArgument("expected_machines is required".to_string()))?
         .expected_machines;
 
     let results =
@@ -645,7 +645,7 @@ pub(crate) async fn update_expected_machines(
     let accept_partial = request.accept_partial_results;
     let machines = request
         .expected_machines
-        .ok_or_else(|| CarbideError::InvalidArgument("expected_machines is required".to_string()))?
+        .ok_or_else(|| NicoError::InvalidArgument("expected_machines is required".to_string()))?
         .expected_machines;
 
     let results =
@@ -660,7 +660,7 @@ pub(crate) async fn update_expected_machines(
 pub(crate) async fn query(
     api: &Api,
     mac: MacAddress,
-) -> Result<Option<ExpectedMachine>, CarbideError> {
+) -> Result<Option<ExpectedMachine>, NicoError> {
     let mut txn = api.txn_begin().await?;
 
     let mut expected = db::expected_machine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;

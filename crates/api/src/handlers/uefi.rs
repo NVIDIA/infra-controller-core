@@ -14,13 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::WithTransaction;
 use futures_util::FutureExt;
 use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -34,7 +34,7 @@ pub(crate) async fn clear_host_uefi_password(
 
     let request = request.into_inner();
 
-    // https://github.com/NVIDIA/carbide-core/issues/116
+    // https://github.com/NVIDIA/nico-core/issues/116
     // Resolve machine_id from machine_query first (preferred),
     // otherwise fall back to the host_id (now deprecated).
     let machine_id = if let Some(query) = request.machine_query {
@@ -44,7 +44,7 @@ pub(crate) async fn clear_host_uefi_password(
                 machine.id
             }
             None => {
-                return Err(CarbideError::NotFoundError {
+                return Err(NicoError::NotFoundError {
                     kind: "machine",
                     id: query,
                 }
@@ -54,13 +54,13 @@ pub(crate) async fn clear_host_uefi_password(
     } else {
         // Old logic that used to assume machine ID only. If you
         // use anything other than a machine ID here it's going
-        // to yell (e.g. old carbide-admin-cli).
+        // to yell (e.g. old nico-admin-cli).
         convert_and_log_machine_id(request.host_id.as_ref())?
     };
 
     if !machine_id.machine_type().is_host() {
-        return Err(CarbideError::InvalidArgument(
-            "Carbide only supports clearing the UEFI password on discovered hosts".into(),
+        return Err(NicoError::InvalidArgument(
+            "Nico only supports clearing the UEFI password on discovered hosts".into(),
         )
         .into());
     }
@@ -75,7 +75,7 @@ pub(crate) async fn clear_host_uefi_password(
         },
     )
     .await?
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
     })?;
@@ -89,7 +89,7 @@ pub(crate) async fn clear_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!("unable to create redfish client: {}", e);
-            CarbideError::Internal {
+            NicoError::Internal {
                 message: format!(
                     "Could not create connection to Redfish API to {machine_id}, check logs"
                 ),
@@ -113,7 +113,7 @@ pub(crate) async fn set_host_uefi_password(
 
     let request = request.into_inner();
 
-    // https://github.com/NVIDIA/carbide-core/issues/116
+    // https://github.com/NVIDIA/nico-core/issues/116
     // Resolve machine_id from machine_query first (preferred),
     // otherwise fall back to the host_id (now deprecated).
     let machine_id = if let Some(query) = request.machine_query {
@@ -123,7 +123,7 @@ pub(crate) async fn set_host_uefi_password(
                 machine.id
             }
             None => {
-                return Err(CarbideError::NotFoundError {
+                return Err(NicoError::NotFoundError {
                     kind: "machine",
                     id: query,
                 }
@@ -133,13 +133,13 @@ pub(crate) async fn set_host_uefi_password(
     } else {
         // Old logic that used to assume machine ID only. If you
         // use anything other than a machine ID here it's going
-        // to yell (e.g. old carbide-admin-cli).
+        // to yell (e.g. old nico-admin-cli).
         convert_and_log_machine_id(request.host_id.as_ref())?
     };
 
     if !machine_id.machine_type().is_host() {
-        return Err(CarbideError::InvalidArgument(
-            "Carbide only supports setting the UEFI password on discovered hosts".into(),
+        return Err(NicoError::InvalidArgument(
+            "Nico only supports setting the UEFI password on discovered hosts".into(),
         )
         .into());
     }
@@ -154,7 +154,7 @@ pub(crate) async fn set_host_uefi_password(
         },
     )
     .await?
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
     })?;
@@ -167,7 +167,7 @@ pub(crate) async fn set_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!("unable to create redfish client: {}", e);
-            CarbideError::RedfishClientCreation {
+            NicoError::RedfishClientCreation {
                 inner: e.into(),
                 machine_id,
             }
@@ -181,7 +181,7 @@ pub(crate) async fn set_host_uefi_password(
         .await?
         .map_err(|e| {
             tracing::error!("Failed to update bios_password_set_time: {}", e);
-            CarbideError::Internal {
+            NicoError::Internal {
                 message: format!("Failed to update BIOS password timestamp: {e}"),
             }
         })?;

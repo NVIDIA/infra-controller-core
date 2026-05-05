@@ -20,7 +20,7 @@ use std::fmt;
 
 use crate::firmware::AgentUpgradePolicyChoice;
 
-/// How we decide whether a DPU should upgrade its forge-dpu-agent
+/// How we decide whether a DPU should upgrade its nico-dpu-agent
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum AgentUpgradePolicy {
     /// Never upgrade it
@@ -40,7 +40,7 @@ impl fmt::Display for AgentUpgradePolicy {
 
 impl AgentUpgradePolicy {
     // The versions are strings like this: v2023.09-rc1-27-gc3ce4d5d
-    pub fn should_upgrade(&self, agent_version: &str, carbide_api_version: &str) -> bool {
+    pub fn should_upgrade(&self, agent_version: &str, nico_api_version: &str) -> bool {
         use AgentUpgradePolicy::*;
         match self {
             Off => false,
@@ -58,22 +58,22 @@ impl AgentUpgradePolicy {
                         return true;
                     }
                 };
-                let carbide = match BuildVersion::try_from(carbide_api_version) {
+                let nico = match BuildVersion::try_from(nico_api_version) {
                     Ok(bv) => bv,
                     Err(err) => {
                         tracing::error!(
-                            invalid_version = carbide_api_version,
+                            invalid_version = nico_api_version,
                             error = format!("{err:#}"),
-                            "Invalid carbide-api build version"
+                            "Invalid nico-api build version"
                         );
-                        // If carbide has an invalid version we wait until a fixed
-                        // carbide is deployed.
+                        // If nico has an invalid version we wait until a fixed
+                        // nico is deployed.
                         return false;
                     }
                 };
-                agent.cmp(&carbide).is_lt()
+                agent.cmp(&nico).is_lt()
             }
-            UpDown => agent_version != carbide_api_version,
+            UpDown => agent_version != nico_api_version,
         }
     }
 }
@@ -99,7 +99,7 @@ impl From<&str> for AgentUpgradePolicy {
 // From the RPC
 impl From<i32> for AgentUpgradePolicy {
     fn from(rpc_policy: i32) -> Self {
-        use rpc::forge::AgentUpgradePolicy::*;
+        use rpc::nico::AgentUpgradePolicy::*;
         match rpc_policy {
             n if n == Off as i32 => AgentUpgradePolicy::Off,
             n if n == UpOnly as i32 => AgentUpgradePolicy::UpOnly,
@@ -116,9 +116,9 @@ impl From<AgentUpgradePolicy> for i32 {
     fn from(p: AgentUpgradePolicy) -> Self {
         use AgentUpgradePolicy::*;
         match p {
-            Off => rpc::forge::AgentUpgradePolicy::Off as i32,
-            UpOnly => rpc::forge::AgentUpgradePolicy::UpOnly as i32,
-            UpDown => rpc::forge::AgentUpgradePolicy::UpDown as i32,
+            Off => rpc::nico::AgentUpgradePolicy::Off as i32,
+            UpOnly => rpc::nico::AgentUpgradePolicy::UpOnly as i32,
+            UpDown => rpc::nico::AgentUpgradePolicy::UpDown as i32,
         }
     }
 }

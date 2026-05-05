@@ -103,20 +103,20 @@ pub struct RackArgs {
     pub target_version: String,
 }
 
-impl From<Args> for rpc::forge::UpdateComponentFirmwareRequest {
+impl From<Args> for rpc::nico::UpdateComponentFirmwareRequest {
     fn from(args: Args) -> Self {
         match args.target {
             Target::Switch(target) => Self {
                 target_version: target.target_version,
                 target: Some(
-                    rpc::forge::update_component_firmware_request::Target::Switches(
-                        rpc::forge::UpdateSwitchFirmwareTarget {
+                    rpc::nico::update_component_firmware_request::Target::Switches(
+                        rpc::nico::UpdateSwitchFirmwareTarget {
                             switch_ids: Some(target.ids.into()),
                             components: target
                                 .components
                                 .into_iter()
                                 .map(|component| {
-                                    rpc::forge::NvSwitchComponent::from(component) as i32
+                                    rpc::nico::NvSwitchComponent::from(component) as i32
                                 })
                                 .collect(),
                         },
@@ -126,14 +126,14 @@ impl From<Args> for rpc::forge::UpdateComponentFirmwareRequest {
             Target::PowerShelf(target) => Self {
                 target_version: target.target_version,
                 target: Some(
-                    rpc::forge::update_component_firmware_request::Target::PowerShelves(
-                        rpc::forge::UpdatePowerShelfFirmwareTarget {
+                    rpc::nico::update_component_firmware_request::Target::PowerShelves(
+                        rpc::nico::UpdatePowerShelfFirmwareTarget {
                             power_shelf_ids: Some(target.ids.into()),
                             components: target
                                 .components
                                 .into_iter()
                                 .map(|component| {
-                                    rpc::forge::PowerShelfComponent::from(component) as i32
+                                    rpc::nico::PowerShelfComponent::from(component) as i32
                                 })
                                 .collect(),
                         },
@@ -143,14 +143,14 @@ impl From<Args> for rpc::forge::UpdateComponentFirmwareRequest {
             Target::ComputeTray(target) => Self {
                 target_version: target.target_version,
                 target: Some(
-                    rpc::forge::update_component_firmware_request::Target::ComputeTrays(
-                        rpc::forge::UpdateComputeTrayFirmwareTarget {
+                    rpc::nico::update_component_firmware_request::Target::ComputeTrays(
+                        rpc::nico::UpdateComputeTrayFirmwareTarget {
                             machine_ids: Some(target.ids.into()),
                             components: target
                                 .components
                                 .into_iter()
                                 .map(|component| {
-                                    rpc::forge::ComputeTrayComponent::from(component) as i32
+                                    rpc::nico::ComputeTrayComponent::from(component) as i32
                                 })
                                 .collect(),
                         },
@@ -160,8 +160,8 @@ impl From<Args> for rpc::forge::UpdateComponentFirmwareRequest {
             Target::Rack(target) => Self {
                 target_version: target.target_version,
                 target: Some(
-                    rpc::forge::update_component_firmware_request::Target::Racks(
-                        rpc::forge::UpdateRackFirmwareTarget {
+                    rpc::nico::update_component_firmware_request::Target::Racks(
+                        rpc::nico::UpdateRackFirmwareTarget {
                             rack_ids: Some(target.ids.into()),
                         },
                     ),

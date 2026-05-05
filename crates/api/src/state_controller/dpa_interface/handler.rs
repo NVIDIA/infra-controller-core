@@ -19,7 +19,7 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
+use nico_uuid::dpa_interface::DpaInterfaceId;
 use chrono::{Duration, TimeDelta};
 use db::dpa_interface::get_dpa_vni;
 use eyre::eyre;
@@ -125,7 +125,7 @@ impl StateHandler for DpaInterfaceStateHandler {
 
             DpaInterfaceControllerState::Unlocking => {
                 // Once we reach Unlocking state, we would have replied to
-                // ForgeAgentControl requests from scout with a reply indicating
+                // NicoAgentControl requests from scout with a reply indicating
                 // that it should unlock the card. The scout does the action, and
                 // publishes an observation indicating the lock status. That causes
                 // us to update the card state in the DB. If card_state is none, that
@@ -314,7 +314,7 @@ impl StateHandler for DpaInterfaceStateHandler {
 }
 
 // Determine if we need to do a heartbeat or if we need to
-// send a SetVni command because the DPA and Carbide are out of sync.
+// send a SetVni command because the DPA and Nico are out of sync.
 // If so, call send_set_vni_command to send the heart beat or set vni
 async fn do_heartbeat<'a>(
     state: &mut DpaInterface,
@@ -472,8 +472,8 @@ fn handle_apply_profile(
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::dpa_interface::DpaInterfaceId;
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::dpa_interface::DpaInterfaceId;
+    use nico_uuid::machine::MachineId;
     use config_version::{ConfigVersion, Versioned};
     use mac_address::MacAddress;
     use model::dpa_interface::{

@@ -22,8 +22,8 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
 };
 use measured_boot::bundle::MeasurementBundle;

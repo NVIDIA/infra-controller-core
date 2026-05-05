@@ -19,11 +19,11 @@ pub mod proto {
     tonic::include_proto!("dhcp_server_control");
 }
 
-use carbide_rpc_utils::dhcp::{
+use nico_rpc_utils::dhcp::{
     DhcpConfig as ModelDhcpConfig, HostConfig as ModelHostConfig,
     InterfaceInfo as ModelInterfaceInfo,
 };
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::machine::MachineInterfaceId;
 use proto::dhcp_server_control_client::DhcpServerControlClient;
 
 // ── Model → proto conversions ─────────────────────────────────────────────────
@@ -34,19 +34,19 @@ impl From<ModelDhcpConfig> for proto::DhcpConfig {
             lease_time_secs: c.lease_time_secs,
             renewal_time_secs: c.renewal_time_secs,
             rebinding_time_secs: c.rebinding_time_secs,
-            carbide_nameservers: c
-                .carbide_nameservers
+            nico_nameservers: c
+                .nico_nameservers
                 .iter()
                 .map(|ip| ip.to_string())
                 .collect(),
-            carbide_api_url: c.carbide_api_url,
-            carbide_ntpservers: c
-                .carbide_ntpservers
+            nico_api_url: c.nico_api_url,
+            nico_ntpservers: c
+                .nico_ntpservers
                 .iter()
                 .map(|ip| ip.to_string())
                 .collect(),
-            carbide_provisioning_server_ipv4: c.carbide_provisioning_server_ipv4.to_string(),
-            carbide_dhcp_server: c.carbide_dhcp_server.to_string(),
+            nico_provisioning_server_ipv4: c.nico_provisioning_server_ipv4.to_string(),
+            nico_dhcp_server: c.nico_dhcp_server.to_string(),
         }
     }
 }
@@ -88,7 +88,7 @@ impl From<ModelHostConfig> for proto::HostConfig {
 /// so the caller can degrade gracefully.
 pub async fn get_dhcp_timestamps(
     grpc_addr: &str,
-) -> eyre::Result<Vec<::rpc::forge::LastDhcpRequest>> {
+) -> eyre::Result<Vec<::rpc::nico::LastDhcpRequest>> {
     let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())
         .map_err(|e| eyre::eyre!("invalid dhcp-server gRPC endpoint {grpc_addr}: {e}"))?
         .connect()
@@ -111,7 +111,7 @@ pub async fn get_dhcp_timestamps(
                 .parse::<MachineInterfaceId>()
                 .map_err(|err| tracing::warn!("Skipping unparseable host_interface_id: {err}"))
                 .ok()?;
-            Some(::rpc::forge::LastDhcpRequest {
+            Some(::rpc::nico::LastDhcpRequest {
                 host_interface_id: Some(id),
                 timestamp: e.timestamp,
             })

@@ -29,9 +29,9 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
-use carbide_utils::HostPortPair;
+use nico_utils::HostPortPair;
 pub use error::RedfishClientCreationError;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
+use nico_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use libredfish::Redfish;
 use libredfish::model::service_root::RedfishVendor;
 use model::machine::Machine;
@@ -143,8 +143,8 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             .await
     }
 
-    // clear_host_uefi_password updates the UEFI password from Forge's sitewide password to an empty string
-    // The assumption is that this function will only be called on a machine that already updated the UEFI password to match the Forge sitewide password.
+    // clear_host_uefi_password updates the UEFI password from Nico's sitewide password to an empty string
+    // The assumption is that this function will only be called on a machine that already updated the UEFI password to match the Nico sitewide password.
     async fn clear_host_uefi_password(
         &self,
         client: &dyn Redfish,

@@ -23,7 +23,7 @@ use axum::Json;
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 
 use super::Base;
 use crate::api::Api;
@@ -56,8 +56,8 @@ struct ExpectedMachineRow {
     machine_id: String, // The machine
 }
 
-impl From<rpc::forge::LinkedExpectedMachine> for ExpectedMachineRow {
-    fn from(l: rpc::forge::LinkedExpectedMachine) -> ExpectedMachineRow {
+impl From<rpc::nico::LinkedExpectedMachine> for ExpectedMachineRow {
+    fn from(l: rpc::nico::LinkedExpectedMachine) -> ExpectedMachineRow {
         ExpectedMachineRow {
             bmc_mac_address: l.bmc_mac_address,
             interface_id: l.interface_id.unwrap_or_default(),
@@ -78,8 +78,8 @@ struct UnexpectedMachineRow {
     machine_id: String,
 }
 
-impl From<rpc::forge::UnexpectedMachine> for UnexpectedMachineRow {
-    fn from(m: rpc::forge::UnexpectedMachine) -> UnexpectedMachineRow {
+impl From<rpc::nico::UnexpectedMachine> for UnexpectedMachineRow {
+    fn from(m: rpc::nico::UnexpectedMachine) -> UnexpectedMachineRow {
         UnexpectedMachineRow {
             address: m.address,
             bmc_mac: m.bmc_mac_address,
@@ -106,7 +106,7 @@ struct ExpectedMachineTabs {
 }
 
 impl ExpectedMachineTabs {
-    fn from_linked(machines: Vec<rpc::forge::LinkedExpectedMachine>) -> Self {
+    fn from_linked(machines: Vec<rpc::nico::LinkedExpectedMachine>) -> Self {
         let mut all_machines: Vec<ExpectedMachineRow> = Vec::with_capacity(machines.len());
         let mut completed_machines: Vec<ExpectedMachineRow> = Vec::new();
         let mut unseen_machines: Vec<ExpectedMachineRow> = Vec::new();
@@ -172,7 +172,7 @@ pub async fn show_all_html(
             tracing::error!(%err, "get_all_expected_machines_linked");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Error loading expected machines from carbide-api",
+                "Error loading expected machines from nico-api",
             )
                 .into_response();
         }
@@ -195,7 +195,7 @@ pub async fn show_all_html(
             tracing::error!(%err, "get_all_unexpected_machines");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Error loading unexpected machines from carbide-api",
+                "Error loading unexpected machines from nico-api",
             )
                 .into_response();
         }
@@ -237,7 +237,7 @@ pub async fn show_expected_machine_raw_json(AxumState(api): AxumState<Arc<Api>>)
             tracing::error!(%err, "show_expected_machine_raw_json");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Error loading expected machines from carbide-api",
+                "Error loading expected machines from nico-api",
             )
                 .into_response();
         }

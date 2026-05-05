@@ -18,7 +18,7 @@
 //!
 //! `measurement report` subcommand dispatcher + backing functions.
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, ToTable, cli_output};
 use ::rpc::protos::measured_boot::ListMeasurementReportRequest;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::records::MeasurementReportRecord;
@@ -37,7 +37,7 @@ use crate::rpc::ApiClient;
 pub async fn dispatch(
     cmd: CmdReport,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         CmdReport::Create(local_args) => {
             cli_output(
@@ -119,19 +119,19 @@ pub async fn dispatch(
 pub async fn create_for_id(
     grpc_conn: &ApiClient,
     create: Create,
-) -> CarbideCliResult<MeasurementReport> {
+) -> NicoCliResult<MeasurementReport> {
     let response = grpc_conn.0.create_measurement_report(create).await?;
 
     MeasurementReport::from_grpc(response.report.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// delete deletes a measurement report with the provided ID.
-pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementReport> {
+pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> NicoCliResult<MeasurementReport> {
     let response = grpc_conn.0.delete_measurement_report(delete).await?;
 
     MeasurementReport::from_grpc(response.report.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// promote promotes a report to an active bundle.
@@ -140,11 +140,11 @@ pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<M
 pub async fn promote(
     grpc_conn: &ApiClient,
     promote: Promote,
-) -> CarbideCliResult<MeasurementBundle> {
+) -> NicoCliResult<MeasurementBundle> {
     let response = grpc_conn.0.promote_measurement_report(promote).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// revoke "promotes" a journal entry into a revoked bundle,
@@ -152,32 +152,32 @@ pub async fn promote(
 /// matching this should be marked as rejected.
 ///
 /// `journal revoke <journal-id> [pcr-selector]`
-pub async fn revoke(grpc_conn: &ApiClient, revoke: Revoke) -> CarbideCliResult<MeasurementBundle> {
+pub async fn revoke(grpc_conn: &ApiClient, revoke: Revoke) -> NicoCliResult<MeasurementBundle> {
     let response = grpc_conn.0.revoke_measurement_report(revoke).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// show_for_id dumps all info about a report for the given ID.
 pub async fn show_for_id(
     grpc_conn: &ApiClient,
     show_for_id: ShowForId,
-) -> CarbideCliResult<MeasurementReport> {
+) -> NicoCliResult<MeasurementReport> {
     let response = grpc_conn
         .0
         .show_measurement_report_for_id(show_for_id)
         .await?;
 
     MeasurementReport::from_grpc(response.report.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// show_for_machine dumps reports for a given machine.
 pub async fn show_for_machine(
     grpc_conn: &ApiClient,
     show_for_machine: ShowForMachine,
-) -> CarbideCliResult<MeasurementReportList> {
+) -> NicoCliResult<MeasurementReportList> {
     Ok(MeasurementReportList(
         grpc_conn
             .0
@@ -187,14 +187,14 @@ pub async fn show_for_machine(
             .into_iter()
             .map(|report| {
                 MeasurementReport::try_from(report)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
+                    .map_err(|e| NicoCliError::GenericError(format!("conversion failed: {e}")))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementReport>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementReport>>>()?,
     ))
 }
 
 /// show_all dumps all info about all reports.
-pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportList> {
+pub async fn show_all(grpc_conn: &ApiClient) -> NicoCliResult<MeasurementReportList> {
     Ok(MeasurementReportList(
         grpc_conn
             .0
@@ -204,14 +204,14 @@ pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
             .into_iter()
             .map(|report| {
                 MeasurementReport::try_from(report)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
+                    .map_err(|e| NicoCliError::GenericError(format!("conversion failed: {e}")))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementReport>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementReport>>>()?,
     ))
 }
 
 /// list lists all bundle ids.
-pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportRecordList> {
+pub async fn list_all(grpc_conn: &ApiClient) -> NicoCliResult<MeasurementReportRecordList> {
     // Request.
     let request = ListMeasurementReportRequest { selector: None };
 
@@ -225,9 +225,9 @@ pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
             .into_iter()
             .map(|report| {
                 MeasurementReportRecord::try_from(report)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
+                    .map_err(|e| NicoCliError::GenericError(format!("conversion failed: {e}")))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementReportRecord>>>()?,
     ))
 }
 
@@ -235,7 +235,7 @@ pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
 pub async fn list_machines(
     grpc_conn: &ApiClient,
     list_machines: ListMachines,
-) -> CarbideCliResult<MeasurementReportRecordList> {
+) -> NicoCliResult<MeasurementReportRecordList> {
     Ok(MeasurementReportRecordList(
         grpc_conn
             .0
@@ -245,9 +245,9 @@ pub async fn list_machines(
             .into_iter()
             .map(|report| {
                 MeasurementReportRecord::try_from(report)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
+                    .map_err(|e| NicoCliError::GenericError(format!("conversion failed: {e}")))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementReportRecord>>>()?,
     ))
 }
 
@@ -257,7 +257,7 @@ pub async fn list_machines(
 pub async fn match_values(
     grpc_conn: &ApiClient,
     match_args: Match,
-) -> CarbideCliResult<MeasurementReportRecordList> {
+) -> NicoCliResult<MeasurementReportRecordList> {
     Ok(MeasurementReportRecordList(
         grpc_conn
             .0
@@ -267,9 +267,9 @@ pub async fn match_values(
             .into_iter()
             .map(|report| {
                 MeasurementReportRecord::try_from(report)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
+                    .map_err(|e| NicoCliError::GenericError(format!("conversion failed: {e}")))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementReportRecord>>>()?,
     ))
 }
 

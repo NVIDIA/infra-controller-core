@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use db::power_shelf as db_power_shelf;
 use model::power_shelf::PowerShelfControllerState;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::config::IterationConfig;
@@ -31,7 +31,7 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
 mod fixtures;
 use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
-use forge_secrets::credentials::TestCredentialManager;
+use nico_secrets::credentials::TestCredentialManager;
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
 
@@ -147,7 +147,7 @@ async fn test_power_shelf_deletion_with_state_controller(
 
     let power_shelf = env
         .api
-        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+        .find_power_shelves_by_ids(tonic::Request::new(rpc::nico::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![power_shelf_id],
         }))
         .await?
@@ -170,7 +170,7 @@ async fn test_power_shelf_deletion_with_state_controller(
     // Verify that the DB object is gone
     let power_shelves = env
         .api
-        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+        .find_power_shelves_by_ids(tonic::Request::new(rpc::nico::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![power_shelf_id],
         }))
         .await?

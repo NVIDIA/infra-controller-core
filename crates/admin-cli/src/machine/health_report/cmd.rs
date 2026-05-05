@@ -17,7 +17,7 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliResult, OutputFormat};
 use chrono::Utc;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
@@ -149,7 +149,7 @@ pub async fn handle_health_report(
     command: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match command {
         Args::Show { machine_id } => {
             let response = api_client.machine_list_health_reports(machine_id).await?;

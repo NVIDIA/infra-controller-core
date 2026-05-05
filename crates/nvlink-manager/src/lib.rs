@@ -25,9 +25,9 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_utils::periodic_timer::PeriodicTimer;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
+use nico_utils::periodic_timer::PeriodicTimer;
+use nico_uuid::machine::MachineId;
+use nico_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::Utc;
 use config::NvLinkConfig;
 use config_version::Versioned;
@@ -54,7 +54,7 @@ use tracing::Instrument;
 
 use crate::nvlink::NmxmClientPool;
 
-pub const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
+pub const DEFAULT_NMX_M_NAME: &str = "nico-nmx-m";
 
 #[derive(Debug, Clone)]
 struct NmxmPartitionOperation {
@@ -728,7 +728,7 @@ impl NvlPartitionMonitor {
             Ok(lock) => lock,
             Err(e) => {
                 tracing::warn!(
-                    "NvlPartitionMonitor failed to acquire work lock: Another instance of carbide running? {e}"
+                    "NvlPartitionMonitor failed to acquire work lock: Another instance of nico running? {e}"
                 );
                 return Ok(0);
             }

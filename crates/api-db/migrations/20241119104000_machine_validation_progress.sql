@@ -6,7 +6,7 @@ ADD
 UPDATE
     machine_validation_results
 SET
-    test_id = 'forge_' || name;
+    test_id = 'nico_' || name;
 
 ALTER TABLE
     machine_validation

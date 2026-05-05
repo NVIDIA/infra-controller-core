@@ -21,7 +21,7 @@ ARG DISTROLESS_DEBUG_TAG=${DEBUG_DISTROLESS:+"dev"} # 'dev' provides a busybox s
 ARG SYFT_VERSION=v1.38.0
 
 # Import sbom-tools
-FROM nvcr.io/nvidian/nvforge/sbom-tools:latest AS sbom-tools
+FROM nvcr.io/nvidian/nvnico/sbom-tools:latest AS sbom-tools
 
 # Import syft
 FROM anchore/syft:v1.38.0 AS syft

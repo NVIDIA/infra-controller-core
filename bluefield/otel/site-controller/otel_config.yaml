@@ -49,7 +49,7 @@ processors:
 
 exporters:
   otlp/site:
-    endpoint: otel-receiver.forge:443
+    endpoint: otel-receiver.nico:443
     tls:
       ca_file: /etc/otelcol-contrib/certs/ca.pem
       cert_file: /etc/otelcol-contrib/certs/otel-cert.pem

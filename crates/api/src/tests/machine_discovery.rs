@@ -23,7 +23,7 @@ use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, crea
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use tonic::Request;
 
 use crate::tests::common;
@@ -136,7 +136,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
     let machine_ids = env
         .api
         .find_machine_ids(tonic::Request::new(
-            rpc::forge::MachineSearchConfig::default(),
+            rpc::nico::MachineSearchConfig::default(),
         ))
         .await
         .unwrap()
@@ -162,7 +162,7 @@ async fn test_discover_2_managed_hosts(
 
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
             include_dpus: true,
             ..Default::default()
         }))
@@ -185,7 +185,7 @@ async fn test_discover_dpu_by_source_ip(
 
     let dhcp_response = env
         .api
-        .discover_dhcp(Request::new(rpc::forge::DhcpDiscovery {
+        .discover_dhcp(Request::new(rpc::nico::DhcpDiscovery {
             mac_address: dpu.oob_mac_address.to_string(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: None,
@@ -224,7 +224,7 @@ async fn test_discover_dpu_not_create_machine(
 
     let dhcp_response = env
         .api
-        .discover_dhcp(Request::new(rpc::forge::DhcpDiscovery {
+        .discover_dhcp(Request::new(rpc::nico::DhcpDiscovery {
             mac_address: dpu.oob_mac_address.to_string(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: None,

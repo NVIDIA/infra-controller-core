@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-authn"
+name = "nico-authn"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -23,7 +23,7 @@ authors.workspace = true
 description = "Helpers for interacting with TLS authentication, client certs, SPIFFE, etc."
 
 [lib]
-name = "carbide_authn"
+name = "nico_authn"
 
 [dependencies]
 thiserror = { workspace = true }

@@ -1,4 +1,4 @@
-# sudo ../target/debug/forge-dhcp-server --dhcp-config conf/conf.yaml --host-config test/host_config_localtest.yaml --interfaces lo
+# sudo ../target/debug/nico-dhcp-server --dhcp-config conf/conf.yaml --host-config test/host_config_localtest.yaml --interfaces lo
 # for i in (seq 1 100)
 #      sudo nmap --script broadcast-dhcp-discover --script-args requests=10 -e lo &
 #  end

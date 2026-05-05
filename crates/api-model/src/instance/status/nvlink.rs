@@ -18,9 +18,9 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId};
+use nico_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId};
 use config_version::Versioned;
-use rpc::forge as rpc;
+use rpc::nico as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::config::nvlink::InstanceNvLinkConfig;

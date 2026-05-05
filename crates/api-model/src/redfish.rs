@@ -85,8 +85,8 @@ pub struct RedfishActionId {
     pub request_id: i64,
 }
 
-impl From<rpc::forge::RedfishActionId> for RedfishActionId {
-    fn from(id: rpc::forge::RedfishActionId) -> Self {
+impl From<rpc::nico::RedfishActionId> for RedfishActionId {
+    fn from(id: rpc::nico::RedfishActionId) -> Self {
         RedfishActionId {
             request_id: id.request_id,
         }
@@ -104,8 +104,8 @@ pub struct RedfishListActionsFilter {
     pub machine_ip: Option<String>,
 }
 
-impl From<rpc::forge::RedfishListActionsRequest> for RedfishListActionsFilter {
-    fn from(req: rpc::forge::RedfishListActionsRequest) -> Self {
+impl From<rpc::nico::RedfishListActionsRequest> for RedfishListActionsFilter {
+    fn from(req: rpc::nico::RedfishListActionsRequest) -> Self {
         RedfishListActionsFilter {
             machine_ip: req.machine_ip,
         }
@@ -119,8 +119,8 @@ pub struct RedfishCreateAction {
     pub parameters: String,
 }
 
-impl From<rpc::forge::RedfishCreateActionRequest> for RedfishCreateAction {
-    fn from(req: rpc::forge::RedfishCreateActionRequest) -> Self {
+impl From<rpc::nico::RedfishCreateActionRequest> for RedfishCreateAction {
+    fn from(req: rpc::nico::RedfishCreateActionRequest) -> Self {
         RedfishCreateAction {
             target: req.target,
             action: req.action,
@@ -129,7 +129,7 @@ impl From<rpc::forge::RedfishCreateActionRequest> for RedfishCreateAction {
     }
 }
 
-impl From<ActionRequest> for rpc::forge::RedfishAction {
+impl From<ActionRequest> for rpc::nico::RedfishAction {
     fn from(value: ActionRequest) -> Self {
         Self {
             request_id: value.request_id,
@@ -146,8 +146,8 @@ impl From<ActionRequest> for rpc::forge::RedfishAction {
             results: value
                 .results
                 .into_iter()
-                .map(|r| rpc::forge::OptionalRedfishActionResult {
-                    result: r.map(|r| rpc::forge::RedfishActionResult {
+                .map(|r| rpc::nico::OptionalRedfishActionResult {
+                    result: r.map(|r| rpc::nico::RedfishActionResult {
                         headers: r.headers,
                         status: r.status,
                         body: r.body,
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn redfish_action_id_from_rpc() {
-        let rpc_id = rpc::forge::RedfishActionId { request_id: 42 };
+        let rpc_id = rpc::nico::RedfishActionId { request_id: 42 };
         let id = RedfishActionId::from(rpc_id);
         assert_eq!(id.request_id, 42);
     }
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn redfish_list_actions_filter_from_rpc() {
-        let rpc_req = rpc::forge::RedfishListActionsRequest {
+        let rpc_req = rpc::nico::RedfishListActionsRequest {
             machine_ip: Some("10.0.0.1".to_string()),
         };
         let filter = RedfishListActionsFilter::from(rpc_req);
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn redfish_create_action_from_rpc() {
-        let rpc_req = rpc::forge::RedfishCreateActionRequest {
+        let rpc_req = rpc::nico::RedfishCreateActionRequest {
             ips: vec!["10.0.0.1".to_string()],
             action: "Reset".to_string(),
             target: "/redfish/v1/Systems/1/Actions".to_string(),

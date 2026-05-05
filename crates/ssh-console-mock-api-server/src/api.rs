@@ -15,20 +15,20 @@
  * limitations under the License.
  */
 
-use carbide_version::v;
+use nico_version::v;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::MockApiServer;
-use crate::generated::forge::forge_server::Forge;
-use crate::generated::forge::{
+use crate::generated::nico::nico_server::Nico;
+use crate::generated::nico::{
     BmcMetaDataGetResponse, BuildInfo, InstanceList, InstancesByIdsRequest,
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse, VersionRequest,
 };
-use crate::generated::{common, forge};
+use crate::generated::{common, nico};
 
 #[tonic::async_trait]
-impl Forge for MockApiServer {
+impl Nico for MockApiServer {
     async fn version(
         &self,
         _request: Request<VersionRequest>,
@@ -100,20 +100,20 @@ impl Forge for MockApiServer {
 
         let instances = mock_instances
             .into_iter()
-            .map(|(instance_id, mock_host)| forge::Instance {
+            .map(|(instance_id, mock_host)| nico::Instance {
                 id: Some(instance_id.clone()),
                 machine_id: Some(mock_host.machine_id),
                 ..Default::default()
             })
             .collect::<Vec<_>>();
 
-        Ok(Response::new(forge::InstanceList { instances }))
+        Ok(Response::new(nico::InstanceList { instances }))
     }
 
     async fn get_bmc_meta_data(
         &self,
-        request: tonic::Request<forge::BmcMetaDataGetRequest>,
-    ) -> std::result::Result<tonic::Response<forge::BmcMetaDataGetResponse>, tonic::Status> {
+        request: tonic::Request<nico::BmcMetaDataGetRequest>,
+    ) -> std::result::Result<tonic::Response<nico::BmcMetaDataGetResponse>, tonic::Status> {
         let request = request.into_inner();
         let Some(machine_id) = request.machine_id else {
             return Err(Status::invalid_argument("Missing machine ID"));
@@ -140,7 +140,7 @@ impl Forge for MockApiServer {
 
     async fn find_machine_ids(
         &self,
-        _request: Request<forge::MachineSearchConfig>,
+        _request: Request<nico::MachineSearchConfig>,
     ) -> Result<Response<common::MachineIdList>, Status> {
         Ok(Response::new(common::MachineIdList {
             machine_ids: self

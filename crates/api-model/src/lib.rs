@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-//! Describes the Forge site controller internal data model
+//! Describes the Nico site controller internal data model
 //!
 //! The model described here is used in both internal decision logic and might
 //! be stored in database fields.
 //! Data inside this module therefore needs to be backward compatible with previous
-//! versions of Forge that are deployed.
+//! versions of Nico that are deployed.
 //!
 //! The module should only contain data definitions and associated helper functions,
 //! but no actual business logic.
@@ -28,7 +28,7 @@
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-use carbide_uuid::network::NetworkSegmentId;
+use nico_uuid::network::NetworkSegmentId;
 use instance::config::network::InterfaceFunctionId;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -106,7 +106,7 @@ where
 }
 
 /// Error that is returned when we validate various configurations that are obtained
-/// from Forge users.
+/// from Nico users.
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum ConfigValidationError {
     /// A configuration value is invalid
@@ -170,7 +170,7 @@ impl ConfigValidationError {
 }
 
 // Error that is returned when we validate various status that are obtained
-/// from Forge system components
+/// from Nico system components
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum StatusValidationError {
     /// A configuration value is invalid
@@ -295,9 +295,9 @@ impl StateSla {
     }
 }
 
-impl From<StateSla> for rpc::forge::StateSla {
+impl From<StateSla> for rpc::nico::StateSla {
     fn from(value: StateSla) -> Self {
-        rpc::forge::StateSla {
+        rpc::nico::StateSla {
             sla: value.sla.map(|sla| sla.into()),
             time_in_state_above_sla: value.time_in_state_above_sla,
         }

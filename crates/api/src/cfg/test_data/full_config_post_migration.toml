@@ -6,7 +6,7 @@ asn = 123
 dhcp_servers = ["1.2.3.4", "5.6.7.8"]
 route_servers = ["9.10.11.12"]
 rapid_iterations = false
-initial_domain_name = "forge.local"
+initial_domain_name = "nico.local"
 initial_dpu_agent_upgrade_policy = "off"
 machine_update_run_interval = 60
 dpu_ipmi_tool_impl = "fake"
@@ -28,7 +28,7 @@ permissive_mode = false
 casbin_policy_file = "/path/to/policy"
 
 [auth.cli_certs]
-required_equals = { "IssuerO" = "NVIDIA Corporation", "IssuerCN" = "NVIDIA Forge Root Certificate Authority 2022" }
+required_equals = { "IssuerO" = "NVIDIA Corporation", "IssuerCN" = "NVIDIA Nico Root Certificate Authority 2022" }
 group_from = "SubjectOU"
 username_from = "SubjectCN"
 
@@ -119,7 +119,7 @@ max_concurrent_machine_updates_absolute = 1
 
 [dpa_config]
 enabled = true
-mqtt_endpoint = "mqtt.forge"
+mqtt_endpoint = "mqtt.nico"
 
 [host_models.dell_r750]
 vendor = "Dell"

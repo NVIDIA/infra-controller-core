@@ -21,8 +21,8 @@ use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::rack::RackId;
 use mac_address::MacAddress;
 use url::Url;
 

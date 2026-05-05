@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use crate::rpc::ApiClient;
 
-pub async fn delete(ca_cert_id: i32, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(ca_cert_id: i32, api_client: &ApiClient) -> NicoCliResult<()> {
     Ok(api_client.0.tpm_delete_ca_cert(ca_cert_id).await?)
 }

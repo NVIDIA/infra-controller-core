@@ -18,7 +18,7 @@
 mod delete_sitewide;
 mod set_sitewide;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
@@ -38,7 +38,7 @@ pub enum Cmd {
 }
 
 impl Run for Cmd {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         match self {
             Cmd::Set(args) => args.run(ctx).await,
             Cmd::Delete(args) => args.run(ctx).await,

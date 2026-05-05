@@ -17,7 +17,7 @@
 
 //! Handler for RackState::Ready.
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use db::rack as db_rack;
 use model::rack::{FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState};
 

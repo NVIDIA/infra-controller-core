@@ -29,10 +29,10 @@ apt-cache search nvidia-driver | grep "^nvidia-driver" | head -20
 apt-get ${APT_SANDBOX_OPTS} -y install ${NV_PACKAGES}
 
 # ============================================================================
-# FORGE-SCOUT
+# NICO-SCOUT
 # ============================================================================
-dpkg -i /build-output/forge-scout.deb
-systemctl enable forge-scout
+dpkg -i /build-output/nico-scout.deb
+systemctl enable nico-scout
 
 # ============================================================================
 # ENABLE NVIDIA SERVICES
@@ -43,7 +43,7 @@ systemctl enable nvidia-fabricmanager
 # ============================================================================
 # DAILY UPDATE CHECK
 # ============================================================================
-cp /build-output/check-scout-updates.sh /opt/forge/
+cp /build-output/check-scout-updates.sh /opt/nico/
 cp /build-output/check-scout-updates.service /etc/systemd/system
 cp /build-output/check-scout-updates.timer /etc/systemd/system
 
@@ -53,10 +53,10 @@ ln -s /etc/systemd/system/check-scout-updates.timer /etc/systemd/system/timers.t
 # ============================================================================
 # MODULE LOADER
 # ============================================================================
-cp /build-output/load_modules.sh /opt/forge/
+cp /build-output/load_modules.sh /opt/nico/
 
 # Ensure key commands are present
-for bin in /opt/forge/forge-scout \
+for bin in /opt/nico/nico-scout \
            /usr/bin/dcgmi \
            /usr/libexec/datacenter-gpu-manager-4/nvvs \
            /usr/libexec/datacenter-gpu-manager-4/plugins/cuda13/BwChecker_13
@@ -69,7 +69,7 @@ do
 done
 
 # Ensure no missing libraries for key commands
-for bin in /opt/forge/forge-scout \
+for bin in /opt/nico/nico-scout \
            /usr/bin/dcgmi \
            /usr/libexec/datacenter-gpu-manager-4/nvvs \
            /usr/libexec/datacenter-gpu-manager-4/plugins/cuda13/BwChecker_13
@@ -96,7 +96,7 @@ for mod in nvidia.ko.zst mlx5_ib.ko.zst
 do
   if [ $(find /lib/modules -type f -name ${mod} | wc -l) == "0" ]
   then
-    echo "ERROR: Missing module ${mod}, forge-scout will not inventory hardware correctly"
+    echo "ERROR: Missing module ${mod}, nico-scout will not inventory hardware correctly"
     exit 1
   fi
 done

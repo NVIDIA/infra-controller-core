@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::domain::DomainId;
+use nico_uuid::domain::DomainId;
 use chrono::{DateTime, Utc};
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{Error, FromRow, Row};
 use tracing::log::debug;
 
-/// A DNS domain. Used by carbide-dns for resolving FQDNs.
+/// A DNS domain. Used by nico-dns for resolving FQDNs.
 /// We create an initial one startup. Each segment can have a different domain,
 /// including a domain provided by a tenant. In practice we only use a single site-wide
 /// domain currently.

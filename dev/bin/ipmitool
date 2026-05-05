@@ -15,11 +15,11 @@
 # limitations under the License.
 
 #
-# forge-dpu-agent needs 'ipmitool user list 1' to work.
+# nico-dpu-agent needs 'ipmitool user list 1' to work.
 # The integration tests puts this path, hence this script, on the front of the PATH to ensure it does.
 
 USER_LIST='1,root,false,true,true,ADMINISTRATOR
-2,forge_admin,true,true,true,ADMINISTRATOR
+2,nico_admin,true,true,true,ADMINISTRATOR
 3,,true,false,false,NO ACCESS
 4,,true,false,false,NO ACCESS
 5,,true,false,false,NO ACCESS

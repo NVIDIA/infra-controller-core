@@ -18,14 +18,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use nico_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 const UNIFIED_PREINGESTION_BFB_PATH: &str =
-    "/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb";
-const PREINGESTION_BFB_PATH: &str = "/forge-boot-artifacts/blobs/internal/aarch64/preingestion.bfb";
+    "/nico-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb";
+const PREINGESTION_BFB_PATH: &str = "/nico-boot-artifacts/blobs/internal/aarch64/preingestion.bfb";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BfbRshimCopyError {
@@ -101,7 +101,7 @@ impl BfbRshimCopier {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        forge_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password)
+        nico_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password)
             .await
             .map_err(|err| BfbRshimCopyError::Other {
                 details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
@@ -117,7 +117,7 @@ impl BfbRshimCopier {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        forge_ssh::ssh::enable_rshim(bmc_ip_address, username, password)
+        nico_ssh::ssh::enable_rshim(bmc_ip_address, username, password)
             .await
             .map_err(|err| BfbRshimCopyError::Other {
                 details: format!("failed enable RSHIM on {bmc_ip_address}: {err}"),
@@ -238,7 +238,7 @@ impl BfbRshimCopier {
         self.check_and_enable_rshim(bmc_ip_address, &credentials)
             .await?;
 
-        forge_ssh::ssh::copy_bfb_to_bmc_rshim(
+        nico_ssh::ssh::copy_bfb_to_bmc_rshim(
             bmc_ip_address,
             username,
             password,

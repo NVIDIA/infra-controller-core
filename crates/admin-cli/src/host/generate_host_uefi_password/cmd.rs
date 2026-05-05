@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use forge_secrets::credentials::Credentials;
+use ::rpc::admin_cli::NicoCliResult;
+use nico_secrets::credentials::Credentials;
 
-pub fn generate_uefi_password() -> CarbideCliResult<()> {
+pub fn generate_uefi_password() -> NicoCliResult<()> {
     let password = Credentials::generate_password_no_special_char();
     println!("Generated Bios Admin Password: {password}");
     Ok(())

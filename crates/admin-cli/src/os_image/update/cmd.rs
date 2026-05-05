@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::{Args, UpdateRequest};
 use crate::rpc::ApiClient;
 
-pub async fn update(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn update(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let req: UpdateRequest = args.try_into()?;
     let image = api_client
         .update_os_image(

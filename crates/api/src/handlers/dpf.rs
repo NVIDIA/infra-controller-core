@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::ObjectFilter;
 use db::managed_host::load_snapshot;
 use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -36,13 +36,13 @@ pub(crate) async fn modify_dpf_state(
     log_machine_id(&machine_id);
 
     if machine_id.machine_type().is_dpu() {
-        return Err(CarbideError::InvalidArgument("Only host id is expected!!".to_string()).into());
+        return Err(NicoError::InvalidArgument("Only host id is expected!!".to_string()).into());
     }
 
     let mut txn = api.txn_begin().await?;
     let machine_snapshot = load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "snapshot",
             id: machine_id.to_string(),
         })?;
@@ -69,7 +69,7 @@ pub(crate) async fn get_dpf_state(
     for machine_id in &request.machine_ids {
         if machine_id.machine_type().is_dpu() {
             return Err(
-                CarbideError::InvalidArgument("Only host id is expected!!".to_string()).into(),
+                NicoError::InvalidArgument("Only host id is expected!!".to_string()).into(),
             );
         }
     }

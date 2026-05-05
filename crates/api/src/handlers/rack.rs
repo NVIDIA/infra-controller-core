@@ -18,11 +18,11 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, HealthReportEntry};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use ::rpc::nico::{self as rpc, HealthReportEntry};
+use nico_uuid::machine::MachineId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use db::{
     ObjectColumnFilter, WithTransaction, expected_machine as db_expected_machine,
     expected_power_shelf as db_expected_power_shelf, expected_switch as db_expected_switch,
@@ -35,7 +35,7 @@ use model::metadata::Metadata;
 use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
@@ -51,20 +51,20 @@ pub async fn get_rack(
 
     let racks = if let Some(id) = req.id {
         let rack_id = RackId::from_str(&id)
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
+            .map_err(|e| NicoError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
         db_rack::find_by(
             reader.as_mut(),
             ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
         )
         .await
-        .map_err(CarbideError::from)?
+        .map_err(NicoError::from)?
     } else {
         db_rack::find_by(
             reader.as_mut(),
             ObjectColumnFilter::All::<db_rack::IdColumn>,
         )
         .await
-        .map_err(CarbideError::from)?
+        .map_err(NicoError::from)?
     };
 
     let mut result = Vec::with_capacity(racks.len());
@@ -127,13 +127,13 @@ pub async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if rack_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if rack_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -213,13 +213,13 @@ pub async fn find_rack_state_histories(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if rack_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if rack_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -231,13 +231,13 @@ pub async fn find_rack_state_histories(
         &rack_ids,
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     let mut response = rpc::StateHistories::default();
     for (rack_id, records) in results {
         response.histories.insert(
             rack_id,
-            ::rpc::forge::StateHistoryRecords {
+            ::rpc::nico::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -258,22 +258,22 @@ pub async fn delete_rack(
     api.with_txn(|txn| {
         async move {
             let rack_id = RackId::from_str(&req.id)
-                .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
+                .map_err(|e| NicoError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
             let _rack = db_rack::find_by(
                 txn.as_mut(),
                 ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
             )
             .await
-            .map_err(CarbideError::from)?
+            .map_err(NicoError::from)?
             .pop()
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "rack",
                 id: rack_id.to_string(),
             })?;
 
             db_rack::mark_as_deleted(&rack_id, txn)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("Marking rack deleted {}", e),
                 })?;
             Ok::<_, Status>(())
@@ -293,16 +293,16 @@ pub async fn list_rack_health_reports(
     let req = request.into_inner();
     let rack_id = req
         .rack_id
-        .ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
+        .ok_or_else(|| NicoError::MissingArgument("rack_id"))?;
 
     let rack = db_rack::find_by(
         api.db_reader().as_mut(),
         ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
     )
     .await
-    .map_err(CarbideError::from)?
+    .map_err(NicoError::from)?
     .pop()
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "rack",
         id: rack_id.to_string(),
     })?;
@@ -336,15 +336,15 @@ pub async fn insert_rack_health_report(
         health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
     else {
-        return Err(CarbideError::MissingArgument("override").into());
+        return Err(NicoError::MissingArgument("override").into());
     };
-    let rack_id = rack_id.ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
+    let rack_id = rack_id.ok_or_else(|| NicoError::MissingArgument("rack_id"))?;
 
     let Some(report) = report else {
-        return Err(CarbideError::MissingArgument("report").into());
+        return Err(NicoError::MissingArgument("report").into());
     };
     let Ok(mode) = rpc::HealthReportApplyMode::try_from(mode) else {
-        return Err(CarbideError::InvalidArgument("mode".to_string()).into());
+        return Err(NicoError::InvalidArgument("mode".to_string()).into());
     };
     let mode: HealthReportApplyMode = mode.into();
 
@@ -355,15 +355,15 @@ pub async fn insert_rack_health_report(
         ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
     )
     .await
-    .map_err(CarbideError::from)?
+    .map_err(NicoError::from)?
     .pop()
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "rack",
         id: rack_id.to_string(),
     })?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
     if report.observed_at.is_none() {
         report.observed_at = Some(chrono::Utc::now());
     }
@@ -371,7 +371,7 @@ pub async fn insert_rack_health_report(
     report.update_in_alert_since(None);
 
     match remove_rack_override_by_source(&rack, &mut txn, report.source.clone()).await {
-        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Ok(_) | Err(NicoError::NotFoundError { .. }) => {}
         Err(e) => return Err(e.into()),
     }
 
@@ -393,7 +393,7 @@ pub async fn remove_rack_health_report(
     log_request_data(&request);
 
     let rpc::RemoveRackHealthReportRequest { rack_id, source } = request.into_inner();
-    let rack_id = rack_id.ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
+    let rack_id = rack_id.ok_or_else(|| NicoError::MissingArgument("rack_id"))?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -402,9 +402,9 @@ pub async fn remove_rack_health_report(
         ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
     )
     .await
-    .map_err(CarbideError::from)?
+    .map_err(NicoError::from)?
     .pop()
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "rack",
         id: rack_id.to_string(),
     })?;
@@ -419,13 +419,13 @@ async fn remove_rack_override_by_source(
     rack: &model::rack::Rack,
     txn: &mut db::Transaction<'_>,
     source: String,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let mode = if rack.health_reports.replace.as_ref().map(|o| &o.source) == Some(&source) {
         HealthReportApplyMode::Replace
     } else if rack.health_reports.merges.contains_key(&source) {
         HealthReportApplyMode::Merge
     } else {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "rack override with source",
             id: source,
         });
@@ -445,16 +445,16 @@ pub async fn get_rack_profile(
     let req = request.into_inner();
     let rack_id = req
         .rack_id
-        .ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
+        .ok_or_else(|| NicoError::MissingArgument("rack_id"))?;
 
     let rack = db_rack::find_by(
         api.db_reader().as_mut(),
         ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
     )
     .await
-    .map_err(CarbideError::from)?
+    .map_err(NicoError::from)?
     .pop()
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "rack",
         id: rack_id.to_string(),
     })?;
@@ -462,7 +462,7 @@ pub async fn get_rack_profile(
     let rack_profile_id =
         rack.rack_profile_id
             .as_ref()
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "rack_profile_id for rack",
                 id: rack_id.to_string(),
             })?;
@@ -471,7 +471,7 @@ pub async fn get_rack_profile(
         .runtime_config
         .rack_profiles
         .get(rack_profile_id.as_str())
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "rack profile for rack_profile_id",
             id: rack_profile_id.to_string(),
         })?;
@@ -493,17 +493,17 @@ pub(crate) async fn update_rack_metadata(
     let request = request.into_inner();
     let rack_id = request
         .rack_id
-        .ok_or_else(|| CarbideError::from(RpcDataConversionError::MissingArgument("rack_id")))?;
+        .ok_or_else(|| NicoError::from(RpcDataConversionError::MissingArgument("rack_id")))?;
 
     let metadata = match request.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -512,15 +512,15 @@ pub(crate) async fn update_rack_metadata(
         ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
     )
     .await
-    .map_err(CarbideError::from)?
+    .map_err(NicoError::from)?
     .pop()
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "rack",
         id: rack_id.to_string(),
     })?;
 
     let expected_version: config_version::ConfigVersion = match request.if_version_match {
-        Some(version) => version.parse().map_err(CarbideError::from)?,
+        Some(version) => version.parse().map_err(NicoError::from)?,
         None => rack.version,
     };
 
@@ -541,16 +541,16 @@ pub(crate) async fn on_demand_rack_maintenance(
 
     let rack_id = req
         .rack_id
-        .ok_or_else(|| CarbideError::InvalidArgument("rack_id is required".into()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("rack_id is required".into()))?;
 
     let rack = db_rack::find_by(
         api.db_reader().as_mut(),
         ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
     )
     .await
-    .map_err(CarbideError::from)?
+    .map_err(NicoError::from)?
     .pop()
-    .ok_or_else(|| CarbideError::NotFoundError {
+    .ok_or_else(|| NicoError::NotFoundError {
         kind: "rack",
         id: rack_id.to_string(),
     })?;
@@ -559,7 +559,7 @@ pub(crate) async fn on_demand_rack_maintenance(
         *rack.controller_state,
         RackState::Ready | RackState::Error { .. }
     ) {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Rack {} is not in Ready or Error state (current: {:?}). Maintenance can only be requested when the rack is Ready or in Error.",
             rack_id, *rack.controller_state
         ))
@@ -567,7 +567,7 @@ pub(crate) async fn on_demand_rack_maintenance(
     }
 
     if rack.config.maintenance_requested.is_some() {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "On-demand maintenance for rack {} is already scheduled.",
             rack_id,
         ))
@@ -601,7 +601,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                 Ok(MaintenanceActivity::ConfigureNmxCluster)
             }
             Some(ProtoActivity::PowerSequence(_)) => Ok(MaintenanceActivity::PowerSequence),
-            None => Err(CarbideError::InvalidArgument(
+            None => Err(NicoError::InvalidArgument(
                 "Maintenance activity entry has no activity set".into(),
             )),
         })
@@ -613,19 +613,19 @@ pub(crate) async fn on_demand_rack_maintenance(
             .iter()
             .map(|s| MachineId::from_str(s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine_id: {e}")))?,
+            .map_err(|e| NicoError::InvalidArgument(format!("Invalid machine_id: {e}")))?,
         switch_ids: proto_scope
             .switch_ids
             .iter()
             .map(|s| SwitchId::from_str(s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid switch_id: {e}")))?,
+            .map_err(|e| NicoError::InvalidArgument(format!("Invalid switch_id: {e}")))?,
         power_shelf_ids: proto_scope
             .power_shelf_ids
             .iter()
             .map(|s| PowerShelfId::from_str(s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid power_shelf_id: {e}")))?,
+            .map_err(|e| NicoError::InvalidArgument(format!("Invalid power_shelf_id: {e}")))?,
         activities,
     };
 
@@ -641,7 +641,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                 },
             )
             .await
-            .map_err(CarbideError::from)?
+            .map_err(NicoError::from)?
             .into_iter()
             .collect();
 
@@ -651,7 +651,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                 .filter(|id| !rack_machines.contains(id))
                 .collect();
             if !foreign.is_empty() {
-                return Err(CarbideError::InvalidArgument(format!(
+                return Err(NicoError::InvalidArgument(format!(
                     "machine(s) [{}] do not belong to rack {rack_id}",
                     foreign
                         .iter()
@@ -672,7 +672,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                 },
             )
             .await
-            .map_err(CarbideError::from)?
+            .map_err(NicoError::from)?
             .into_iter()
             .collect();
 
@@ -682,7 +682,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                 .filter(|id| !rack_switches.contains(id))
                 .collect();
             if !foreign.is_empty() {
-                return Err(CarbideError::InvalidArgument(format!(
+                return Err(NicoError::InvalidArgument(format!(
                     "switch(es) [{}] do not belong to rack {rack_id}",
                     foreign
                         .iter()
@@ -703,7 +703,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                 },
             )
             .await
-            .map_err(CarbideError::from)?
+            .map_err(NicoError::from)?
             .into_iter()
             .collect();
 
@@ -713,7 +713,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                 .filter(|id| !rack_power_shelves.contains(id))
                 .collect();
             if !foreign.is_empty() {
-                return Err(CarbideError::InvalidArgument(format!(
+                return Err(NicoError::InvalidArgument(format!(
                     "power shelf/shelves [{}] do not belong to rack {rack_id}",
                     foreign
                         .iter()

@@ -144,10 +144,10 @@ impl Kea {
                 {
                         "library": hook_lib,
                         "parameters": {
-                            "carbide-api-url": api_server_url,
-                        "carbide-metrics-endpoint": "[::]:1089",
-                            "carbide-nameservers": "1.1.1.1,8.8.8.8",
-                            "carbide-provisioning-server-ipv4": "127.0.0.1"
+                            "nico-api-url": api_server_url,
+                        "nico-metrics-endpoint": "[::]:1089",
+                            "nico-nameservers": "1.1.1.1,8.8.8.8",
+                            "nico-provisioning-server-ipv4": "127.0.0.1"
                         }
                 }
             ],
@@ -170,13 +170,13 @@ impl Kea {
                     "debuglevel": 99
                 },
                 {
-                    "name": "kea-dhcp4.carbide-rust",
+                    "name": "kea-dhcp4.nico-rust",
                     "output_options": [{"output": "stdout"}],
                     "severity": "WARN",
                     "debuglevel": 10
                 },
                 {
-                    "name": "kea-dhcp4.carbide-callouts",
+                    "name": "kea-dhcp4.nico-callouts",
                     "output_options": [{"output": "stdout"}],
                     "severity": "FATAL",
                     "debuglevel": 10

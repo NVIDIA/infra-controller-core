@@ -16,7 +16,7 @@
  */
 
 /*!
- * The `rpc` module provides the gRPC layer to connect the Carbide
+ * The `rpc` module provides the gRPC layer to connect the Nico
  * API to the underlying measured_boot code (model, interface, dto).
  *
  * This includes handlers for all gRPC calls, for all aspects of

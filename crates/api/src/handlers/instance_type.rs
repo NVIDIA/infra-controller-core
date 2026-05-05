@@ -18,10 +18,10 @@
 use std::num::TryFromIntError;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use ::rpc::forge::InstanceTypeAllocationStats;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico as rpc;
+use ::rpc::nico::InstanceTypeAllocationStats;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use db::{ObjectFilter, compute_allocation, instance, instance_type};
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
@@ -32,7 +32,7 @@ use model::tenant::InvalidTenantOrg;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::cfg::file::ComputeAllocationEnforcement;
 
@@ -48,21 +48,21 @@ pub(crate) async fn create(
     let id = match req.id {
         None => InstanceTypeId::from(Uuid::new_v4()),
         Some(i) => i.parse::<InstanceTypeId>().map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
+            NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?,
     };
 
     // Prepare the metadata
     let metadata = match req.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
 
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     // Prepare the capabilities list
     let mut desired_capabilities = Vec::<InstanceTypeMachineCapabilityFilter>::new();
@@ -126,7 +126,7 @@ pub(crate) async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if req.instance_type_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be submitted"
         ))
         .into());
@@ -134,7 +134,7 @@ pub(crate) async fn find_by_ids(
 
     if req.instance_type_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -144,7 +144,7 @@ pub(crate) async fn find_by_ids(
     // we can send to the DB.
     for id in req.instance_type_ids {
         instance_type_ids.push(id.parse::<InstanceTypeId>().map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
+            NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?);
     }
 
@@ -171,7 +171,7 @@ pub(crate) async fn find_by_ids(
             req.tenant_organization_id
                 .map(|t| {
                     t.parse().map_err(|e: InvalidTenantOrg| {
-                        CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                        NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
                     })
                 })
                 .transpose()?
@@ -203,12 +203,12 @@ pub(crate) async fn find_by_ids(
                     },
                 )
                 .await
-                .map_err(CarbideError::from)?
+                .map_err(NicoError::from)?
                 .into_iter()
                 .filter(|(_, mhs)| mhs.is_usable_as_instance(false).is_ok())
                 .count()
                 .try_into()
-                .map_err(|e: TryFromIntError| CarbideError::Internal {
+                .map_err(|e: TryFromIntError| NicoError::Internal {
                     message: e.to_string(),
                 })?;
 
@@ -259,20 +259,20 @@ pub(crate) async fn update(
 
     // Get the target ID
     let id = req.id.parse::<InstanceTypeId>().map_err(|e| {
-        CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
+        NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
     })?;
 
     // Prepare the metadata
     let metadata = match req.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
 
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     // Prepare the desired capabilities list
     let mut desired_capabilities = Vec::<InstanceTypeMachineCapabilityFilter>::new();
@@ -301,9 +301,9 @@ pub(crate) async fn update(
 
     // If we found more than one, the DB is corrupt.
     if current_instance_type.len() > 1 {
-        // CarbideError::FindOneReturnedManyResultsError expects a uuid,
+        // NicoError::FindOneReturnedManyResultsError expects a uuid,
         // and we've said we want to move away from uuid::Uuid
-        return Err(CarbideError::Internal {
+        return Err(NicoError::Internal {
             message: format!("multiple InstanceType records found for '{id}'"),
         }
         .into());
@@ -312,7 +312,7 @@ pub(crate) async fn update(
     let current_instance_type = match current_instance_type.pop() {
         Some(i) => i,
         None => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "InstanceType",
                 id: metadata.name.clone(),
             }
@@ -324,10 +324,10 @@ pub(crate) async fn update(
     if let Some(if_version_match) = req.if_version_match {
         let target_version = if_version_match
             .parse::<ConfigVersion>()
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
         if current_instance_type.version != target_version {
-            return Err(CarbideError::ConcurrentModificationError(
+            return Err(NicoError::ConcurrentModificationError(
                 "InstanceType",
                 target_version.to_string(),
             )
@@ -341,14 +341,14 @@ pub(crate) async fn update(
     let existing_associated_machines =
         db::machine::find_ids_by_instance_type_id(&mut txn, &id, true).await?;
 
-    // Forge-cloud allows users to change metadata changes (name, description, and label),
+    // Nico-cloud allows users to change metadata changes (name, description, and label),
     // so we'll need to allow the same here.
     // The burden of maintaining the order of the capability filters is on the caller.
     // Capability filters are NOT allowed to change if an InstanceType is in use.
     if current_instance_type.desired_capabilities != desired_capabilities
         && !existing_associated_machines.is_empty()
     {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "InstanceType {id} is associated with active machines"
         ))
         .into());
@@ -388,13 +388,13 @@ pub(crate) async fn delete(
         .id
         .parse::<InstanceTypeId>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
+            NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?;
 
     // Prepare our txn to delete from the DB
     let mut txn = api.txn_begin().await?;
 
-    // Look for any related machines.  Forge-Cloud provides users with
+    // Look for any related machines.  Nico-Cloud provides users with
     // the behavior of removing all machine associations to an InstanceType for machines
     // as long as all machines affected have no associated instances.
     // We need to replicate this here so that it's a single call.
@@ -415,7 +415,7 @@ pub(crate) async fn delete(
     .await?;
 
     if !instances.is_empty() {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "InstanceType {id} is associated with machines that have active instances"
         ))
         .into());
@@ -454,14 +454,14 @@ pub(crate) async fn associate_machines(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if req.machine_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} machine IDs can be submitted"
         ))
         .into());
     }
 
     if req.machine_ids.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "at least one machine ID must be provided".to_string(),
         )
         .into());
@@ -471,7 +471,7 @@ pub(crate) async fn associate_machines(
         .instance_type_id
         .parse::<InstanceTypeId>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
+            NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?;
 
     // Prepare our txn to associate machines with the instance type
@@ -482,7 +482,7 @@ pub(crate) async fn associate_machines(
         instance_type::find_by_ids(&mut txn, std::slice::from_ref(&instance_type_id), true).await?;
 
     if instance_types.is_empty() {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "InstanceType",
             id: req.instance_type_id,
         }
@@ -496,14 +496,14 @@ pub(crate) async fn associate_machines(
     for mac_id in req.machine_ids {
         machine_ids.push(
             match mac_id.parse::<MachineId>().map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidMachineId(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidMachineId(e.to_string()))
             }) {
                 Err(e) => return Err(e.into()),
                 Ok(m_id) => match m_id.machine_type().is_dpu() {
                     false => m_id,
                     true => {
                         return Err(
-                            CarbideError::InvalidArgument(format!("{m_id} is a DPU")).into()
+                            NicoError::InvalidArgument(format!("{m_id} is a DPU")).into()
                         );
                     }
                 },
@@ -515,7 +515,7 @@ pub(crate) async fn associate_machines(
         .instance_type_id
         .parse::<InstanceTypeId>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
+            NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?;
 
     // Query the DB to make sure the instance type is valid/active.
@@ -523,14 +523,14 @@ pub(crate) async fn associate_machines(
         instance_type::find_by_ids(&mut txn, std::slice::from_ref(&instance_type_id), true).await?;
 
     if instance_types.len() > 1 {
-        return Err(CarbideError::Internal {
+        return Err(NicoError::Internal {
             message: format!("multiple InstanceType records found for '{instance_type_id}'"),
         }
         .into());
     }
 
     if instance_types.is_empty() {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "InstanceType",
             id: req.instance_type_id,
         }
@@ -558,7 +558,7 @@ pub(crate) async fn associate_machines(
         instance::find_by_machine_ids(&mut txn, &machine_ids.iter().collect::<Vec<_>>()).await?;
 
     if !instances.is_empty() {
-        return Err(CarbideError::FailedPrecondition(
+        return Err(NicoError::FailedPrecondition(
             "one or more machines have instances assigned".to_string(),
         )
         .into());
@@ -571,13 +571,13 @@ pub(crate) async fn associate_machines(
     for machine in machines.iter() {
         let capabilities = machine
             .to_capabilities()
-            .ok_or(CarbideError::InvalidArgument(format!(
+            .ok_or(NicoError::InvalidArgument(format!(
                 "capabilities of machine {} do not satisfy the requested InstanceType ({})",
                 machine.id, instance_type_id
             )))?;
 
         if !instance_types[0].matches_capability_set(&capabilities) {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "capabilities of machine {} do not satisfy the requested InstanceType ({})",
                 machine.id, instance_type_id
             ))
@@ -620,7 +620,7 @@ pub(crate) async fn remove_machine_association(
         .into_inner()
         .machine_id
         .parse::<MachineId>()
-        .map_err(|e| CarbideError::from(RpcDataConversionError::InvalidMachineId(e.to_string())))?;
+        .map_err(|e| NicoError::from(RpcDataConversionError::InvalidMachineId(e.to_string())))?;
 
     // Prepare our txn to associate machines with the instance type
     let mut txn = api.txn_begin().await?;
@@ -639,7 +639,7 @@ pub(crate) async fn remove_machine_association(
     .await?;
 
     let Some(machine) = machines.pop() else {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "Machine",
             id: machine_id.to_string(),
         }
@@ -652,7 +652,7 @@ pub(crate) async fn remove_machine_association(
     if let Some(instance) = instances.first()
         && instance.deleted.is_none()
     {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "machine {} has instance assigned. This operation is allowed only in terminating state.",
             &machine.id
         ))
@@ -674,7 +674,7 @@ pub(crate) async fn remove_machine_association(
             instance_type::get_association_details(&mut txn, &[instance_type_id.to_owned()])
                 .await?
                 .get(instance_type_id)
-                .ok_or_else(|| CarbideError::Internal {
+                .ok_or_else(|| NicoError::Internal {
                     message: format!(
                         "expected InstanceType for InstanceTypeID of machine {} but found none",
                         machine.id
@@ -710,7 +710,7 @@ pub(crate) async fn remove_machine_association(
             ) {
                 (_, ComputeAllocationEnforcement::Always)
                 | (true, ComputeAllocationEnforcement::EnforceIfPresent) => {
-                    return Err(CarbideError::FailedPrecondition(
+                    return Err(NicoError::FailedPrecondition(
                         "request to remove machine from instance type would reduce associated machine count below current tenant allocations count"
                             .to_string(),
                     ).into());

@@ -374,17 +374,17 @@ fi
 NCX_REPO_RESOLVED=""
 
 if [[ -n "${NCX_REPO:-}" ]]; then
-    if [[ -d "${NCX_REPO}/helm/charts/carbide-rest" ]]; then
+    if [[ -d "${NCX_REPO}/helm/charts/nico-rest" ]]; then
         NCX_REPO_RESOLVED="${NCX_REPO}"
     else
-        ERRORS+=("NCX_REPO='${NCX_REPO}' but helm/charts/carbide-rest was not found there")
+        ERRORS+=("NCX_REPO='${NCX_REPO}' but helm/charts/nico-rest was not found there")
     fi
 else
     for _candidate in \
-        "${SCRIPT_DIR}/../../carbide-rest" \
+        "${SCRIPT_DIR}/../../nico-rest" \
         "${SCRIPT_DIR}/../../ncx-infra-controller-rest" \
         "${SCRIPT_DIR}/../../ncx"; do
-        if [[ -d "${_candidate}/helm/charts/carbide-rest" ]]; then
+        if [[ -d "${_candidate}/helm/charts/nico-rest" ]]; then
             NCX_REPO_RESOLVED="$(cd "${_candidate}" && pwd)"
             break
         fi
@@ -395,7 +395,7 @@ NCX_CLONE_URL="https://github.com/NVIDIA/ncx-infra-controller-rest.git"
 NCX_CLONE_PARENT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 if [[ -z "${NCX_REPO_RESOLVED}" ]]; then
-    WARNINGS+=("NCX REST repo not found — expected a sibling directory with helm/charts/carbide-rest")
+    WARNINGS+=("NCX REST repo not found — expected a sibling directory with helm/charts/nico-rest")
 fi
 
 # ---------------------------------------------------------------------------

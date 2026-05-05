@@ -37,16 +37,16 @@ const TLS_KEY: &[u8] = include_bytes!("../../../test-certs/tls.key");
 // TODO: Add settings to config file and switch this to true
 // Then assert that it works
 const AGENT_CONFIG: &str = r#"
-[forge-system]
+[nico-system]
 api-server = "https://$API_SERVER"
 pxe-server = "http://127.0.0.1:8080"
-root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
+root-ca = "$ROOT_DIR/dev/certs/nico_root.pem"
 
 [machine]
 is-fake-dpu = true
 interface-id = "f377ed72-d912-4879-958a-8d1f82a50d62"
 mac-address = "11:22:33:44:55:66"
-hostname = "abc.forge.example.com"
+hostname = "abc.nico.example.com"
 
 [hbn]
 root-dir = "$HBN_ROOT"
@@ -201,7 +201,7 @@ async fn wait_for_server_to_start(addr: SocketAddr) -> eyre::Result<()> {
     Ok(())
 }
 
-/// Takes an rpc object (built from rpc/proto/forge.proto) and turns into into a gRPC axum response
+/// Takes an rpc object (built from rpc/proto/nico.proto) and turns into into a gRPC axum response
 pub fn respond(out: impl prost::Message) -> impl IntoResponse {
     let msg_len = out.encoded_len() as u32;
     let mut body = Vec::with_capacity(1 + 4 + msg_len as usize);

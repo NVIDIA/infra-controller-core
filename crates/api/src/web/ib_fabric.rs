@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::Base;
 use crate::api::Api;
@@ -68,7 +68,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 pub async fn fetch_ib_fabric_ids(api: Arc<Api>) -> Result<Vec<String>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::IbFabricSearchFilter::default());
+    let request = tonic::Request::new(nicorpc::IbFabricSearchFilter::default());
 
     let ib_fabric_ids = api
         .find_ib_fabric_ids(request)

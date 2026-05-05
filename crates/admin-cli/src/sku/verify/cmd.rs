@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::NicoCliResult;
+use nico_uuid::machine::MachineId;
 
 use crate::rpc::ApiClient;
 
-pub async fn verify(machine_id: MachineId, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn verify(machine_id: MachineId, api_client: &ApiClient) -> NicoCliResult<()> {
     api_client.0.verify_sku_for_machine(machine_id).await?;
     Ok(())
 }

@@ -20,8 +20,8 @@ use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_managed_host_with_config,
     create_test_env, dpu,
 };
-use rpc::forge::IpType;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::IpType;
+use rpc::nico::nico_server::Nico;
 
 use crate::tests::common;
 
@@ -106,7 +106,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 }
 
 async fn test_not_found(env: &TestEnv) {
-    let req = rpc::forge::FindIpAddressRequest {
+    let req = rpc::nico::FindIpAddressRequest {
         ip: "10.0.0.1".to_string(),
     };
     let res = env.api.find_ip_address(tonic::Request::new(req)).await;
@@ -117,7 +117,7 @@ async fn test_not_found(env: &TestEnv) {
 }
 
 async fn test_inner(ip: &str, ip_type: IpType, env: &TestEnv, caller: &str) {
-    let req = rpc::forge::FindIpAddressRequest { ip: ip.to_string() };
+    let req = rpc::nico::FindIpAddressRequest { ip: ip.to_string() };
     let res = env
         .api
         .find_ip_address(tonic::Request::new(req))
@@ -152,7 +152,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let interface_id = &res.interfaces[0].id;
 
     // Network segment
-    let req = rpc::forge::IdentifyUuidRequest {
+    let req = rpc::nico::IdentifyUuidRequest {
         uuid: Some(segment_id.into()),
     };
     let res = env
@@ -161,10 +161,10 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(res.object_type, rpc::forge::UuidType::NetworkSegment as i32);
+    assert_eq!(res.object_type, rpc::nico::UuidType::NetworkSegment as i32);
 
     // Instance
-    let req = rpc::forge::IdentifyUuidRequest {
+    let req = rpc::nico::IdentifyUuidRequest {
         uuid: Some(tinstance.id.into()),
     };
     let res = env
@@ -173,10 +173,10 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(res.object_type, rpc::forge::UuidType::Instance as i32);
+    assert_eq!(res.object_type, rpc::nico::UuidType::Instance as i32);
 
     // Machine interface
-    let req = rpc::forge::IdentifyUuidRequest {
+    let req = rpc::nico::IdentifyUuidRequest {
         uuid: interface_id.map(|id| id.into()),
     };
     let res = env
@@ -187,7 +187,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .into_inner();
     assert_eq!(
         res.object_type,
-        rpc::forge::UuidType::MachineInterface as i32
+        rpc::nico::UuidType::MachineInterface as i32
     );
 
     // VPC
@@ -199,7 +199,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let segment = db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap();
-    let req = rpc::forge::IdentifyUuidRequest {
+    let req = rpc::nico::IdentifyUuidRequest {
         uuid: Some(segment.vpc_id.unwrap().into()),
     };
     let res = env
@@ -208,10 +208,10 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(res.object_type, rpc::forge::UuidType::Vpc as i32);
+    assert_eq!(res.object_type, rpc::nico::UuidType::Vpc as i32);
 
     // Domain
-    let req = rpc::forge::IdentifyUuidRequest {
+    let req = rpc::nico::IdentifyUuidRequest {
         uuid: Some(env.domain.into()),
     };
     let res = env
@@ -220,7 +220,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(res.object_type, rpc::forge::UuidType::Domain as i32);
+    assert_eq!(res.object_type, rpc::nico::UuidType::Domain as i32);
 
     Ok(())
 }
@@ -233,7 +233,7 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     let res = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![host_machine_id],
             ..Default::default()
         }))
@@ -245,7 +245,7 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let interface_id = res.interfaces[0].id.as_ref().unwrap().to_string();
     let mac_address = &res.interfaces[0].mac_address;
 
-    let req = rpc::forge::IdentifyMacRequest {
+    let req = rpc::nico::IdentifyMacRequest {
         mac_address: mac_address.to_string(),
     };
     let res = env
@@ -257,7 +257,7 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     assert_eq!(res.primary_key, *interface_id);
     assert_eq!(
         res.object_type,
-        rpc::forge::MacOwner::MachineInterface as i32
+        rpc::nico::MacOwner::MachineInterface as i32
     );
 
     Ok(())
@@ -281,7 +281,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Host, exact match, success
     {
-        let req = rpc::forge::IdentifySerialRequest {
+        let req = rpc::nico::IdentifySerialRequest {
             // src/model/hardware_info/test_data/x86_info.json
             serial_number: "HostBoard123".to_string(),
             exact: true,
@@ -300,7 +300,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Host, exact match, failure
     {
-        let req = rpc::forge::IdentifySerialRequest {
+        let req = rpc::nico::IdentifySerialRequest {
             // src/model/hardware_info/test_data/x86_info.json
             serial_number: "tBoard123".to_string(),
             exact: true,
@@ -316,7 +316,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Host, fuzzy match
     {
-        let req = rpc::forge::IdentifySerialRequest {
+        let req = rpc::nico::IdentifySerialRequest {
             // src/model/hardware_info/test_data/x86_info.json
             serial_number: "tBoard123".to_string(),
             exact: false,
@@ -335,7 +335,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // DPU, exact match, success
     {
-        let req = rpc::forge::IdentifySerialRequest {
+        let req = rpc::nico::IdentifySerialRequest {
             serial_number: dpu_config.serial.clone(),
             exact: true,
         };
@@ -353,7 +353,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // DPU, exact match, failure
     {
-        let req = rpc::forge::IdentifySerialRequest {
+        let req = rpc::nico::IdentifySerialRequest {
             // Lop off the first 4 characters
             serial_number: dpu_config.serial.replace(&dpu_config.serial[0..4], ""),
             exact: true,
@@ -369,7 +369,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // DPU, fuzzy match
     {
-        let req = rpc::forge::IdentifySerialRequest {
+        let req = rpc::nico::IdentifySerialRequest {
             // Lop off the first 4 characters
             serial_number: dpu_config.serial.replace(&dpu_config.serial[0..4], ""),
             exact: false,
@@ -409,7 +409,7 @@ async fn test_static_bmc_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Re
     txn.commit().await.unwrap();
 
     // Query the IP via finder
-    let req = rpc::forge::FindIpAddressRequest {
+    let req = rpc::nico::FindIpAddressRequest {
         ip: "10.178.160.100".to_string(),
     };
     let res = env

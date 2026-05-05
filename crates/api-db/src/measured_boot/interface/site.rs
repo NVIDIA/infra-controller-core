@@ -20,8 +20,8 @@
  *  tables in the database, leveraging the site-specific record types.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };

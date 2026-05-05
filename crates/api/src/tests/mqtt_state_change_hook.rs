@@ -20,7 +20,7 @@
 //! Unit tests for message serialization are in the message module itself.
 //! These tests verify the hook behavior and MQTT topic construction.
 
-use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
+use nico_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use chrono::Utc;
 use model::machine::ManagedHostState;
 

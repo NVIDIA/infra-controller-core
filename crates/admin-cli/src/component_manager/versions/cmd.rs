@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, OutputFormat};
 use prettytable::{Cell, Row, Table};
 
 use super::args::Args;
@@ -26,12 +26,12 @@ pub async fn list_versions(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     let response = api_client
         .0
         .list_component_firmware_versions(opts)
         .await
-        .map_err(CarbideCliError::from)?;
+        .map_err(NicoCliError::from)?;
 
     if format == OutputFormat::Json {
         let devices = response
@@ -74,7 +74,7 @@ pub async fn list_versions(
     );
 
     if failures > 0 {
-        return Err(CarbideCliError::GenericError(format!(
+        return Err(NicoCliError::GenericError(format!(
             "{failures} component firmware version result(s) failed{failure_summary}"
         )));
     }

@@ -16,9 +16,9 @@
  */
 
 use ::rpc::Machine;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::BuildInfo;
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::BuildInfo;
+use nico_uuid::machine::MachineId;
 use prettytable::{Row, Table};
 use serde::Serialize;
 
@@ -30,7 +30,7 @@ pub async fn status(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     handle_dpu_status(output_file, output_format, api_client, page_size).await
 }
 
@@ -166,10 +166,10 @@ pub async fn handle_dpu_status(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let dpus = api_client
         .get_all_machines(
-            rpc::forge::MachineSearchConfig {
+            rpc::nico::MachineSearchConfig {
                 include_dpus: true,
                 exclude_hosts: true,
                 ..Default::default()
@@ -199,7 +199,7 @@ pub async fn handle_dpu_status(
 async fn generate_dpu_status_data(
     api_client: &ApiClient,
     machines: Vec<Machine>,
-) -> CarbideCliResult<Vec<DpuStatus>> {
+) -> NicoCliResult<Vec<DpuStatus>> {
     let mut dpu_status = Vec::new();
     let build_info = api_client.0.version(true).await?;
     for machine in machines {
@@ -215,7 +215,7 @@ async fn generate_dpu_status_data(
 pub async fn generate_dpu_status_table(
     api_client: &ApiClient,
     machines: Vec<Machine>,
-) -> CarbideCliResult<Box<Table>> {
+) -> NicoCliResult<Box<Table>> {
     let mut table = Table::new();
 
     let headers = vec!["DPU Id", "DPU Type", "State", "Healthy", "Version Status"];

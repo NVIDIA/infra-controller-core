@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{ConfigSetting, SetDynamicConfigRequest};
 
-use crate::setup::parse_carbide_config;
+use crate::setup::parse_nico_config;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_test_env_with_overrides, get_config,
 };
@@ -135,18 +135,18 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
     let env = {
-        // Create a config with allow_changing_bmc_proxy unset, then pass it to parse_carbide_config,
+        // Create a config with allow_changing_bmc_proxy unset, then pass it to parse_nico_config,
         // then use *that* config, and assert that it defaults to false
         let mut config = get_config();
         // Leave allow_changing_bmc_proxy unspecified, it should behave as if false
         config.site_explorer.allow_changing_bmc_proxy = None;
-        config.site_explorer.bmc_proxy = carbide_site_explorer::config::bmc_proxy(None);
+        config.site_explorer.bmc_proxy = nico_site_explorer::config::bmc_proxy(None);
         config.site_explorer.override_target_ip = None;
         config.site_explorer.override_target_port = None;
         let config_str = toml::to_string(&config)?;
         let mut tmp = tempfile::NamedTempFile::new()?;
         std::io::Write::write_all(&mut tmp, config_str.as_bytes())?;
-        let parsed_config = parse_carbide_config(tmp.path(), None)?;
+        let parsed_config = parse_nico_config(tmp.path(), None)?;
         create_test_env_with_overrides(
             db_pool,
             TestEnvOverrides::with_config(parsed_config.as_ref().to_owned()),
@@ -183,16 +183,16 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
 ) -> Result<(), eyre::Report> {
     let env = {
         // Create a config with allow_changing_bmc_proxy unset, but with bmc_proxy set. This should
-        // make allow_changing_bmc_proxy to default to true in parse_carbide_config.
+        // make allow_changing_bmc_proxy to default to true in parse_nico_config.
         let mut config = get_config();
         // Leave allow_changing_bmc_proxy unspecified, it should behave as if false
         config.site_explorer.allow_changing_bmc_proxy = None;
         config.site_explorer.bmc_proxy =
-            carbide_site_explorer::config::bmc_proxy(Some("test:1234".parse().unwrap()));
+            nico_site_explorer::config::bmc_proxy(Some("test:1234".parse().unwrap()));
         let config_str = toml::to_string(&config)?;
         let mut tmp = tempfile::NamedTempFile::new()?;
         std::io::Write::write_all(&mut tmp, config_str.as_bytes())?;
-        let parsed_config = parse_carbide_config(tmp.path(), None)?;
+        let parsed_config = parse_nico_config(tmp.path(), None)?;
         create_test_env_with_overrides(
             db_pool,
             TestEnvOverrides::with_config(parsed_config.as_ref().to_owned()),

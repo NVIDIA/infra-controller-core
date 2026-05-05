@@ -19,10 +19,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use ::rpc::forge as rpc;
-use carbide_network::ip::prefix::{IpNet, Ipv4Net};
-use carbide_network::sanitized_mac;
-use carbide_network::virtualization::VpcVirtualizationType;
+use ::rpc::nico as rpc;
+use nico_network::ip::prefix::{IpNet, Ipv4Net};
+use nico_network::sanitized_mac;
+use nico_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 use mac_address::MacAddress;
@@ -30,7 +30,7 @@ use serde::Deserialize;
 
 pub const PATH: &str = "var/support/nvue_startup.yaml";
 pub const SAVE_PATH: &str = "etc/nvue.d/startup.yaml";
-pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
+pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-nico_nvue.rules";
 
 const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.conf");
 const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
@@ -1160,7 +1160,7 @@ struct TmplNvue {
     /// Format: IPv4 address of (per tenant) dhcp server
     DHCPServers: Vec<String>, // Previously 'Servers'
 
-    /// Format: CIDR of the infastructure prefixes to block. Origin is carbide-api config file.
+    /// Format: CIDR of the infastructure prefixes to block. Origin is nico-api config file.
     DenyPrefixes: Vec<Prefix>,
     DenyPrefixesIpv6: Vec<Prefix>,
 

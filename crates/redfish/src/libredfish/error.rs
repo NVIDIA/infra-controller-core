@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use forge_secrets::SecretsError;
+use nico_secrets::SecretsError;
 use libredfish::RedfishError;
 
 #[derive(thiserror::Error, Debug)]

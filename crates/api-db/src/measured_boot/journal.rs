@@ -20,8 +20,8 @@
  *  tables in the database, leveraging the journal-specific record types.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
 };
 use measured_boot::journal::MeasurementJournal;

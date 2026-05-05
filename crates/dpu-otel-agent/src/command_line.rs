@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser)]
-#[clap(name = "forge-dpu-otel-agent")]
+#[clap(name = "nico-dpu-otel-agent")]
 pub struct Options {
     /// The path to the agent configuration file overrides.
     /// This file will hold data in the `AgentConfig` format.

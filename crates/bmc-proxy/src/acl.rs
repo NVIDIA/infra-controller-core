@@ -61,7 +61,7 @@ impl AclConfig {
     }
 }
 
-/// An entry in the access control list for a client to carbide-bmc-proxy.
+/// An entry in the access control list for a client to nico-bmc-proxy.
 ///
 /// The text form for use in the config takes the form of a single string with a leading `!` if the
 /// entry is disallowed (otherwise the entry is allowed), a list of HTTP verbs, and a wildcarded HTTP

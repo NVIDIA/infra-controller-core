@@ -17,14 +17,14 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use carbide_utils::HostPortPair;
-use forge_secrets::CredentialConfig;
+use nico_utils::HostPortPair;
+use nico_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
 
 use crate::utils::LOCALHOST_CERTS;
 
-const DOMAIN_NAME: &str = "forge.integrationtest";
+const DOMAIN_NAME: &str = "nico.integrationtest";
 
 // Use a struct for the args to start() so that callers can see argument names
 pub struct StartArgs {
@@ -60,7 +60,7 @@ pub async fn start(
     let identity_pemfile_path = LOCALHOST_CERTS.server_cert.to_string_lossy();
     let identity_keyfile_path = LOCALHOST_CERTS.server_key.to_string_lossy();
 
-    let carbide_config_str = {
+    let nico_config_str = {
         let bmc_proxy_cfg = if let Some(bmc_proxy) = bmc_proxy {
             format!(r#"bmc_proxy = "{bmc_proxy}""#)
         } else {
@@ -282,8 +282,8 @@ pub async fn start(
     };
 
     let mut tmp = tempfile::NamedTempFile::new()?;
-    std::io::Write::write_all(&mut tmp, carbide_config_str.as_bytes())?;
-    carbide::run(
+    std::io::Write::write_all(&mut tmp, nico_config_str.as_bytes())?;
+    nico::run(
         0,
         tmp.path().to_path_buf(),
         None,

@@ -16,12 +16,12 @@
  */
 
 use clap::Parser;
-use rpc::{CredentialType, forge as forgerpc};
+use rpc::{CredentialType, nico as nicorpc};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {}
 
-impl From<Args> for forgerpc::CredentialDeletionRequest {
+impl From<Args> for nicorpc::CredentialDeletionRequest {
     fn from(_: Args) -> Self {
         Self {
             credential_type: CredentialType::BgpSiteWideLeafPassword.into(),

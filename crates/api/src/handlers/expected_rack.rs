@@ -17,13 +17,13 @@
 
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::rack::RackId;
+use ::rpc::nico as rpc;
+use nico_uuid::rack::RackId;
 use db::expected_rack as db_expected_rack;
 use model::expected_rack::ExpectedRack;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 
 /// add_expected_rack creates an expected rack record. Returns AlreadyExists
@@ -35,7 +35,7 @@ pub async fn add_expected_rack(
     let rack: ExpectedRack = request
         .into_inner()
         .try_into()
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     if api
         .runtime_config
@@ -43,7 +43,7 @@ pub async fn add_expected_rack(
         .get(rack.rack_profile_id.as_str())
         .is_none()
     {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Unknown rack_profile_id: {}. Must be one of: {:?}",
             rack.rack_profile_id,
             api.runtime_config.rack_profiles.keys().collect::<Vec<_>>()
@@ -55,10 +55,10 @@ pub async fn add_expected_rack(
 
     if db_expected_rack::find_by_rack_id(&mut txn, &rack.rack_id)
         .await
-        .map_err(CarbideError::from)?
+        .map_err(NicoError::from)?
         .is_some()
     {
-        return Err(CarbideError::AlreadyFoundError {
+        return Err(NicoError::AlreadyFoundError {
             kind: "expected_rack",
             id: rack.rack_id.to_string(),
         }
@@ -71,7 +71,7 @@ pub async fn add_expected_rack(
         .get(rack.rack_profile_id.as_str())
         .is_none()
     {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Unknown rack_profile_id: {}. Must be one of: {:?}",
             rack.rack_profile_id,
             api.runtime_config.rack_profiles.keys().collect::<Vec<_>>()
@@ -80,7 +80,7 @@ pub async fn add_expected_rack(
     }
     db_expected_rack::create(&mut txn, &rack)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     txn.commit().await?;
     Ok(Response::new(()))
@@ -93,11 +93,11 @@ pub async fn delete_expected_rack(
 ) -> Result<Response<()>, Status> {
     let req = request.into_inner();
     let rack_id = RackId::from_str(&req.rack_id)
-        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
     let mut txn = api.txn_begin().await?;
     db_expected_rack::delete(&mut txn, &rack_id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
     txn.commit().await?;
     Ok(Response::new(()))
 }
@@ -110,7 +110,7 @@ pub async fn update_expected_rack(
     let rack: ExpectedRack = request
         .into_inner()
         .try_into()
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     if api
         .runtime_config
@@ -118,7 +118,7 @@ pub async fn update_expected_rack(
         .get(rack.rack_profile_id.as_str())
         .is_none()
     {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Unknown rack_profile_id: {}. Must be one of: {:?}",
             rack.rack_profile_id,
             api.runtime_config.rack_profiles.keys().collect::<Vec<_>>()
@@ -129,15 +129,15 @@ pub async fn update_expected_rack(
     let mut txn = api.txn_begin().await?;
     db_expected_rack::find_by_rack_id(&mut txn, &rack.rack_id)
         .await
-        .map_err(CarbideError::from)?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .map_err(NicoError::from)?
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "expected_rack",
             id: rack.rack_id.to_string(),
         })?;
 
     db_expected_rack::update(&mut txn, &rack)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     txn.commit().await?;
     Ok(Response::new(()))
@@ -150,12 +150,12 @@ pub async fn get_expected_rack(
 ) -> Result<Response<rpc::ExpectedRack>, Status> {
     let req = request.into_inner();
     let rack_id = RackId::from_str(&req.rack_id)
-        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
     let mut txn = api.txn_begin().await?;
     let expected_rack = db_expected_rack::find_by_rack_id(&mut txn, &rack_id)
         .await
-        .map_err(CarbideError::from)?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .map_err(NicoError::from)?
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "expected_rack",
             id: rack_id.to_string(),
         })?;
@@ -171,7 +171,7 @@ pub async fn get_all_expected_racks(
     let mut txn = api.txn_begin().await?;
     let expected_racks = db_expected_rack::find_all(&mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
     txn.commit().await?;
     let expected_racks: Vec<rpc::ExpectedRack> = expected_racks
         .into_iter()
@@ -190,10 +190,10 @@ pub async fn replace_all_expected_racks(
 
     db_expected_rack::clear(&mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     for expected_rack in req.expected_racks {
-        let rack: ExpectedRack = expected_rack.try_into().map_err(CarbideError::from)?;
+        let rack: ExpectedRack = expected_rack.try_into().map_err(NicoError::from)?;
 
         if api
             .runtime_config
@@ -201,7 +201,7 @@ pub async fn replace_all_expected_racks(
             .get(rack.rack_profile_id.as_str())
             .is_none()
         {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "Unknown rack_profile_id: {}",
                 rack.rack_profile_id
             ))
@@ -210,7 +210,7 @@ pub async fn replace_all_expected_racks(
 
         db_expected_rack::create(&mut txn, &rack)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
     }
 
     txn.commit().await?;
@@ -225,7 +225,7 @@ pub async fn delete_all_expected_racks(
     let mut txn = api.txn_begin().await?;
     db_expected_rack::clear(&mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
     txn.commit().await?;
     Ok(Response::new(()))
 }

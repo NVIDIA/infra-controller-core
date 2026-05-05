@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use crate::rpc::ApiClient;
 
-pub async fn show_unmatched_ek(api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn show_unmatched_ek(api_client: &ApiClient) -> NicoCliResult<()> {
     let unmatched_eks = api_client
         .0
         .tpm_show_unmatched_ek_certs()

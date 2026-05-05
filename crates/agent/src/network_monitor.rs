@@ -22,9 +22,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use ::rpc::forge::{self as rpc};
-use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico::{self as rpc};
+use ::rpc::nico_tls_client::{ApiConfig, NicoClientConfig, NicoTlsClient};
+use nico_uuid::machine::MachineId;
 use chrono::Utc;
 use clap::ValueEnum;
 use eyre::{Context, Result};
@@ -114,8 +114,8 @@ impl NetworkMonitor {
     /// fetch updated peer dpus from API
     pub async fn run(
         &mut self,
-        forge_api: &str,
-        client_config: Arc<ForgeClientConfig>,
+        nico_api: &str,
+        client_config: Arc<NicoClientConfig>,
         close_receiver: &mut watch::Receiver<bool>,
     ) {
         // Initial fetch peer dpu list from API
@@ -123,7 +123,7 @@ impl NetworkMonitor {
         let mut loopback_ip: Option<IpAddr> = None;
 
         match self
-            .find_all_dpu_info(&self.machine_id, forge_api, &client_config)
+            .find_all_dpu_info(&self.machine_id, nico_api, &client_config)
             .await
         {
             Ok((dpu_info, new_peer_dpus)) => {
@@ -146,7 +146,7 @@ impl NetworkMonitor {
                     break;
                 }
                 _ = peer_dpus_fetch_interval.tick() => {
-                    match self.find_all_dpu_info(&self.machine_id, forge_api, &client_config).await {
+                    match self.find_all_dpu_info(&self.machine_id, nico_api, &client_config).await {
                         Ok((dpu_info, new_peer_dpus)) => {
                             peer_dpus = new_peer_dpus;
                             loopback_ip = Some(dpu_info.ip);
@@ -216,9 +216,9 @@ impl NetworkMonitor {
 
     /// Handle one time network check request from commandline
     /// Fetches new list from
-    pub async fn run_onetime(&mut self, forge_api: &str, client_config: &ForgeClientConfig) {
+    pub async fn run_onetime(&mut self, nico_api: &str, client_config: &NicoClientConfig) {
         let (loopback_ip, peer_dpus) = match self
-            .find_all_dpu_info(&self.machine_id, forge_api, client_config)
+            .find_all_dpu_info(&self.machine_id, nico_api, client_config)
             .await
         {
             Ok((dpu_info, new_peer_dpus)) => (dpu_info.ip, new_peer_dpus),
@@ -335,11 +335,11 @@ impl NetworkMonitor {
     pub async fn find_all_dpu_info(
         &self,
         dpu_machine_id: &MachineId,
-        forge_api: &str,
-        client_config: &ForgeClientConfig,
+        nico_api: &str,
+        client_config: &NicoClientConfig,
     ) -> Result<(DpuInfo, Vec<DpuInfo>), eyre::Report> {
         // Get list of DPU information from API
-        let dpu_info_list = fetch_dpu_info_list(forge_api, client_config)
+        let dpu_info_list = fetch_dpu_info_list(nico_api, client_config)
             .await
             .inspect_err(|_| {
                 self.record_error_metrics(NetworkMonitorError::ApiRpcCallError, None);
@@ -388,15 +388,15 @@ impl NetworkMonitor {
 
 /// Fetches the list of DPU information from the API
 pub(crate) async fn fetch_dpu_info_list(
-    forge_api: &str,
-    client_config: &ForgeClientConfig,
+    nico_api: &str,
+    client_config: &NicoClientConfig,
 ) -> Result<rpc::GetDpuInfoListResponse, eyre::Report> {
-    let api_config = ApiConfig::new(forge_api, client_config);
-    let mut client = ForgeTlsClient::retry_build(&api_config)
+    let api_config = ApiConfig::new(nico_api, client_config);
+    let mut client = NicoTlsClient::retry_build(&api_config)
         .await
         .map_err(|err| {
             eyre::Report::new(err).wrap_err(format!(
-                "Could not connect to Forge API server at {forge_api}"
+                "Could not connect to Nico API server at {nico_api}"
             ))
         })?;
 
@@ -404,7 +404,7 @@ pub(crate) async fn fetch_dpu_info_list(
     let response: tonic::Response<rpc::GetDpuInfoListResponse> =
         client.get_dpu_info_list(request).await.map_err(|err| {
             eyre::Report::new(err)
-                .wrap_err(format!("forge_api: {forge_api}"))
+                .wrap_err(format!("nico_api: {nico_api}"))
                 .wrap_err("Error while executing the GetDpuInfoList gRPC call")
         })?;
 

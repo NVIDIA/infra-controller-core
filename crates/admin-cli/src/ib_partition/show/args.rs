@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::infiniband::IBPartitionId;
+use nico_uuid::infiniband::IBPartitionId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

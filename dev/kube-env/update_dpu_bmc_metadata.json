@@ -3,11 +3,11 @@
     "id": "$HOST_MACHINE_ID"
   },
   "bmc_info" : {
-    "ip": "bmc-mock.forge-system.svc.cluster.local"
+    "ip": "bmc-mock.nico-system.svc.cluster.local"
   },
   "data": [
     {
-      "user": "forge_admin",
+      "user": "nico_admin",
       "password": "notforprod",
       "role": 1
     }

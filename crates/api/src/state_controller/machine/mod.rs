@@ -17,7 +17,7 @@
 
 //! State Controller implementation for Machines
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use db::attestation::ek_cert_verification_status;
 use db::db_read::DbReader;
 use db::measured_boot::machine::{get_measurement_bundle_state, get_measurement_machine_state};

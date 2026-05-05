@@ -15,21 +15,21 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-dpu-agent-utils"
+name = "nico-dpu-agent-utils"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-# TODO: rename to carbide_dpu_agent_utils in source
+# TODO: rename to nico_dpu_agent_utils in source
 [lib]
-name = "forge_dpu_agent_utils"
+name = "nico_dpu_agent_utils"
 
 [dependencies]
 eyre = { workspace = true }
 
 # [local-dependencies]
-carbide-rpc = { path = "../rpc" }
+nico-rpc = { path = "../rpc" }
 
 [lints]
 workspace = true

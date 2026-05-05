@@ -19,8 +19,8 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
-use carbide_utils::HostPortPair;
+use nico_authn::config::{AllowedCertCriteria, TrustConfig};
+use nico_utils::HostPortPair;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
 use serde::{Deserialize, Serialize};
@@ -76,12 +76,12 @@ impl Defaults {
 
     fn trust_config() -> TrustConfig {
         TrustConfig {
-            spiffe_trust_domain: "forge.local".to_string(),
+            spiffe_trust_domain: "nico.local".to_string(),
             spiffe_service_base_paths: vec![
-                "/forge-system/sa/".to_string(),
+                "/nico-system/sa/".to_string(),
                 "/default/sa/".to_string(),
             ],
-            spiffe_machine_base_path: "/forge-system/machine/".to_string(),
+            spiffe_machine_base_path: "/nico-system/machine/".to_string(),
             additional_issuer_cns: vec![],
         }
     }
@@ -101,7 +101,7 @@ impl Default for TlsConfig {
             identity_pemfile_path: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
             identity_keyfile_path: "/var/run/secrets/spiffe.io/tls.key".to_string(),
             root_cafile_path: "/var/run/secrets/spiffe.io/ca.crt".to_string(),
-            admin_root_cafile_path: "/etc/forge/carbide-bmc-proxy/site/admin_root_cert_pem"
+            admin_root_cafile_path: "/etc/nico/nico-bmc-proxy/site/admin_root_cert_pem"
                 .to_string(),
         }
     }
@@ -126,7 +126,7 @@ impl Config {
     pub fn parse(s: &str) -> Result<Config, ConfigError> {
         Figment::new()
             .merge(Toml::string(s))
-            .merge(Env::prefixed("CARBIDE_BMC_PROXY_"))
+            .merge(Env::prefixed("NICO_BMC_PROXY_"))
             .extract()
             .map_err(Into::into)
     }

@@ -14,8 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-[forge-system]
-api-server = "https://carbide-api.forge"
+[nico-system]
+api-server = "https://nico-api.nico"
 root-ca = "/etc/otelcol-contrib/certs/ca.pem"
 client-cert = "/etc/otelcol-contrib/certs/otel-cert.pem"
 client-key = "/etc/otelcol-contrib/certs/private/otel-key.pem"

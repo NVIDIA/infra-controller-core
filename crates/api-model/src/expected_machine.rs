@@ -17,8 +17,8 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::rack::RackId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::rack::RackId;
 use mac_address::MacAddress;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -85,26 +85,26 @@ impl DpuMode {
     }
 }
 
-impl From<DpuMode> for rpc::forge::DpuMode {
+impl From<DpuMode> for rpc::nico::DpuMode {
     fn from(mode: DpuMode) -> Self {
         match mode {
-            DpuMode::DpuMode => rpc::forge::DpuMode::DpuMode,
-            DpuMode::NicMode => rpc::forge::DpuMode::NicMode,
-            DpuMode::NoDpu => rpc::forge::DpuMode::NoDpu,
+            DpuMode::DpuMode => rpc::nico::DpuMode::DpuMode,
+            DpuMode::NicMode => rpc::nico::DpuMode::NicMode,
+            DpuMode::NoDpu => rpc::nico::DpuMode::NoDpu,
         }
     }
 }
 
-impl From<rpc::forge::DpuMode> for DpuMode {
-    fn from(mode: rpc::forge::DpuMode) -> Self {
+impl From<rpc::nico::DpuMode> for DpuMode {
+    fn from(mode: rpc::nico::DpuMode) -> Self {
         match mode {
-            rpc::forge::DpuMode::DpuMode => DpuMode::DpuMode,
-            rpc::forge::DpuMode::NicMode => DpuMode::NicMode,
-            rpc::forge::DpuMode::NoDpu => DpuMode::NoDpu,
+            rpc::nico::DpuMode::DpuMode => DpuMode::DpuMode,
+            rpc::nico::DpuMode::NicMode => DpuMode::NicMode,
+            rpc::nico::DpuMode::NoDpu => DpuMode::NoDpu,
             // Unspecified (0) or any unknown value means "use the default",
             // which preserves behavior for old clients that don't send the
             // field at all.
-            rpc::forge::DpuMode::Unspecified => DpuMode::default(),
+            rpc::nico::DpuMode::Unspecified => DpuMode::default(),
         }
     }
 }
@@ -116,10 +116,10 @@ pub struct ExpectedMachineRequest {
     pub bmc_mac_address: Option<MacAddress>,
 }
 
-impl TryFrom<rpc::forge::ExpectedMachineRequest> for ExpectedMachineRequest {
+impl TryFrom<rpc::nico::ExpectedMachineRequest> for ExpectedMachineRequest {
     type Error = RpcDataConversionError;
 
-    fn try_from(rpc: rpc::forge::ExpectedMachineRequest) -> Result<Self, Self::Error> {
+    fn try_from(rpc: rpc::nico::ExpectedMachineRequest) -> Result<Self, Self::Error> {
         let id = rpc
             .id
             .map(|u| {
@@ -192,7 +192,7 @@ pub struct ExpectedMachineData {
     pub dpf_enabled: Option<bool>,
     /// When set, the API pre-allocates a `machine_interface` for this BMC MAC at this address
     /// (same pattern as expected switches / power shelves) so Site Explorer can reach the BMC
-    /// without DHCP. IPs outside Carbide-managed prefixes land on the `static-assignments` segment.
+    /// without DHCP. IPs outside Nico-managed prefixes land on the `static-assignments` segment.
     #[serde(default)]
     pub bmc_ip_address: Option<IpAddr>,
     /// When true, site-explorer skips BMC password rotation and stores the
@@ -274,9 +274,9 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
     }
 }
 
-impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
+impl From<ExpectedHostNic> for rpc::nico::ExpectedHostNic {
     fn from(expected_host_nic: ExpectedHostNic) -> Self {
-        rpc::forge::ExpectedHostNic {
+        rpc::nico::ExpectedHostNic {
             mac_address: expected_host_nic.mac_address.to_string(),
             nic_type: expected_host_nic.nic_type,
             fixed_ip: expected_host_nic.fixed_ip,
@@ -287,8 +287,8 @@ impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
     }
 }
 
-impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
-    fn from(expected_host_nic: rpc::forge::ExpectedHostNic) -> Self {
+impl From<rpc::nico::ExpectedHostNic> for ExpectedHostNic {
+    fn from(expected_host_nic: rpc::nico::ExpectedHostNic) -> Self {
         ExpectedHostNic {
             mac_address: expected_host_nic.mac_address.parse().unwrap_or_default(),
             nic_type: expected_host_nic.nic_type,
@@ -300,7 +300,7 @@ impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
     }
 }
 
-impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
+impl From<ExpectedMachine> for rpc::nico::ExpectedMachine {
     fn from(expected_machine: ExpectedMachine) -> Self {
         let host_nics = expected_machine
             .data
@@ -308,7 +308,7 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             .iter()
             .map(|x| x.clone().into())
             .collect();
-        rpc::forge::ExpectedMachine {
+        rpc::nico::ExpectedMachine {
             id: expected_machine.id.map(|u| ::rpc::common::Uuid {
                 value: u.to_string(),
             }),
@@ -338,10 +338,10 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             // bmc_retain_credentials filter pattern above).
             dpu_mode: match expected_machine.data.dpu_mode {
                 DpuMode::DpuMode => None,
-                other => Some(rpc::forge::DpuMode::from(other) as i32),
+                other => Some(rpc::nico::DpuMode::from(other) as i32),
             },
             host_lifecycle_profile: (!expected_machine.data.host_lifecycle_profile.is_empty())
-                .then_some(rpc::forge::HostLifecycleProfile {
+                .then_some(rpc::nico::HostLifecycleProfile {
                     disable_lockdown: expected_machine
                         .data
                         .host_lifecycle_profile
@@ -361,9 +361,9 @@ pub struct LinkedExpectedMachine {
     pub expected_machine_id: Option<Uuid>, // The expected machine ID
 }
 
-impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
-    fn from(m: LinkedExpectedMachine) -> rpc::forge::LinkedExpectedMachine {
-        rpc::forge::LinkedExpectedMachine {
+impl From<LinkedExpectedMachine> for rpc::nico::LinkedExpectedMachine {
+    fn from(m: LinkedExpectedMachine) -> rpc::nico::LinkedExpectedMachine {
+        rpc::nico::LinkedExpectedMachine {
             chassis_serial_number: m.serial_number,
             bmc_mac_address: m.bmc_mac_address.to_string(),
             interface_id: m.interface_id.map(|u| u.to_string()),
@@ -386,9 +386,9 @@ pub struct UnexpectedMachine {
     pub machine_id: Option<MachineId>,
 }
 
-impl From<UnexpectedMachine> for rpc::forge::UnexpectedMachine {
-    fn from(m: UnexpectedMachine) -> rpc::forge::UnexpectedMachine {
-        rpc::forge::UnexpectedMachine {
+impl From<UnexpectedMachine> for rpc::nico::UnexpectedMachine {
+    fn from(m: UnexpectedMachine) -> rpc::nico::UnexpectedMachine {
+        rpc::nico::UnexpectedMachine {
             address: m.address.to_string(),
             bmc_mac_address: m.bmc_mac_address.to_string(),
             machine_id: m.machine_id,
@@ -398,10 +398,10 @@ impl From<UnexpectedMachine> for rpc::forge::UnexpectedMachine {
 
 /// Parses gRPC `ExpectedMachine` into persisted model data, including optional `bmc_ip_address`
 /// (empty or unset proto field becomes `None`; invalid strings fail conversion).
-impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
+impl TryFrom<rpc::nico::ExpectedMachine> for ExpectedMachineData {
     type Error = RpcDataConversionError;
 
-    fn try_from(em: rpc::forge::ExpectedMachine) -> Result<Self, Self::Error> {
+    fn try_from(em: rpc::nico::ExpectedMachine) -> Result<Self, Self::Error> {
         Ok(Self {
             bmc_username: em.bmc_username,
             bmc_password: em.bmc_password,
@@ -425,7 +425,7 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             // so old clients continue to behave as before.
             dpu_mode: em
                 .dpu_mode
-                .map(|i| rpc::forge::DpuMode::try_from(i).unwrap_or_default())
+                .map(|i| rpc::nico::DpuMode::try_from(i).unwrap_or_default())
                 .map(DpuMode::from)
                 .unwrap_or_default(),
             host_lifecycle_profile: em
@@ -441,7 +441,7 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
 /// If Metadata is retrieved as part of the ExpectedMachine creation, validate and use the Metadata
 /// Otherwise assume empty Metadata
 fn metadata_from_request(
-    opt_metadata: Option<::rpc::forge::Metadata>,
+    opt_metadata: Option<::rpc::nico::Metadata>,
 ) -> Result<Metadata, RpcDataConversionError> {
     Ok(match opt_metadata {
         None => Metadata {
@@ -537,7 +537,7 @@ mod tests {
     #[test]
     fn from_rpc_unspecified_maps_to_default() {
         assert_eq!(
-            DpuMode::from(rpc::forge::DpuMode::Unspecified),
+            DpuMode::from(rpc::nico::DpuMode::Unspecified),
             DpuMode::default()
         );
         assert_eq!(DpuMode::default(), DpuMode::DpuMode);
@@ -546,17 +546,17 @@ mod tests {
     #[test]
     fn rpc_enum_round_trips_all_named_variants() {
         for mode in [DpuMode::DpuMode, DpuMode::NicMode, DpuMode::NoDpu] {
-            assert_eq!(DpuMode::from(rpc::forge::DpuMode::from(mode)), mode);
+            assert_eq!(DpuMode::from(rpc::nico::DpuMode::from(mode)), mode);
         }
     }
 
-    fn make_rpc_expected_machine(disable_lockdown: Option<bool>) -> rpc::forge::ExpectedMachine {
-        rpc::forge::ExpectedMachine {
+    fn make_rpc_expected_machine(disable_lockdown: Option<bool>) -> rpc::nico::ExpectedMachine {
+        rpc::nico::ExpectedMachine {
             bmc_mac_address: "AA:BB:CC:DD:EE:FF".into(),
             bmc_username: "root".into(),
             bmc_password: "pass".into(),
             chassis_serial_number: "SN-1".into(),
-            host_lifecycle_profile: disable_lockdown.map(|dl| rpc::forge::HostLifecycleProfile {
+            host_lifecycle_profile: disable_lockdown.map(|dl| rpc::nico::HostLifecycleProfile {
                 disable_lockdown: Some(dl),
             }),
             ..Default::default()
@@ -574,7 +574,7 @@ mod tests {
             bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
             data,
         };
-        let back: rpc::forge::ExpectedMachine = em.into();
+        let back: rpc::nico::ExpectedMachine = em.into();
         assert_eq!(
             back.host_lifecycle_profile.unwrap().disable_lockdown,
             Some(true)
@@ -592,7 +592,7 @@ mod tests {
             bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
             data,
         };
-        let back: rpc::forge::ExpectedMachine = em.into();
+        let back: rpc::nico::ExpectedMachine = em.into();
         assert_eq!(
             back.host_lifecycle_profile.unwrap().disable_lockdown,
             Some(false)
@@ -610,7 +610,7 @@ mod tests {
             bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
             data,
         };
-        let back: rpc::forge::ExpectedMachine = em.into();
+        let back: rpc::nico::ExpectedMachine = em.into();
         assert!(back.host_lifecycle_profile.is_none());
     }
 

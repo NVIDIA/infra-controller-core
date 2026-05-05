@@ -16,7 +16,7 @@
  */
 
 use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -26,7 +26,7 @@ pub async fn create(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
     let vpc_peering = api_client.0.create_vpc_peering(args).await?;
@@ -34,7 +34,7 @@ pub async fn create(
     if is_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&vpc_peering).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&vpc_peering).map_err(NicoCliError::JsonError)?
         );
     } else {
         convert_vpc_peerings_to_table(&[vpc_peering])?.printstd();

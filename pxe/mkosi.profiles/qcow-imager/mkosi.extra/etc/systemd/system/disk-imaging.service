@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=idle
-ExecStart=/opt/forge/disk_imaging.sh
+ExecStart=/opt/nico/disk_imaging.sh
 StandardOutput=journal+console
 StandardError=journal+console
 

@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use model::machine::Machine;
 use model::metadata::Metadata;
 use model::rack::{MachineRvLabels, Rack, RackState, RackValidationState};

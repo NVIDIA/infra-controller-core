@@ -16,7 +16,7 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use db::DatabaseError;
 use db::db_read::DbReader;
 use model::site_explorer::ExploredManagedHost;

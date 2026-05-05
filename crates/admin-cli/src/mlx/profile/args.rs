@@ -18,7 +18,7 @@
 // profile/args.rs
 // Command-line argument definitions for profile commands.
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 use rpc::protos::mlx_device as mlx_device_pb;
 
@@ -41,7 +41,7 @@ pub enum ProfileCommand {
 // ProfileSyncCommand synchronizes a profile to a device.
 #[derive(Parser, Debug)]
 pub struct ProfileSyncCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
@@ -54,7 +54,7 @@ pub struct ProfileSyncCommand {
 // ProfileCompareCommand compares a profile against a device.
 #[derive(Parser, Debug)]
 pub struct ProfileCompareCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]

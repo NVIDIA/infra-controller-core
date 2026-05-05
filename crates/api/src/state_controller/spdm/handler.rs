@@ -20,8 +20,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use carbide_redfish::libredfish::conv::IntoModel;
-use carbide_uuid::machine::MachineId;
+use nico_redfish::libredfish::conv::IntoModel;
+use nico_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use itertools::Itertools;
 use libredfish::Redfish;

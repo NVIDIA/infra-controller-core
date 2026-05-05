@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    carbide_version::build();
+    nico_version::build();
 
     // vendored from opentelemetry-proto v1.5.0
     let proto_dir = PathBuf::from("proto");

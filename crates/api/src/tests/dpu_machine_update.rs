@@ -16,7 +16,7 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use db::DatabaseError;
 use model::dpu_machine_update::DpuMachineUpdate;
@@ -26,7 +26,7 @@ use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 use sqlx::PgConnection;
 
 use super::common::api_fixtures::TestEnv;
-use crate::CarbideResult;
+use crate::NicoResult;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 
@@ -34,7 +34,7 @@ pub async fn update_nic_firmware_version(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     version: &str,
-) -> CarbideResult<()> {
+) -> NicoResult<()> {
     let query = r#"UPDATE machine_topologies SET topology =
                 jsonb_set(topology, '{discovery_data, Info, dpu_info, firmware_version}', $1) 
                 WHERE machine_id=$2"#;
@@ -142,7 +142,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     };
 
     let health_report = health_report::HealthReport {
-        source: "forge-dpu-agent".to_string(),
+        source: "nico-dpu-agent".to_string(),
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],

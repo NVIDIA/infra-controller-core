@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use config_version::ConfigVersion;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::{ObjectColumnFilter, ib_partition};
@@ -24,7 +24,7 @@ use model::resource_pool;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 
 pub(crate) async fn create(
@@ -44,7 +44,7 @@ pub(crate) async fn create(
                 .map(|pkey| u16::from_str_radix(pkey.trim_start_matches("0x"), 16))
         })
         .transpose()
-        .map_err(|e| CarbideError::InvalidArgument(format!("invalid pkey value: {}", e)))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("invalid pkey value: {}", e)))?;
     let mut resp = NewIBPartition::try_from(req)?;
     let fabric_config = api.ib_fabric_manager.get_config();
 
@@ -78,11 +78,11 @@ pub(crate) async fn create(
             // is less than <max_partition_per_tenant> by using a sub-select query in a WHERE clause.
             // The 'RowNotFound' error means that the number of existing partitions exceeded the limit
             // and no insert was performed.
-            CarbideError::InvalidArgument(
+            NicoError::InvalidArgument(
                 "Maximum Limit of Infiniband partitions had been reached".into(),
             )
         } else {
-            CarbideError::from(e)
+            NicoError::from(e)
         }
     })?;
     let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
@@ -101,11 +101,11 @@ pub(crate) async fn update(
     let mut txn = api.txn_begin().await?;
 
     let req = request.into_inner();
-    let id = req.id.ok_or(CarbideError::MissingArgument("id"))?;
-    let config = req.config.ok_or(CarbideError::MissingArgument("config"))?;
+    let id = req.id.ok_or(NicoError::MissingArgument("id"))?;
+    let config = req.config.ok_or(NicoError::MissingArgument("config"))?;
     let metadata = req
         .metadata
-        .ok_or(CarbideError::MissingArgument("metadata"))?;
+        .ok_or(NicoError::MissingArgument("metadata"))?;
 
     let mut partitions = db::ib_partition::find_by(
         &mut txn,
@@ -116,7 +116,7 @@ pub(crate) async fn update(
     let mut partition = match partitions.len() {
         1 => partitions.remove(0),
         _ => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "ib_partition",
                 id: id.to_string(),
             }
@@ -127,10 +127,10 @@ pub(crate) async fn update(
     if let Some(if_version_match) = req.if_version_match {
         let target_version = if_version_match
             .parse::<ConfigVersion>()
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
         if partition.version != target_version {
-            return Err(CarbideError::ConcurrentModificationError(
+            return Err(NicoError::ConcurrentModificationError(
                 "IBPartition",
                 target_version.to_string(),
             )
@@ -139,7 +139,7 @@ pub(crate) async fn update(
     }
 
     if config.tenant_organization_id != partition.config.tenant_organization_id.to_string() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Tenant organization ID should not be updated".to_string(),
         )
         .into());
@@ -153,7 +153,7 @@ pub(crate) async fn update(
             .and_then(|v| PartitionKey::try_from(v).ok());
         let cur_pkey = partition.status.as_ref().and_then(|s| s.pkey);
         if req_pkey != cur_pkey {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "Partition key cannot be updated".to_string(),
             )
             .into());
@@ -161,7 +161,7 @@ pub(crate) async fn update(
     }
 
     // Update the metadata of the partition
-    partition.metadata = metadata.try_into().map_err(CarbideError::from)?;
+    partition.metadata = metadata.try_into().map_err(NicoError::from)?;
 
     let resp = db::ib_partition::update(&partition, &mut txn).await?;
     txn.commit().await?;
@@ -194,13 +194,13 @@ pub(crate) async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if ib_partition_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if ib_partition_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -229,7 +229,7 @@ pub(crate) async fn delete(
 
     let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
-    let uuid = id.ok_or(CarbideError::MissingArgument("id"))?;
+    let uuid = id.ok_or(NicoError::MissingArgument("id"))?;
 
     let mut segments = db::ib_partition::find_by(
         &mut txn,
@@ -240,7 +240,7 @@ pub(crate) async fn delete(
     let segment = match segments.len() {
         1 => segments.remove(0),
         _ => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "ib_partition",
                 id: uuid.to_string(),
             }
@@ -254,7 +254,7 @@ pub(crate) async fn delete(
     let instance_count =
         db::ib_partition::count_instances_referencing_partition(&mut txn, segment.id).await?;
     if instance_count > 0 {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
             "IB partition cannot be deleted while {instance_count} instance(s) are still using it"
         ))
         .into());
@@ -283,7 +283,7 @@ pub(crate) async fn for_tenant(
     let _tenant_organization_id: String = match tenant_organization_id {
         Some(id) => id,
         None => {
-            return Err(CarbideError::MissingArgument("tenant_organization_id").into());
+            return Err(NicoError::MissingArgument("tenant_organization_id").into());
         }
     };
 
@@ -308,21 +308,21 @@ async fn allocate_pkey(
     txn: &mut PgConnection,
     owner_id: &str,
     requested_pkey: Option<u16>,
-) -> Result<Option<PartitionKey>, CarbideError> {
+) -> Result<Option<PartitionKey>, NicoError> {
     match db::resource_pool::allocate(api
             .common_pools
             .infiniband
             .pkey_pools
             .get(DEFAULT_IB_FABRIC_NAME)
-            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?, txn, resource_pool::OwnerType::IBPartition, owner_id, requested_pkey)
+            .ok_or_else(|| NicoError::internal("IB fabric is not configured".to_string()))?, txn, resource_pool::OwnerType::IBPartition, owner_id, requested_pkey)
             .await
         {
             Ok(val) => Ok(Some(
                 PartitionKey::try_from(val)
-                .map_err(|_| CarbideError::internal(format!("Partition key {val} return from pool is not a valid pkey. Pool Definition is invalid")))?)),
+                .map_err(|_| NicoError::internal(format!("Partition key {val} return from pool is not a valid pkey. Pool Definition is invalid")))?)),
             Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
                 tracing::error!(owner_id, pool = "pkey", "Pool exhausted, cannot allocate");
-                Err(CarbideError::ResourceExhausted("pool pkey".to_string()))
+                Err(NicoError::ResourceExhausted("pool pkey".to_string()))
             }
             Err(err) => {
                 tracing::error!(owner_id, error = %err, pool = "pkey", "Error allocating from resource pool");

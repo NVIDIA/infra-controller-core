@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::FindComputeAllocationIdsRequest;
-use carbide_uuid::compute_allocation::ComputeAllocationId;
+use ::rpc::nico::FindComputeAllocationIdsRequest;
+use nico_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]

@@ -151,10 +151,10 @@ jobs:
           username: ${{ secrets.NVCR_USERNAME }}
           token: ${{ secrets.NVCR_TOKEN }}
 
-      - name: Pull carbide-extras container
+      - name: Pull nico-extras container
         if: inputs.inject_extras == true && inputs.extras_container != ''
         run: |
-          echo "Pulling carbide-extras container ${{ inputs.extras_container }}"
+          echo "Pulling nico-extras container ${{ inputs.extras_container }}"
           docker pull ${{ inputs.extras_container }}
 
       - name: Pull build container
@@ -174,7 +174,7 @@ jobs:
           echo "KEA_INCLUDE_PATH=/usr/include/kea" >> $GITHUB_ENV
           echo "REPO_ROOT=${{ github.workspace }}" >> $GITHUB_ENV
           echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
-          echo "FORGE_CA=prod" >> $GITHUB_ENV
+          echo "NICO_CA=prod" >> $GITHUB_ENV
 
           # Add cargo and sbin to PATH (needed for mkosi)
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -205,14 +205,14 @@ jobs:
           echo "============================================"
 
       # TODO(ajf): This is NVIDIA specific stuff and really needs to be genericized
-      - name: Inject carbide_extras content into build
+      - name: Inject nico_extras content into build
         if: inputs.inject_extras == true && inputs.extras_container != ''
         run: |
           set -euo pipefail
-          CARBIDE_EXTRAS_CONTAINER="${{ inputs.extras_container }}"
+          NICO_EXTRAS_CONTAINER="${{ inputs.extras_container }}"
           PROFILE_DIR="pxe/mkosi.profiles/scout-oss-${{ inputs.arch }}"
 
-          container_id=$(docker create "${CARBIDE_EXTRAS_CONTAINER}" /bin/true)
+          container_id=$(docker create "${NICO_EXTRAS_CONTAINER}" /bin/true)
 
           echo "Extracting Sources from container..."
           mkdir -p pxe/.scout-extras
@@ -245,7 +245,7 @@ jobs:
           fi
 
           echo "Staging Lenovo mnv_cli directly into scout rootfs overlay from ${MNV_CLI_SOURCE}"
-          mkdir -p "${PROFILE_DIR}/mkosi.extra/opt/forge/bin"
+          mkdir -p "${PROFILE_DIR}/mkosi.extra/opt/nico/bin"
           cp -av "${MNV_CLI_SOURCE}" "${PROFILE_DIR}/mkosi.extra/opt/forge/bin/mnv_cli"
 
           echo "Copying libnss debs"
@@ -268,7 +268,7 @@ jobs:
           echo "============================="
           echo "Extracted extras content:"
           ls -lah pxe/.scout-extras || echo "No extras directory"
-          echo "Carbide extras setup complete"
+          echo "Nico extras setup complete"
 
       - name: Verify required extras binaries are present
         if: inputs.inject_extras == true && inputs.extras_container != ''
@@ -310,12 +310,12 @@ jobs:
           ENV_ARGS="$ENV_ARGS -e KEA_INCLUDE_PATH=/usr/include/kea"
           ENV_ARGS="$ENV_ARGS -e REPO_ROOT=/workspace"
           ENV_ARGS="$ENV_ARGS -e VERSION=${{ inputs.version }}"
-          ENV_ARGS="$ENV_ARGS -e FORGE_CA=prod"
+          ENV_ARGS="$ENV_ARGS -e NICO_CA=prod"
 
           echo "============================================"
           echo "Running in container: ${{ inputs.build_container }}"
           echo "VERSION=${{ inputs.version }}"
-          echo "FORGE_CA=prod"
+          echo "NICO_CA=prod"
           echo "============================================"
 
           EXTRA_DOCKER_ARGS=""
@@ -395,19 +395,19 @@ jobs:
             if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
               EXPECTED_FILES=(
                 "pxe/static/blobs/internal/x86_64/ipxe.efi"
-                "target/debug/carbide-admin-cli"
+                "target/debug/nico-admin-cli"
                 # target/debs/* checked separately
               )
             else
               # Full list from GitLab CI lines 608-615
               EXPECTED_FILES=(
                 "pxe/static/blobs/internal/aarch64/ipxe.efi"
-                "pxe/static/blobs/internal/aarch64/carbide.efi"
-                "pxe/static/blobs/internal/aarch64/carbide.root"
+                "pxe/static/blobs/internal/aarch64/nico.efi"
+                "pxe/static/blobs/internal/aarch64/nico.root"
                 "pxe/static/blobs/internal/aarch64/preingestion.bfb"
-                "pxe/static/blobs/internal/aarch64/forge.bfb"
+                "pxe/static/blobs/internal/aarch64/nico.bfb"
                 "pxe/static/blobs/internal/apt"
-                "target/aarch64-unknown-linux-gnu/release/forge-scout"
+                "target/aarch64-unknown-linux-gnu/release/nico-scout"
                 # target/debs/* checked separately
               )
             fi
@@ -494,11 +494,11 @@ jobs:
           # so missing files (like BFB artifacts when disabled) won't fail the build
           if [[ "${{ inputs.build_type }}" == "boot" ]]; then
             if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
-              ARTIFACTS='["pxe/static/blobs/internal/x86_64/ipxe.efi", "target/debug/carbide-admin-cli", "target/debs/*"]'
+              ARTIFACTS='["pxe/static/blobs/internal/x86_64/ipxe.efi", "target/debug/nico-admin-cli", "target/debs/*"]'
             else
               # Lists all expected BFB artifacts even though some may not be generated (BFB build is disabled)
               # This matches GitLab CI behavior where artifact paths are listed but upload succeeds if files don't exist
-              ARTIFACTS='["pxe/static/blobs/internal/aarch64/secure-boot-pk.pem", "pxe/static/blobs/internal/aarch64/ipxe.efi", "pxe/static/blobs/internal/aarch64/carbide.efi", "pxe/static/blobs/internal/aarch64/carbide.root", "pxe/static/blobs/internal/aarch64/preingestion.bfb", "pxe/static/blobs/internal/aarch64/forge.bfb", "pxe/static/blobs/internal/apt", "target/aarch64-unknown-linux-gnu/release/forge-scout", "target/debs/*"]'
+              ARTIFACTS='["pxe/static/blobs/internal/aarch64/secure-boot-pk.pem", "pxe/static/blobs/internal/aarch64/ipxe.efi", "pxe/static/blobs/internal/aarch64/nico.efi", "pxe/static/blobs/internal/aarch64/nico.root", "pxe/static/blobs/internal/aarch64/preingestion.bfb", "pxe/static/blobs/internal/aarch64/nico.bfb", "pxe/static/blobs/internal/apt", "target/aarch64-unknown-linux-gnu/release/nico-scout", "target/debs/*"]'
             fi
           else
             if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
@@ -518,7 +518,7 @@ jobs:
           name: ${{ inputs.build_type }}-artifacts-${{ inputs.arch }}-${{ github.run_id }}
           path: |
             pxe/static/blobs/
-            target/debug/carbide-admin-cli
+            target/debug/nico-admin-cli
             target/debs/
             target/aarch64-unknown-linux-gnu/
             pxe/mkosi.profiles/

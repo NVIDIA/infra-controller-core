@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::IpxeTemplateArtifactUpdateRequest;
+use ::rpc::nico::IpxeTemplateArtifactUpdateRequest;
 use clap::Parser;
 
 fn parse_cached_url_update(s: &str) -> Result<IpxeTemplateArtifactUpdateRequest, String> {

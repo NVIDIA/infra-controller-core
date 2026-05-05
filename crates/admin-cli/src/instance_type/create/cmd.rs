@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 
 use super::args::Args;
 use crate::instance_type::common::convert_itypes_to_table;
@@ -28,21 +28,21 @@ pub async fn create(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let req: ::rpc::forge::CreateInstanceTypeRequest = args.try_into()?;
+    let req: ::rpc::nico::CreateInstanceTypeRequest = args.try_into()?;
     let itype = api_client
         .0
         .create_instance_type(req)
         .await?
         .instance_type
-        .ok_or(CarbideCliError::Empty)?;
+        .ok_or(NicoCliError::Empty)?;
 
     if is_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&itype).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&itype).map_err(NicoCliError::JsonError)?
         );
     } else {
         convert_itypes_to_table(&[itype], true)?.printstd();

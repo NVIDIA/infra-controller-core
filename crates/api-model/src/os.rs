@@ -27,20 +27,20 @@ pub struct InlineIpxe {
     pub ipxe_script: String,
 }
 
-impl TryFrom<rpc::forge::InlineIpxe> for InlineIpxe {
+impl TryFrom<rpc::nico::InlineIpxe> for InlineIpxe {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::forge::InlineIpxe) -> Result<Self, Self::Error> {
+    fn try_from(config: rpc::nico::InlineIpxe) -> Result<Self, Self::Error> {
         Ok(Self {
             ipxe_script: config.ipxe_script,
         })
     }
 }
 
-impl TryFrom<InlineIpxe> for rpc::forge::InlineIpxe {
+impl TryFrom<InlineIpxe> for rpc::nico::InlineIpxe {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: InlineIpxe) -> Result<rpc::forge::InlineIpxe, Self::Error> {
+    fn try_from(config: InlineIpxe) -> Result<rpc::nico::InlineIpxe, Self::Error> {
         Ok(Self {
             ipxe_script: config.ipxe_script,
             user_data: None,
@@ -94,7 +94,7 @@ pub struct OperatingSystem {
     /// instructions for installing on a local disk, the installation would be repeated
     /// on the reboot.
     ///
-    /// If the flag is set to `false` or not specified, Forge will only provide
+    /// If the flag is set to `false` or not specified, Nico will only provide
     /// iPXE instructions that are defined by the OS definition on the first boot attempt.
     /// For every subsequent boot, the instance will use the default boot action - which
     /// is usually to boot from the hard drive.
@@ -107,11 +107,11 @@ pub struct OperatingSystem {
     pub run_provisioning_instructions_on_every_boot: bool,
 }
 
-impl TryFrom<rpc::forge::InstanceOperatingSystemConfig> for OperatingSystem {
+impl TryFrom<rpc::nico::InstanceOperatingSystemConfig> for OperatingSystem {
     type Error = RpcDataConversionError;
 
     fn try_from(
-        mut config: rpc::forge::InstanceOperatingSystemConfig,
+        mut config: rpc::nico::InstanceOperatingSystemConfig,
     ) -> Result<Self, Self::Error> {
         let variant = config
             .variant
@@ -121,16 +121,16 @@ impl TryFrom<rpc::forge::InstanceOperatingSystemConfig> for OperatingSystem {
             ))?;
         let mut ipxe_user_data = None;
         let variant = match variant {
-            rpc::forge::instance_operating_system_config::Variant::Ipxe(ipxe) => {
+            rpc::nico::instance_operating_system_config::Variant::Ipxe(ipxe) => {
                 ipxe_user_data = ipxe.user_data.clone();
                 OperatingSystemVariant::Ipxe(ipxe.try_into()?)
             }
-            rpc::forge::instance_operating_system_config::Variant::OsImageId(id) => {
+            rpc::nico::instance_operating_system_config::Variant::OsImageId(id) => {
                 OperatingSystemVariant::OsImage(Uuid::try_from(id).map_err(|e| {
                     RpcDataConversionError::InvalidUuid("os_image_id: ", e.to_string())
                 })?)
             }
-            rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(id) => {
+            rpc::nico::instance_operating_system_config::Variant::OperatingSystemId(id) => {
                 OperatingSystemVariant::OperatingSystemId(Uuid::from(id))
             }
         };
@@ -145,23 +145,23 @@ impl TryFrom<rpc::forge::InstanceOperatingSystemConfig> for OperatingSystem {
     }
 }
 
-impl TryFrom<OperatingSystem> for rpc::forge::InstanceOperatingSystemConfig {
+impl TryFrom<OperatingSystem> for rpc::nico::InstanceOperatingSystemConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(
         config: OperatingSystem,
-    ) -> Result<rpc::forge::InstanceOperatingSystemConfig, Self::Error> {
+    ) -> Result<rpc::nico::InstanceOperatingSystemConfig, Self::Error> {
         let variant = match config.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
-                let mut ipxe: rpc::forge::InlineIpxe = ipxe.try_into()?;
+                let mut ipxe: rpc::nico::InlineIpxe = ipxe.try_into()?;
                 ipxe.user_data = config.user_data.clone();
-                rpc::forge::instance_operating_system_config::Variant::Ipxe(ipxe)
+                rpc::nico::instance_operating_system_config::Variant::Ipxe(ipxe)
             }
             OperatingSystemVariant::OsImage(id) => {
-                rpc::forge::instance_operating_system_config::Variant::OsImageId(id.into())
+                rpc::nico::instance_operating_system_config::Variant::OsImageId(id.into())
             }
             OperatingSystemVariant::OperatingSystemId(id) => {
-                rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(id.into())
+                rpc::nico::instance_operating_system_config::Variant::OperatingSystemId(id.into())
             }
         };
 

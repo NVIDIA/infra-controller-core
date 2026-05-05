@@ -15,24 +15,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-###this script is intended to be used by developers against minikube to delete and recreate the forge database.
+###this script is intended to be used by developers against minikube to delete and recreate the nico database.
 ###It assumes that the API server is already down, usually accomplished by bringing down skaffold prior to running the script.
 
 MAX_RETRY=10
 i=0
 while [[ $i -lt $MAX_RETRY ]]; do
-  echo "Attempting to delete forge DB."
+  echo "Attempting to delete nico DB."
 
 
   #something is holding the DB connection -- so murder it, i don't care this is local get out of the way.
   kubectl exec -ti postgres-0 -n postgres -- psql -U postgres -c "SELECT pg_terminate_backend(pg_stat_activity.pid)
 FROM pg_stat_activity
-WHERE datname = 'carbide'
+WHERE datname = 'nico'
   AND pid <> pg_backend_pid();"
 
-  kubectl exec -ti postgres-0 -n postgres -- psql -U postgres -c "DROP DATABASE IF EXISTS carbide;"
+  kubectl exec -ti postgres-0 -n postgres -- psql -U postgres -c "DROP DATABASE IF EXISTS nico;"
   if [ $? -eq 0 ]; then
-      echo "carbide DB successfully deleted"
+      echo "nico DB successfully deleted"
       break
   else
       echo "DB still has connections, waiting to retry."
@@ -42,7 +42,7 @@ WHERE datname = 'carbide'
   i=$((i+1))
 done
 
-echo "Recreating carbide db"
-kubectl exec -ti postgres-0 -n postgres -- psql -U postgres -c 'CREATE DATABASE carbide with owner "carbide";'
+echo "Recreating nico db"
+kubectl exec -ti postgres-0 -n postgres -- psql -U postgres -c 'CREATE DATABASE nico with owner "nico";'
 
 

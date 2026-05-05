@@ -22,11 +22,11 @@ CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 REPO_ROOT = { script = [
   "dirname $(cargo locate-project --message-format plain --workspace)",
 ] }
-CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
-  "CARBIDE_ENVIRONMENT",
+NICO_ENVIRONMENT = { value = "local", condition = { env_not_set = [
+  "NICO_ENVIRONMENT",
 ] } }
-FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
-FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
+NICO_CA = { value = "nonprod", condition = { env_not_set = ["NICO_CA"] } }
+NICO_CA_PATH = { value = "${REPO_ROOT}/dev/nico_${NICO_CA}root.pem" }
 
 BUILD_CONTAINER_X86_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", condition = { env_not_set = [
   "BUILD_CONTAINER_X86_URL",
@@ -69,9 +69,9 @@ args = [
 ]
 # To generate manually:
 # Start docker-compose and wait until all migrations are in the DB
-# mermerd -c postgresql://carbide_development:REPLACE_WITH_PW@172.20.0.16 -s public --useAllTables --showAllConstraints --encloseWithMermaidBackticks -o book/src/development/schema.md
+# mermerd -c postgresql://nico_development:REPLACE_WITH_PW@172.20.0.16 -s public --useAllTables --showAllConstraints --encloseWithMermaidBackticks -o book/src/development/schema.md
 # docker pull minlag/mermaid-cli
-# docker run --rm -u `id -u`:`id -g` -v /home/graham/src/carbide/book/src/development:/data minlag/mermaid-cli -i schema.md
+# docker run --rm -u `id -u`:`id -g` -v /home/graham/src/nico/book/src/development:/data minlag/mermaid-cli -i schema.md
 # Copy its output to `schema.svg`
 # (I had to edit _sqlx_migrations table, it doesn't like the underscore)
 # Add to top of schema.md:
@@ -79,15 +79,15 @@ args = [
 
 [tasks.build-cli-ci]
 category = "Build"
-description = "Build carbide-admin-cli in CI"
+description = "Build nico-admin-cli in CI"
 workspace = false
 script = '''
-cargo build -p carbide-admin-cli
+cargo build -p nico-admin-cli
 '''
 
 [tasks.build-cli]
 category = "Build"
-description = "Build carbide-admin-cli locally using debian container. Ensures correct GCC version is used."
+description = "Build nico-admin-cli locally using debian container. Ensures correct GCC version is used."
 workspace = false
 script = '''
 docker run \
@@ -98,13 +98,13 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	"${BUILD_CONTAINER_X86_URL}" \
-	cargo build -p carbide-admin-cli --release
+	cargo build -p nico-admin-cli --release
 '''
 dependencies = ["check-cargo-home-set"]
 
 [tasks.build-health]
 category = "Build"
-description = "Build carbide-hw-health locally using debian container."
+description = "Build nico-hw-health locally using debian container."
 workspace = false
 script = '''
 docker run \
@@ -115,13 +115,13 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	"${BUILD_CONTAINER_X86_URL}" \
-	cargo build -p carbide-health
+	cargo build -p nico-health
 '''
 dependencies = ["check-cargo-home-set"]
 
 [tasks.build-log-parser]
 category = "Build"
-description = "Build forge-log-parser locally using debian container."
+description = "Build nico-log-parser locally using debian container."
 workspace = false
 script = '''
 docker run \
@@ -132,7 +132,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	"${BUILD_CONTAINER_X86_URL} \
-	cargo build -p carbide-log-parser
+	cargo build -p nico-log-parser
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -155,29 +155,29 @@ workspace = false
 script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
-docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64 -t carbide-build-x86_64 ${REPO_ROOT}/dev/docker
-echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- build -p carbide-admin-cli --release"
+docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64 -t nico-build-x86_64 ${REPO_ROOT}/dev/docker
+echo "Image nico-build-x86_64 built. Run: cargo make cargo-docker -- build -p nico-admin-cli --release"
 '''
 
 [tasks.build-cargo-docker-image-minimal]
 category = "Build"
-description = "Build minimal Cargo Docker image (Rust 1.90 + protoc). Quick (~2-5 min). Required once before cargo-docker-minimal for workspace builds (e.g. carbide-rpc)."
+description = "Build minimal Cargo Docker image (Rust 1.90 + protoc). Quick (~2-5 min). Required once before cargo-docker-minimal for workspace builds (e.g. nico-rpc)."
 workspace = false
 script = '''
 set -e
-docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.cargo-docker-minimal -t carbide-build-minimal ${REPO_ROOT}/dev/docker
-echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release"
+docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.cargo-docker-minimal -t nico-build-minimal ${REPO_ROOT}/dev/docker
+echo "Image nico-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p nico-admin-cli --release"
 '''
 
 [tasks.cargo-docker]
 category = "Build"
-description = "Run Cargo inside the carbide-build-x86_64 Docker container. Requires build-cargo-docker-image first (slow on Apple Silicon). Pass cargo args after -- without extra quotes."
+description = "Run Cargo inside the nico-build-x86_64 Docker container. Requires build-cargo-docker-image first (slow on Apple Silicon). Pass cargo args after -- without extra quotes."
 workspace = false
 dependencies = ["check-cargo-home-set"]
 script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
-CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p nico-admin-cli --release}"
 CARGO_ARGS="${CARGO_ARGS//;/ }"
 CARGO_ARGS="${CARGO_ARGS#-- }"
 docker run --rm \
@@ -186,7 +186,7 @@ docker run --rm \
   -w /code \
   -u $(id -u):$(id -g) \
   -e CARGO_HOME=/cargo \
-  carbide-build-x86_64 \
+  nico-build-x86_64 \
   cargo ${CARGO_ARGS}
 '''
 
@@ -215,7 +215,7 @@ script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
 # cargo-make may join task args with semicolons; normalize to spaces and strip leading --
-CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p nico-admin-cli --release}"
 CARGO_ARGS="${CARGO_ARGS//;/ }"
 CARGO_ARGS="${CARGO_ARGS#-- }"
 # Pass DATABASE_URL into container so DB tests can connect (use host.docker.internal from Mac)
@@ -240,13 +240,13 @@ docker run --rm \
   -e HOST_UID="${HOST_UID}" \
   -e HOST_GID="${HOST_GID}" \
   $DOCKER_EXTRA \
-  carbide-build-minimal \
+  nico-build-minimal \
   sh -c 'r=0; cargo "$@" || r=$?; chown -R ${HOST_UID}:${HOST_GID} /code 2>/dev/null || true; exit $r' sh ${CARGO_ARGS}
 '''
 
 [tasks.test-docker-postgres-smoke]
 category = "Build"
-description = "Quick Postgres connectivity test via Docker (~10–30 s). Set DATABASE_URL (host.docker.internal). Use this instead of long carbide-api tests for a fast sanity check."
+description = "Quick Postgres connectivity test via Docker (~10–30 s). Set DATABASE_URL (host.docker.internal). Use this instead of long nico-api tests for a fast sanity check."
 workspace = false
 dependencies = ["check-cargo-home-set"]
 script = '''
@@ -266,16 +266,16 @@ docker run --rm \
   -e CARGO_HOME=/cargo \
   -e SCCACHE_DIR=/sccache \
   $DOCKER_EXTRA \
-  carbide-build-minimal \
+  nico-build-minimal \
   cargo test -p postgres-smoke-test
 '''
 
 [tasks.build-cli-cross-aarch64]
 category = "Build"
-description = "Cross compile forge-scout and carbide-admin-cli for aarch64, intended only for local artifact builds."
+description = "Cross compile nico-scout and nico-admin-cli for aarch64, intended only for local artifact builds."
 workspace = false
 script = '''
-docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
+docker run --rm -v $REPO_ROOT:/nico --user $(id -u):$(id -g) \
     --env CARGO_HOME=/cargo \
     -v $CARGO_HOME:/cargo \
     build-artifacts-container-cross-aarch64:latest \
@@ -284,12 +284,12 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "--release" \
     "--target=aarch64-unknown-linux-gnu" \
     "-p" \
-    "carbide-admin-cli" \
+    "nico-admin-cli" \
     "-p" \
-    "carbide-scout"
-docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
-    "/carbide/target/aarch64-unknown-linux-gnu/release/carbide-admin-cli" \
-    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"   
+    "nico-scout"
+docker run --rm -v $REPO_ROOT:/nico --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
+    "/nico/target/aarch64-unknown-linux-gnu/release/nico-admin-cli" \
+    "/nico/target/aarch64-unknown-linux-gnu/release/nico-scout"   
 '''
 dependencies = ["check-cargo-home-set", "build-cross-docker-image"]
 
@@ -305,7 +305,7 @@ docker build ${REPO_ROOT}/dev/docker -f ${REPO_ROOT}/dev/docker/Dockerfile.build
 
 [tasks.build-x86-build-container]
 condition_script = '''
-  if [ "${CARBIDE_ARCH}" != "x86_64" ] || [ ! -z "${CI}" ]
+  if [ "${NICO_ARCH}" != "x86_64" ] || [ ! -z "${CI}" ]
   then
     echo "NOT BUILDING X86_64 BUILD CONTAINER"
     exit 1
@@ -327,7 +327,7 @@ cwd = "${REPO_ROOT}/dev/docker"
 
 [tasks.build-arm-build-container]
 condition_script = '''
-  if [ "${CARBIDE_ARCH}" != "aarch64" ] || [ ! -z "${CI}" ]
+  if [ "${NICO_ARCH}" != "aarch64" ] || [ ! -z "${CI}" ]
   then
     echo "NOT BUILDING aarch64 BUILD CONTAINER"
     exit 1
@@ -349,13 +349,13 @@ cwd = "${REPO_ROOT}/dev/docker"
 
 [tasks.runtime-container]
 category = "Docker Compose"
-description = "Build the runtime container base image for Carbide components"
+description = "Build the runtime container base image for Nico components"
 workspace = false
 command = "docker"
 args = [
   "build",
   "-t",
-  "carbide-runtime:latest",
+  "nico-runtime:latest",
   ".",
   "-f",
   "dev/docker/Dockerfile.build-container-x86_64",
@@ -364,7 +364,7 @@ env = { "DOCKER_BUILDKIT" = "1" }
 
 [tasks.fullstack-up]
 category = "Docker Compose"
-description = "Brings up a full Carbide stack"
+description = "Brings up a full Nico stack"
 workspace = false
 command = "docker-compose"
 args = ["up", "-d", "--build", "--pull"]
@@ -375,7 +375,7 @@ dependencies = [
 
 [tasks.fullstack-down]
 category = "Docker Compose"
-description = "Brings down the full Carbide stack"
+description = "Brings down the full Nico stack"
 workspace = false
 command = "docker-compose"
 args = ["down", "-v"]
@@ -401,72 +401,72 @@ command = "cargo"
 args = ["license", "--avoid-build-deps", "--avoid-dev-deps", "--json"]
 
 
-[tasks.bootstrap-forge-base-docker]
+[tasks.bootstrap-nico-base-docker]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
+env = { "NICO_BOOTSTRAP_KIND" = "docker" }
 dependencies = [
-  { name = "build-bootstrap-forge-base-docker", path = "include/Makefile-bootstrap.toml" },
+  { name = "build-bootstrap-nico-base-docker", path = "include/Makefile-bootstrap.toml" },
 ]
-[tasks.bootstrap-forge-base-kube]
+[tasks.bootstrap-nico-base-kube]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
+env = { "NICO_BOOTSTRAP_KIND" = "kube" }
 dependencies = [
-  { name = "build-bootstrap-forge-base-kube", path = "include/Makefile-bootstrap.toml" },
-]
-
-[tasks.bootstrap-forge-dpu-discovery-docker]
-category = "Bootstrap"
-workspace = false
-dependencies = [
-  { name = "build-bootstrap-forge-dpu-discovery-docker", path = "include/Makefile-bootstrap.toml" },
-]
-[tasks.bootstrap-forge-dpu-discovery-kube]
-category = "Bootstrap"
-workspace = false
-dependencies = [
-  { name = "build-bootstrap-forge-dpu-discovery-kube", path = "include/Makefile-bootstrap.toml" },
+  { name = "build-bootstrap-nico-base-kube", path = "include/Makefile-bootstrap.toml" },
 ]
 
-[tasks.bootstrap-forge-vmhost-init-docker]
+[tasks.bootstrap-nico-dpu-discovery-docker]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  { name = "build-bootstrap-nico-dpu-discovery-docker", path = "include/Makefile-bootstrap.toml" },
+]
+[tasks.bootstrap-nico-dpu-discovery-kube]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  { name = "build-bootstrap-nico-dpu-discovery-kube", path = "include/Makefile-bootstrap.toml" },
+]
+
+[tasks.bootstrap-nico-vmhost-init-docker]
 category = "Bootstrap"
 workspace = false
 run_task = [
-  { name = "build-bootstrap-forge-vmhost-init-docker", path = "include/Makefile-bootstrap.toml" },
+  { name = "build-bootstrap-nico-vmhost-init-docker", path = "include/Makefile-bootstrap.toml" },
 ]
 
-[tasks.bootstrap-forge-vmhost-init-kube]
+[tasks.bootstrap-nico-vmhost-init-kube]
 category = "Bootstrap"
 workspace = false
 dependencies = [
-  { name = "build-bootstrap-forge-vmhost-init-kube", path = "include/Makefile-bootstrap.toml" },
+  { name = "build-bootstrap-nico-vmhost-init-kube", path = "include/Makefile-bootstrap.toml" },
 ]
 
-[tasks.bootstrap-forge-docker]
+[tasks.bootstrap-nico-docker]
 category = "Bootstrap"
 workspace = false
 dependencies = [
-  { name = "build-bootstrap-forge-docker", path = "include/Makefile-bootstrap.toml" },
+  { name = "build-bootstrap-nico-docker", path = "include/Makefile-bootstrap.toml" },
 ]
-[tasks.bootstrap-forge-kube]
+[tasks.bootstrap-nico-kube]
 category = "Bootstrap"
 workspace = false
 dependencies = [
-  { name = "build-bootstrap-forge-kube", path = "include/Makefile-bootstrap.toml" },
+  { name = "build-bootstrap-nico-kube", path = "include/Makefile-bootstrap.toml" },
 ]
 
 
-[tasks.test-instance-forge-docker]
+[tasks.test-instance-nico-docker]
 workspace = false
 dependencies = [
-  { name = "test-instance-forge-docker", path = "include/Makefile-bootstrap.toml" },
+  { name = "test-instance-nico-docker", path = "include/Makefile-bootstrap.toml" },
 ]
 
-[tasks.test-dpu-reprov-forge-docker]
+[tasks.test-dpu-reprov-nico-docker]
 workspace = false
 dependencies = [
-  { name = "test-dpu-reprov-forge-docker", path = "include/Makefile-bootstrap.toml" },
+  { name = "test-dpu-reprov-nico-docker", path = "include/Makefile-bootstrap.toml" },
 ]
 
 [tasks.pre-commit-verify]
@@ -485,7 +485,7 @@ category = "CI"
 # NOTE: If you add something here, and you also want it to be checked by CI, make sure to add it to the lint-police job in .github/workflows/ci.yaml too.
 dependencies = [
   "clippy-flow",
-  "carbide-lints",
+  "nico-lints",
   "check-format-flow",
   "check-format-nightly",
   "check-workspace-deps",
@@ -521,7 +521,7 @@ args = ["clippy", "--locked", "--all-targets", "--all-features", "--release"]
 
 [tasks.build-debug-test-prerequisites]
 script = '''
-cargo build -p carbide-agent -p carbide-admin-cli -p carbide-api
+cargo build -p nico-agent -p nico-admin-cli -p nico-api
 '''
 workspace = false
 
@@ -534,8 +534,8 @@ workspace = false
 description = "Check if measured boot endpoints are not disabled"
 dependencies = ["build-release"]
 script = '''
-RESULT1=`strings target/release/carbide-api|grep "Could not unmarshal AK Pub"`
-RESULT2=`strings target/release/carbide-api|grep "Could not unmarshall Attest struct"`
+RESULT1=`strings target/release/nico-api|grep "Could not unmarshal AK Pub"`
+RESULT2=`strings target/release/nico-api|grep "Could not unmarshall Attest struct"`
 
 if [ -z "$RESULT1" ] || [ -z "$RESULT2" ]; then
   @@fail
@@ -581,41 +581,41 @@ done
 
 [tasks.build-scout-x86_64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
+env = { "NICO_PACKAGE" = "scout", "NICO_CRATE" = "nico-scout", "NICO_CRATE_DIR" = "crates/scout", "NICO_ARCH" = "x86_64", "NICO_PROFILE" = "release" }
 run_task = "build-component-local"
 
 [tasks.build-scout-aarch64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+env = { "NICO_PACKAGE" = "scout", "NICO_CRATE" = "nico-scout", "NICO_CRATE_DIR" = "crates/scout", "NICO_ARCH" = "aarch64", "NICO_PROFILE" = "release" }
 run_task = "build-component-local"
 
 [tasks.build-scout-aarch64-release-cross]
 workspace = false
-env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+env = { "NICO_PACKAGE" = "scout", "NICO_CRATE" = "nico-scout", "NICO_CRATE_DIR" = "crates/scout", "NICO_ARCH" = "aarch64", "NICO_PROFILE" = "release" }
 run_task = "build-component-in-container"
 
 [tasks.package-scout-x86_64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
+env = { "NICO_PACKAGE" = "scout", "NICO_CRATE" = "nico-scout", "NICO_CRATE_DIR" = "crates/scout", "NICO_ARCH" = "x86_64", "NICO_PROFILE" = "release" }
 run_task = "package-component-local"
 
 [tasks.package-scout-aarch64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+env = { "NICO_PACKAGE" = "scout", "NICO_CRATE" = "nico-scout", "NICO_CRATE_DIR" = "crates/scout", "NICO_ARCH" = "aarch64", "NICO_PROFILE" = "release" }
 run_task = "package-component-local"
 
 [tasks.package-scout-aarch64-release-cross]
 workspace = false
-env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+env = { "NICO_PACKAGE" = "scout", "NICO_CRATE" = "nico-scout", "NICO_CRATE_DIR" = "crates/scout", "NICO_ARCH" = "aarch64", "NICO_PROFILE" = "release" }
 run_task = "package-component-in-container"
 
 [tasks.package-scout-cross-x86_64-release]
 workspace = false
-env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
+env = { "NICO_PACKAGE" = "scout", "NICO_CRATE" = "nico-scout", "NICO_CRATE_DIR" = "crates/scout", "NICO_ARCH" = "x86_64", "NICO_PROFILE" = "release" }
 run_task = "package-component-in-container"
 
 [tasks.setup-nightly-rust]
-description = "Install pinned nightly toolchain and components for running format-nightly and carbide-lints tasks"
+description = "Install pinned nightly toolchain and components for running format-nightly and nico-lints tasks"
 script = [
   # Don't waste cycles, only install what isn't installed
   "rustup toolchain list | grep -Fq ${RUST_NIGHTLY} || rustup toolchain install ${RUST_NIGHTLY} --profile minimal",
@@ -638,20 +638,20 @@ category = "Formatting"
 dependencies = ["setup-nightly-rust"]
 script = ["cargo +${RUST_NIGHTLY} fmt --all -- --check"]
 
-[tasks.setup-carbide-lints]
+[tasks.setup-nico-lints]
 workspace = false
-description = "Set up the `cargo carbide-lints` command"
+description = "Set up the `cargo nico-lints` command"
 dependencies = ["setup-nightly-rust"]
 script = [
   # Don't waste cycles, only install what isn't installed
-  "which cargo-carbide-lints >/dev/null 2>&1 || (cd \"${REPO_ROOT}/lints/carbide-lints\" && cargo +${RUST_NIGHTLY} install --path .)",
+  "which cargo-nico-lints >/dev/null 2>&1 || (cd \"${REPO_ROOT}/lints/nico-lints\" && cargo +${RUST_NIGHTLY} install --path .)",
 ]
 
-[tasks.carbide-lints]
+[tasks.nico-lints]
 workspace = false
-description = "Run custom lints defined in lints/carbide-lints"
-dependencies = ["setup-carbide-lints"]
-script = ["cargo carbide-lints --all-targets --all-features"]
+description = "Run custom lints defined in lints/nico-lints"
+dependencies = ["setup-nico-lints"]
+script = ["cargo nico-lints --all-targets --all-features"]
 
 [tasks.check-workspace-deps]
 workspace = false

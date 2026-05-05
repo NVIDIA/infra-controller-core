@@ -26,16 +26,16 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use carbide_firmware::FirmwareConfig;
-use carbide_network::sanitized_mac;
-use carbide_redfish::libredfish::conv::IntoModel;
-use carbide_utils::periodic_timer::PeriodicTimer;
-use carbide_uuid::machine::MachineType;
-use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
+use nico_firmware::FirmwareConfig;
+use nico_network::sanitized_mac;
+use nico_redfish::libredfish::conv::IntoModel;
+use nico_utils::periodic_timer::PeriodicTimer;
+use nico_uuid::machine::MachineType;
+use nico_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config::SiteExplorerConfig;
 use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
-use forge_secrets::credentials::CredentialManager;
+use nico_secrets::credentials::CredentialManager;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -79,16 +79,16 @@ use model::firmware::FirmwareComponentType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 mod switch_creator;
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use model::rack::Rack;
 pub use switch_creator::SwitchCreator;
 pub mod config;
 pub mod errors;
 use std::sync::atomic::AtomicBool;
 
-use carbide_ipmi::IPMITool;
-use carbide_redfish::libredfish::RedfishClientPool;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use nico_ipmi::IPMITool;
+use nico_redfish::libredfish::RedfishClientPool;
+use nico_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
@@ -209,7 +209,7 @@ pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationRepo
 /// 2. if there are less than the max allowed updates each module will be told to start updates until
 ///    the number of updates reaches the maximum allowed.
 ///
-/// Config from [CarbideConfig]:
+/// Config from [NicoConfig]:
 /// * `max_concurrent_machine_updates` the maximum number of updates allowed across all modules
 /// * `machine_update_run_interval` how often the manager calls the modules to start updates
 pub struct SiteExplorer {
@@ -572,7 +572,7 @@ impl SiteExplorer {
                 }
             } else if matches!(machine_type, MachineType::Host) && machine_id.is_some() {
                 // Orphan: a Managed Host whose BMC MAC is no longer listed in
-                // `expected_machines`. Carbide keeps maintaining the host, but
+                // `expected_machines`. Nico keeps maintaining the host, but
                 // it will not be re-ingested if force-deleted. This alert is a warning
                 // only and does not block allocations.
                 new_health_report
@@ -1407,7 +1407,7 @@ impl SiteExplorer {
         let expected_count = expected_machines.len();
 
         // We don't have to scan anything that is on the Tenant or Admin Segments,
-        // since we know what those Segments are used for (Forge allocated the IPs on the segments
+        // since we know what those Segments are used for (Nico allocated the IPs on the segments
         // for a specific machine).
         // We also can skip scanning IPs which are knowingly used as DPU OOB interfaces,
         // since those will not speak redfish.

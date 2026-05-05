@@ -18,18 +18,18 @@
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 
-use forge_dpu_agent_utils::machine_identity::defaults::{
+use nico_dpu_agent_utils::machine_identity::defaults::{
     BURST, REQUESTS_PER_SECOND, SIGN_TIMEOUT_SECS, WAIT_TIMEOUT_SECS,
 };
-use forge_tls::default as tls_default;
+use nico_tls::default as tls_default;
 use serde::{Deserialize, Serialize};
 
 /// HBN container root
 const HBN_DEFAULT_ROOT: &str = "/var/lib/hbn";
 
-/// Where DPU agent will try to connect to carbide-api
+/// Where DPU agent will try to connect to nico-api
 /// Unbound should define this in all environments
-const DEFAULT_API_SERVER: &str = "https://carbide-api.forge";
+const DEFAULT_API_SERVER: &str = "https://nico-api.nico";
 
 // TODO(ianderson) we need to figure out the addresses on which those services should run
 const INSTANCE_METADATA_SERVICE_ADDRESS: &str = "0.0.0.0:7777";
@@ -37,23 +37,23 @@ const TELEMETRY_METRICS_SERVICE_ADDRESS: &str = "0.0.0.0:8888";
 
 /// The sub-part of the agent config that PXE server sets
 ///
-/// This is what we WRITE to /etc/forge/config.toml
+/// This is what we WRITE to /etc/nico/config.toml
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentConfigFromPxe {
     // This is primarily used in the case of "external" overrides. If a host is
     // being provisioned from an external location, this will ensure we correctly
-    // populate the carbide-api endpoint with CARBIDE_EXTERNAL_API_URL, and
-    // not [defaulting] to carbide-api.forge, to allow scout to work.
-    #[serde(rename = "forge-system", skip_serializing_if = "Option::is_none")]
-    pub forge_system: Option<ForgeSystemConfigFromPxe>,
+    // populate the nico-api endpoint with NICO_EXTERNAL_API_URL, and
+    // not [defaulting] to nico-api.nico, to allow scout to work.
+    #[serde(rename = "nico-system", skip_serializing_if = "Option::is_none")]
+    pub nico_system: Option<NicoSystemConfigFromPxe>,
     pub machine: MachineConfigFromPxe,
 }
 
-/// Optional forge-system overrides written by PXE for external hosts
+/// Optional nico-system overrides written by PXE for external hosts
 /// whose DPU agents can't resolve the default internal hostname.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct ForgeSystemConfigFromPxe {
+pub struct NicoSystemConfigFromPxe {
     pub api_server: String,
 }
 
@@ -63,15 +63,15 @@ pub struct MachineConfigFromPxe {
     pub interface_id: uuid::Uuid,
 }
 
-/// Describes the format of the configuration files that is used by Forge agents
+/// Describes the format of the configuration files that is used by Nico agents
 /// that run on the DPU and host
 ///
-/// This is what we READ from /etc/forge/config.toml. In prod most of the fields will default.
+/// This is what we READ from /etc/nico/config.toml. In prod most of the fields will default.
 /// We only implement Serialize for unit tests.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
-    #[serde(default, rename = "forge-system")]
-    pub forge_system: ForgeSystemConfig,
+    #[serde(default, rename = "nico-system")]
+    pub nico_system: NicoSystemConfig,
     pub machine: MachineConfig,
     #[serde(default, rename = "metadata-service")]
     pub metadata_service: MetadataServiceConfig,
@@ -109,7 +109,7 @@ impl AgentConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct ForgeSystemConfig {
+pub struct NicoSystemConfig {
     #[serde(default = "default_api_server")]
     pub api_server: String,
     #[serde(default = "default_root_ca")]
@@ -120,9 +120,9 @@ pub struct ForgeSystemConfig {
     pub client_key: String,
 }
 
-// Called if no `[forge-system]` is provided at all.
+// Called if no `[nico-system]` is provided at all.
 // The serde defaults above are called if one or more fields are missing.
-impl Default for ForgeSystemConfig {
+impl Default for NicoSystemConfig {
     fn default() -> Self {
         Self {
             api_server: default_api_server(),
@@ -186,19 +186,19 @@ pub struct MachineIdentityConfig {
     #[serde(default = "default_machine_identity_burst")]
     pub burst: u8,
     /// Max time to wait for a rate-limit permit before failing the request (seconds).
-    /// Applies to governor wait (`until_ready`), not to the Forge signing call.
+    /// Applies to governor wait (`until_ready`), not to the Nico signing call.
     /// Valid range: 1–10.
     #[serde(default = "default_machine_identity_wait_timeout_secs")]
     pub wait_timeout_secs: u8,
-    /// Wall-clock limit for the full Forge signing path on `GET …/meta-data/identity`
+    /// Wall-clock limit for the full Nico signing path on `GET …/meta-data/identity`
     /// (client build including connect retries, plus `SignMachineIdentity` RPC).
-    /// Valid range: 1–60 seconds. Applies to the Forge gRPC signing path and to the optional
+    /// Valid range: 1–60 seconds. Applies to the Nico gRPC signing path and to the optional
     /// HTTP sign proxy origin (`sign-proxy-url`).
     #[serde(default = "default_machine_identity_sign_timeout_secs")]
     pub sign_timeout_secs: u8,
     /// When set, `GET …/meta-data/identity` is forwarded over HTTP to `{url}/latest/meta-data/identity`
     /// with the same query string; the upstream response (status, body, `Content-Type`) is returned
-    /// verbatim. When unset, the agent uses `SignMachineIdentity` gRPC to Forge.
+    /// verbatim. When unset, the agent uses `SignMachineIdentity` gRPC to Nico.
     #[serde(default, rename = "sign-proxy-url")]
     pub sign_proxy_url: Option<String>,
     /// PEM file (one or more concatenated certificates) trusted as additional TLS roots when
@@ -239,7 +239,7 @@ impl Default for MachineIdentityConfig {
 
 impl MachineIdentityConfig {
     pub fn validate(&self) -> Result<(), String> {
-        use forge_dpu_agent_utils::machine_identity::limits::{
+        use nico_dpu_agent_utils::machine_identity::limits::{
             BURST_MAX, BURST_MIN, REQUESTS_PER_SECOND_MAX, REQUESTS_PER_SECOND_MIN,
             SIGN_TIMEOUT_SECS_MAX, SIGN_TIMEOUT_SECS_MIN, WAIT_TIMEOUT_SECS_MAX,
             WAIT_TIMEOUT_SECS_MIN,
@@ -412,7 +412,7 @@ pub struct IterationTime {
     /// How often we fetch the desired network configuration for a host
     pub network_config_fetch_secs: u64,
 
-    /// How often to check if we have latest forge-dpu-agent version
+    /// How often to check if we have latest nico-dpu-agent version
     pub version_check_secs: u64,
 
     /// How often to update inventory
@@ -561,7 +561,7 @@ mod tests {
     #[test]
     fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_without_url() {
         let c = MachineIdentityConfig {
-            sign_proxy_tls_root_ca: Some("/etc/forge/sign_proxy_ca.pem".to_string()),
+            sign_proxy_tls_root_ca: Some("/etc/nico/sign_proxy_ca.pem".to_string()),
             ..Default::default()
         };
         let err = c.validate().unwrap_err();
@@ -582,7 +582,7 @@ mod tests {
     fn machine_identity_config_validate_accepts_sign_proxy_tls_root_ca_with_pem_file() {
         let pem_path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../dev/certs/forge_root.pem"
+            "/../../dev/certs/nico_root.pem"
         );
         let c = MachineIdentityConfig {
             sign_proxy_url: Some("https://sign-proxy.example".to_string()),
@@ -624,7 +624,7 @@ mod tests {
     // config, and then dump it back out to a string,
     // which should then have defaults set (and match
     // the expected output config).
-    fn test_load_forge_agent_config_defaults() {
+    fn test_load_nico_agent_config_defaults() {
         let input_config: AgentConfig = toml::from_str(
             fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/input.toml"))
                 .unwrap()
@@ -638,8 +638,8 @@ mod tests {
     }
 
     #[test]
-    fn test_load_forge_agent_config_full() {
-        let config = r#"[forge-system]
+    fn test_load_nico_agent_config_full() {
+        let config = r#"[nico-system]
 api-server = "https://127.0.0.1:1234"
 root-ca = "/opt/forge/forge_root.pem"
 
@@ -675,7 +675,7 @@ addresses = ["168.254.169.254/30"]
 
         let config: AgentConfig = toml::from_str(config).unwrap();
 
-        assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
+        assert_eq!(config.nico_system.api_server, "https://127.0.0.1:1234");
         assert_eq!(
             config.machine.interface_id,
             Some(uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200"))
@@ -695,8 +695,8 @@ addresses = ["168.254.169.254/30"]
     }
 
     #[test]
-    fn test_load_forge_agent_config_machine_identity_section() {
-        let raw = r#"[forge-system]
+    fn test_load_nico_agent_config_machine_identity_section() {
+        let raw = r#"[nico-system]
 api-server = "https://127.0.0.1:1234"
 root-ca = "/opt/forge/forge_root.pem"
 
@@ -723,8 +723,8 @@ sign-timeout-secs = 9
     }
 
     #[test]
-    fn test_load_forge_agent_config_without_services() {
-        let config = "[forge-system]
+    fn test_load_nico_agent_config_without_services() {
+        let config = "[nico-system]
 api-server = \"https://127.0.0.1:1234\"
 root-ca = \"/opt/forge/forge_root.pem\"
 
@@ -734,7 +734,7 @@ interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
 
         let config: AgentConfig = toml::from_str(config).unwrap();
 
-        assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
+        assert_eq!(config.nico_system.api_server, "https://127.0.0.1:1234");
         assert_eq!(
             config.machine.interface_id,
             Some(uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200"))

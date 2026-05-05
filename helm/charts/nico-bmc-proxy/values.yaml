@@ -1,0 +1,108 @@
+## =============================================================================
+## nico-bmc-proxy - Authenticating HTTP proxy for BMC's
+## =============================================================================
+
+global:
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-nico-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: nico.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+namespaceOverride: ""
+
+replicas: 2
+serviceAccountName: nico-bmc-proxy
+automountServiceAccountToken: true
+annotations:
+  configmap.reloader.stakater.com/reload: "nico-bmc-proxy-config-files, nico-bmc-proxy-site-config-files"
+
+resources:
+  limits:
+    cpu: 4
+    memory: 2Gi
+  requests:
+    cpu: 1
+    memory: 512Mi
+
+service:
+  proxy:
+    port: 1079
+  metrics:
+    port: 1080
+
+certificate:
+  serviceName: nico-bmc-proxy
+  extraDnsNames: []
+  extraUris: []
+
+command:
+  - /bin/sh
+  - -c
+  - /opt/nico/nico-bmc-proxy --config-path /etc/nico/nico-bmc-proxy/nico-bmc-proxy.toml
+
+env:
+  VAULT_PKI_ROLE_NAME: "nico-cluster"
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+extraEnv: []
+
+envFrom:
+  vaultApproleTokens:
+    secretName: nico-vault-approle-tokens
+  vaultToken:
+    secretName: nico-vault-token
+  vaultClusterInfo:
+    configMapName: vault-cluster-info
+  databaseCredentials:
+    secretName: nico-system.nico.nico-pg-cluster.credentials
+  databaseConfig:
+    configMapName: nico-system-nico-database-config
+
+livenessProbe:
+  httpGet:
+    port: 1080
+    scheme: HTTP
+  initialDelaySeconds: 20
+  periodSeconds: 20
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 20
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+configFiles:
+  nicoBmcProxyConfig: ""
+
+bmcProxy:
+  listen: "[::]:1079"
+  allowedPrincipals: []
+
+vaultClusterInfo: {}
+
+databaseConfig: {}
+
+externalService:
+  enabled: false
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  annotations: {}

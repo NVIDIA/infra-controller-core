@@ -118,7 +118,7 @@ impl From<RpcDataConversionError> for tonic::Status {
             let f = b_str
                 .lines()
                 .skip(1)
-                .skip_while(|l| !l.contains("carbide"))
+                .skip_while(|l| !l.contains("nico"))
                 .take(2)
                 .collect::<Vec<&str>>();
             if f.len() == 2 {

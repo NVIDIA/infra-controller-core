@@ -17,15 +17,15 @@
 
 use std::net::IpAddr;
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::ipxe::PxeInstructions;
 
-// The carbide pxe server makes this RPC call
+// The nico pxe server makes this RPC call
 pub(crate) async fn get_pxe_instructions(
     api: &Api,
     request: Request<rpc::PxeInstructionRequest>,
@@ -41,7 +41,7 @@ pub(crate) async fn get_pxe_instructions(
     // For interfaces on the static-assignments segment, include
     // URL overrides so external hosts can reach services via an
     // alternate hostname or IP they can resolve and/or connect
-    // to for carbide-pxe and carbide-api.
+    // to for nico-pxe and nico-api.
     let (api_url_override, pxe_url_override, static_pxe_url_override) = {
         let iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
         let is_external = iface.segment_id
@@ -80,14 +80,14 @@ pub(crate) async fn get_cloud_init_instructions(
 ) -> Result<Response<rpc::CloudInitInstructions>, Status> {
     log_request_data(&request);
     let cloud_name = "nvidia".to_string();
-    let platform = "forge".to_string();
+    let platform = "nico".to_string();
 
     let db = &api.database_connection;
 
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str
         .parse()
-        .map_err(|e| CarbideError::InvalidArgument(format!("Failed parsing IP '{ip_str}': {e}")))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("Failed parsing IP '{ip_str}': {e}")))?;
 
     // Note that this code path supports IPv6 at the *API layer*, but won't be
     // able to be exercised until DHCPv6 is working, which is a whole other thing
@@ -102,11 +102,11 @@ pub(crate) async fn get_cloud_init_instructions(
             let machine_interface = db::machine_interface::find_by_ip(db, ip)
                 .await?
                 .ok_or_else(|| {
-                    CarbideError::internal(format!("No machine interface with IP {ip} was found"))
+                    NicoError::internal(format!("No machine interface with IP {ip} was found"))
                 })?;
 
             let domain_id = machine_interface.domain_id.ok_or_else(|| {
-                CarbideError::internal(format!(
+                NicoError::internal(format!(
                     "Machine Interface did not have an associated domain {}",
                     machine_interface.id
                 ))
@@ -114,9 +114,9 @@ pub(crate) async fn get_cloud_init_instructions(
 
             let domain = db::dns::domain::find_by_uuid(db, domain_id)
                 .await
-                .map_err(CarbideError::from)?
+                .map_err(NicoError::from)?
                 .ok_or_else(|| {
-                    CarbideError::internal(format!("Could not find domain with id {domain_id}"))
+                    NicoError::internal(format!("Could not find domain with id {domain_id}"))
                 })?
                 .to_owned();
 
@@ -141,12 +141,12 @@ pub(crate) async fn get_cloud_init_instructions(
 
             // For interfaces on the static-assignments segment, include
             // hostname or IP-based URL overrides so external hosts can
-            // reach carbide-api and carbide-pxe services. Just to reiterate,
+            // reach nico-api and nico-pxe services. Just to reiterate,
             // these can be either routable IPs, or externally resolvable
             // hostnames to routable IPs.
             let is_external = {
                 let mut conn = db.acquire().await.map_err(|e| {
-                    CarbideError::internal(format!("Failed to acquire database connection: {e}"))
+                    NicoError::internal(format!("Failed to acquire database connection: {e}"))
                 })?;
                 machine_interface.segment_id
                     == db::network_segment::static_assignments(&mut conn)
@@ -229,7 +229,7 @@ pub(crate) async fn get_cloud_init_instructions(
                 .ok_or_else(|| {
                     // Note that this isn't a NotFound error since it indicates an
                     // inconsistent data model
-                    CarbideError::internal(format!(
+                    NicoError::internal(format!(
                         "Could not find an instance for {}",
                         instance_address.instance_id
                     ))

@@ -1,13 +1,13 @@
 [package]
-name = "carbide-redfish"
+name = "nico-redfish"
 version = "0.0.1"
 edition.workspace = true
-description = "Carbide Redfish"
+description = "Nico Redfish"
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_redfish"
+name = "nico_redfish"
 
 [features]
 default = []
@@ -15,10 +15,10 @@ test-support = [ "dep:chrono", "dep:serde_json", "dep:tokio" ]
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-api-db = { path = "../api-db", default-features = false }
-carbide-api-model = { path = "../api-model", default-features = false }
-carbide-secrets = { path = "../secrets" }
-carbide-utils = { path = "../utils", default-features = false }
+nico-api-db = { path = "../api-db", default-features = false }
+nico-api-model = { path = "../api-model", default-features = false }
+nico-secrets = { path = "../secrets" }
+nico-utils = { path = "../utils", default-features = false }
 
 #these are alphabetized
 arc-swap = { workspace = true }

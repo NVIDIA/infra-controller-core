@@ -16,7 +16,7 @@
  */
 use std::sync::Arc;
 
-use ::rpc::forge_tls_client::ForgeClientConfig;
+use ::rpc::nico_tls_client::NicoClientConfig;
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use axum::Router;
@@ -25,20 +25,20 @@ use axum::http::header::HeaderMap;
 use axum::http::{StatusCode, Uri};
 use axum::response::Response;
 use axum::routing::{get, post};
-use carbide_host_support::agent_config::MachineIdentityConfig;
-use carbide_uuid::machine::MachineId;
+use nico_host_support::agent_config::MachineIdentityConfig;
+use nico_uuid::machine::MachineId;
 use eyre::eyre;
-use forge_dpu_agent_utils::utils::create_forge_client;
-use forge_dpu_fmds_shared::machine_identity::{
+use nico_dpu_agent_utils::utils::create_nico_client;
+use nico_dpu_fmds_shared::machine_identity::{
     self, MetaDataIdentityOutcome, MetaDataIdentitySigner, forward_sign_proxy_if_ready,
-    sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
+    sign_machine_identity_with_nico, wait_identity_rate_limit_permit,
 };
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
 use mockall::automock;
 use nonzero_ext::nonzero;
-use rpc::forge::{self, ManagedHostNetworkConfigResponse};
+use rpc::nico::{self, ManagedHostNetworkConfigResponse};
 
 use crate::periodic_config_fetcher::InstanceMetadata;
 use crate::util::phone_home;
@@ -70,17 +70,17 @@ pub trait InstanceMetadataRouterState: Sync + Send {
     );
     async fn phone_home(&self) -> Result<(), eyre::Error>;
 
-    /// Calls Carbide `SignMachineIdentity` gRPC using the agent's TLS client identity. The SPIFFE ID
-    /// in the client certificate must match the managed host machine row used by Carbide for
+    /// Calls Nico `SignMachineIdentity` gRPC using the agent's TLS client identity. The SPIFFE ID
+    /// in the client certificate must match the managed host machine row used by Nico for
     /// tenant identity config.
     ///
     /// **Note:** `GET …/meta-data/identity` does not use this trait method directly; it goes through
-    /// [`Self::serve_meta_data_identity`], which enforces the identity rate limit before Carbide or
+    /// [`Self::serve_meta_data_identity`], which enforces the identity rate limit before Nico or
     /// before invoking this method indirectly.
     async fn sign_machine_identity(
         &self,
         audiences: Vec<String>,
-    ) -> Result<forge::MachineIdentityResponse, tonic::Status>;
+    ) -> Result<nico::MachineIdentityResponse, tonic::Status>;
 
     /// SPIFFE machine-identity over IMDS-style HTTP (`GET …/meta-data/identity`).
     async fn serve_meta_data_identity(&self, uri: Uri, headers: HeaderMap) -> Response;
@@ -90,18 +90,18 @@ pub struct InstanceMetadataRouterStateImpl {
     latest_instance_data: ArcSwapOption<InstanceMetadata>,
     latest_network_config: ArcSwapOption<ManagedHostNetworkConfigResponse>,
     machine_id: MachineId,
-    forge_api: String,
-    forge_client_config: Arc<ForgeClientConfig>,
+    nico_api: String,
+    nico_client_config: Arc<NicoClientConfig>,
     outbound_governor:
         Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
-    /// Rate limits, Forge/sign-proxy timeouts, and optional HTTP sign-proxy client for
+    /// Rate limits, Nico/sign-proxy timeouts, and optional HTTP sign-proxy client for
     /// `GET …/meta-data/identity`.
     identity_serving: Arc<machine_identity::MachineIdentityServing>,
 }
 
 #[async_trait]
 impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
-    /// Reads the latest desired instance metadata obtained from the Forge
+    /// Reads the latest desired instance metadata obtained from the Nico
     /// Site controller
     fn read(
         &self,
@@ -122,7 +122,7 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
             Err(e) => return Err(eyre!("rate limit exceeded for phone_home; {}\n", e)),
         };
 
-        let mut client = create_forge_client(&self.forge_api, &self.forge_client_config).await?;
+        let mut client = create_nico_client(&self.nico_api, &self.nico_client_config).await?;
 
         let timestamp = phone_home(&mut client, &self.machine_id).await?.to_string() + "\n";
 
@@ -138,11 +138,11 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
     async fn sign_machine_identity(
         &self,
         audiences: Vec<String>,
-    ) -> Result<forge::MachineIdentityResponse, tonic::Status> {
-        sign_machine_identity_with_forge(
-            &self.forge_api,
-            &self.forge_client_config,
-            self.identity_serving.forge_call_timeout,
+    ) -> Result<nico::MachineIdentityResponse, tonic::Status> {
+        sign_machine_identity_with_nico(
+            &self.nico_api,
+            &self.nico_client_config,
+            self.identity_serving.nico_call_timeout,
             audiences,
         )
         .await
@@ -177,7 +177,7 @@ impl MetaDataIdentitySigner for InstanceMetadataRouterStateImpl {
         }
 
         let resp = InstanceMetadataRouterState::sign_machine_identity(self, audiences).await?;
-        Ok(MetaDataIdentityOutcome::Forge(resp))
+        Ok(MetaDataIdentityOutcome::Nico(resp))
     }
 }
 
@@ -198,8 +198,8 @@ impl InstanceMetadataRouterStateImpl {
 
     pub fn new(
         machine_id: MachineId,
-        forge_api: String,
-        forge_client_config: Arc<ForgeClientConfig>,
+        nico_api: String,
+        nico_client_config: Arc<NicoClientConfig>,
         machine_identity: MachineIdentityConfig,
     ) -> Result<Self, String> {
         let params = machine_identity::MachineIdentityParams::try_from_limits(
@@ -217,8 +217,8 @@ impl InstanceMetadataRouterStateImpl {
             latest_instance_data: ArcSwapOption::new(None),
             latest_network_config: ArcSwapOption::new(None),
             machine_id,
-            forge_api,
-            forge_client_config,
+            nico_api,
+            nico_client_config,
             outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
             identity_serving: serving,
         })

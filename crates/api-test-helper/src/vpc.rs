@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 
 use super::grpcurl::grpcurl_id;
 
-pub async fn create(carbide_api_addrs: &[SocketAddr], tenant_org_id: &str) -> eyre::Result<String> {
+pub async fn create(nico_api_addrs: &[SocketAddr], tenant_org_id: &str) -> eyre::Result<String> {
     tracing::info!("Creating VPC");
 
     let data = serde_json::json!({
@@ -27,13 +27,13 @@ pub async fn create(carbide_api_addrs: &[SocketAddr], tenant_org_id: &str) -> ey
         "tenantOrganizationId": tenant_org_id,
         "routing_profile_type": "EXTERNAL".to_string(),
     });
-    let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
+    let vpc_id = grpcurl_id(nico_api_addrs, "CreateVpc", &data.to_string()).await?;
     tracing::info!("VPC created with ID {vpc_id}");
     Ok(vpc_id)
 }
 
 pub async fn create_fnn(
-    carbide_api_addrs: &[SocketAddr],
+    nico_api_addrs: &[SocketAddr],
     tenant_org_id: &str,
 ) -> eyre::Result<String> {
     tracing::info!("Creating FNN VPC");
@@ -44,7 +44,7 @@ pub async fn create_fnn(
         "routing_profile_type": "EXTERNAL".to_string(),
         "network_virtualization_type": 5, // FNN
     });
-    let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
+    let vpc_id = grpcurl_id(nico_api_addrs, "CreateVpc", &data.to_string()).await?;
     tracing::info!("FNN VPC created with ID {vpc_id}");
     Ok(vpc_id)
 }

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
+use nico_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::{DateTime, Utc};
 use rpc::errors::RpcDataConversionError;
-use rpc::forge as rpc_forge;
+use rpc::nico as rpc_nico;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -29,8 +29,8 @@ pub struct NvLinkPartitionSearchFilter {
     pub name: Option<String>,
 }
 
-impl From<rpc_forge::NvLinkPartitionSearchFilter> for NvLinkPartitionSearchFilter {
-    fn from(filter: rpc_forge::NvLinkPartitionSearchFilter) -> Self {
+impl From<rpc_nico::NvLinkPartitionSearchFilter> for NvLinkPartitionSearchFilter {
+    fn from(filter: rpc_nico::NvLinkPartitionSearchFilter) -> Self {
         NvLinkPartitionSearchFilter {
             tenant_organization_id: filter.tenant_organization_id,
             name: filter.name,
@@ -91,10 +91,10 @@ pub fn is_marked_as_deleted(partition: &NvlPartition) -> bool {
     partition.deleted.is_some()
 }
 
-impl TryFrom<NvlPartition> for rpc_forge::NvLinkPartition {
+impl TryFrom<NvlPartition> for rpc_nico::NvLinkPartition {
     type Error = RpcDataConversionError;
     fn try_from(src: NvlPartition) -> Result<Self, Self::Error> {
-        Ok(rpc_forge::NvLinkPartition {
+        Ok(rpc_nico::NvLinkPartition {
             id: Some(src.id),
             name: src.name.clone().into(),
             nmx_m_id: src.nmx_m_id,

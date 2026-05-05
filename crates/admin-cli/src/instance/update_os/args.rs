@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::instance::InstanceId;
+use nico_uuid::instance::InstanceId;
 use clap::Parser;
-use rpc::forge::InstanceOperatingSystemConfig;
+use rpc::nico::InstanceOperatingSystemConfig;
 
 #[derive(Parser, Debug)]
 pub struct Args {

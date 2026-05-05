@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use common::api_fixtures::create_test_env;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::EnvFilter;
@@ -51,8 +51,8 @@ async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
     let local = dep_log_filter(local.clone().into());
 
     // 3. set_log_filter changes it correctly
-    let req = rpc::forge::SetDynamicConfigRequest {
-        setting: rpc::forge::ConfigSetting::LogFilter.into(),
+    let req = rpc::nico::SetDynamicConfigRequest {
+        setting: rpc::nico::ConfigSetting::LogFilter.into(),
         value: "debug".to_string(),
         expiry: Some("500ms".to_string()),
     };

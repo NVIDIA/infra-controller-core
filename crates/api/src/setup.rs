@@ -22,25 +22,25 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use carbide_firmware::FirmwareDownloader;
-use carbide_ib_fabric::IbFabricMonitor;
-use carbide_ib_fabric::ib::{self, IBFabricManager};
-use carbide_ipmi::IPMITool;
-use carbide_nvlink_manager::NvlPartitionMonitor;
-use carbide_nvlink_manager::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
-use carbide_preingestion_manager::PreingestionManager;
-use carbide_redfish::libredfish::RedfishClientPool;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
-use carbide_site_explorer::SiteExplorer;
-use carbide_utils::HostPortPair;
+use nico_firmware::FirmwareDownloader;
+use nico_ib_fabric::IbFabricMonitor;
+use nico_ib_fabric::ib::{self, IBFabricManager};
+use nico_ipmi::IPMITool;
+use nico_nvlink_manager::NvlPartitionMonitor;
+use nico_nvlink_manager::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
+use nico_preingestion_manager::PreingestionManager;
+use nico_redfish::libredfish::RedfishClientPool;
+use nico_redfish::nv_redfish::NvRedfishClientPool;
+use nico_site_explorer::SiteExplorer;
+use nico_utils::HostPortPair;
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialManager, CredentialReader};
+use nico_secrets::certificates::CertificateProvider;
+use nico_secrets::credentials::{CredentialManager, CredentialReader};
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
 use model::attestation::spdm::VerifierImpl;
@@ -61,10 +61,10 @@ use tracing_log::AsLog as _;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
-use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode};
+use crate::cfg::file::{NicoConfig, InitialObjectsConfig, ListenMode};
 use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
-use crate::errors::CarbideError;
+use crate::errors::NicoError;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
@@ -109,8 +109,8 @@ pub fn parse_initial_objects_config(path: &Path) -> eyre::Result<InitialObjectsC
 /// effective configuration, for logging purposes. This is used in error messages
 /// when there is a problem with the configuration, to help the operator
 /// understand which files to look at to fix the problem.
-fn all_configuration_files(carbide_config: &CarbideConfig) -> Vec<&Path> {
-    carbide_config
+fn all_configuration_files(nico_config: &NicoConfig) -> Vec<&Path> {
+    nico_config
         .config_ctx
         .as_ref()
         .into_iter()
@@ -128,34 +128,34 @@ fn pool_source(figment: Option<&Figment>, name: &str) -> String {
         .and_then(|f| f.find_metadata(&format!("pools.{name}")))
         .and_then(|m| m.source.as_ref())
         .map(|source| source.to_string())
-        .unwrap_or_else(|| "carbide-api config".to_string())
+        .unwrap_or_else(|| "nico-api config".to_string())
 }
 
 /// Determines the authoritative set of resource pool definitions to reconcile
 /// against the database at startup, merging `InitialObjectsConfig.pools`
-/// with the legacy `CarbideConfig.pools` source.
+/// with the legacy `NicoConfig.pools` source.
 /// #[allow(clippy::result_large_err)] is used instead of Box
-/// because this function is called once on startup of carbide-api and never again
+/// because this function is called once on startup of nico-api and never again
 #[allow(clippy::result_large_err)]
 fn resolve_initial_pools(
-    carbide_config: &CarbideConfig,
+    nico_config: &NicoConfig,
     initial_objects: Option<&InitialObjectsConfig>,
 ) -> Result<HashMap<String, ResourcePoolDef>, DefineResourcePoolError> {
     let from_initial_objects = initial_objects.and_then(|io| io.pools.as_ref());
-    let from_carbide_config = carbide_config.pools.as_ref();
+    let from_nico_config = nico_config.pools.as_ref();
 
-    match (from_initial_objects, from_carbide_config) {
+    match (from_initial_objects, from_nico_config) {
         // No pools are defined anywhere
         (None, None) => Err(DefineResourcePoolError::InvalidArgument(format!(
             "No resource pools are defined in loaded configuration files: {:?}",
-            all_configuration_files(carbide_config)
+            all_configuration_files(nico_config)
         ))),
         // Pools are defined in InitialObjectsConfig.pools
         (Some(io), None) => Ok(io.clone()),
-        // Pools are defined in CarbideConfig.pools
+        // Pools are defined in NicoConfig.pools
         (None, Some(cc)) => {
             for name in cc.keys() {
-                let source = pool_source(carbide_config.config_ctx.as_ref(), name);
+                let source = pool_source(nico_config.config_ctx.as_ref(), name);
                 tracing::warn!(
                     pool = %name,
                     source = %source,
@@ -164,7 +164,7 @@ fn resolve_initial_pools(
             }
             Ok(cc.clone())
         }
-        // Pools are defined in both CarbideConfig.pools and InitialObjects.pools
+        // Pools are defined in both NicoConfig.pools and InitialObjects.pools
         (Some(io), Some(cc)) => {
             let mut merged = io.clone();
             let mut conflicts: Vec<String> = vec![];
@@ -172,15 +172,15 @@ fn resolve_initial_pools(
 
             for (name, legacy_pool_def) in cc {
                 match merged.get(name) {
-                    // `ResourcePoolDef`'s exist in both CarbideConfig.pools and InitialObjectsConfig.pools but are not the same `ResourcePoolDef`
+                    // `ResourcePoolDef`'s exist in both NicoConfig.pools and InitialObjectsConfig.pools but are not the same `ResourcePoolDef`
                     // This is a conflict and must be resolved by the operator
                     Some(new_def) if new_def != legacy_pool_def => conflicts.push(name.clone()),
-                    // `ResourcePoolDef`'s exist in both CarbideConfig.pools and InitialObjectsConfig.pools and have identical
-                    // `ResourcePoolDef`.  `legacy_names` is the name of the pools defined in CarbideConfig.pools
+                    // `ResourcePoolDef`'s exist in both NicoConfig.pools and InitialObjectsConfig.pools and have identical
+                    // `ResourcePoolDef`.  `legacy_names` is the name of the pools defined in NicoConfig.pools
                     Some(_) => legacy_names.push(name.clone()),
                     None => {
-                        // `ResourcePoolDef` only exists in `CarbideConfig.pools`. We still return the ResourcePoolDef,
-                        // but we also want to alert operator that defining pools in `CarbideConfig.pool` is deprecated.
+                        // `ResourcePoolDef` only exists in `NicoConfig.pools`. We still return the ResourcePoolDef,
+                        // but we also want to alert operator that defining pools in `NicoConfig.pool` is deprecated.
                         legacy_names.push(name.clone());
                         merged.insert(name.clone(), legacy_pool_def.clone());
                     }
@@ -193,7 +193,7 @@ fn resolve_initial_pools(
                     .map(|name| {
                         format!(
                             "`{name}` (in {})",
-                            pool_source(carbide_config.config_ctx.as_ref(), name)
+                            pool_source(nico_config.config_ctx.as_ref(), name)
                         )
                     })
                     .collect();
@@ -204,7 +204,7 @@ fn resolve_initial_pools(
                 )));
             }
             for name in &legacy_names {
-                let source = pool_source(carbide_config.config_ctx.as_ref(), name);
+                let source = pool_source(nico_config.config_ctx.as_ref(), name);
                 tracing::warn!(
                     pool = %name,
                     source = %source,
@@ -217,17 +217,17 @@ fn resolve_initial_pools(
     }
 }
 
-pub fn parse_carbide_config(
+pub fn parse_nico_config(
     config_str: &Path,
     site_config_str: Option<&Path>,
-) -> eyre::Result<Arc<CarbideConfig>> {
+) -> eyre::Result<Arc<NicoConfig>> {
     let mut figment = Figment::new().merge(Toml::file(config_str));
     if let Some(site_config_str) = site_config_str {
         figment = figment.merge(Toml::file(site_config_str));
     }
 
-    let merged_config = figment.merge(Env::prefixed("CARBIDE_API_"));
-    let mut config: CarbideConfig = merged_config
+    let merged_config = figment.merge(Env::prefixed("NICO_API_"));
+    let mut config: NicoConfig = merged_config
         .extract()
         .wrap_err("Failed to load configuration files")?;
 
@@ -241,7 +241,7 @@ pub fn parse_carbide_config(
         tracing::error!("Host firmware configuration has invalid vendor for {label}")
     }
 
-    // If the carbide config does not say whether to allow dynamically changing the bmc_proxy or
+    // If the nico config does not say whether to allow dynamically changing the bmc_proxy or
     // not, the API handler for changing the bmc_proxy setting will reject changes to it for safety
     // reasons (it can be dangerous in production environments.) But if the config already sets
     // bmc_proxy, default to allow_changing_bmc_proxy=true, as we only should be setting bmc_proxy
@@ -252,7 +252,7 @@ pub fn parse_carbide_config(
             || config.site_explorer.override_target_ip.is_some())
     {
         tracing::debug!(
-            "Carbide config contains override for bmc_proxy, allowing dynamic bmc_proxy configuration"
+            "Nico config contains override for bmc_proxy, allowing dynamic bmc_proxy configuration"
         );
         config.site_explorer.allow_changing_bmc_proxy = Some(true);
     }
@@ -304,34 +304,34 @@ pub fn parse_carbide_config(
         .wrap_err("Invalid configuration"));
     }
 
-    tracing::trace!("Carbide config: {:#?}", config.redacted());
+    tracing::trace!("Nico config: {:#?}", config.redacted());
     Ok(Arc::new(config))
 }
 
 pub fn create_ipmi_tool(
     credential_reader: Arc<dyn CredentialReader>,
-    carbide_config: &CarbideConfig,
+    nico_config: &NicoConfig,
     bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
 ) -> Arc<dyn IPMITool> {
-    match carbide_config.dpu_ipmi_tool_impl.as_deref() {
+    match nico_config.dpu_ipmi_tool_impl.as_deref() {
         Some("test") => {
             tracing::info!("Disabling ipmitool");
-            carbide_ipmi::test_support()
+            nico_ipmi::test_support()
         }
         Some("bmc-mock") => {
             tracing::info!("Using HTTP IPMI transport via bmc_proxy");
-            carbide_ipmi::bmc_mock(bmc_proxy, credential_reader)
+            nico_ipmi::bmc_mock(bmc_proxy, credential_reader)
         }
         _ => {
             tracing::info!("Using lanplus IPMI transport (/usr/bin/ipmitool)");
-            carbide_ipmi::tool(credential_reader, carbide_config.dpu_ipmi_reboot_attempts)
+            nico_ipmi::tool(credential_reader, nico_config.dpu_ipmi_reboot_attempts)
         }
     }
 }
 /// Configure and create a postgres connection pool
 ///
 /// This connects to the database to verify settings
-async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Result<PgPool> {
+async fn create_and_connect_postgres_pool(config: &NicoConfig) -> eyre::Result<PgPool> {
     // We need logs to be enabled at least at `INFO` level. Otherwise
     // our global logging filter would reject the logs before they get injected
     // into the `SqlxQueryTracing` layer.
@@ -358,7 +358,7 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
 #[tracing::instrument(skip_all)]
 pub async fn start_api(
     join_set: &mut JoinSet<()>,
-    carbide_config: Arc<CarbideConfig>,
+    nico_config: Arc<NicoConfig>,
     initial_objects: Option<InitialObjectsConfig>,
     meter: Meter,
     dynamic_settings: DynamicSettings,
@@ -371,11 +371,11 @@ pub async fn start_api(
 ) -> eyre::Result<()> {
     let ipmi_tool = create_ipmi_tool(
         credential_manager.clone(),
-        &carbide_config,
+        &nico_config,
         dynamic_settings.bmc_proxy.clone(),
     );
 
-    let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
+    let db_pool = create_and_connect_postgres_pool(&nico_config).await?;
 
     let work_lock_manager_handle = work_lock_manager::start(
         join_set,
@@ -384,13 +384,13 @@ pub async fn start_api(
     )
     .await?;
 
-    let rms_client = match carbide_config.rms.api_url.clone() {
+    let rms_client = match nico_config.rms.api_url.clone() {
         Some(url) if !url.is_empty() => {
             let rms_client_config = librms::client_config::RmsClientConfig::new(
-                carbide_config.rms.root_ca_path.clone(),
-                carbide_config.rms.client_cert.clone(),
-                carbide_config.rms.client_key.clone(),
-                carbide_config.rms.enforce_tls,
+                nico_config.rms.root_ca_path.clone(),
+                nico_config.rms.client_cert.clone(),
+                nico_config.rms.client_key.clone(),
+                nico_config.rms.enforce_tls,
             );
             let rms_api_config = librms::client::RmsApiConfig::new(&url, &rms_client_config);
             let rms_client_pool = librms::RmsClientPool::new(&rms_api_config);
@@ -399,7 +399,7 @@ pub async fn start_api(
         }
         _ => None,
     };
-    let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
+    let ib_config = nico_config.ib_config.clone().unwrap_or_default();
     let fabric_manager_type = match ib_config.enabled {
         true => ib::IBFabricManagerType::Rest,
         false => ib::IBFabricManagerType::Disable,
@@ -407,7 +407,7 @@ pub async fn start_api(
 
     let ib_fabric_ids = match ib_config.enabled {
         false => HashSet::new(),
-        true => carbide_config.ib_fabrics.keys().cloned().collect(),
+        true => nico_config.ib_fabrics.keys().cloned().collect(),
     };
 
     // Note: Normally we want initialize_and_start_controllers to be responsible for populating
@@ -418,13 +418,13 @@ pub async fn start_api(
     //
     // Pool reconciliation specifically must happen before `create_common_pools` runs below, because
     // that call queries `resource_pool` and bails if any mandatory pool is missing or empty.
-    if carbide_config.listen_only {
+    if nico_config.listen_only {
         tracing::info!(
             "Not populating resource pools or route_servers in database, as listen_only=true"
         );
     } else {
         // Determine the authoritative list of resource_pools to seed into the database
-        let resolved_pools = resolve_initial_pools(&carbide_config, initial_objects.as_ref())?;
+        let resolved_pools = resolve_initial_pools(&nico_config, initial_objects.as_ref())?;
         let mut txn = Transaction::begin(&db_pool).await?;
         db::resource_pool::reconcile_pool_defs(&mut txn, &resolved_pools).await?;
 
@@ -437,12 +437,12 @@ pub async fn start_api(
         // buggy -- otherwise).
         //
         // These are of course set with RouteServerSourceType::ConfigFile.
-        let route_servers: Vec<IpAddr> = carbide_config
+        let route_servers: Vec<IpAddr> = nico_config
             .route_servers
             .iter()
             .map(|rs| IpAddr::from_str(rs))
             .collect::<Result<Vec<IpAddr>, _>>()
-            .map_err(CarbideError::AddressParseError)?;
+            .map_err(NicoError::AddressParseError)?;
         db::route_servers::replace(&mut txn, &route_servers, RouteServerSourceType::ConfigFile)
             .await?;
 
@@ -455,7 +455,7 @@ pub async fn start_api(
         credential_manager.clone(),
         ib::IBFabricManagerConfig {
             endpoints: if ib_config.enabled {
-                carbide_config
+                nico_config
                     .ib_fabrics
                     .iter()
                     .map(|(fabric_id, fabric_definition)| {
@@ -478,19 +478,19 @@ pub async fn start_api(
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
     let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipnetwork_vec(
-        carbide_config.site_fabric_prefixes.clone(),
+        nico_config.site_fabric_prefixes.clone(),
     );
 
     let eth_data = ethernet_virtualization::EthVirtData {
-        asn: carbide_config.asn,
-        dhcp_servers: carbide_config.dhcp_servers.clone(),
-        deny_prefixes: carbide_config.deny_prefixes.clone(),
+        asn: nico_config.asn,
+        dhcp_servers: nico_config.dhcp_servers.clone(),
+        deny_prefixes: nico_config.deny_prefixes.clone(),
         site_fabric_prefixes,
     };
 
-    let listen_mode = match &carbide_config.listen_mode {
+    let listen_mode = match &nico_config.listen_mode {
         ListenMode::Tls => {
-            let tls_ref = carbide_config.tls.as_ref().expect("Missing tls config");
+            let tls_ref = nico_config.tls.as_ref().expect("Missing tls config");
 
             let tls_config = Arc::new(listener::ApiTlsConfig {
                 identity_pemfile_path: tls_ref.identity_pemfile_path.clone(),
@@ -505,19 +505,19 @@ pub async fn start_api(
         ListenMode::PlaintextHttp2 => ApiListenMode::PlaintextHttp2,
     };
 
-    let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
+    let bmc_explorer = nico_site_explorer::new_bmc_explorer(
         shared_redfish_pool.clone(),
         shared_nv_redfish_pool,
         ipmi_tool.clone(),
         credential_manager.clone(),
-        carbide_config
+        nico_config
             .site_explorer
             .rotate_switch_nvos_credentials
             .clone(),
-        carbide_config.site_explorer.explore_mode,
+        nico_config.site_explorer.explore_mode,
     );
 
-    let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
+    let nvlink_config = nico_config.nvlink_config.clone().unwrap_or_default();
 
     let nmxm_client_pool =
         libnmxm::NmxmClientPool::builder(nvlink_config.allow_insecure).build()?;
@@ -527,15 +527,15 @@ pub async fn start_api(
 
     // Create DPF SDK and initialize CRs if enabled
     // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
-    let dpf_sdk: Option<Arc<dyn crate::dpf::DpfOperations>> = if carbide_config.dpf.enabled {
+    let dpf_sdk: Option<Arc<dyn crate::dpf::DpfOperations>> = if nico_config.dpf.enabled {
         tracing::info!("Initializing DPF SDK");
-        let repo = carbide_dpf::KubeRepository::new()
+        let repo = nico_dpf::KubeRepository::new()
             .await
             .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
 
-        let provider = crate::dpf::CarbideBmcPasswordProvider::new(credential_manager.clone());
+        let provider = crate::dpf::NicoBmcPasswordProvider::new(credential_manager.clone());
 
-        let mandatory_services = carbide_config.dpf.services.clone();
+        let mandatory_services = nico_config.dpf.services.clone();
         let dpf_mandatory_services = vec![
             crate::dpf_services::dts_service(&mandatory_services.dts),
             crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
@@ -547,16 +547,16 @@ pub async fn start_api(
 
         // This is just temparary code until we make v2 only option. (just 2 weeks)
         // Soon v2 flag will be removed and will become only mode for dpf handling.
-        let init_config = carbide_dpf::InitDpfResourcesConfig {
-            bfb_url: carbide_config.dpf.bfb_url.clone(),
-            flavor_name: carbide_config.dpf.flavor_name.clone(),
-            deployment_name: carbide_config.dpf.deployment_name.clone(),
+        let init_config = nico_dpf::InitDpfResourcesConfig {
+            bfb_url: nico_config.dpf.bfb_url.clone(),
+            flavor_name: nico_config.dpf.flavor_name.clone(),
+            deployment_name: nico_config.dpf.deployment_name.clone(),
             services: dpf_mandatory_services,
         };
 
-        let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
-            .with_labeler(crate::dpf::CarbideDPFLabeler::new(
-                carbide_config.dpf.node_label_key.clone(),
+        let sdk = nico_dpf::DpfSdkBuilder::new(repo, nico_dpf::NAMESPACE, provider)
+            .with_labeler(crate::dpf::NicoDPFLabeler::new(
+                nico_config.dpf.node_label_key.clone(),
             ))
             .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
             .with_join_set(join_set)
@@ -573,7 +573,7 @@ pub async fn start_api(
         None
     };
 
-    let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
+    let component_manager = if let Some(cd_config) = &nico_config.component_manager {
         match component_manager::component_manager::build_component_manager(
             cd_config,
             rms_client.clone(),
@@ -614,7 +614,7 @@ pub async fn start_api(
         eth_data,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
-        runtime_config: carbide_config.clone(),
+        runtime_config: nico_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
         rms_client: rms_client.clone(),
         nmxm_pool: shared_nmxm_pool,
@@ -626,7 +626,7 @@ pub async fn start_api(
         bms_client: std::sync::OnceLock::new(),
     });
 
-    if carbide_config.listen_only {
+    if nico_config.listen_only {
         tracing::info!("Not starting background services, as listen_only=true");
     } else {
         initialize_and_start_controllers(
@@ -643,8 +643,8 @@ pub async fn start_api(
         join_set,
         api_service,
         listen_mode,
-        carbide_config.listen,
-        &carbide_config.auth,
+        nico_config.listen,
+        &nico_config.auth,
         meter,
         cancel_token.clone(),
     )
@@ -676,7 +676,7 @@ pub async fn initialize_and_start_controllers(
     cancel_token: CancellationToken,
 ) -> eyre::Result<()> {
     let Api {
-        runtime_config: carbide_config,
+        runtime_config: nico_config,
         endpoint_explorer: bmc_explorer,
         common_pools,
         database_connection: db_pool,
@@ -689,27 +689,27 @@ pub async fn initialize_and_start_controllers(
         credential_manager,
         ..
     } = api_service.as_ref();
-    // As soon as we get the database up, observe this version of forge so that we know when it was
+    // As soon as we get the database up, observe this version of nico so that we know when it was
     // first deployed
     {
         let mut txn = Transaction::begin(db_pool).await?;
 
-        db::carbide_version::observe_as_latest_version(
+        db::nico_version::observe_as_latest_version(
             &mut txn,
-            carbide_version::v!(build_version),
+            nico_version::v!(build_version),
         )
         .await?;
 
         txn.commit().await?;
     }
 
-    if let Some(domain_name) = &carbide_config.initial_domain_name
+    if let Some(domain_name) = &nico_config.initial_domain_name
         && db_init::create_initial_domain(db_pool.clone(), domain_name).await?
     {
         tracing::info!("Created initial domain {domain_name}");
     }
 
-    const EXPECTED_MACHINE_FILE_PATH: &str = "/etc/forge/carbide-api/site/expected_machines.json";
+    const EXPECTED_MACHINE_FILE_PATH: &str = "/etc/nico/nico-api/site/expected_machines.json";
     if let Ok(file_str) = tokio::fs::read_to_string(EXPECTED_MACHINE_FILE_PATH).await {
         let expected_machines = serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str()).inspect_err(|err| {
                 tracing::error!("expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing: {err}.");
@@ -728,19 +728,19 @@ pub async fn initialize_and_start_controllers(
         tracing::info!("No expected machine file found, continuing startup.");
     }
 
-    let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
+    let ib_config = nico_config.ib_config.clone().unwrap_or_default();
 
     if ib_config.enabled {
         // These are some sanity checks until full multi-fabric support is available
         // Right now there is only one fabric supported, and it needs to be called `default`
-        if carbide_config.ib_fabrics.len() > 1 {
+        if nico_config.ib_fabrics.len() > 1 {
             return Err(eyre::eyre!(
                 "Only a single IB fabric definition is allowed at the moment"
             ));
         }
 
-        if !carbide_config.ib_fabrics.is_empty() {
-            let fabric_id = carbide_config.ib_fabrics.iter().next().unwrap().0;
+        if !nico_config.ib_fabrics.is_empty() {
+            let fabric_id = nico_config.ib_fabrics.iter().next().unwrap().0;
             if fabric_id != DEFAULT_IB_FABRIC_NAME {
                 return Err(eyre::eyre!(
                     "ib_fabrics contains an entry \"{fabric_id}\", but only \"{DEFAULT_IB_FABRIC_NAME}\" is supported at the moment"
@@ -751,7 +751,7 @@ pub async fn initialize_and_start_controllers(
         // Populate IB specific resource pools
         let mut txn = Transaction::begin(db_pool).await?;
 
-        for (fabric_id, x) in carbide_config.ib_fabrics.iter() {
+        for (fabric_id, x) in nico_config.ib_fabrics.iter() {
             db::resource_pool::define(
                 &mut txn,
                 &model::resource_pool::common::ib_pkey_pool_name(fabric_id),
@@ -775,11 +775,11 @@ pub async fn initialize_and_start_controllers(
         resource_pool_stats: common_pools.pool_stats.clone(),
     });
 
-    if let Some(networks) = carbide_config.networks.as_ref() {
+    if let Some(networks) = nico_config.networks.as_ref() {
         db_init::create_initial_networks(&api_service, db_pool, networks).await?;
     }
 
-    if let Some(fnn_config) = carbide_config.fnn.as_ref()
+    if let Some(fnn_config) = nico_config.fnn.as_ref()
         && let Some(admin) = fnn_config.admin_vpc.as_ref()
         && admin.enabled
     {
@@ -790,7 +790,7 @@ pub async fn initialize_and_start_controllers(
 
     db_init::store_initial_dpu_agent_upgrade_policy(
         db_pool,
-        carbide_config.initial_dpu_agent_upgrade_policy,
+        nico_config.initial_dpu_agent_upgrade_policy,
     )
     .await?;
 
@@ -799,16 +799,16 @@ pub async fn initialize_and_start_controllers(
     }
 
     let downloader = FirmwareDownloader::new();
-    let upload_limiter = Arc::new(Semaphore::new(carbide_config.firmware_global.max_uploads));
+    let upload_limiter = Arc::new(Semaphore::new(nico_config.firmware_global.max_uploads));
 
     let mut dpa_info: Option<Arc<DpaInfo>> = None;
 
-    if carbide_config.is_dpa_enabled() {
+    if nico_config.is_dpa_enabled() {
         let mqtt_client =
             Some(start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?);
-        let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
+        let subnet_ip = nico_config.get_dpa_subnet_ip()?;
 
-        let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
+        let subnet_mask = nico_config.get_dpa_subnet_mask()?;
 
         let info: DpaInfo = DpaInfo {
             subnet_ip,
@@ -823,7 +823,7 @@ pub async fn initialize_and_start_controllers(
     let state_change_emitter = {
         let mut emitter_builder = StateChangeEmitterBuilder::default();
 
-        if let Some(ref config) = carbide_config.dsx_exchange_event_bus
+        if let Some(ref config) = nico_config.dsx_exchange_event_bus
             && config.enabled
         {
             let options = {
@@ -832,9 +832,9 @@ pub async fn initialize_and_start_controllers(
 
                 if let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
                     &config.auth,
-                    forge_secrets::credentials::CredentialKey::MqttAuth {
+                    nico_secrets::credentials::CredentialKey::MqttAuth {
                         credential_type:
-                            forge_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
+                            nico_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
                     },
                     api_service.credential_manager.clone(),
                 )
@@ -849,7 +849,7 @@ pub async fn initialize_and_start_controllers(
             let client = mqttea::MqtteaClient::new(
                 &config.mqtt_endpoint,
                 config.mqtt_broker_port,
-                "carbide-dsx-exchange-event-bus",
+                "nico-dsx-exchange-event-bus",
                 Some(options),
             )
             .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))
@@ -901,20 +901,20 @@ pub async fn initialize_and_start_controllers(
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),
         ipmi_tool: ipmi_tool.clone(),
-        site_config: carbide_config.clone(),
+        site_config: nico_config.clone(),
         dpa_info,
         rms_client: rms_client.clone(),
-        switch_system_image_rms_client: carbide_config
+        switch_system_image_rms_client: nico_config
             .rms
             .api_url
             .as_deref()
             .filter(|url| !url.is_empty())
             .map(|url| {
                 let rms_client_config = librms::client_config::RmsClientConfig::new(
-                    carbide_config.rms.root_ca_path.clone(),
-                    carbide_config.rms.client_cert.clone(),
-                    carbide_config.rms.client_key.clone(),
-                    carbide_config.rms.enforce_tls,
+                    nico_config.rms.root_ca_path.clone(),
+                    nico_config.rms.client_cert.clone(),
+                    nico_config.rms.client_key.clone(),
+                    nico_config.rms.enforce_tls,
                 );
                 let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
                 Arc::new(librms::RackManagerApi::new(&rms_api_config))
@@ -925,7 +925,7 @@ pub async fn initialize_and_start_controllers(
 
     // Use the hostname as cluster-wide state controller ID
     // The expectation here is that either the host only runs a single
-    // carbide instance natively, or - if the multiple instances run as containers
+    // nico instance natively, or - if the multiple instances run as containers
     // - every container gets its own hostname (k8s pod name)
     let state_controller_id = hostname::get()
         .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string().into())
@@ -936,65 +936,65 @@ pub async fn initialize_and_start_controllers(
     // If they are assigned to _ then the destructor will be immediately called
     StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_machines", meter.clone())
+        .meter("nico_machines", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
-        .iteration_config((&carbide_config.machine_state_controller.controller).into())
+        .iteration_config((&nico_config.machine_state_controller.controller).into())
         .state_handler(Arc::new(
             MachineStateHandlerBuilder::builder()
-                .dpu_up_threshold(carbide_config.machine_state_controller.dpu_up_threshold)
+                .dpu_up_threshold(nico_config.machine_state_controller.dpu_up_threshold)
                 .dpu_nic_firmware_reprovision_update_enabled(
-                    carbide_config
+                    nico_config
                         .dpu_config
                         .dpu_nic_firmware_reprovision_update_enabled,
                 )
-                .dpu_enable_secure_boot(carbide_config.dpu_config.dpu_enable_secure_boot)
-                .dpu_wait_time(carbide_config.machine_state_controller.dpu_wait_time)
-                .power_down_wait(carbide_config.machine_state_controller.power_down_wait)
-                .failure_retry_time(carbide_config.machine_state_controller.failure_retry_time)
+                .dpu_enable_secure_boot(nico_config.dpu_config.dpu_enable_secure_boot)
+                .dpu_wait_time(nico_config.machine_state_controller.dpu_wait_time)
+                .power_down_wait(nico_config.machine_state_controller.power_down_wait)
+                .failure_retry_time(nico_config.machine_state_controller.failure_retry_time)
                 .scout_reporting_timeout(
-                    carbide_config
+                    nico_config
                         .machine_state_controller
                         .scout_reporting_timeout,
                 )
-                .uefi_boot_wait(carbide_config.machine_state_controller.uefi_boot_wait)
-                .hardware_models(carbide_config.get_firmware_config())
+                .uefi_boot_wait(nico_config.machine_state_controller.uefi_boot_wait)
+                .hardware_models(nico_config.get_firmware_config())
                 .firmware_downloader(&downloader)
-                .attestation_enabled(carbide_config.attestation_enabled)
+                .attestation_enabled(nico_config.attestation_enabled)
                 .upload_limiter(upload_limiter.clone())
-                .machine_validation_config(carbide_config.machine_validation_config.clone())
+                .machine_validation_config(nico_config.machine_validation_config.clone())
                 .common_pools(common_pools.clone())
-                .bom_validation(carbide_config.bom_validation)
-                .no_firmware_update_reset_retries(carbide_config.firmware_global.no_reset_retries)
+                .bom_validation(nico_config.bom_validation)
+                .no_firmware_update_reset_retries(nico_config.firmware_global.no_reset_retries)
                 .instance_autoreboot_period(
-                    carbide_config
+                    nico_config
                         .machine_updater
                         .instance_autoreboot_period
                         .clone(),
                 )
                 .credential_reader(api_service.credential_manager.clone())
-                .power_options_config(carbide_config.power_manager_options.clone().into())
+                .power_options_config(nico_config.power_manager_options.clone().into())
                 .dpf_sdk(dpf_sdk.clone())
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {
             host_health: HostHealthConfig {
-                hardware_health_reports: carbide_config.host_health.hardware_health_reports,
-                dpu_agent_version_staleness_threshold: carbide_config
+                hardware_health_reports: nico_config.host_health.hardware_health_reports,
+                dpu_agent_version_staleness_threshold: nico_config
                     .host_health
                     .dpu_agent_version_staleness_threshold,
-                prevent_allocations_on_stale_dpu_agent_version: carbide_config
+                prevent_allocations_on_stale_dpu_agent_version: nico_config
                     .host_health
                     .prevent_allocations_on_stale_dpu_agent_version,
-                prevent_allocations_on_scout_heartbeat_timeout: carbide_config
+                prevent_allocations_on_scout_heartbeat_timeout: nico_config
                     .host_health
                     .prevent_allocations_on_scout_heartbeat_timeout,
-                suppress_external_alerting_on_scout_heartbeat_timeout: carbide_config
+                suppress_external_alerting_on_scout_heartbeat_timeout: nico_config
                     .host_health
                     .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
             sla_config: model::machine::slas::MachineSlaConfig::new(
-                carbide_config.machine_state_controller.failure_retry_time,
+                nico_config.machine_state_controller.failure_retry_time,
             ),
         }))
         .state_change_emitter(state_change_emitter)
@@ -1006,13 +1006,13 @@ pub async fn initialize_and_start_controllers(
 
     let ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_network_segments", meter.clone())
+        .meter("nico_network_segments", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone());
     ns_builder
-        .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
+        .iteration_config((&nico_config.network_segment_state_controller.controller).into())
         .state_handler(Arc::new(NetworkSegmentStateHandler::new(
-            carbide_config
+            nico_config
                 .network_segment_state_controller
                 .network_segment_drain_time,
             sc_pool_vlan_id,
@@ -1021,21 +1021,21 @@ pub async fn initialize_and_start_controllers(
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build NetworkSegmentController");
 
-    if carbide_config.is_dpa_enabled() {
+    if nico_config.is_dpa_enabled() {
         tracing::info!("Starting DpaInterfaceStateController as dpa is enabled");
         StateController::<DpaInterfaceStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_dpa_interfaces", meter.clone())
+            .meter("nico_dpa_interfaces", meter.clone())
             .processor_id(state_controller_id.clone())
             .services(handler_services.clone())
-            .iteration_config((&carbide_config.dpa_interface_state_controller.controller).into())
+            .iteration_config((&nico_config.dpa_interface_state_controller.controller).into())
             .state_handler(Arc::new(DpaInterfaceStateHandler::new()))
             .build_and_spawn(join_set, cancel_token.clone())
             .expect("Unable to build DpaInterfaceStateController");
     }
 
-    if carbide_config.spdm.enabled {
-        let Some(nras_config) = carbide_config.spdm.nras_config.clone() else {
+    if nico_config.spdm.enabled {
+        let Some(nras_config) = nico_config.spdm.nras_config.clone() else {
             return Err(eyre::eyre!(
                 "SPDm attestation is enabled but NRAS Config is missing!!"
             ));
@@ -1045,10 +1045,10 @@ pub async fn initialize_and_start_controllers(
 
         StateController::<SpdmStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_spdm_attestation", meter.clone())
+            .meter("nico_spdm_attestation", meter.clone())
             .processor_id(state_controller_id.clone())
             .services(handler_services.clone())
-            .iteration_config((&carbide_config.spdm_state_controller.controller).into())
+            .iteration_config((&nico_config.spdm_state_controller.controller).into())
             .state_handler(Arc::new(SpdmAttestationStateHandler::new(
                 verifier,
                 nras_config,
@@ -1059,27 +1059,27 @@ pub async fn initialize_and_start_controllers(
 
     StateController::<IBPartitionStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_ib_partitions", meter.clone())
+        .meter("nico_ib_partitions", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
-        .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
+        .iteration_config((&nico_config.ib_partition_state_controller.controller).into())
         .state_handler(Arc::new(IBPartitionStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build IBPartitionStateController");
 
     StateController::<PowerShelfStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_power_shelves", meter.clone())
+        .meter("nico_power_shelves", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
-        .iteration_config((&carbide_config.power_shelf_state_controller.controller).into())
+        .iteration_config((&nico_config.power_shelf_state_controller.controller).into())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build PowerShelfStateController");
 
     StateController::<RackStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_racks", meter.clone())
+        .meter("nico_racks", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(RackStateHandler::default()))
@@ -1088,10 +1088,10 @@ pub async fn initialize_and_start_controllers(
 
     StateController::<SwitchStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_switches", meter.clone())
+        .meter("nico_switches", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
-        .iteration_config((&carbide_config.switch_state_controller.controller).into())
+        .iteration_config((&nico_config.switch_state_controller.controller).into())
         .state_handler(Arc::new(SwitchStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build SwitchStateController");
@@ -1099,13 +1099,13 @@ pub async fn initialize_and_start_controllers(
     IbFabricMonitor::new(
         db_pool.clone(),
         if ib_config.enabled {
-            carbide_config.ib_fabrics.clone()
+            nico_config.ib_fabrics.clone()
         } else {
             Default::default()
         },
         meter.clone(),
         ib_fabric_manager.clone(),
-        carbide_config.host_health,
+        nico_config.host_health,
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;
@@ -1114,18 +1114,18 @@ pub async fn initialize_and_start_controllers(
         db_pool.clone(),
         shared_nmxm_pool.clone(),
         meter.clone(),
-        carbide_config.nvlink_config.clone().unwrap_or_default(),
-        carbide_config.host_health,
+        nico_config.nvlink_config.clone().unwrap_or_default(),
+        nico_config.host_health,
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;
 
     SiteExplorer::new(
         db_pool.clone(),
-        carbide_config.site_explorer.clone(),
+        nico_config.site_explorer.clone(),
         meter.clone(),
         bmc_explorer.clone(),
-        Arc::new(carbide_config.get_firmware_config()),
+        Arc::new(nico_config.get_firmware_config()),
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_client.clone(),
@@ -1135,7 +1135,7 @@ pub async fn initialize_and_start_controllers(
 
     MachineUpdateManager::new(
         db_pool.clone(),
-        carbide_config.clone(),
+        nico_config.clone(),
         meter.clone(),
         work_lock_manager_handle.clone(),
     )
@@ -1143,7 +1143,7 @@ pub async fn initialize_and_start_controllers(
 
     PreingestionManager::new(
         db_pool.clone(),
-        carbide_config.preingestion_manager(),
+        nico_config.preingestion_manager(),
         shared_redfish_pool.clone(),
         meter.clone(),
         Some(downloader.clone()),
@@ -1155,7 +1155,7 @@ pub async fn initialize_and_start_controllers(
 
     MeasuredBootMetricsCollector::new(
         db_pool.clone(),
-        carbide_config.measured_boot_collector.clone(),
+        nico_config.measured_boot_collector.clone(),
         meter.clone(),
     )
     .start(join_set, cancel_token.clone())?;
@@ -1165,14 +1165,14 @@ pub async fn initialize_and_start_controllers(
 
     crate::machine_validation::MachineValidationManager::new(
         db_pool.clone(),
-        carbide_config.machine_validation_config.clone(),
+        nico_config.machine_validation_config.clone(),
         meter.clone(),
     )
     .start(join_set, cancel_token.clone())?;
 
     apply_config_on_startup(
         &api_service,
-        &carbide_config.machine_validation_config.clone(),
+        &nico_config.machine_validation_config.clone(),
     )
     .await?;
 
@@ -1189,13 +1189,13 @@ mod tests {
     use model::resource_pool::define::ResourcePoolDef;
 
     use super::resolve_initial_pools;
-    use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
+    use crate::cfg::file::{NicoConfig, InitialObjectsConfig};
 
-    // Builds a `CarbideConfig` from the smallest valid TOML and overrides
+    // Builds a `NicoConfig` from the smallest valid TOML and overrides
     // the `pools` field. `resolve_initial_pools` only reads `.pools`, so
     // the rest of the config can be defaulted.
-    fn carbide_with_pools(pools: Option<HashMap<String, ResourcePoolDef>>) -> CarbideConfig {
-        let mut cfg: CarbideConfig = Figment::new()
+    fn nico_with_pools(pools: Option<HashMap<String, ResourcePoolDef>>) -> NicoConfig {
+        let mut cfg: NicoConfig = Figment::new()
             .merge(Toml::string(
                 r#"
                     database_url = "postgres://test"
@@ -1204,7 +1204,7 @@ mod tests {
                 "#,
             ))
             .extract()
-            .expect("minimal CarbideConfig parses");
+            .expect("minimal NicoConfig parses");
         cfg.pools = pools;
         cfg
     }
@@ -1234,7 +1234,7 @@ mod tests {
     // neither source declares pools — operator misconfiguration.
     #[test]
     fn no_sources_errors() {
-        let cfg = carbide_with_pools(None);
+        let cfg = nico_with_pools(None);
         let err =
             resolve_initial_pools(&cfg, None).expect_err("missing pools must surface as an error");
         assert!(
@@ -1246,7 +1246,7 @@ mod tests {
     // only `InitialObjectsConfig.pools` declares pools
     #[test]
     fn initial_objects_only_succeeds() {
-        let cfg = carbide_with_pools(None);
+        let cfg = nico_with_pools(None);
         let io = initial_objects(&[("lo-ip", ipv4_pool("10.0.0.0/24"))]);
 
         let resolved =
@@ -1256,11 +1256,11 @@ mod tests {
         assert_eq!(resolved.get("lo-ip"), Some(&ipv4_pool("10.0.0.0/24")));
     }
 
-    // only legacy `CarbideConfig.pools` declares pools — the
+    // only legacy `NicoConfig.pools` declares pools — the
     // Returns the legacy map; emits a deprecation warning
     #[test]
     fn legacy_only_returns_legacy_pools() {
-        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
+        let cfg = nico_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
 
         let resolved = resolve_initial_pools(&cfg, None).expect("legacy-only must succeed");
 
@@ -1272,7 +1272,7 @@ mod tests {
     // Resolver returns the union; emits a deprecation warning naming the still-legacy entries.
     #[test]
     fn disjoint_union_returns_all_pools() {
-        let cfg = carbide_with_pools(Some(pool_map(&[("legacy-only", ipv4_pool("10.0.1.0/24"))])));
+        let cfg = nico_with_pools(Some(pool_map(&[("legacy-only", ipv4_pool("10.0.1.0/24"))])));
         let io = initial_objects(&[("new-only", ipv4_pool("10.0.2.0/24"))]);
 
         let resolved = resolve_initial_pools(&cfg, Some(&io)).expect("disjoint union must succeed");
@@ -1287,7 +1287,7 @@ mod tests {
     #[test]
     fn overlap_identical_succeeds() {
         let pool = ipv4_pool("10.0.0.0/24");
-        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", pool.clone())])));
+        let cfg = nico_with_pools(Some(pool_map(&[("lo-ip", pool.clone())])));
         let io = initial_objects(&[("lo-ip", pool.clone())]);
 
         let resolved = resolve_initial_pools(&cfg, Some(&io)).expect("identical defs must succeed");
@@ -1300,7 +1300,7 @@ mod tests {
     // Resolver must fail loudly so the bad state is fixed before reconcile runs.
     #[test]
     fn overlap_conflict_errors() {
-        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
+        let cfg = nico_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
         let io = initial_objects(&[("lo-ip", ipv4_pool("10.0.0.0/16"))]);
 
         let err = resolve_initial_pools(&cfg, Some(&io)).expect_err("conflicting defs must error");
@@ -1315,7 +1315,7 @@ mod tests {
     // bad names so the operator can fixe them
     #[test]
     fn collects_all_conflict_names() {
-        let cfg = carbide_with_pools(Some(pool_map(&[
+        let cfg = nico_with_pools(Some(pool_map(&[
             ("alpha", ipv4_pool("10.0.0.0/24")),
             ("beta", ipv4_pool("10.0.1.0/24")),
         ])));

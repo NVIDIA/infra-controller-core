@@ -21,10 +21,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use rpc::forge;
-use rpc::forge_api_client::ForgeApiClient;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use rpc::nico;
+use rpc::nico_api_client::NicoApiClient;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -71,12 +71,12 @@ pub enum SpawnError {
 
 /// Get the address and auth details to use for a connection to a given machine or instance ID.
 ///
-/// This information is normally gotten by calling GetBMCMetadData on carbide-api, but it can
+/// This information is normally gotten by calling GetBMCMetadData on nico-api, but it can
 /// also obey overridden information from ssh-console's config.
 pub async fn lookup(
     machine_or_instance_id: &str,
     config: &Config,
-    forge_api_client: &ForgeApiClient,
+    nico_api_client: &NicoApiClient,
 ) -> Result<ConnectionDetails, LookupError> {
     if let Some(override_bmc) = config.override_bmcs.as_ref().and_then(|override_bmcs| {
         override_bmcs
@@ -122,8 +122,8 @@ pub async fn lookup(
     let machine_id: MachineId = if let Ok(id) = machine_or_instance_id.parse() {
         id
     } else if let Ok(instance_id) = InstanceId::from_str(machine_or_instance_id) {
-        forge_api_client
-            .find_instances_by_ids(forge::InstancesByIdsRequest {
+        nico_api_client
+            .find_instances_by_ids(nico::InstancesByIdsRequest {
                 instance_ids: vec![instance_id],
             })
             .await
@@ -143,7 +143,7 @@ pub async fn lookup(
         });
     };
 
-    let forge::BmcMetaDataGetResponse {
+    let nico::BmcMetaDataGetResponse {
         ip,
         user,
         password,
@@ -152,11 +152,11 @@ pub async fn lookup(
         ssh_port,
         ipmi_port,
         vendor,
-    } = forge_api_client
-        .get_bmc_meta_data(forge::BmcMetaDataGetRequest {
+    } = nico_api_client
+        .get_bmc_meta_data(nico::BmcMetaDataGetRequest {
             machine_id: Some(machine_id),
             role: 0,
-            request_type: forge::BmcRequestType::Ipmi.into(),
+            request_type: nico::BmcRequestType::Ipmi.into(),
             bmc_endpoint_request: None,
         })
         .await
@@ -246,7 +246,7 @@ pub enum LookupError {
         machine_id: MachineId,
         error: BmcVendorDetectionError,
     },
-    #[error("Error calling forge.GetBmcMetaData for {machine_id}: {tonic_status}")]
+    #[error("Error calling nico.GetBmcMetaData for {machine_id}: {tonic_status}")]
     BmcMetaDataLookup {
         machine_id: String,
         tonic_status: tonic::Status,

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! Health status updater that processes messages and updates the Carbide API.
+//! Health status updater that processes messages and updates the Nico API.
 
 use std::sync::Arc;
 

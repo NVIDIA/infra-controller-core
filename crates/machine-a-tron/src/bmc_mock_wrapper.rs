@@ -68,7 +68,7 @@ impl BmcMockWrapper {
         address: SocketAddr,
         add_ip_alias: bool,
     ) -> Result<BmcMockWrapperHandle, MachineStateError> {
-        let root_ca_path = self.app_context.forge_client_config.root_ca_path.as_str();
+        let root_ca_path = self.app_context.nico_client_config.root_ca_path.as_str();
         let certs_dir = self
             .app_context
             .bmc_mock_certs_dir

@@ -23,8 +23,8 @@
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
-    use carbide_uuid::measured_boot::TrustedMachineId;
+    use nico_uuid::machine::MachineId;
+    use nico_uuid::measured_boot::TrustedMachineId;
     use measured_boot::pcr::PcrRegisterValue;
     use measured_boot::records::MeasurementApprovedMachineRecord;
     use model::machine::{CURRENT_STATE_MODEL_VERSION, ManagedHostState};

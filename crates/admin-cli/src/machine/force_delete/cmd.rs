@@ -18,14 +18,14 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::AdminForceDeleteMachineRequest;
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::AdminForceDeleteMachineRequest;
+use nico_uuid::machine::MachineId;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn force_delete(mut query: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn force_delete(mut query: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     const RETRY_TIME: Duration = Duration::from_secs(5);
     const MAX_WAIT_TIME: Duration = Duration::from_secs(60 * 20);
 
@@ -40,7 +40,7 @@ pub async fn force_delete(mut query: Args, api_client: &ApiClient) -> CarbideCli
             .is_ok_and(|i| !i.instances.is_empty())
         && !query.allow_delete_with_instance
     {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
                 "Machine has an associated instance, use --allow-delete-with-instance to acknowledge that this machine should be deleted with an instance allocated".to_string(),
             ));
     }
@@ -73,7 +73,7 @@ pub async fn force_delete(mut query: Args, api_client: &ApiClient) -> CarbideCli
         }
 
         if start.elapsed() > MAX_WAIT_TIME {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "Unable to force delete machine after {}s. Exiting",
                 MAX_WAIT_TIME.as_secs()
             )));

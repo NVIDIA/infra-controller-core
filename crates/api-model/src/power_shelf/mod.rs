@@ -18,9 +18,9 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, LifecycleStatus};
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
+use ::rpc::nico::{self as rpc, LifecycleStatus};
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
@@ -264,7 +264,7 @@ impl PowerShelf {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum PowerShelfControllerState {
-    /// The PowerShelf is created in Carbide, waiting for initialization.
+    /// The PowerShelf is created in Nico, waiting for initialization.
     Initializing,
     /// The PowerShelf is fetching data.
     FetchingData,

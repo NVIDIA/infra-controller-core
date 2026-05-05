@@ -16,8 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::AssociateMachinesWithInstanceTypeRequest;
+use rpc::admin_cli::{NicoCliError, NicoCliResult};
+use rpc::nico::AssociateMachinesWithInstanceTypeRequest;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -28,11 +28,11 @@ pub struct Args {
 }
 
 impl TryFrom<Args> for AssociateMachinesWithInstanceTypeRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
 
-    fn try_from(args: Args) -> CarbideCliResult<Self> {
+    fn try_from(args: Args) -> NicoCliResult<Self> {
         if args.machine_ids.is_empty() {
-            return Err(CarbideCliError::GenericError(
+            return Err(NicoCliError::GenericError(
                 "Machine ids can not be empty.".to_string(),
             ));
         }

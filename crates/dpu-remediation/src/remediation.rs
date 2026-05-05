@@ -21,14 +21,14 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::machine::MachineId;
 use rand::Rng;
 use rpc::Metadata;
-use rpc::forge::{
+use rpc::nico::{
     GetNextRemediationForMachineRequest, RemediationApplicationStatus, RemediationAppliedRequest,
 };
-use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::nico_tls_client::NicoClientConfig;
 
 const MIN_INITIAL_DELAY_TIME_SECS: u64 = 48; // 80% of 60
 const MAX_INITIAL_DELAY_TIME_SECS: u64 = 72; // 120% of 60
@@ -48,9 +48,9 @@ impl MachineInfo {
     }
     pub fn get_envs(&self, status_path: &Path) -> HashMap<String, String> {
         HashMap::from([
-            ("FORGE_MACHINE_ID".to_string(), self.machine_id.to_string()),
+            ("NICO_MACHINE_ID".to_string(), self.machine_id.to_string()),
             (
-                "FORGE_SCRIPT_JSON_STATUS_PATH".to_string(),
+                "NICO_SCRIPT_JSON_STATUS_PATH".to_string(),
                 status_path.display().to_string(),
             ),
         ])
@@ -58,20 +58,20 @@ impl MachineInfo {
 }
 
 pub struct RemediationExecutor {
-    forge_api_server: String,
-    forge_client_config: Arc<ForgeClientConfig>,
+    nico_api_server: String,
+    nico_client_config: Arc<NicoClientConfig>,
     machine_info: MachineInfo,
 }
 
 impl RemediationExecutor {
     pub fn new(
-        forge_api_server: String,
-        forge_client_config: Arc<ForgeClientConfig>,
+        nico_api_server: String,
+        nico_client_config: Arc<NicoClientConfig>,
         machine_info: MachineInfo,
     ) -> Self {
         Self {
-            forge_api_server,
-            forge_client_config,
+            nico_api_server,
+            nico_client_config,
             machine_info,
         }
     }
@@ -80,7 +80,7 @@ impl RemediationExecutor {
         &self,
         remediation_id: RemediationId,
         script: String,
-        mut client: rpc::forge_tls_client::ForgeClientT,
+        mut client: rpc::nico_tls_client::NicoClientT,
     ) -> Result<(), Box<dyn Error>> {
         // setup tmp dir with new random UUID
         let tmp_dir_location = format!("/tmp/remediations/{}", uuid::Uuid::new_v4());
@@ -159,7 +159,7 @@ impl RemediationExecutor {
         } else {
             let labels = results
                 .into_iter()
-                .map(|(k, v)| rpc::forge::Label {
+                .map(|(k, v)| rpc::nico::Label {
                     key: k,
                     value: Some(v),
                 })
@@ -194,9 +194,9 @@ impl RemediationExecutor {
 
         // setup log rotation for tmpdir so we don't fill the disk
         loop {
-            match forge_dpu_agent_utils::utils::create_forge_client(
-                self.forge_api_server.as_str(),
-                &self.forge_client_config,
+            match nico_dpu_agent_utils::utils::create_nico_client(
+                self.nico_api_server.as_str(),
+                &self.nico_client_config,
             )
             .await
             {
@@ -253,7 +253,7 @@ impl RemediationExecutor {
                 }
                 Err(client_creation_error) => {
                     tracing::error!(
-                        "Remediation executor unable to create forge client this loop, will retry next loop, error was: {:#?}",
+                        "Remediation executor unable to create nico client this loop, will retry next loop, error was: {:#?}",
                         client_creation_error
                     );
                 }

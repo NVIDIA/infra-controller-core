@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::dpu_remediation::AppliedRemediationIdQueryType;
 use model::dpu_remediation::{
     ApproveRemediation, DisableRemediation, EnableRemediation, NewRemediation, RevokeRemediation,
@@ -23,13 +23,13 @@ use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::auth;
-use crate::errors::CarbideError;
+use crate::errors::NicoError;
 
 /// all of the requests that modify a remediation _require_ an external_user_name from a client cert.
 /// (even if that particular request doesn't actually persist the name, it's always at least logged)
 /// this is how we enforce that an actual human is doing this with their own certificates, rather than
 /// "something in the ether".  We do this so that we can always audit who did what to an env.
-pub fn external_user_name<T>(request: &Request<T>) -> Result<String, CarbideError> {
+pub fn external_user_name<T>(request: &Request<T>) -> Result<String, NicoError> {
     if let Some(external_user_name) = request
         .extensions()
         .get::<auth::AuthContext>()
@@ -39,7 +39,7 @@ pub fn external_user_name<T>(request: &Request<T>) -> Result<String, CarbideErro
         tracing::info!("remediation_rpc_name_from_cert: {}", external_user_name);
         Ok(external_user_name)
     } else {
-        Err(CarbideError::ClientCertificateMissingInformation(
+        Err(NicoError::ClientCertificateMissingInformation(
             "Client certificate is missing external user name.".to_string(),
         ))
     }
@@ -172,13 +172,13 @@ pub(crate) async fn find_remediations_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if remediation_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if remediation_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -209,14 +209,14 @@ pub(crate) async fn find_applied_remediation_ids(
     let id_query_args = match (request.remediation_id, request.dpu_machine_id) {
         (Some(_remediation_id), Some(_machine_id)) => {
             //illegal, must provide exactly one
-            Err(CarbideError::InvalidArgument(
+            Err(NicoError::InvalidArgument(
                 "cannot provide both remediation id and machine id, exactly one argument required"
                     .to_string(),
             ))
         }
         (None, None) => {
             //illegal, must provide exactly one
-            Err(CarbideError::InvalidArgument(
+            Err(NicoError::InvalidArgument(
                 "must provide either remediation id or machine id, exactly one argument required"
                     .to_string(),
             ))
@@ -251,10 +251,10 @@ pub(crate) async fn find_applied_remediations(
 
     let remediation_id = request
         .remediation_id
-        .ok_or(CarbideError::MissingArgument("remediation id"))?;
+        .ok_or(NicoError::MissingArgument("remediation id"))?;
     let machine_id = request
         .dpu_machine_id
-        .ok_or(CarbideError::MissingArgument("dpu machine id"))?;
+        .ok_or(NicoError::MissingArgument("dpu machine id"))?;
 
     let applied_remediations =
         db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
@@ -286,7 +286,7 @@ pub(crate) async fn get_next_remediation_for_machine(
     let request = request.into_inner();
     let machine_id = request
         .dpu_machine_id
-        .ok_or(CarbideError::MissingArgument("machine id"))?;
+        .ok_or(NicoError::MissingArgument("machine id"))?;
 
     let remediation_to_apply =
         db::dpu_remediation::find_next_remediation_for_machine(&mut txn, machine_id).await?;
@@ -314,13 +314,13 @@ pub(crate) async fn remediation_applied(
     let request = request.into_inner();
     let remediation_id = request
         .remediation_id
-        .ok_or(CarbideError::MissingArgument("remediation id"))?;
+        .ok_or(NicoError::MissingArgument("remediation id"))?;
     let machine_id = request
         .dpu_machine_id
-        .ok_or(CarbideError::MissingArgument("machine id"))?;
+        .ok_or(NicoError::MissingArgument("machine id"))?;
     let status: model::dpu_remediation::RemediationApplicationStatus = request
         .status
-        .ok_or(CarbideError::MissingArgument("status"))?
+        .ok_or(NicoError::MissingArgument("status"))?
         .try_into()?;
 
     db::dpu_remediation::remediation_applied(&mut txn, machine_id, remediation_id, status).await?;

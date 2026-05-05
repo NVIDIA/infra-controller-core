@@ -26,7 +26,7 @@ INSERT INTO
     )
 VALUES
     (
-        'forge_CpuBenchmarkingInt',
+        'nico_CpuBenchmarkingInt',
         'CpuBenchmarkingInt',
         'Running cpu_2017_int_rate_light test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -51,7 +51,7 @@ VALUES
         false
     ),
     (
-        'forge_CpuBenchmarkingFp',
+        'nico_CpuBenchmarkingFp',
         'CpuBenchmarkingFp',
         'Running cpu_2017_fp_rate_light test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -76,7 +76,7 @@ VALUES
         false
     ),
     (
-        'forge_FioFile',
+        'nico_FioFile',
         'FioFile',
         'Running fio_file test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -101,7 +101,7 @@ VALUES
         false
     ),
     (
-        'forge_FioPath',
+        'nico_FioPath',
         'FioPath',
         'Running fio_path test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -126,7 +126,7 @@ VALUES
         false
     ),
     (
-        'forge_FioSSD',
+        'nico_FioSSD',
         'FioSSD',
         'Running fio_ssd test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -151,7 +151,7 @@ VALUES
         false
     ),
     (
-        'forge_CudaSample',
+        'nico_CudaSample',
         'CudaSample',
         'Running cuda_sample test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -176,7 +176,7 @@ VALUES
         false
     ),
     (
-        'forge_RaytracingVk',
+        'nico_RaytracingVk',
         'RaytracingVk',
         'Running raytracing_vk test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -201,7 +201,7 @@ VALUES
         false
     ),
     (
-        'forge_MmMemLatency',
+        'nico_MmMemLatency',
         'MmMemLatency',
         'Running mm_mem test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -226,7 +226,7 @@ VALUES
         false
     ),
     (
-        'forge_MmMemBandwidth',
+        'nico_MmMemBandwidth',
         'MmMemBandwidth',
         'Running mm_mem test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',
@@ -251,7 +251,7 @@ VALUES
         false
     ),
     (
-        'forge_MmMemPeakBandwidth',
+        'nico_MmMemPeakBandwidth',
         'MmMemPeakBandwidth',
         'Running mm_mem test using benechpress',
         'nvcr.io/nvidian/nvforge-devel/forge-benchpress:1.4.2',

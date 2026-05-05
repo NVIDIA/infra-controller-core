@@ -22,7 +22,7 @@
 
 use std::collections::HashSet;
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 
 use crate::error::ComponentManagerError;
 

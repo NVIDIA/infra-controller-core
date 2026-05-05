@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 /// Delete an instance type.
-pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let id = args.id.clone();
     api_client.0.delete_instance_type(args).await?;
     println!("Deleted instance type {} successfully.", id);

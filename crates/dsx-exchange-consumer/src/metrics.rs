@@ -23,7 +23,7 @@ use moka::future::Cache;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Meter};
 
-pub static METRICS_PREFIX: &str = "carbide_dsx_exchange_consumer";
+pub static METRICS_PREFIX: &str = "nico_dsx_exchange_consumer";
 
 /// Register a gauge for the metadata cache size.
 ///

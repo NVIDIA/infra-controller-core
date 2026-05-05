@@ -20,9 +20,9 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
-use carbide_host_support::registration;
-use carbide_uuid::machine::MachineId;
+use nico_host_support::dpa_cmds::{DpaCommand, OpCode};
+use nico_host_support::registration;
+use nico_uuid::machine::MachineId;
 use cfg::{AutoDetect, Command, MlxAction, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
@@ -31,14 +31,14 @@ use libmlx::device::cmd::device::cmds::handle as handle_mlx_device;
 use libmlx::device::discovery::discover_device;
 use libmlx::lockdown::cmd::cmds::handle_lockdown as handle_mlx_lockdown;
 use once_cell::sync::Lazy;
-use rpc::forge::ForgeAgentControlResponse;
-use rpc::forge_agent_control_response::Action;
+use rpc::nico::NicoAgentControlResponse;
+use rpc::nico_agent_control_response::Action;
 use rpc::protos::mlx_device::{
     FirmwareFlashReport as FirmwareFlashReportPb, LockStatus, MlxObservation, MlxObservationReport,
     PublishMlxObservationReportRequest,
 };
-use rpc::{ForgeScoutErrorReport, forge as rpc_forge, forge_agent_control_response as fac};
-pub use scout::{CarbideClientError, CarbideClientResult};
+use rpc::{NicoScoutErrorReport, nico as rpc_nico, nico_agent_control_response as fac};
+pub use scout::{NicoClientError, NicoClientResult};
 use tokio::sync::RwLock;
 use tryhard::{RetryFutureConfig, RetryPolicy};
 use x509_parser::pem::parse_x509_pem;
@@ -86,13 +86,13 @@ async fn check_if_running_in_qemu() {
 async fn main() -> Result<(), eyre::Report> {
     let config = Options::load();
     if config.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
 
     check_if_running_in_qemu().await;
 
-    carbide_host_support::init_logging()?;
+    nico_host_support::init_logging()?;
 
     tracing::info!("Running as {}...{}", config.mode, config.version);
 
@@ -122,7 +122,7 @@ async fn initial_setup(config: &Options) -> Result<(uuid::Uuid, MachineId), eyre
         )
     })
     .retries(retry.max)
-    .custom_backoff(|_attempt, error: &CarbideClientError| {
+    .custom_backoff(|_attempt, error: &NicoClientError| {
         // we only want to retry if attestation has failed. In all other cases
         // just preserve the old behaviour by breaking from the retry loop
         tracing::error!("Failed to register machine with error {}", error);
@@ -201,7 +201,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
             Ok(action) => action,
             Err(e) => {
                 report_scout_error(config, None, Some(machine_interface_id), &e).await?;
-                rpc_forge::ForgeAgentControlResponse::noop()
+                rpc_nico::NicoAgentControlResponse::noop()
             }
         };
         if let Some(action) = controller_response.action {
@@ -238,7 +238,7 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
             // The mlx-device subcommand doesn't need to be run with any
             // sort of API integration; it's intended purely for interrogating
             // the state of Mellanox devices on the machine, to see what
-            // Carbide will see re: reporting, troubleshooting, etc. Just
+            // Nico will see re: reporting, troubleshooting, etc. Just
             // run the command locally and exit.
             Command::Mlx(mlx) => match &mlx.action {
                 // Then match on the specific action (Device or Lockdown)
@@ -246,7 +246,7 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
                     // The mlx device subcommand doesn't need to be run with any
                     // sort of API integration; it's intended purely for interrogating
                     // the state of Mellanox devices on the machine, to see what
-                    // Carbide will see re: reporting, troubleshooting, etc. Just
+                    // Nico will see re: reporting, troubleshooting, etc. Just
                     // run the command locally and exit.
                     let device_args = DeviceArgs {
                         action: mlx_device.action.clone(),
@@ -271,13 +271,13 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
         Ok(controller_response) => controller_response,
         Err(e) => {
             report_scout_error(config, None, Some(machine_interface_id), &e).await?;
-            ForgeAgentControlResponse::noop()
+            NicoAgentControlResponse::noop()
         }
     };
     let action = match subcmd {
         Command::AutoDetect(AutoDetect { .. }) => {
             let Some(action) = controller_response.action else {
-                tracing::warn!("ForgeAgentControlResponse from server has no action: ignoring");
+                tracing::warn!("NicoAgentControlResponse from server has no action: ignoring");
                 return Ok(());
             };
             action
@@ -315,7 +315,7 @@ async fn handle_action(
     machine_id: &MachineId,
     machine_interface_id: uuid::Uuid,
     config: &Options,
-) -> Result<(), CarbideClientError> {
+) -> Result<(), NicoClientError> {
     match action {
         fac::Action::Discovery(_) => {
             // This is temporary. All cleanup must be done when API call Reset.
@@ -343,9 +343,9 @@ async fn handle_action(
             unimplemented!("Rebuild not written yet");
         }
         fac::Action::Noop(_) => {}
-        fac::Action::LogError(_) => match logerror_to_carbide(config, machine_interface_id).await {
+        fac::Action::LogError(_) => match logerror_to_nico(config, machine_interface_id).await {
             Ok(()) => (),
-            Err(e) => tracing::info!("Forge Scout logerror_to_carbide error: {}", e),
+            Err(e) => tracing::info!("Nico Scout logerror_to_nico error: {}", e),
         },
         fac::Action::Retry(_) => {
             panic!(
@@ -354,15 +354,15 @@ async fn handle_action(
         }
         fac::Action::Measure(_) => {
             initial_setup(config).await.map_err(|e| {
-                CarbideClientError::GenericError(format!(
-                    "Could not perform attestation at the request of forge agent control: {e}"
+                NicoClientError::GenericError(format!(
+                    "Could not perform attestation at the request of nico agent control: {e}"
                 ))
             })?;
         }
         fac::Action::MachineValidation(machine_validation) => {
             tracing::info!("Machine validation");
             let id = machine_validation.validation_id.ok_or_else(|| {
-                CarbideClientError::GenericError(
+                NicoClientError::GenericError(
                     "machine validation action missing validation_id".to_string(),
                 )
             })?;
@@ -407,13 +407,13 @@ async fn handle_firmware_upgrade_action(
     config: &Options,
     machine_id: &MachineId,
     task: Option<fac::ScoutFirmwareUpgradeTask>,
-) -> Result<(), CarbideClientError> {
+) -> Result<(), NicoClientError> {
     let task = task.ok_or_else(|| {
-        CarbideClientError::GenericError("firmware upgrade action missing task".to_string())
+        NicoClientError::GenericError("firmware upgrade action missing task".to_string())
     })?;
 
     let http_client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
-        CarbideClientError::GenericError(format!("failed to build HTTP client: {e}"))
+        NicoClientError::GenericError(format!("failed to build HTTP client: {e}"))
     })?;
 
     tracing::info!(
@@ -435,7 +435,7 @@ async fn handle_firmware_upgrade_action(
     report_firmware_upgrade_status(config, machine_id, task.upgrade_task_id, &result).await?;
 
     if !result.success {
-        return Err(CarbideClientError::GenericError(format!(
+        return Err(NicoClientError::GenericError(format!(
             "firmware upgrade failed for component={} version={}: exit_code={} error={}",
             task.component_type, task.target_version, result.exit_code, result.error,
         )));
@@ -448,9 +448,9 @@ async fn report_firmware_upgrade_status(
     machine_id: &MachineId,
     upgrade_task_id: String,
     result: &firmware_upgrade::FirmwareUpgradeResult,
-) -> Result<(), CarbideClientError> {
-    let mut client = client::create_forge_client(config).await?;
-    let request = tonic::Request::new(rpc_forge::ScoutFirmwareUpgradeStatusRequest {
+) -> Result<(), NicoClientError> {
+    let mut client = client::create_nico_client(config).await?;
+    let request = tonic::Request::new(rpc_nico::ScoutFirmwareUpgradeStatusRequest {
         machine_id: Some(*machine_id),
         success: result.success,
         exit_code: result.exit_code,
@@ -486,8 +486,8 @@ fn truncate(value: &str, limit: usize) -> String {
     truncated
 }
 
-// carbide sent us an Action::MlxReport command in response to our
-// ForgeAgentControlRequest. Process the MlxReport action, which
+// nico sent us an Action::MlxReport command in response to our
+// NicoAgentControlRequest. Process the MlxReport action, which
 // will involve doing configuration actions on our CIN NICs.
 // We will send a publish_mlx_report request at the end to reflect
 // the config actions we took.
@@ -563,9 +563,9 @@ async fn handle_mlxreport_commands(
                 }
             },
             // ApplyFirmware attempts to apply the provided FirmwareFlasherProfile
-            // that it gets back from carbide-api. The profile *may* be None, which
+            // that it gets back from nico-api. The profile *may* be None, which
             // could mean no firmware profile was found for the target Part Number
-            // and PSID, or that carbide-api decided there was nothing to do here
+            // and PSID, or that nico-api decided there was nothing to do here
             // (already at target version), or it wants to do a noop pass-through.
             // If None, scout reports a successful pass-through.
             //
@@ -575,7 +575,7 @@ async fn handle_mlxreport_commands(
             //
             // If flash() fails, scout does NOT send an observation, which causes
             // the DpaInterfaceController to remain in ApplyFirmware. On the next
-            // poll, carbide-api will tell scout to try again.
+            // poll, nico-api will tell scout to try again.
             //
             // If flash() succeeds but a later step fails (reset, verify), scout
             // still sends the partial result so the API has visibility into what
@@ -645,7 +645,7 @@ async fn handle_mlxreport_commands(
         report: Some(report),
     };
 
-    // Now send the report back to Carbide
+    // Now send the report back to Nico
     match mlx_device::publish_mlx_observation_report(config, req).await {
         Ok(_resp) => (),
         Err(e) => {
@@ -671,22 +671,22 @@ fn get_log_str() -> eyre::Result<String> {
     Ok(ret_str)
 }
 
-// Send error string to carbide api to log, indicating that the cloud-init script failed.
+// Send error string to nico api to log, indicating that the cloud-init script failed.
 // Very similar to report_scout_error below, but is run before discovery is done.
-async fn logerror_to_carbide(
+async fn logerror_to_nico(
     config: &Options,
     machine_interface_id: uuid::Uuid,
 ) -> eyre::Result<()> {
     let err_str = get_log_str()?;
-    let request: tonic::Request<ForgeScoutErrorReport> =
-        tonic::Request::new(ForgeScoutErrorReport {
+    let request: tonic::Request<NicoScoutErrorReport> =
+        tonic::Request::new(NicoScoutErrorReport {
             machine_id: None,
             machine_interface_id: Some(machine_interface_id.into()),
             error: err_str,
         });
 
-    let mut client = client::create_forge_client(config).await?;
-    let _response = client.report_forge_scout_error(request).await?;
+    let mut client = client::create_nico_client(config).await?;
+    let _response = client.report_nico_scout_error(request).await?;
 
     Ok(())
 }
@@ -696,16 +696,16 @@ async fn report_scout_error(
     machine_id: Option<MachineId>,
     machine_interface_id: Option<uuid::Uuid>,
     error: &impl std::error::Error,
-) -> CarbideClientResult<()> {
-    let request: tonic::Request<ForgeScoutErrorReport> =
-        tonic::Request::new(ForgeScoutErrorReport {
+) -> NicoClientResult<()> {
+    let request: tonic::Request<NicoScoutErrorReport> =
+        tonic::Request::new(NicoScoutErrorReport {
             machine_id,
             machine_interface_id: machine_interface_id.map(|x| x.into()),
             error: format!("{error:#}"), // Alternate representation also prints inner errors
         });
 
-    let mut client = client::create_forge_client(config).await?;
-    let _response = client.report_forge_scout_error(request).await?.into_inner();
+    let mut client = client::create_nico_client(config).await?;
+    let _response = client.report_nico_scout_error(request).await?.into_inner();
     Ok(())
 }
 
@@ -715,18 +715,18 @@ async fn query_api(
     machine_id: &MachineId,
     action_attempt: u64,
     query_attempt: u64,
-) -> CarbideClientResult<rpc_forge::ForgeAgentControlResponse> {
+) -> NicoClientResult<rpc_nico::NicoAgentControlResponse> {
     tracing::info!(
-        "Sending ForgeAgentControlRequest (attempt:{}.{})",
+        "Sending NicoAgentControlRequest (attempt:{}.{})",
         action_attempt,
         query_attempt,
     );
-    let query = rpc_forge::ForgeAgentControlRequest {
+    let query = rpc_nico::NicoAgentControlRequest {
         machine_id: Some(*machine_id),
     };
     let request = tonic::Request::new(query);
-    let mut client = client::create_forge_client(config).await?;
-    let response = client.forge_agent_control(request).await?.into_inner();
+    let mut client = client::create_nico_client(config).await?;
+    let response = client.nico_agent_control(request).await?.into_inner();
     let action_str = response
         .action
         .as_ref()
@@ -734,7 +734,7 @@ async fn query_api(
         .unwrap_or_default();
 
     tracing::info!(
-        "Received ForgeAgentControlResponse (attempt:{}.{}, action:{})",
+        "Received NicoAgentControlResponse (attempt:{}.{}, action:{})",
         action_attempt,
         query_attempt,
         action_str,
@@ -745,7 +745,7 @@ async fn query_api(
 async fn query_api_with_retries(
     config: &Options,
     machine_id: &MachineId,
-) -> CarbideClientResult<rpc_forge::ForgeAgentControlResponse> {
+) -> NicoClientResult<rpc_nico::NicoAgentControlResponse> {
     let mut action_attempt = 0;
     const MAX_RETRY_COUNT: u64 = 5;
     const RETRY_TIMER: u64 = 30;
@@ -758,16 +758,16 @@ async fn query_api_with_retries(
     // that (but trying to limit the number of flags if possible).
     let retry_config = RetryFutureConfig::new(config.discovery_retries_max)
         .fixed_backoff(Duration::from_secs(config.discovery_retry_secs))
-        .on_retry(|_attempt, _next_delay, error: &CarbideClientError| {
-            // We can't move the error, but CarbideClientError contains some results that are not clonable, so just do the format here
+        .on_retry(|_attempt, _next_delay, error: &NicoClientError| {
+            // We can't move the error, but NicoClientError contains some results that are not clonable, so just do the format here
             let error = format!("{error}");
-            async move { tracing::info!("ForgeAgentControlRequest failed: {error}") }
+            async move { tracing::info!("NicoAgentControlRequest failed: {error}") }
         });
 
     // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
     // In case by the time, host comes up and IP is still not updated, let's wait.
     loop {
-        // Depending on the forge_agent_control_response Action received
+        // Depending on the nico_agent_control_response Action received
         // this entire loop may need to retry (as in, an Action::Retry was
         // received).
         //
@@ -793,7 +793,7 @@ async fn query_api_with_retries(
 
         // +1 for the initial attempt which happens immediately
         if action_attempt == 1 + MAX_RETRY_COUNT {
-            return Err(CarbideClientError::GenericError(format!(
+            return Err(NicoClientError::GenericError(format!(
                 "Retrieved no viable Action for machine {} after {} secs",
                 machine_id,
                 MAX_RETRY_COUNT * RETRY_TIMER
@@ -804,9 +804,9 @@ async fn query_api_with_retries(
     }
 }
 
-fn get_next_certs_check_datetime() -> CarbideClientResult<DateTime<Utc>> {
+fn get_next_certs_check_datetime() -> NicoClientResult<DateTime<Utc>> {
     let Some(next_certs_check_time) = Utc::now().checked_add_days(Days::new(1)) else {
-        return Err(CarbideClientError::GenericError(
+        return Err(NicoClientError::GenericError(
             "Could not obtain next certs check time".to_string(),
         ));
     };
@@ -827,14 +827,14 @@ fn is_time_to_check_certs_expiry(next_check_time: DateTime<Utc>) -> bool {
     false
 }
 
-fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
+fn check_certs_validity(client_cert_path: &str) -> NicoClientResult<bool> {
     tracing::info!("Checking if client certs are going to expire soon ...");
-    let mut ca_file = File::open(client_cert_path).map_err(CarbideClientError::StdIo)?;
+    let mut ca_file = File::open(client_cert_path).map_err(NicoClientError::StdIo)?;
 
     let mut ca_file_bytes: Vec<u8> = Vec::new();
     ca_file
         .read_to_end(&mut ca_file_bytes)
-        .map_err(CarbideClientError::StdIo)?;
+        .map_err(NicoClientError::StdIo)?;
 
     let ca_file_bytes_der = {
         // convert pem to der to normalize
@@ -842,7 +842,7 @@ fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
         match res {
             Ok((rem, pem)) => {
                 if !rem.is_empty() && (pem.label != *"CERTIFICATE") {
-                    return Err(CarbideClientError::GenericError(
+                    return Err(NicoClientError::GenericError(
                         "PEM certificate validation failed".to_string(),
                     ));
                 }
@@ -850,7 +850,7 @@ fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
                 pem.contents
             }
             _ => {
-                return Err(CarbideClientError::GenericError(
+                return Err(NicoClientError::GenericError(
                     "Could not parse PEM certificate".to_string(),
                 ));
             }
@@ -859,7 +859,7 @@ fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
 
     // create the certificate
     let ca_cert = X509Certificate::from_der(&ca_file_bytes_der)
-        .map_err(|e| CarbideClientError::GenericError(format!("Could not parse CA cert: {e}")))?
+        .map_err(|e| NicoClientError::GenericError(format!("Could not parse CA cert: {e}")))?
         .1;
 
     // if not after timestamp is less than two days away, initiate certs regen
@@ -883,7 +883,7 @@ fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
             Ok(false)
         }
     } else {
-        Err(CarbideClientError::GenericError(format!(
+        Err(NicoClientError::GenericError(format!(
             "Could not parse NotAfter timestamp: {not_after}"
         )))
     }

@@ -18,8 +18,8 @@ use std::ffi::CString;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ptr;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use ::rpc::nico as rpc;
+use ::rpc::nico_tls_client::{self, ApiConfig, NicoClientConfig};
 use MachineArchitecture::*;
 use ipnetwork::IpNetwork;
 
@@ -41,12 +41,12 @@ pub struct Machine {
 impl Machine {
     pub async fn try_fetch(
         discovery: Discovery,
-        carbide_api_url: &str,
+        nico_api_url: &str,
         vendor_class: Option<VendorClass>,
-        client_config: &ForgeClientConfig,
+        client_config: &NicoClientConfig,
     ) -> Result<Self, String> {
-        let api_config = ApiConfig::new(carbide_api_url, client_config);
-        match forge_tls_client::ForgeTlsClient::retry_build(&api_config).await {
+        let api_config = ApiConfig::new(nico_api_url, client_config);
+        match nico_tls_client::NicoTlsClient::retry_build(&api_config).await {
             Ok(mut client) => {
                 let request = tonic::Request::new(rpc::DhcpDiscovery {
                     mac_address: discovery.mac_address.to_string(),
@@ -66,9 +66,9 @@ impl Machine {
                         discovery_info: discovery,
                         vendor_class,
                     })
-                    .map_err(|error| format!("unable to discover machine via Carbide: {error:?}"))
+                    .map_err(|error| format!("unable to discover machine via Nico: {error:?}"))
             }
-            Err(err) => Err(format!("unable to connect to Carbide API: {err:?}")),
+            Err(err) => Err(format!("unable to connect to Nico API: {err:?}")),
         }
     }
 
@@ -431,7 +431,7 @@ pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
 }
 
 /// Extract MTU from Machine object. We got it in the grpc response in discovery_fetch_machine.
-/// https://jirasw.nvidia.com/browse/FORGE-2443
+/// https://jirasw.nvidia.com/browse/NICO-2443
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
     unsafe { (*ctx).inner.mtu as u16 }
@@ -444,7 +444,7 @@ pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
 /// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
 ///
-/// This does not forget the memory afterwards, so the opaque pointer in the C code is now
+/// This does not nicot the memory afterwards, so the opaque pointer in the C code is now
 /// unusable.
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_free(ctx: *mut Machine) {
@@ -463,7 +463,7 @@ mod test {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
 
-    use rpc::forge as rpc;
+    use rpc::nico as rpc;
 
     use crate::discovery::Discovery;
     use crate::machine::{Machine, machine_get_filename};
@@ -471,7 +471,7 @@ mod test {
 
     #[test]
     fn test_use_booturl_internal() {
-        crate::carbide_set_config_next_server_ipv4("127.0.0.1".parse::<Ipv4Addr>().unwrap().into());
+        crate::nico_set_config_next_server_ipv4("127.0.0.1".parse::<Ipv4Addr>().unwrap().into());
 
         let mut machine = Box::new(Machine {
             inner: rpc::DhcpRecord::default(),

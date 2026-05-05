@@ -17,14 +17,14 @@
 
 //! Contains host related fixtures
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use db::{ObjectColumnFilter, network_prefix};
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineState::UefiSetup;
 use model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};
-use rpc::forge::forge_agent_control_response::LegacyAction;
-use rpc::forge::forge_server::Forge;
-use rpc::forge_agent_control_response::Action;
+use rpc::nico::nico_agent_control_response::LegacyAction;
+use rpc::nico::nico_server::Nico;
+use rpc::nico_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use strum::IntoEnumIterator;
@@ -32,7 +32,7 @@ use tonic::Request;
 
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
-use crate::tests::common::api_fixtures::{TestEnv, TestMachine, forge_agent_control};
+use crate::tests::common::api_fixtures::{TestEnv, TestMachine, nico_agent_control};
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 pub const X86_INFO_JSON: &[u8] =
@@ -154,7 +154,7 @@ pub async fn host_uefi_setup(env: &TestEnv, host_machine_id: &MachineId) {
             return;
         }
 
-        let response = forge_agent_control(env, *host_machine_id).await;
+        let response = nico_agent_control(env, *host_machine_id).await;
         assert!(matches!(response.action, Some(Action::Noop(_))));
         assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
     }

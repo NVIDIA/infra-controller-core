@@ -17,7 +17,7 @@
 
 //! State Controller IO implementation for Racks
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use config_version::{ConfigVersion, Versioned};
 use db::rack::IdColumn;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};

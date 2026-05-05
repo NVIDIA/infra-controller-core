@@ -14,18 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeClientT, ForgeTlsClient};
+use rpc::nico_tls_client::{ApiConfig, NicoClientConfig, NicoClientT, NicoTlsClient};
 
-// Forge Communication
-pub async fn create_forge_client(
-    forge_api: &str,
-    client_config: &ForgeClientConfig,
-) -> Result<ForgeClientT, eyre::Error> {
-    match ForgeTlsClient::retry_build(&ApiConfig::new(forge_api, client_config)).await {
+// Nico Communication
+pub async fn create_nico_client(
+    nico_api: &str,
+    client_config: &NicoClientConfig,
+) -> Result<NicoClientT, eyre::Error> {
+    match NicoTlsClient::retry_build(&ApiConfig::new(nico_api, client_config)).await {
         Ok(client) => Ok(client),
         Err(err) => Err(eyre::eyre!(
-            "Could not connect to Forge API server at {}: {err}",
-            forge_api
+            "Could not connect to Nico API server at {}: {err}",
+            nico_api
         )),
     }
 }

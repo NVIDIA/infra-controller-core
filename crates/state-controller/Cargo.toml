@@ -31,12 +31,12 @@ test-support = []
 [dependencies]
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
-carbide-api-db = { path = "../api-db", default-features = false }
-carbide-api-model = { path = "../api-model", default-features = false }
-carbide-dpf = { path = "../dpf" }
-carbide-redfish = { path = "../redfish" }
-carbide-utils = { path = "../utils" }
-carbide-uuid = { path = "../uuid", features = ["sqlx"] }
+nico-api-db = { path = "../api-db", default-features = false }
+nico-api-model = { path = "../api-model", default-features = false }
+nico-dpf = { path = "../dpf" }
+nico-redfish = { path = "../redfish" }
+nico-utils = { path = "../utils" }
+nico-uuid = { path = "../uuid", features = ["sqlx"] }
 config-version = { path = "../config-version", features = ["sqlx"] }
 sqlx-query-tracing = { path = "../sqlx-query-tracing" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
@@ -66,9 +66,9 @@ tracing = { workspace = true }
 #these are alphabetized
 
 [dev-dependencies]
-carbide-macros = { path = "../macros" }
-carbide-sqlx-testing = { path = "../sqlx-testing" }
-carbide-utils = { path = "../utils", features = ["test-support"] }
+nico-macros = { path = "../macros" }
+nico-sqlx-testing = { path = "../sqlx-testing" }
+nico-utils = { path = "../utils", features = ["test-support"] }
 uuid = { features = ["v4"], workspace = true }
 
 [lints]

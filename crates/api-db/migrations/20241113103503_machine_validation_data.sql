@@ -32,12 +32,12 @@ VALUES
         '/tmp/error',
         '/tmp/output',
         'docker.io/shorelinesoftware/agent:release-24.0.22-multiarch-lt',
-        'ForgeRunBook',
+        'NicoRunBook',
         true,
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731382251768493',
-        'forge_ForgeRunBook',
+        'nico_NicoRunBook',
         ARRAY ['dgxcloud'],
         'User'
     );
@@ -72,7 +72,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731383523746813',
-        'forge_DcgmFullLong',
+        'nico_DcgmFullLong',
         'nvidia-smi',
         ARRAY ['dgxcloud'],
         'User'
@@ -107,7 +107,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731384539962561',
-        'forge_DcgmFullShort',
+        'nico_DcgmFullShort',
         'nvidia-smi',
         ARRAY ['dgxcloud'],
         'User'
@@ -142,7 +142,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731386879991534',
-        'forge_MqStresserLong',
+        'nico_MqStresserLong',
         ARRAY ['dgxcloud'],
         'User'
     );
@@ -175,7 +175,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731386879991534',
-        'forge_MqStresserShort',
+        'nico_MqStresserShort',
         ARRAY ['dgxcloud'],
         'User'
     );
@@ -209,7 +209,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731386879991534',
-        'forge_CPUTestLong',
+        'nico_CPUTestLong',
         ARRAY ['dgxcloud'],
         'User'
     );
@@ -242,7 +242,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731386879991534',
-        'forge_CPUTestShort',
+        'nico_CPUTestShort',
         ARRAY ['dgxcloud'],
         'User'
     );
@@ -276,7 +276,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731386879991534',
-        'forge_MemoryTestLong',
+        'nico_MemoryTestLong',
         ARRAY ['dgxcloud'],
         'User'
     );
@@ -309,7 +309,7 @@ VALUES
         ARRAY ['sku_090e_modelname_poweredge_r750','sku_0a6b_modelname_poweredge_r760','7z73cto1ww','7z23cto1ww','default'],
         7200,
         'V1-T1731386879991534',
-        'forge_MemoryTestShort',
+        'nico_MemoryTestShort',
         ARRAY ['dgxcloud'],
         'User'
     );

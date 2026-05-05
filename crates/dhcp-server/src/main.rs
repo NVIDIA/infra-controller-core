@@ -29,9 +29,9 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
+use ::rpc::nico::{DhcpDiscovery, DhcpRecord};
 use cache::CacheEntry;
-use carbide_rpc_utils::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
+use nico_rpc_utils::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
@@ -348,7 +348,7 @@ async fn run_with_grpc_control(
 ) -> Result<(), Box<dyn Error>> {
     // Apply default for host_config path when running in gRPC mode.
     args.host_config
-        .get_or_insert_with(|| "/var/support/forge-dhcp/conf/host.yaml".to_string());
+        .get_or_insert_with(|| "/var/support/nico-dhcp/conf/host.yaml".to_string());
 
     // Ensure the config directory exists so that the first gRPC UpdateConfig call
     // can write files immediately without the directory being absent.
@@ -614,7 +614,7 @@ async fn process(
         }
     }
 
-    // Tell forge-dpu-agent that an IP has been requested for this interface.
+    // Tell nico-dpu-agent that an IP has been requested for this interface.
     if let Some(host_config) = config.host_config {
         let mut dhcp_timestamps = dhcp_timestamps.lock().await;
         dhcp_timestamps.add_timestamp(host_config.host_interface_id, Utc::now().to_rfc3339());
@@ -635,7 +635,7 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
 
-    use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
+    use nico_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
     use chrono::{DateTime, Utc};
     use dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode};
     use dhcproto::{Decodable, Decoder, Encodable};

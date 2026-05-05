@@ -57,7 +57,7 @@ Certificate:
             X509v3 Authority Key Identifier:
                 F6:BF:5F:8F:F7:08:E8:C5:AE:E9:74:60:1D:DD:AB:D3:28:31:50:48
             X509v3 Subject Alternative Name: critical
-                DNS:carbide-dhcp.carbide-system.svc.cluster.local, URI:spiffe://example.test/carbide-system/sa/carbide-dhcp
+                DNS:nico-dhcp.nico-system.svc.cluster.local, URI:spiffe://example.test/nico-system/sa/nico-dhcp
     Signature Algorithm: sha256WithRSAEncryption
     Signature Value:
         8b:b5:cb:18:27:17:18:7a:af:12:f8:a5:66:32:2f:7f:10:0b:
@@ -223,7 +223,7 @@ Certificate:
             X509v3 Authority Key Identifier:
                 F6:BF:5F:8F:F7:08:E8:C5:AE:E9:74:60:1D:DD:AB:D3:28:31:50:48
             X509v3 Subject Alternative Name: critical
-                DNS:machine-a-tron.carbide-system.svc.cluster.local, URI:spiffe://example.test/carbide-system/sa/machine-a-tron
+                DNS:machine-a-tron.nico-system.svc.cluster.local, URI:spiffe://example.test/nico-system/sa/machine-a-tron
     Signature Algorithm: sha256WithRSAEncryption
     Signature Value:
         8a:f2:fa:dc:b8:45:12:8d:2e:b3:a0:ca:80:2b:a9:2d:e5:ba:

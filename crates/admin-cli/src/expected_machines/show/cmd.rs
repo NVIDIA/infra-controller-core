@@ -16,10 +16,10 @@
  */
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliResult, OutputFormat};
 use mac_address::MacAddress;
 use prettytable::{Table, row};
-use rpc::forge::ExpectedMachineRequest;
+use rpc::nico::ExpectedMachineRequest;
 
 use super::args::Args;
 use crate::async_write;
@@ -30,7 +30,7 @@ pub async fn show_expected_machines(
     api_client: &ApiClient,
     output_format: OutputFormat,
     output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let req: Option<ExpectedMachineRequest> = expected_machine_query.try_into()?;
 
     if let Some(req) = req {
@@ -66,7 +66,7 @@ pub async fn show_expected_machines(
         .filter_map(|x| x.bmc_mac_address.parse().ok())
         .collect::<Vec<MacAddress>>();
 
-    let expected_mi: HashMap<MacAddress, ::rpc::forge::MachineInterface> =
+    let expected_mi: HashMap<MacAddress, ::rpc::nico::MachineInterface> =
         HashMap::from_iter(all_mi.interfaces.into_iter().filter_map(|x| {
             let mac = x.mac_address.parse().ok()?;
             if expected_macs.contains(&mac) {
@@ -114,10 +114,10 @@ pub async fn show_expected_machines(
 
 async fn convert_and_print_into_nice_table(
     output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
-    expected_machines: &::rpc::forge::ExpectedMachineList,
+    expected_machines: &::rpc::nico::ExpectedMachineList,
     expected_discovered_machine_ids: &HashMap<String, String>,
-    expected_discovered_machine_interfaces: &HashMap<MacAddress, ::rpc::forge::MachineInterface>,
-) -> CarbideCliResult<()> {
+    expected_discovered_machine_interfaces: &HashMap<MacAddress, ::rpc::nico::MachineInterface>,
+) -> NicoCliResult<()> {
     let mut table = Box::new(Table::new());
 
     table.set_titles(row![

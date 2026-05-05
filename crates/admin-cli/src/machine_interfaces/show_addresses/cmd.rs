@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use ::rpc::admin_cli::{NicoCliResult, OutputFormat};
+use ::rpc::nico as nicorpc;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 
@@ -34,10 +34,10 @@ pub async fn handle_show_addresses(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let resp = api_client
         .0
-        .find_interface_addresses(forgerpc::FindInterfaceAddressesRequest {
+        .find_interface_addresses(nicorpc::FindInterfaceAddressesRequest {
             interface_id: Some(args.interface_id),
         })
         .await?;

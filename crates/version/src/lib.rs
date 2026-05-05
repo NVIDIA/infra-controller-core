@@ -20,40 +20,40 @@ use std::process::Command;
 
 /// Set build script environment variables. Call this from a build script.
 pub fn build() {
-    // TODO: Remove after migration to new CARBIDE_ naming
+    // TODO: Remove after migration to new NICO_ naming
     println!(
-        "cargo:rustc-env=FORGE_BUILD_USER={}",
+        "cargo:rustc-env=NICO_BUILD_USER={}",
         option_env!("USER").unwrap_or_default()
     );
     println!(
-        "cargo:rustc-env=CARBIDE_BUILD_USER={}",
+        "cargo:rustc-env=NICO_BUILD_USER={}",
         option_env!("USER").unwrap_or_default()
     );
-    // TODO: Remove after migration to new CARBIDE_ naming
+    // TODO: Remove after migration to new NICO_ naming
     println!(
-        "cargo:rustc-env=FORGE_BUILD_HOSTNAME={}",
+        "cargo:rustc-env=NICO_BUILD_HOSTNAME={}",
         option_env!("HOSTNAME").unwrap_or_default()
     );
     println!(
-        "cargo:rustc-env=CARBIDE_BUILD_HOSTNAME={}",
+        "cargo:rustc-env=NICO_BUILD_HOSTNAME={}",
         option_env!("HOSTNAME").unwrap_or_default()
     );
-    // TODO: Remove after migration to new CARBIDE_ naming
+    // TODO: Remove after migration to new NICO_ naming
     println!(
-        "cargo:rustc-env=FORGE_BUILD_DATE={}",
+        "cargo:rustc-env=NICO_BUILD_DATE={}",
         run("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]) // like 'date --iso-8601=seconds --utc' but portable across GNU/BSD
     );
     println!(
-        "cargo:rustc-env=CARBIDE_BUILD_DATE={}",
+        "cargo:rustc-env=NICO_BUILD_DATE={}",
         run("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]) // like 'date --iso-8601=seconds --utc' but portable across GNU/BSD
     );
-    // TODO: Remove after migration to new CARBIDE_ naming
+    // TODO: Remove after migration to new NICO_ naming
     println!(
-        "cargo:rustc-env=FORGE_BUILD_RUSTC_VERSION={}",
+        "cargo:rustc-env=NICO_BUILD_RUSTC_VERSION={}",
         run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
     );
     println!(
-        "cargo:rustc-env=CARBIDE_BUILD_RUSTC_VERSION={}",
+        "cargo:rustc-env=NICO_BUILD_RUSTC_VERSION={}",
         run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
     );
 
@@ -67,10 +67,10 @@ pub fn build() {
     if !can_git {
         println!("cargo:warning=No git, version will be blank");
         // still define it so that we can read it in a build time macro
-        // TODO: Remove after migration to new CARBIDE_ naming
-        println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG=");
-        println!("cargo:rustc-env=CARBIDE_BUILD_GIT_HASH=");
-        println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION=");
+        // TODO: Remove after migration to new NICO_ naming
+        println!("cargo:rustc-env=NICO_BUILD_GIT_TAG=");
+        println!("cargo:rustc-env=NICO_BUILD_GIT_HASH=");
+        println!("cargo:rustc-env=NICO_BUILD_HELM_VERSION=");
         return;
     }
 
@@ -81,9 +81,9 @@ pub fn build() {
     let sha = option_env!("CI_COMMIT_SHORT_SHA")
         .map(String::from)
         .unwrap_or_else(|| run("git", &["rev-parse", "--short=8", "HEAD"]));
-    // TODO: Remove after migration to new CARBIDE_ naming
-    println!("cargo:rustc-env=FORGE_BUILD_GIT_HASH={sha}");
-    println!("cargo:rustc-env=CARBIDE_BUILD_GIT_HASH={sha}");
+    // TODO: Remove after migration to new NICO_ naming
+    println!("cargo:rustc-env=NICO_BUILD_GIT_HASH={sha}");
+    println!("cargo:rustc-env=NICO_BUILD_GIT_HASH={sha}");
 
     let build_version = option_env!("VERSION").map(String::from).unwrap_or_else(|| {
         run(
@@ -91,9 +91,9 @@ pub fn build() {
             &["describe", "--tags", "--first-parent", "--always", "--long"],
         )
     });
-    // TODO: Remove after migration to new CARBIDE_ naming
-    println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
-    println!("cargo:rustc-env=CARBIDE_BUILD_GIT_TAG={build_version}");
+    // TODO: Remove after migration to new NICO_ naming
+    println!("cargo:rustc-env=NICO_BUILD_GIT_TAG={build_version}");
+    println!("cargo:rustc-env=NICO_BUILD_GIT_TAG={build_version}");
 
     // Helm version: strip leading 'v', replace last '-' with '.'
     // e.g. "v1.2.3-42-gabcdef1" → "1.2.3-42.gabcdef1"
@@ -104,15 +104,15 @@ pub fn build() {
             None => s.to_string(),
         }
     };
-    println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION={helm_version}");
+    println!("cargo:rustc-env=NICO_BUILD_HELM_VERSION={helm_version}");
 
     // Only re-calculate all of this when there's a new commit... but use an env var to allow
     // avoiding rebuilds when the commit hash changes. (This is good for local development iteration
     // loops when we want to avoid recompiling and when we don't really care if the generated
     // version is stale.)
-    // TODO: Remove after migration to new CARBIDE_ naming
-    if std::env::var("FORGE_VERSION_AVOID_REBUILD").is_err()
-        || std::env::var("CARBIDE_VERSION_AVOID_REBUILD").is_err()
+    // TODO: Remove after migration to new NICO_ naming
+    if std::env::var("NICO_VERSION_AVOID_REBUILD").is_err()
+        || std::env::var("NICO_VERSION_AVOID_REBUILD").is_err()
     {
         let git_query_head =
             run("git", &["rev-parse", "--path-format=absolute", "--git-dir"]) + "/HEAD";
@@ -189,75 +189,75 @@ fn run(cmd: &str, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-/// Individual parts of the version. Usage:: forge_version::v!(build_version)
+/// Individual parts of the version. Usage:: nico_version::v!(build_version)
 /// If that part is not present expands to an empty &str
-// TODO: Change to CARBIDE_
+// TODO: Change to NICO_
 #[macro_export]
 macro_rules! v {
     (build_version) => {
-        option_env!("FORGE_BUILD_GIT_TAG").unwrap_or_default()
+        option_env!("NICO_BUILD_GIT_TAG").unwrap_or_default()
     };
     (build_date) => {
-        option_env!("FORGE_BUILD_DATE").unwrap_or_default()
+        option_env!("NICO_BUILD_DATE").unwrap_or_default()
     };
     (git_sha) => {
-        option_env!("FORGE_BUILD_GIT_HASH").unwrap_or_default()
+        option_env!("NICO_BUILD_GIT_HASH").unwrap_or_default()
     };
     (rust_version) => {
-        option_env!("FORGE_BUILD_RUSTC_VERSION").unwrap_or_default()
+        option_env!("NICO_BUILD_RUSTC_VERSION").unwrap_or_default()
     };
     (build_user) => {
-        option_env!("FORGE_BUILD_USER").unwrap_or_default()
+        option_env!("NICO_BUILD_USER").unwrap_or_default()
     };
     (build_hostname) => {
-        option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default()
+        option_env!("NICO_BUILD_HOSTNAME").unwrap_or_default()
     };
     (helm_version) => {
-        option_env!("CARBIDE_BUILD_HELM_VERSION").unwrap_or_default()
+        option_env!("NICO_BUILD_HELM_VERSION").unwrap_or_default()
     };
 }
 
 /// Same a v! but expands to a literal. That allows using it in `concat!` macro.
 /// Panics if the part is not present. Prefer `v!` above.
-// TODO: Change to CARBIDE_
+// TODO: Change to NICO_
 #[macro_export]
 macro_rules! literal {
     (build_version) => {
-        env!("FORGE_BUILD_GIT_TAG")
+        env!("NICO_BUILD_GIT_TAG")
     };
     (build_date) => {
-        env!("FORGE_BUILD_DATE")
+        env!("NICO_BUILD_DATE")
     };
     (git_sha) => {
-        env!("FORGE_BUILD_GIT_HASH")
+        env!("NICO_BUILD_GIT_HASH")
     };
     (rust_version) => {
-        env!("FORGE_BUILD_RUSTC_VERSION")
+        env!("NICO_BUILD_RUSTC_VERSION")
     };
     (build_user) => {
-        env!("FORGE_BUILD_USER")
+        env!("NICO_BUILD_USER")
     };
     (build_hostname) => {
-        env!("FORGE_BUILD_HOSTNAME")
+        env!("NICO_BUILD_HOSTNAME")
     };
     (helm_version) => {
-        env!("CARBIDE_BUILD_HELM_VERSION")
+        env!("NICO_BUILD_HELM_VERSION")
     };
 }
 
 /// Version as a string. `version::build()` must have been called previously in build script.
-// TODO: Change to CARBIDE_
+// TODO: Change to NICO_
 #[macro_export]
 macro_rules! version {
      () => {
          format!(
              "build_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
-             option_env!("FORGE_BUILD_GIT_TAG").unwrap_or_default(),
-             option_env!("FORGE_BUILD_DATE").unwrap_or_default(),
-             option_env!("FORGE_BUILD_GIT_HASH").unwrap_or_default(),
-             option_env!("FORGE_BUILD_RUSTC_VERSION").unwrap_or_default(),
-             option_env!("FORGE_BUILD_USER").unwrap_or_default(),
-             option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default(),
+             option_env!("NICO_BUILD_GIT_TAG").unwrap_or_default(),
+             option_env!("NICO_BUILD_DATE").unwrap_or_default(),
+             option_env!("NICO_BUILD_GIT_HASH").unwrap_or_default(),
+             option_env!("NICO_BUILD_RUSTC_VERSION").unwrap_or_default(),
+             option_env!("NICO_BUILD_USER").unwrap_or_default(),
+             option_env!("NICO_BUILD_HOSTNAME").unwrap_or_default(),
          );
      };
  }

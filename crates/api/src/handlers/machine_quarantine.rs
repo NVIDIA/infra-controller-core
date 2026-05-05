@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use health_report::HealthReport;
 use model::machine::network::ManagedHostQuarantineState;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -35,10 +35,10 @@ pub(crate) async fn set_managed_host_quarantine_state(
     } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
     let Some(quarantine_state) = quarantine_state else {
-        return Err(CarbideError::MissingArgument("quarantine_state").into());
+        return Err(NicoError::MissingArgument("quarantine_state").into());
     };
     let quarantine_state: ManagedHostQuarantineState =
-        quarantine_state.try_into().map_err(CarbideError::from)?;
+        quarantine_state.try_into().map_err(NicoError::from)?;
 
     let message = quarantine_state.reason.clone().unwrap_or_default();
 
@@ -56,9 +56,9 @@ pub(crate) async fn set_managed_host_quarantine_state(
         HealthReport::QUARANTINE_SOURCE,
     )
     .await
-    .map_err(CarbideError::from)
+    .map_err(NicoError::from)
     {
-        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Ok(_) | Err(NicoError::NotFoundError { .. }) => {}
         Err(e) => return Err(e.into()),
     };
 
@@ -118,10 +118,10 @@ pub(crate) async fn clear_managed_host_quarantine_state(
         HealthReport::QUARANTINE_SOURCE,
     )
     .await
-    .map_err(CarbideError::from)
+    .map_err(NicoError::from)
     {
         // For older implementation, this override is not set yet.
-        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Ok(_) | Err(NicoError::NotFoundError { .. }) => {}
         Err(e) => return Err(e.into()),
     };
 

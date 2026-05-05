@@ -16,21 +16,21 @@
  */
 
 use ::rpc::protos::measured_boot as pb;
-pub use ::rpc::{forge as rpc_forge, machine_discovery as rpc_md};
-use carbide_uuid::machine::MachineId;
+pub use ::rpc::{nico as rpc_nico, machine_discovery as rpc_md};
+use nico_uuid::machine::MachineId;
 use db::attestation::secret_ak_pub;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
-use crate::{CarbideError, attestation as attest};
+use crate::{NicoError, attestation as attest};
 
 pub(crate) async fn create_attest_key_bind_challenge(
     txn: &mut PgConnection,
     attest_key_info: &rpc_md::AttestKeyInfo,
     machine_id: &MachineId,
-) -> Result<rpc_forge::AttestKeyBindChallenge, Status> {
+) -> Result<rpc_nico::AttestKeyBindChallenge, Status> {
     let (matched, ek_pub_rsa) = attest::measured_boot::compare_pub_key_against_cert(
         txn,
         machine_id,
@@ -38,7 +38,7 @@ pub(crate) async fn create_attest_key_bind_challenge(
     )
     .await?;
     if !matched {
-        return Err(CarbideError::AttestBindKeyError(
+        return Err(NicoError::AttestBindKeyError(
             "Certificate's public key did not match EK Pub Key".to_string(),
         )
         .into());
@@ -52,7 +52,7 @@ pub(crate) async fn create_attest_key_bind_challenge(
 
     secret_ak_pub::insert(txn, &Vec::from(secret_bytes), &attest_key_info.ak_pub).await?;
 
-    Ok(rpc_forge::AttestKeyBindChallenge {
+    Ok(rpc_nico::AttestKeyBindChallenge {
         cred_blob: cli_cred_blob,
         encrypted_secret: cli_secret,
     })

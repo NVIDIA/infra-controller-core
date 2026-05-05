@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliResult, OutputFormat};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -27,7 +27,7 @@ pub async fn generate(
     output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let mut sku = api_client
         .0
         .generate_sku_from_machine(args.machine_id)

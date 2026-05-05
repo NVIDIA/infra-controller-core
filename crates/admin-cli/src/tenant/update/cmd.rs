@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::forge::{FindTenantRequest, UpdateTenantRequest};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use rpc::nico::{FindTenantRequest, UpdateTenantRequest};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -29,7 +29,7 @@ pub async fn update(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let id = args.tenant_org;
 
     let tenant = api_client
@@ -39,7 +39,7 @@ pub async fn update(
         })
         .await?
         .tenant
-        .ok_or(CarbideCliError::TenantNotFound(id.clone()))?;
+        .ok_or(NicoCliError::TenantNotFound(id.clone()))?;
 
     let mut metadata = tenant.metadata.unwrap_or_default();
 
@@ -57,21 +57,21 @@ pub async fn update(
         })
         .await?
         .tenant
-        .ok_or(CarbideCliError::TenantNotFound(id))?;
+        .ok_or(NicoCliError::TenantNotFound(id))?;
 
     match output_format {
         OutputFormat::Json => println!(
             "{}",
-            serde_json::to_string_pretty(&tenant).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&tenant).map_err(NicoCliError::JsonError)?
         ),
         OutputFormat::Yaml => println!(
             "{}",
-            serde_yaml::to_string(&tenant).map_err(CarbideCliError::YamlError)?
+            serde_yaml::to_string(&tenant).map_err(NicoCliError::YamlError)?
         ),
         OutputFormat::Csv => {
             convert_tenants_to_table(&[tenant])?
                 .to_csv(std::io::stdout())
-                .map_err(CarbideCliError::CsvError)?
+                .map_err(NicoCliError::CsvError)?
                 .flush()?;
         }
 

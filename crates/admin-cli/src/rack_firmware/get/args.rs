@@ -23,7 +23,7 @@ pub struct Args {
     pub id: String,
 }
 
-impl From<Args> for rpc::forge::RackFirmwareGetRequest {
+impl From<Args> for rpc::nico::RackFirmwareGetRequest {
     fn from(args: Args) -> Self {
         Self { id: args.id }
     }

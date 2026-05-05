@@ -16,9 +16,9 @@
  */
 use std::time::Duration;
 
-use ::rpc::forge::forge_server::Forge;
-use carbide_authn::middleware::{ExternalUserInfo, Principal};
-use rpc::forge::{RedfishAction, RedfishActionResult};
+use ::rpc::nico::nico_server::Nico;
+use nico_authn::middleware::{ExternalUserInfo, Principal};
+use rpc::nico::{RedfishAction, RedfishActionResult};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::time::Instant;
 
@@ -41,7 +41,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
         .ip()
         .to_string();
 
-    let request = ::rpc::forge::RedfishCreateActionRequest {
+    let request = ::rpc::nico::RedfishCreateActionRequest {
         ips: vec![bmc_ip.clone()],
         action: "#ComputerSystem.Reset".to_string(),
         target: "/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset".to_string(),
@@ -69,7 +69,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
     assert_eq!(action.approvers, vec!["user1".to_string()]);
     assert_eq!(
         action.results,
-        vec![::rpc::forge::OptionalRedfishActionResult { result: None }]
+        vec![::rpc::nico::OptionalRedfishActionResult { result: None }]
     );
 
     // Trying to apply the action without approvals fails
@@ -77,7 +77,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
         .api
         .redfish_apply_action(request_with_username(
             "user1",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .unwrap_err();
@@ -89,7 +89,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
         .api
         .redfish_approve_action(request_with_username(
             "user1",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .unwrap_err();
@@ -100,7 +100,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
     env.api
         .redfish_approve_action(request_with_username(
             "user2",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .unwrap()
@@ -114,7 +114,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
     );
     assert_eq!(
         action.results,
-        vec![::rpc::forge::OptionalRedfishActionResult { result: None }]
+        vec![::rpc::nico::OptionalRedfishActionResult { result: None }]
     );
 
     // Approve by second user again
@@ -122,7 +122,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
         .api
         .redfish_approve_action(request_with_username(
             "user2",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .unwrap_err();
@@ -149,7 +149,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
     env.api
         .redfish_apply_action(request_with_username(
             "user1",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .expect("request should have succeeded");
@@ -176,7 +176,7 @@ async fn test_action_failure_at_bmc_request(_: PgPoolOptions, options: PgConnect
         .ip()
         .to_string();
 
-    let request = ::rpc::forge::RedfishCreateActionRequest {
+    let request = ::rpc::nico::RedfishCreateActionRequest {
         ips: vec![bmc_ip.clone()],
         action: "#ComputerSystem.Reset".to_string(),
         target: "/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset".to_string(),
@@ -194,7 +194,7 @@ async fn test_action_failure_at_bmc_request(_: PgPoolOptions, options: PgConnect
     env.api
         .redfish_approve_action(request_with_username(
             "user2",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .unwrap()
@@ -203,7 +203,7 @@ async fn test_action_failure_at_bmc_request(_: PgPoolOptions, options: PgConnect
     env.api
         .redfish_apply_action(request_with_username(
             "user1",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .expect("request should have succeeded");
@@ -240,7 +240,7 @@ async fn test_action_failure_at_client_creation(_: PgPoolOptions, options: PgCon
         .ip()
         .to_string();
 
-    let request = ::rpc::forge::RedfishCreateActionRequest {
+    let request = ::rpc::nico::RedfishCreateActionRequest {
         ips: vec![bmc_ip.clone()],
         action: "#ComputerSystem.Reset".to_string(),
         target: "/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset".to_string(),
@@ -258,7 +258,7 @@ async fn test_action_failure_at_client_creation(_: PgPoolOptions, options: PgCon
     env.api
         .redfish_approve_action(request_with_username(
             "user2",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .unwrap()
@@ -267,7 +267,7 @@ async fn test_action_failure_at_client_creation(_: PgPoolOptions, options: PgCon
     env.api
         .redfish_apply_action(request_with_username(
             "user1",
-            rpc::forge::RedfishActionId { request_id },
+            rpc::nico::RedfishActionId { request_id },
         ))
         .await
         .expect("request should have succeeded");
@@ -326,7 +326,7 @@ async fn wait_for_action_results(env: &TestEnv, bmc_ip: &str) -> Vec<RedfishActi
 async fn list_actions(env: &TestEnv, bmc_ip: Option<String>) -> Vec<RedfishAction> {
     env.api
         .redfish_list_actions(tonic::Request::new(
-            ::rpc::forge::RedfishListActionsRequest { machine_ip: bmc_ip },
+            ::rpc::nico::RedfishListActionsRequest { machine_ip: bmc_ip },
         ))
         .await
         .unwrap()

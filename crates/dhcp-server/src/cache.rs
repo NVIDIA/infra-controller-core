@@ -26,7 +26,7 @@ use std::{
 };
 
 use lru::LruCache;
-use rpc::forge::DhcpRecord;
+use rpc::nico::DhcpRecord;
 
 /// Data in cache is only valid this long
 const MACHINE_CACHE_TIMEOUT: Duration = Duration::from_secs(60);

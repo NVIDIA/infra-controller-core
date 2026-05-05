@@ -247,7 +247,7 @@ impl<IO: StateControllerIO> Builder<IO> {
     }
 
     /// Configures the ID of this state controller. The ID needs to be unique
-    /// within a Carbide deployment. Hostnames can be used as processor IDs
+    /// within a Nico deployment. Hostnames can be used as processor IDs
     /// in case its guaranteed that a host never runs more than a single processor.
     /// K8S POD IDs will naturally satisfy the requirement.
     pub fn processor_id(mut self, processor_id: String) -> Self {

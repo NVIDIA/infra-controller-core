@@ -24,17 +24,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use ::rpc::forge::ManagedHostNetworkConfigResponse;
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use ::rpc::{forge as rpc, forge_tls_client};
-use carbide_host_support::agent_config::AgentConfig;
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
-use carbide_systemd::systemd;
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico::ManagedHostNetworkConfigResponse;
+use ::rpc::nico_tls_client::NicoClientConfig;
+use ::rpc::{nico as rpc, nico_tls_client};
+use nico_host_support::agent_config::AgentConfig;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
+use nico_systemd::systemd;
+use nico_uuid::machine::MachineId;
 use eyre::WrapErr;
-use forge_certs::cert_renewal::ClientCertRenewer;
-use forge_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
+use nico_certs::cert_renewal::ClientCertRenewer;
+use nico_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use tokio::signal::unix::{SignalKind, signal};
@@ -69,21 +69,21 @@ use crate::{
 // Before going into its main loop functionality, the
 // code first launches a periodic config fetcher thread.
 // The periodic config fetcher uses a grpc call to
-// carbide to get network config information as well as
+// nico to get network config information as well as
 // instance metadata information and stores it. The main loop and the instance
 // metadata service use the information fetched be the periodic fetcher by reading
 // the information stored by the periodic config fetcher.
 pub async fn setup_and_run(
     machine_id: MachineId,
     factory_mac_address: MacAddress,
-    forge_client_config: Arc<ForgeClientConfig>,
+    nico_client_config: Arc<NicoClientConfig>,
     agent_config: AgentConfig,
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
     systemd::notify_start().await?;
     tracing::info!(
-        version = carbide_version::version!(),
-        "Started forge-dpu-agent"
+        version = nico_version::version!(),
+        "Started nico-dpu-agent"
     );
 
     // Issue a *hopefully* one time reboot in the event that a VERY specific case where the dpu
@@ -100,15 +100,15 @@ pub async fn setup_and_run(
 
     let process_start_time = SystemTime::now();
 
-    let forge_api_server = agent_config.forge_system.api_server.clone();
+    let nico_api_server = agent_config.nico_system.api_server.clone();
     // Setup client certificate renewal
     let client_cert_renewer =
-        ClientCertRenewer::new(forge_api_server.clone(), Arc::clone(&forge_client_config));
+        ClientCertRenewer::new(nico_api_server.clone(), Arc::clone(&nico_client_config));
 
     let machine_info = MachineInfo::new(machine_id);
     let remediation_executor = RemediationExecutor::new(
-        forge_api_server.clone(),
-        Arc::clone(&forge_client_config),
+        nico_api_server.clone(),
+        Arc::clone(&nico_client_config),
         machine_info,
     );
     tokio::task::spawn(async move {
@@ -118,8 +118,8 @@ pub async fn setup_and_run(
     let instance_metadata_state = Arc::new(
         instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
             machine_id,
-            forge_api_server.clone(),
-            Arc::clone(&forge_client_config),
+            nico_api_server.clone(),
+            Arc::clone(&nico_client_config),
             agent_config.machine_identity.clone(),
         )
         .map_err(|e| eyre::eyre!("failed to initialize instance metadata router state: {e}"))?,
@@ -221,7 +221,7 @@ pub async fn setup_and_run(
         }
     };
 
-    let build_version = carbide_version::v!(build_version).to_string();
+    let build_version = nico_version::v!(build_version).to_string();
 
     let periodic_config_fetcher = periodic_config_fetcher::PeriodicConfigFetcher::new(
         periodic_config_fetcher::PeriodicConfigFetcherConfig {
@@ -229,8 +229,8 @@ pub async fn setup_and_run(
                 agent_config.period.network_config_fetch_secs,
             ),
             machine_id,
-            forge_api: forge_api_server.clone(),
-            forge_client_config: Arc::clone(&forge_client_config),
+            nico_api: nico_api_server.clone(),
+            nico_client_config: Arc::clone(&nico_client_config),
         },
     )
     .await;
@@ -238,8 +238,8 @@ pub async fn setup_and_run(
     let host_machine_id = match get_host_machine_id_retry(
         &agent_config,
         &periodic_config_fetcher,
-        Arc::clone(&forge_client_config),
-        &forge_api_server,
+        Arc::clone(&nico_client_config),
+        &nico_api_server,
     )
     .await
     {
@@ -279,8 +279,8 @@ pub async fn setup_and_run(
         dpu_agent_version: build_version.clone(),
         update_inventory_interval: Duration::from_secs(agent_config.period.inventory_update_secs),
         machine_id,
-        forge_api: forge_api_server.clone(),
-        forge_client_config: Arc::clone(&forge_client_config),
+        nico_api: nico_api_server.clone(),
+        nico_client_config: Arc::clone(&nico_client_config),
         agent_platform_type: options.agent_platform_type.clone(),
     };
 
@@ -307,13 +307,13 @@ pub async fn setup_and_run(
                 Some(network_monitor_metrics_state),
                 Arc::from(pinger_type),
             );
-            let forge_api_clone = forge_api_server.clone();
-            let forge_client_config_clone = Arc::clone(&forge_client_config);
+            let nico_api_clone = nico_api_server.clone();
+            let nico_client_config_clone = Arc::clone(&nico_client_config);
             let network_monitor_handle = tokio::spawn(async move {
                 network_monitor
                     .run(
-                        &forge_api_clone,
-                        forge_client_config_clone,
+                        &nico_api_clone,
+                        nico_client_config_clone,
                         &mut close_receiver,
                     )
                     .await
@@ -343,7 +343,7 @@ pub async fn setup_and_run(
         .map(|prefix| InterfaceTranslationMode::Prepend(prefix.clone()));
 
     let mut main_loop = MainLoop {
-        forge_client_config,
+        nico_client_config,
         build_version,
         machine_id,
         periodic_config_reader,
@@ -360,7 +360,7 @@ pub async fn setup_and_run(
         inventory_updater_config,
         options,
         agent_config,
-        forge_api_server,
+        nico_api_server,
         fmds_minimum_hbn_version,
         nvue_minimum_hbn_version,
         factory_mac_address,
@@ -376,7 +376,7 @@ pub async fn setup_and_run(
 }
 
 struct MainLoop {
-    forge_client_config: Arc<ForgeClientConfig>,
+    nico_client_config: Arc<NicoClientConfig>,
     machine_id: MachineId,
     factory_mac_address: MacAddress,
     build_version: String,
@@ -394,7 +394,7 @@ struct MainLoop {
     inventory_updater_config: MachineInventoryUpdaterConfig,
     options: command_line::RunOptions,
     agent_config: AgentConfig,
-    forge_api_server: String,
+    nico_api_server: String,
     fmds_minimum_hbn_version: Version<'static>,
     nvue_minimum_hbn_version: Version<'static>,
     service_addrs: ServiceAddresses,
@@ -469,7 +469,7 @@ impl MainLoop {
                     if let Some(handle) = self.network_monitor_handle.take() {
                         let _ = handle.await;
                     }
-                    tracing::info!(version=carbide_version::v!(build_version), "TERM signal received, clean exit");
+                    tracing::info!(version=nico_version::v!(build_version), "TERM signal received, clean exit");
                     return Ok(());
                 }
                 _ = hup_signal.recv() => {
@@ -504,7 +504,7 @@ impl MainLoop {
         let mut current_extension_service_version = None;
 
         let client_certificate_expiry_unix_epoch_secs =
-            self.forge_client_config.client_cert_expiry();
+            self.nico_client_config.client_cert_expiry();
 
         let fabric_interfaces = get_fabric_interfaces_data().await.unwrap_or_else(|err| {
             tracing::warn!("Error getting link data for fabric interfaces: {err:#}");
@@ -515,7 +515,7 @@ impl MainLoop {
             dpu_machine_id: Some(self.machine_id),
             dpu_health: None,
             dpu_agent_version: Some(self.build_version.clone()),
-            observed_at: None, // None makes carbide-api set it on receipt
+            observed_at: None, // None makes nico-api set it on receipt
             network_config_version: None,
             instance_config_version: None,
             instance_network_config_version: None,
@@ -598,7 +598,7 @@ impl MainLoop {
                     tracing::trace!("Desired network config is {conf:?}");
                     // Get the actual virtualization type to use for configuring
                     // an interface, where we'll default to reading the one provided
-                    // by the Carbide API, with the ability to override via RunOptions.
+                    // by the Nico API, with the ability to override via RunOptions.
                     let virtualization_type = effective_virtualization_type(&conf, &self.options)?;
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
@@ -807,7 +807,7 @@ impl MainLoop {
                 // pulling the Metadata is preferred - since the mainloop will make sure
                 // all the information (Instance Metadata and Network Config) is in sync.
                 // It will guarantee that the Instance Config that is acknowledged to
-                // carbide via the status message is actually visible to the tenant via
+                // nico via the status message is actually visible to the tenant via
                 // FMDS
                 self.fmds_updater
                     .update(instance_data.clone(), Some(conf.clone()))
@@ -886,8 +886,8 @@ impl MainLoop {
 
                 record_network_status(
                     status_out,
-                    &self.forge_api_server,
-                    &self.forge_client_config,
+                    &self.nico_api_server,
+                    &self.nico_client_config,
                 )
                 .await;
                 self.seen_blank = false;
@@ -996,8 +996,8 @@ impl MainLoop {
                 self.agent_config.period.version_check_secs,
             ));
             let upgrade_result = upgrade::upgrade(
-                &self.forge_api_server,
-                &self.forge_client_config,
+                &self.nico_api_server,
+                &self.nico_client_config,
                 &self.machine_id,
                 self.agent_config.updates.override_upgrade_cmd.as_deref(),
             )
@@ -1018,7 +1018,7 @@ impl MainLoop {
                 }
                 Err(e) => {
                     tracing::error!(
-                        self.forge_api_server,
+                        self.nico_api_server,
                         error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
                         "upgrade_check failed"
                     );
@@ -1035,14 +1035,14 @@ impl MainLoop {
 
 /// effective_virtualization_type returns the virtualization type
 /// to use for generating configuration. This defaults to whatever
-/// comes from Carbide API, with the ability to override with runtime
+/// comes from Nico API, with the ability to override with runtime
 /// options.
 fn effective_virtualization_type(
     conf: &ManagedHostNetworkConfigResponse,
     options: &RunOptions,
 ) -> eyre::Result<VpcVirtualizationType> {
     // First, grab the VpcVirtualizationType returned to us
-    // from the Carbide API (which *should* be what comes from
+    // from the Nico API (which *should* be what comes from
     // the `network_virtualization_type` column from the `vpcs`
     // table for the VPC this DPU is in).
     //
@@ -1109,19 +1109,19 @@ async fn plan_fmds_armos_routing(
 }
 pub async fn record_network_status(
     status: rpc::DpuNetworkStatus,
-    forge_api: &str,
-    forge_client_config: &forge_tls_client::ForgeClientConfig,
+    nico_api: &str,
+    nico_client_config: &nico_tls_client::NicoClientConfig,
 ) {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
-        .build(forge_api)
+    let mut client = match nico_tls_client::NicoTlsClient::new(nico_client_config)
+        .build(nico_api)
         .await
     {
         Ok(client) => client,
         Err(err) => {
             tracing::error!(
-                forge_api,
+                nico_api,
                 error = format!("{err:#}"),
-                "record_network_status: Could not connect to Forge API server. Will retry."
+                "record_network_status: Could not connect to Nico API server. Will retry."
             );
             return;
         }
@@ -1210,7 +1210,7 @@ fn dt(d: Duration) -> humantime::FormattedDuration {
     })
 }
 
-// Do horrible things to the DPU including an out of band, unknown to forge, reboot.
+// Do horrible things to the DPU including an out of band, unknown to nico, reboot.
 //
 // If a DPU cannot load its 2.9 ATF/UEFI, issue hacky commands to force load it and reboot
 // which actually does the loading of the ATU/UEFI. Upon reboot, the bfvcheck will be valid or

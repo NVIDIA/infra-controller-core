@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, OutputFormat};
 use prettytable::{Cell, Row, Table, row};
 use serde::Deserialize;
 
@@ -76,18 +76,18 @@ pub async fn get(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     let id = opts.id.clone();
 
     let result = match api_client.0.get_rack_firmware(opts).await {
         Ok(response) => response,
         Err(status) if status.code() == tonic::Code::NotFound => {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "Rack firmware configuration not found: {}",
                 id
             )));
         }
-        Err(err) => return Err(CarbideCliError::from(err)),
+        Err(err) => return Err(NicoCliError::from(err)),
     };
 
     if format == OutputFormat::Json {

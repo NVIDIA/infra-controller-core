@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     PrefixMatchType, VpcPrefixCreationRequest, VpcPrefixDeletionRequest, VpcPrefixSearchQuery,
 };
 use sqlx::PgPool;
@@ -72,13 +72,13 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
         prefix: String::new(),
         name: String::new(),
         vpc_id: Some(vpc_id),
-        config: Some(rpc::forge::VpcPrefixConfig {
+        config: Some(rpc::nico::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(rpc::nico::Metadata {
             name: "Test VPC prefix".into(),
             description: String::from("some description"),
-            labels: vec![rpc::forge::Label {
+            labels: vec![rpc::nico::Label {
                 key: "example_key".into(),
                 value: Some("example_value".into()),
             }],
@@ -120,13 +120,13 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         prefix: String::new(),
         name: String::new(),
         vpc_id: Some(vpc_id),
-        config: Some(rpc::forge::VpcPrefixConfig {
+        config: Some(rpc::nico::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(rpc::nico::Metadata {
             name: "Test VPC prefix".into(),
             description: String::from("some description"),
-            labels: vec![rpc::forge::Label {
+            labels: vec![rpc::nico::Label {
                 key: "example_key".into(),
                 value: Some("example_value".into()),
             }],
@@ -141,13 +141,13 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         prefix: String::new(),
         name: String::new(),
         vpc_id: Some(vpc_id),
-        config: Some(rpc::forge::VpcPrefixConfig {
+        config: Some(rpc::nico::VpcPrefixConfig {
             prefix: overlapping_ip_prefix.into(),
         }),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(rpc::nico::Metadata {
             name: "Overlapping VPC prefix".into(),
             description: String::from("some description"),
-            labels: vec![rpc::forge::Label {
+            labels: vec![rpc::nico::Label {
                 key: "example_key".into(),
                 value: Some("example_value".into()),
             }],
@@ -175,13 +175,13 @@ async fn test_reject_create_with_invalid_metadata(
         prefix: String::new(),
         name: String::new(),
         vpc_id: Some(vpc_id),
-        config: Some(rpc::forge::VpcPrefixConfig {
+        config: Some(rpc::nico::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(rpc::nico::Metadata {
             name: "".into(),
             description: String::from("some description"),
-            labels: vec![rpc::forge::Label {
+            labels: vec![rpc::nico::Label {
                 key: "example_key".into(),
                 value: Some("example_value".into()),
             }],
@@ -226,10 +226,10 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
             name: String::new(),
             vpc_id: Some(vpc_id),
 
-            config: Some(rpc::forge::VpcPrefixConfig {
+            config: Some(rpc::nico::VpcPrefixConfig {
                 prefix: prefix.into(),
             }),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: description.into(),
                 ..Default::default()
             }),
@@ -259,8 +259,8 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         prefix: String::new(),
         name: String::new(),
         vpc_id: Some(vpc_id),
-        config: Some(rpc::forge::VpcPrefixConfig { prefix: p1.into() }),
-        metadata: Some(rpc::forge::Metadata {
+        config: Some(rpc::nico::VpcPrefixConfig { prefix: p1.into() }),
+        metadata: Some(rpc::nico::Metadata {
             name: "VPC prefix p1".into(),
             ..Default::default()
         }),
@@ -270,8 +270,8 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         prefix: String::new(),
         name: String::new(),
         vpc_id: Some(vpc_id),
-        config: Some(rpc::forge::VpcPrefixConfig { prefix: p2.into() }),
-        metadata: Some(rpc::forge::Metadata {
+        config: Some(rpc::nico::VpcPrefixConfig { prefix: p2.into() }),
+        metadata: Some(rpc::nico::Metadata {
             name: "VPC prefix p2".into(),
             ..Default::default()
         }),

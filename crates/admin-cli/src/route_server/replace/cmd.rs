@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use crate::route_server::common::AddressArgs;
 use crate::rpc::ApiClient;
 
-pub async fn replace(args: AddressArgs, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn replace(args: AddressArgs, api_client: &ApiClient) -> NicoCliResult<()> {
     api_client.0.replace_route_servers(args).await?;
 
     Ok(())

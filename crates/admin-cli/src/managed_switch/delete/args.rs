@@ -17,7 +17,7 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

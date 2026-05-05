@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::FindComputeAllocationsByIdsRequest;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::FindComputeAllocationsByIdsRequest;
 
 use super::args::Args;
 use crate::compute_allocation::common::convert_compute_allocations_to_table;
@@ -31,7 +31,7 @@ pub async fn show(
     api_client: &ApiClient,
     page_size: usize,
     verbose: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let allocations = if let Some(id) = args.id {
         api_client
             .0
@@ -60,17 +60,17 @@ pub async fn show(
     match output_format {
         OutputFormat::Json => println!(
             "{}",
-            serde_json::to_string_pretty(&allocations).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&allocations).map_err(NicoCliError::JsonError)?
         ),
         OutputFormat::Yaml => println!(
             "{}",
-            serde_yaml::to_string(&allocations).map_err(CarbideCliError::YamlError)?
+            serde_yaml::to_string(&allocations).map_err(NicoCliError::YamlError)?
         ),
         OutputFormat::Csv => {
             let verbose = allocations.len() == 1 || verbose;
             convert_compute_allocations_to_table(allocations, verbose)?
                 .to_csv(std::io::stdout())
-                .map_err(CarbideCliError::CsvError)?
+                .map_err(NicoCliError::CsvError)?
                 .flush()?;
         }
         _ => {

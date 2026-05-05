@@ -17,10 +17,10 @@
 
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use libmlx::profile::error::MlxProfileError;
-use rpc::forge::ScoutStreamApiBoundMessage;
-use rpc::protos::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
+use rpc::nico::ScoutStreamApiBoundMessage;
+use rpc::protos::nico::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
 use tokio::sync::mpsc;
 
 use crate::cfg::Options;
@@ -47,7 +47,7 @@ pub enum ScoutStreamError {
 }
 
 // start_scout_stream spawns a background task that manages the streaming
-// gRPC connection to carbide-api for scout stream operations.
+// gRPC connection to nico-api for scout stream operations.
 pub fn start_scout_stream(machine_id: MachineId, options: &Options) -> tokio::task::JoinHandle<()> {
     let options = options.clone();
     tokio::spawn(async move {
@@ -86,7 +86,7 @@ async fn run_scout_stream_loop(
     machine_id: MachineId,
     options: &Options,
 ) -> Result<(), ScoutStreamError> {
-    let mut client = client::create_forge_client(options)
+    let mut client = client::create_nico_client(options)
         .await
         .map_err(|e| ScoutStreamError::ClientError(e.to_string()))?;
 
@@ -99,7 +99,7 @@ async fn run_scout_stream_loop(
         // Init doesn't take a flow_uuid.
         flow_uuid: None,
         payload: Some(scout_stream_api_bound_message::Payload::Init(
-            rpc::protos::forge::ScoutStreamInitRequest {
+            rpc::protos::nico::ScoutStreamInitRequest {
                 machine_id: machine_id.into(),
             },
         )),
@@ -134,7 +134,7 @@ async fn run_scout_stream_loop(
             // generating a follow-up ScoutStreamApiBoundMessage "response".
             let payload = handle_scout_stream_api_bound_message(flow_uuid, machine_id, request);
 
-            // And then send the response back to carbide-api.
+            // And then send the response back to nico-api.
             if let Err(e) = tx.send(payload).await {
                 tracing::error!(
                     "scout stream failed to send response (api:{}, machine_id:{machine_id}): {e}",
@@ -264,12 +264,12 @@ fn handle_scout_stream_api_bound_message(
 // handle_ping handles a scout stream agent ping
 pub fn handle_ping(
     machine_id: MachineId,
-    _request: rpc::forge::ScoutStreamAgentPingRequest,
-) -> rpc::forge::ScoutStreamAgentPingResponse {
+    _request: rpc::nico::ScoutStreamAgentPingRequest,
+) -> rpc::nico::ScoutStreamAgentPingResponse {
     tracing::info!("[scout_stream::ping] ping requested",);
 
-    rpc::forge::ScoutStreamAgentPingResponse {
-        reply: Some(rpc::forge::scout_stream_agent_ping_response::Reply::Pong(
+    rpc::nico::ScoutStreamAgentPingResponse {
+        reply: Some(rpc::nico::scout_stream_agent_ping_response::Reply::Pong(
             format!("pong from {machine_id}"),
         )),
     }

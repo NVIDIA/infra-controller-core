@@ -57,7 +57,7 @@ pub type HardwareHash = [u8; 32];
 /// String so that we can implement the Copy trait.
 pub type HardwareIdBase32 = [u8; MACHINE_ID_HARDWARE_ID_BASE32_LENGTH];
 
-/// The `MachineId` uniquely identifies a machine that is managed by the Forge system
+/// The `MachineId` uniquely identifies a machine that is managed by the Nico system
 ///
 /// `MachineId`s are derived from a hardware fingerprint, and are thereby
 /// globally unique.
@@ -330,10 +330,10 @@ impl MachineIdSource {
 pub enum MachineType {
     // The Machine is a DPU
     Dpu,
-    /// The Machine is a Forge managed host
+    /// The Machine is a Nico managed host
     Host,
     /// The Machine is a host whose existence had been predicated by a DPU
-    /// being detected by Forge.
+    /// being detected by Nico.
     /// However the actual Machine ID of the host is not yet known, since the
     /// Machine hardware details are not yet known. Therefore a **temporary**
     /// ID is created. The temporary ID is derived from the DPU Machine ID,
@@ -419,7 +419,7 @@ impl MachineType {
 
 impl std::fmt::Display for MachineId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // `fm` is for forge-machine
+        // `fm` is for nico-machine
         // `1` is a version identifier
         // The next 2 bytes `00` are reserved
         f.write_str(MACHINE_ID_PREFIX)?;

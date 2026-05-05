@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use nico_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use rpc::Machine;
 
@@ -32,7 +32,7 @@ pub async fn metadata(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     format: OutputFormat,
     extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         Args::Show(cmd) => metadata_show(api_client, cmd, output_file, format, extended).await,
         Args::Set(cmd) => metadata_set(api_client, cmd).await,
@@ -47,8 +47,8 @@ pub async fn handle_metadata_show(
     output_format: &OutputFormat,
     _extended: bool,
     machine: Machine,
-) -> CarbideCliResult<()> {
-    let metadata = machine.metadata.ok_or(CarbideCliError::Empty)?;
+) -> NicoCliResult<()> {
+    let metadata = machine.metadata.ok_or(NicoCliError::Empty)?;
     crate::metadata::display_metadata(output_file, output_format, &metadata).await
 }
 
@@ -58,13 +58,13 @@ pub async fn metadata_show(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     format: OutputFormat,
     extended: bool,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let mut machines = api_client
         .get_machines_by_ids(&[cmd.machine])
         .await?
         .machines;
     let Some(machine) = machines.pop() else {
-        return Err(CarbideCliError::GenericError(format!(
+        return Err(NicoCliError::GenericError(format!(
             "Machine with ID {} was not found",
             cmd.machine
         )));
@@ -72,20 +72,20 @@ pub async fn metadata_show(
     handle_metadata_show(output_file, &format, extended, machine).await
 }
 
-async fn fetch_machine(api_client: &ApiClient, machine_id: MachineId) -> CarbideCliResult<Machine> {
+async fn fetch_machine(api_client: &ApiClient, machine_id: MachineId) -> NicoCliResult<Machine> {
     let mut machines = api_client
         .get_machines_by_ids(&[machine_id])
         .await?
         .machines;
     machines.pop().ok_or_else(|| {
-        CarbideCliError::GenericError(format!("Machine with ID {} was not found", machine_id))
+        NicoCliError::GenericError(format!("Machine with ID {} was not found", machine_id))
     })
 }
 
 pub async fn metadata_set(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandSet,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let machine = fetch_machine(api_client, cmd.machine).await?;
     let metadata = crate::metadata::apply_set(machine.metadata, cmd.name, cmd.description)?;
     api_client
@@ -96,7 +96,7 @@ pub async fn metadata_set(
 pub async fn metadata_add_label(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandAddLabel,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let machine = fetch_machine(api_client, cmd.machine).await?;
     let metadata = crate::metadata::apply_add_label(machine.metadata, cmd.key, cmd.value)?;
     api_client
@@ -107,7 +107,7 @@ pub async fn metadata_add_label(
 pub async fn metadata_remove_labels(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandRemoveLabels,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let machine = fetch_machine(api_client, cmd.machine).await?;
     let metadata = crate::metadata::apply_remove_labels(machine.metadata, cmd.keys)?;
     api_client
@@ -119,13 +119,13 @@ pub async fn metadata_remove_labels(
 pub async fn metadata_from_expected_machine(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandFromExpectedMachine,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let mut machines = api_client
         .get_machines_by_ids(&[cmd.machine])
         .await?
         .machines;
     if machines.len() != 1 {
-        return Err(CarbideCliError::GenericError(format!(
+        return Err(NicoCliError::GenericError(format!(
             "Machine with ID {} was not found",
             cmd.machine
         )));
@@ -138,7 +138,7 @@ pub async fn metadata_from_expected_machine(
         .transpose()
         .map_or_else(
             |e| {
-                Err(CarbideCliError::GenericError(format!(
+                Err(NicoCliError::GenericError(format!(
                     "Invalid BMC MAC address found for Machine with ID {}: {}",
                     cmd.machine, e
                 )))
@@ -146,14 +146,14 @@ pub async fn metadata_from_expected_machine(
             Ok,
         )?
         .ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "No BMC MAC address found for Machine with ID {}",
                 cmd.machine
             ))
         })?;
 
     let mut metadata = machine.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
+        NicoCliError::GenericError("Machine does not carry Metadata that can be patched".into())
     })?;
 
     let expected_machines = api_client
@@ -169,14 +169,14 @@ pub async fn metadata_from_expected_machine(
                 .is_ok_and(|m| m == bmc_mac)
         })
         .ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "No expected Machine found for Machine with ID {} and BMC Mac address {}",
                 cmd.machine, bmc_mac
             ))
         })?;
 
     let expected_machine_metadata = expected_machine.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError(format!(
+        NicoCliError::GenericError(format!(
             "No expected Machine Metadata found for Machine with ID {} and BMC Mac address {}",
             cmd.machine, bmc_mac
         ))

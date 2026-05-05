@@ -16,8 +16,8 @@
  */
 
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as rpc_forge};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{self as rpc_nico};
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
@@ -69,11 +69,11 @@ async fn test_insert_list_remove_power_shelf_health_report(
 
     env.api
         .insert_power_shelf_health_report(Request::new(
-            rpc_forge::InsertPowerShelfHealthReportRequest {
+            rpc_nico::InsertPowerShelfHealthReportRequest {
                 power_shelf_id: Some(power_shelf_id),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
+                health_report_entry: Some(rpc_nico::HealthReportEntry {
                     report: Some(report.clone().into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                    mode: rpc_nico::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -82,7 +82,7 @@ async fn test_insert_list_remove_power_shelf_health_report(
     let list_resp = env
         .api
         .list_power_shelf_health_reports(Request::new(
-            rpc_forge::ListPowerShelfHealthReportsRequest {
+            rpc_nico::ListPowerShelfHealthReportsRequest {
                 power_shelf_id: Some(power_shelf_id),
             },
         ))
@@ -100,7 +100,7 @@ async fn test_insert_list_remove_power_shelf_health_report(
 
     env.api
         .remove_power_shelf_health_report(Request::new(
-            rpc_forge::RemovePowerShelfHealthReportRequest {
+            rpc_nico::RemovePowerShelfHealthReportRequest {
                 power_shelf_id: Some(power_shelf_id),
                 source: "external-monitor".to_string(),
             },
@@ -110,7 +110,7 @@ async fn test_insert_list_remove_power_shelf_health_report(
     let list_resp = env
         .api
         .list_power_shelf_health_reports(Request::new(
-            rpc_forge::ListPowerShelfHealthReportsRequest {
+            rpc_nico::ListPowerShelfHealthReportsRequest {
                 power_shelf_id: Some(power_shelf_id),
             },
         ))
@@ -133,11 +133,11 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     for _ in 0..3 {
         env.api
             .insert_power_shelf_health_report(Request::new(
-                rpc_forge::InsertPowerShelfHealthReportRequest {
+                rpc_nico::InsertPowerShelfHealthReportRequest {
                     power_shelf_id: Some(power_shelf_id),
-                    health_report_entry: Some(rpc_forge::HealthReportEntry {
+                    health_report_entry: Some(rpc_nico::HealthReportEntry {
                         report: Some(report.clone().into()),
-                        mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                        mode: rpc_nico::HealthReportApplyMode::Merge as i32,
                     }),
                 },
             ))
@@ -147,7 +147,7 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     let list_resp = env
         .api
         .list_power_shelf_health_reports(Request::new(
-            rpc_forge::ListPowerShelfHealthReportsRequest {
+            rpc_nico::ListPowerShelfHealthReportsRequest {
                 power_shelf_id: Some(power_shelf_id),
             },
         ))
@@ -171,7 +171,7 @@ async fn test_remove_nonexistent_source(
     let result = env
         .api
         .remove_power_shelf_health_report(Request::new(
-            rpc_forge::RemovePowerShelfHealthReportRequest {
+            rpc_nico::RemovePowerShelfHealthReportRequest {
                 power_shelf_id: Some(power_shelf_id),
                 source: "nonexistent-source".to_string(),
             },
@@ -191,17 +191,17 @@ async fn test_missing_power_shelf_id(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(get_config()))
             .await;
 
-    let nonexistent_id = carbide_uuid::power_shelf::PowerShelfId::from(uuid::Uuid::new_v4());
+    let nonexistent_id = nico_uuid::power_shelf::PowerShelfId::from(uuid::Uuid::new_v4());
     let report = alert_report("external-monitor");
 
     let result = env
         .api
         .insert_power_shelf_health_report(Request::new(
-            rpc_forge::InsertPowerShelfHealthReportRequest {
+            rpc_nico::InsertPowerShelfHealthReportRequest {
                 power_shelf_id: Some(nonexistent_id),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
+                health_report_entry: Some(rpc_nico::HealthReportEntry {
                     report: Some(report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                    mode: rpc_nico::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -226,11 +226,11 @@ async fn test_replace_mode(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     let replace_report = empty_healthy_report("admin-override");
     env.api
         .insert_power_shelf_health_report(Request::new(
-            rpc_forge::InsertPowerShelfHealthReportRequest {
+            rpc_nico::InsertPowerShelfHealthReportRequest {
                 power_shelf_id: Some(power_shelf_id),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
+                health_report_entry: Some(rpc_nico::HealthReportEntry {
                     report: Some(replace_report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Replace as i32,
+                    mode: rpc_nico::HealthReportApplyMode::Replace as i32,
                 }),
             },
         ))
@@ -239,7 +239,7 @@ async fn test_replace_mode(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     let list_resp = env
         .api
         .list_power_shelf_health_reports(Request::new(
-            rpc_forge::ListPowerShelfHealthReportsRequest {
+            rpc_nico::ListPowerShelfHealthReportsRequest {
                 power_shelf_id: Some(power_shelf_id),
             },
         ))
@@ -248,12 +248,12 @@ async fn test_replace_mode(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     assert_eq!(list_resp.health_report_entries.len(), 1);
     assert_eq!(
         list_resp.health_report_entries[0].mode,
-        rpc_forge::HealthReportApplyMode::Replace as i32
+        rpc_nico::HealthReportApplyMode::Replace as i32
     );
 
     env.api
         .remove_power_shelf_health_report(Request::new(
-            rpc_forge::RemovePowerShelfHealthReportRequest {
+            rpc_nico::RemovePowerShelfHealthReportRequest {
                 power_shelf_id: Some(power_shelf_id),
                 source: "admin-override".to_string(),
             },
@@ -263,7 +263,7 @@ async fn test_replace_mode(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     let list_resp = env
         .api
         .list_power_shelf_health_reports(Request::new(
-            rpc_forge::ListPowerShelfHealthReportsRequest {
+            rpc_nico::ListPowerShelfHealthReportsRequest {
                 power_shelf_id: Some(power_shelf_id),
             },
         ))
@@ -287,11 +287,11 @@ async fn test_health_visible_in_find_power_shelves(
     let report = alert_report("external-monitor");
     env.api
         .insert_power_shelf_health_report(Request::new(
-            rpc_forge::InsertPowerShelfHealthReportRequest {
+            rpc_nico::InsertPowerShelfHealthReportRequest {
                 power_shelf_id: Some(power_shelf_id),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
+                health_report_entry: Some(rpc_nico::HealthReportEntry {
                     report: Some(report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                    mode: rpc_nico::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -299,7 +299,7 @@ async fn test_health_visible_in_find_power_shelves(
 
     let resp = env
         .api
-        .find_power_shelves(Request::new(rpc_forge::PowerShelfQuery {
+        .find_power_shelves(Request::new(rpc_nico::PowerShelfQuery {
             power_shelf_id: Some(power_shelf_id),
             name: None,
         }))
@@ -324,7 +324,7 @@ async fn test_health_visible_in_find_power_shelves(
     assert_eq!(ps_status.health_sources[0].source, "external-monitor");
     assert_eq!(
         ps_status.health_sources[0].mode,
-        rpc_forge::HealthReportApplyMode::Merge as i32
+        rpc_nico::HealthReportApplyMode::Merge as i32
     );
 
     Ok(())

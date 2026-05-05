@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
-use ::rpc::protos::forge::ScoutStreamScoutBoundMessage;
+use ::rpc::nico::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
+use ::rpc::protos::nico::ScoutStreamScoutBoundMessage;
 use ::rpc::protos::mlx_device;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use libmlx::profile::serialization::SerializableProfile;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -228,7 +228,7 @@ async fn handle_profile_sync(
 ) -> Result<mlx_device::MlxAdminProfileSyncResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -240,7 +240,7 @@ async fn handle_profile_sync(
         .runtime_config
         .mlxconfig_profiles
         .as_ref()
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "mlxconfig_profiles",
             id: "configured".into(),
         })?;
@@ -248,20 +248,20 @@ async fn handle_profile_sync(
     // Get the profile from the loaded profiles.
     let profile = profiles
         .get(&profile_name)
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "mlxconfig_profile",
             id: profile_name.clone(),
         })?;
 
     // Convert MlxConfigProfile to SerializableProfile, then to JSON.
     let serializable_profile =
-        SerializableProfile::from_profile(profile).map_err(|e| CarbideError::Internal {
+        SerializableProfile::from_profile(profile).map_err(|e| NicoError::Internal {
             message: format!("failed to convert mlxconfig profile to serializable profile: {e}"),
         })?;
 
     let serializable_profile_pb: mlx_device::SerializableMlxConfigProfile = serializable_profile
         .try_into()
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("failed to convert serializable profile into pb: {e}"),
         })?;
 
@@ -281,7 +281,7 @@ async fn handle_profile_sync(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to sync profile to scout: {}",
                 status.message()
@@ -304,7 +304,7 @@ async fn handle_profile_sync(
                 })
             }
             Some(mlx_device::mlx_device_profile_sync_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error syncing profile to device (machine_id={machine_id}, device_id={device_id}, profile_name={profile_name}): {}",
                         error.message
@@ -312,14 +312,14 @@ async fn handle_profile_sync(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty sync result reply (machine_id={machine_id}, device_id={device_id}, profile_name={profile_name})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for profile sync response (machine_id={machine_id}, device_id={device_id}, profile_name={profile_name})"
             ),
@@ -338,7 +338,7 @@ fn handle_profile_show(
         .runtime_config
         .mlxconfig_profiles
         .as_ref()
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "mlxconfig_profiles",
             id: "configured".into(),
         })?;
@@ -346,20 +346,20 @@ fn handle_profile_show(
     // Get the profile from the loaded profiles.
     let profile = profiles
         .get(&profile_name)
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "mlxconfig_profile",
             id: profile_name.clone(),
         })?;
 
     // Convert MlxConfigProfile to SerializableProfile, then to JSON.
     let serializable =
-        SerializableProfile::from_profile(profile).map_err(|e| CarbideError::Internal {
+        SerializableProfile::from_profile(profile).map_err(|e| NicoError::Internal {
             message: format!("failed to convert mlxconfig profile to serializable profile: {e}"),
         })?;
 
     let serializable_profile_pb = serializable
         .try_into()
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("failed to serialize serializable profile pb: {e}"),
         })?;
 
@@ -377,7 +377,7 @@ async fn handle_profile_compare(
 ) -> Result<mlx_device::MlxAdminProfileCompareResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -389,7 +389,7 @@ async fn handle_profile_compare(
         .runtime_config
         .mlxconfig_profiles
         .as_ref()
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "mlxconfig_profiles",
             id: "configured".into(),
         })?;
@@ -397,20 +397,20 @@ async fn handle_profile_compare(
     // Get the profile from the loaded profiles.
     let profile = profiles
         .get(&profile_name)
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "mlxconfig_profile",
             id: profile_name.clone(),
         })?;
 
     // Convert MlxConfigProfile to SerializableProfile, then to protobuf.
     let serializable =
-        SerializableProfile::from_profile(profile).map_err(|e| CarbideError::Internal {
+        SerializableProfile::from_profile(profile).map_err(|e| NicoError::Internal {
             message: format!("failed to convert mlxconfig profile to serializable profile: {e}"),
         })?;
 
     let serializable_profile_pb = serializable
         .try_into()
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("failed to serialize serializable profile pb: {e}"),
         })?;
 
@@ -430,7 +430,7 @@ async fn handle_profile_compare(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to compare profile via scout: {}",
                 status.message()
@@ -453,7 +453,7 @@ async fn handle_profile_compare(
                 comparison_result: Some(comparison_result),
             }),
             Some(mlx_device::mlx_device_profile_compare_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error comparing profile to device (machine_id={machine_id}, device_id={device_id}, profile_name={profile_name}): {}",
                         error.message
@@ -461,14 +461,14 @@ async fn handle_profile_compare(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty compare result reply (machine_id={machine_id}, device_id={device_id}, profile_name={profile_name})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for profile compare response (machine_id={machine_id}, device_id={device_id}, profile_name={profile_name})"
             ),
@@ -484,7 +484,7 @@ fn handle_profile_list(api: &Api) -> Result<mlx_device::MlxAdminProfileListRespo
         .runtime_config
         .mlxconfig_profiles
         .as_ref()
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "mlxconfig_profiles",
             id: "configured".into(),
         })?;
@@ -512,7 +512,7 @@ async fn handle_lockdown_lock(
 ) -> Result<mlx_device::MlxAdminLockdownLockResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -535,7 +535,7 @@ async fn handle_lockdown_lock(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to lockdown::lock via scout: {}",
                 status.message()
@@ -551,7 +551,7 @@ async fn handle_lockdown_lock(
                 })
             }
             Some(mlx_device::mlx_device_lockdown_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error fetching lockdown lock status (machine_id={machine_id}, device_id={device_id}): {}",
                         error.message
@@ -559,14 +559,14 @@ async fn handle_lockdown_lock(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty lockdown lock status reply (machine_id={machine_id}, device_id={device_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for lockdown lock status response (machine_id={machine_id}, device_id={device_id})"
             ),
@@ -583,7 +583,7 @@ async fn handle_lockdown_unlock(
 ) -> Result<mlx_device::MlxAdminLockdownUnlockResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -606,7 +606,7 @@ async fn handle_lockdown_unlock(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to lockdown::unlock via scout: {}",
                 status.message()
@@ -623,7 +623,7 @@ async fn handle_lockdown_unlock(
                 })
             }
             Some(mlx_device::mlx_device_lockdown_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error fetching lockdown unlock status (machine_id={machine_id}, device_id={device_id}): {}",
                         error.message
@@ -631,14 +631,14 @@ async fn handle_lockdown_unlock(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty lockdown unlock status reply (machine_id={machine_id}, device_id={device_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for lockdown unlock status response (machine_id={machine_id}, device_id={device_id})"
             ),
@@ -655,7 +655,7 @@ async fn handle_lockdown_status(
 ) -> Result<mlx_device::MlxAdminLockdownStatusResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -675,7 +675,7 @@ async fn handle_lockdown_status(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to get lockdown status via scout: {}",
                 status.message()
@@ -692,7 +692,7 @@ async fn handle_lockdown_status(
                 })
             }
             Some(mlx_device::mlx_device_lockdown_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error fetching lockdown status (machine_id={machine_id}, device_id={device_id}): {}",
                         error.message
@@ -700,14 +700,14 @@ async fn handle_lockdown_status(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty lockdown status reply (machine_id={machine_id}, device_id={device_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for lockdown status response (machine_id={machine_id}, device_id={device_id})"
             ),
@@ -724,7 +724,7 @@ async fn handle_show_device_info(
 ) -> Result<mlx_device::MlxAdminDeviceInfoResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -743,7 +743,7 @@ async fn handle_show_device_info(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error requesting device info from scout: {}",
                 status.message()
@@ -760,7 +760,7 @@ async fn handle_show_device_info(
                 })
             }
             Some(mlx_device::mlx_device_info_device_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error fetching device info (machine_id={machine_id}, device_id={device_id}): {}",
                         error.message
@@ -768,14 +768,14 @@ async fn handle_show_device_info(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty device info reply (machine_id={machine_id}, device_id={device_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for device info response (machine_id={machine_id}, device_id={device_id})"
             ),
@@ -791,7 +791,7 @@ async fn handle_show_device_report(
 ) -> Result<mlx_device::MlxAdminDeviceReportResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -808,7 +808,7 @@ async fn handle_show_device_report(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error requesting device report from scout: {}",
                 status.message()
@@ -825,7 +825,7 @@ async fn handle_show_device_report(
                 device_report: Some(device_report),
             }),
             Some(mlx_device::mlx_device_info_report_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error fetching device report (machine_id={machine_id}): {}",
                         error.message
@@ -833,14 +833,14 @@ async fn handle_show_device_report(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty device report reply (machine_id={machine_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for device report response (machine_id={machine_id})"
             ),
@@ -856,7 +856,7 @@ async fn handle_registry_list(
 ) -> Result<mlx_device::MlxAdminRegistryListResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -874,7 +874,7 @@ async fn handle_registry_list(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to list registry info via scout: {}",
                 status.message()
@@ -893,7 +893,7 @@ async fn handle_registry_list(
                 }),
             }),
             Some(mlx_device::mlx_device_registry_list_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error fetching registry list (machine_id={machine_id}): {}",
                         error.message
@@ -901,14 +901,14 @@ async fn handle_registry_list(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty registry list reply (machine_id={machine_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for registry list response: {machine_id}"
             ),
@@ -925,7 +925,7 @@ async fn handle_registry_show(
 ) -> Result<mlx_device::MlxAdminRegistryShowResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -942,7 +942,7 @@ async fn handle_registry_show(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error requesting registry info from scout: {}",
                 status.message()
@@ -959,7 +959,7 @@ async fn handle_registry_show(
                 variable_registry: Some(variable_registry),
             }),
             Some(mlx_device::mlx_device_registry_show_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error fetching registry info (machine_id={machine_id}): {}",
                         error.message
@@ -967,14 +967,14 @@ async fn handle_registry_show(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty registry info reply (machine_id={machine_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for registry info response (machine_id={machine_id})"
             ),
@@ -993,7 +993,7 @@ async fn handle_config_query(
 ) -> Result<mlx_device::MlxAdminConfigQueryResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -1015,7 +1015,7 @@ async fn handle_config_query(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to query config via scout: {}",
                 status.message()
@@ -1037,7 +1037,7 @@ async fn handle_config_query(
                     query_result: Some(query_result),
                 }),
                 Some(mlx_device::mlx_device_config_query_response::Reply::Error(error)) => {
-                    Err(CarbideError::Internal {
+                    Err(NicoError::Internal {
                         message: format!(
                             "scout agent returned error querying config on device (machine_id={machine_id}, device_id={device_id}, registry_name={registry_name}): {}",
                             error.message
@@ -1045,7 +1045,7 @@ async fn handle_config_query(
                     }
                     .into())
                 }
-                None => Err(CarbideError::Internal {
+                None => Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned empty query result reply (machine_id={machine_id}, device_id={device_id}, registry_name={registry_name})"
                     ),
@@ -1053,7 +1053,7 @@ async fn handle_config_query(
                 .into()),
             }
         }
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for config query response (machine_id={machine_id}, device_id={device_id}, registry_name={registry_name})"
             ),
@@ -1072,7 +1072,7 @@ async fn handle_config_set(
 ) -> Result<mlx_device::MlxAdminConfigSetResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -1094,7 +1094,7 @@ async fn handle_config_set(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to set config via scout: {}",
                 status.message()
@@ -1109,7 +1109,7 @@ async fn handle_config_set(
                 total_applied,
             )) => Ok(mlx_device::MlxAdminConfigSetResponse { total_applied }),
             Some(mlx_device::mlx_device_config_set_response::Reply::Error(error)) => {
-                Err(CarbideError::Internal {
+                Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned error setting config on device (machine_id={machine_id}, device_id={device_id}): {}",
                         error.message
@@ -1117,14 +1117,14 @@ async fn handle_config_set(
                 }
                 .into())
             }
-            None => Err(CarbideError::Internal {
+            None => Err(NicoError::Internal {
                 message: format!(
                     "scout agent returned empty config set reply (machine_id={machine_id}, device_id={device_id})"
                 ),
             }
             .into()),
         },
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for config set response (machine_id={machine_id}, device_id={device_id})"
             ),
@@ -1143,7 +1143,7 @@ async fn handle_config_sync(
 ) -> Result<mlx_device::MlxAdminConfigSyncResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -1165,7 +1165,7 @@ async fn handle_config_sync(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to sync config via scout: {}",
                 status.message()
@@ -1187,7 +1187,7 @@ async fn handle_config_sync(
                     sync_result: Some(sync_result),
                 }),
                 Some(mlx_device::mlx_device_config_sync_response::Reply::Error(error)) => {
-                    Err(CarbideError::Internal {
+                    Err(NicoError::Internal {
                         message: format!(
                             "scout agent returned error syncing config to device (machine_id={machine_id}, device_id={device_id}): {}",
                             error.message
@@ -1195,7 +1195,7 @@ async fn handle_config_sync(
                     }
                     .into())
                 }
-                None => Err(CarbideError::Internal {
+                None => Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned empty sync result reply (machine_id={machine_id}, device_id={device_id})"
                     ),
@@ -1203,7 +1203,7 @@ async fn handle_config_sync(
                 .into()),
             }
         }
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for config sync response (machine_id={machine_id}, device_id={device_id})"
             ),
@@ -1222,7 +1222,7 @@ async fn handle_config_compare(
 ) -> Result<mlx_device::MlxAdminConfigCompareResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "scout_agent",
             id: format!("scout agent on machine is not connected: {machine_id}"),
         }
@@ -1244,7 +1244,7 @@ async fn handle_config_compare(
         .scout_stream_registry
         .send_request(machine_id, request)
         .await
-        .map_err(|status| CarbideError::Internal {
+        .map_err(|status| NicoError::Internal {
             message: format!(
                 "error while attempting to compare config via scout: {}",
                 status.message()
@@ -1266,7 +1266,7 @@ async fn handle_config_compare(
                     comparison_result: Some(comparison_result),
                 }),
                 Some(mlx_device::mlx_device_config_compare_response::Reply::Error(error)) => {
-                    Err(CarbideError::Internal {
+                    Err(NicoError::Internal {
                         message: format!(
                             "scout agent returned error comparing config to device (machine_id={machine_id}, device_id={device_id}, registry_name={registry_name}): {}",
                             error.message
@@ -1274,7 +1274,7 @@ async fn handle_config_compare(
                     }
                     .into())
                 }
-                None => Err(CarbideError::Internal {
+                None => Err(NicoError::Internal {
                     message: format!(
                         "scout agent returned empty compare result reply (machine_id={machine_id}, device_id={device_id}, registry_name={registry_name})"
                     ),
@@ -1282,7 +1282,7 @@ async fn handle_config_compare(
                 .into()),
             }
         }
-        _ => Err(CarbideError::Internal {
+        _ => Err(NicoError::Internal {
             message: format!(
                 "unexpected response type from scout agent for config compare response (machine_id={machine_id}, device_id={device_id}, registry_name={registry_name})"
             ),
@@ -1308,7 +1308,7 @@ async fn get_device_lockdown_key(
         db::dpa_interface::get_for_pci_name(&api.database_connection, &machine_id, device_id)
             .await
             .map_err(|e| {
-                CarbideError::NotFoundError {
+                NicoError::NotFoundError {
                     kind: "dpa_interface",
                     id: format!(
                         "failed to find DPA interface for device (machine_id={machine_id}, device_id={device_id}): {e}"
@@ -1322,7 +1322,7 @@ async fn get_device_lockdown_key(
         &*api.credential_manager,
     )
     .await
-    .map_err(|e| CarbideError::Internal {
+    .map_err(|e| NicoError::Internal {
         message: format!(
             "failed to derive lockdown key (machine_id={machine_id}, device_id={device_id}): {e}"
         ),

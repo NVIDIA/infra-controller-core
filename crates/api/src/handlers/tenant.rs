@@ -14,21 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use model::ConfigValidationError;
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_tenant_organization_id};
 
 /// Ensures that fields unsupported by the tenant DB model are rejected early.
 fn metadata_to_valid_tenant_metadata(metadata: Option<rpc::Metadata>) -> Result<Metadata, Status> {
     Ok(match metadata {
-        None => return Err(CarbideError::MissingArgument("metadata").into()),
+        None => return Err(NicoError::MissingArgument("metadata").into()),
         Some(mdata) => {
             if !mdata.description.is_empty() {
-                return Err(CarbideError::InvalidConfiguration(
+                return Err(NicoError::InvalidConfiguration(
                     ConfigValidationError::InvalidValue(
                         "description not supported for tenant metadata".into(),
                     ),
@@ -37,7 +37,7 @@ fn metadata_to_valid_tenant_metadata(metadata: Option<rpc::Metadata>) -> Result<
             }
 
             if !mdata.labels.is_empty() {
-                return Err(CarbideError::InvalidConfiguration(
+                return Err(NicoError::InvalidConfiguration(
                     ConfigValidationError::InvalidValue(
                         "labels not supported for tenant metadata".into(),
                     ),
@@ -45,7 +45,7 @@ fn metadata_to_valid_tenant_metadata(metadata: Option<rpc::Metadata>) -> Result<
                 .into());
             }
 
-            mdata.try_into().map_err(CarbideError::from)?
+            mdata.try_into().map_err(NicoError::from)?
         }
     })
 }
@@ -66,7 +66,7 @@ pub(crate) async fn create(
 
     let metadata: Metadata = metadata_to_valid_tenant_metadata(metadata)?;
 
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     let routing_profile_type = match (api.runtime_config.fnn.is_some(), routing_profile_type) {
         (fnn_enabled, Some(profile)) => {
@@ -81,7 +81,7 @@ pub(crate) async fn create(
                     .map(|c| c.routing_profiles.contains_key(&profile))
                     .unwrap_or_default()
             {
-                return Err(CarbideError::NotFoundError {
+                return Err(NicoError::NotFoundError {
                     kind: "RoutingProfile",
                     id: profile,
                 }
@@ -107,7 +107,7 @@ pub(crate) async fn create(
             .await?
             .try_into()
             .map(Response::new)
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
     txn.commit().await?;
 
@@ -134,7 +134,7 @@ pub(crate) async fn find(
         .into_inner()
     {
         None => rpc::FindTenantResponse { tenant: None },
-        Some(t) => t.try_into().map_err(CarbideError::from)?,
+        Some(t) => t.try_into().map_err(NicoError::from)?,
     };
 
     txn.commit().await?;
@@ -159,13 +159,13 @@ pub(crate) async fn update(
 
     let metadata: Metadata = metadata_to_valid_tenant_metadata(metadata)?;
 
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 
     // Grab the tenant details and a row-lock
     let Some(current_tenant) = db::tenant::find(&organization_id, true, &mut txn).await? else {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "tenant",
             id: organization_id.clone(),
         }
@@ -184,7 +184,7 @@ pub(crate) async fn update(
             .map(|c| c.routing_profiles.contains_key(profile))
             .unwrap_or_default()
         {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "RoutingProfile",
                 id: profile.to_owned(),
             }
@@ -210,14 +210,14 @@ pub(crate) async fn update(
         .await?
         .is_empty()
     {
-        return Err(CarbideError::FailedPrecondition(
+        return Err(NicoError::FailedPrecondition(
             "cannot update tenant routing profile type for tenant with active VPCs".to_string(),
         )
         .into());
     }
 
     let expected_version = if let Some(config_version_str) = if_version_match {
-        config_version_str.parse().map_err(CarbideError::from)?
+        config_version_str.parse().map_err(NicoError::from)?
     } else {
         current_tenant.version
     };
@@ -232,7 +232,7 @@ pub(crate) async fn update(
     .await?
     .try_into()
     .map(Response::new)
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     txn.commit().await?;
 
@@ -252,13 +252,13 @@ pub(crate) async fn find_tenants_by_organization_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if tenant_organization_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if tenant_organization_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -289,7 +289,7 @@ pub(crate) async fn find_tenant_organization_ids(
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::forge as rpc;
+    use ::rpc::nico as rpc;
     use tonic::Code;
 
     use super::*;

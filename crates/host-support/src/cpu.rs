@@ -23,7 +23,7 @@ pub fn aggregate_cpus(cpus: &[rpc_discovery::Cpu]) -> Vec<rpc_discovery::CpuInfo
     //  Process CPU data
     //
 
-    // This logic is ported from forge-cloud/cloud-backend. The handling of multiple CPU models on
+    // This logic is ported from nico-cloud/cloud-backend. The handling of multiple CPU models on
     // a single machine is possibly misleading, but possibly it handles some future build, and it
     // accumulates all the info in any case. This function should return a vector with only one
     // CpuInfo.

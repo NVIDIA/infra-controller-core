@@ -22,8 +22,8 @@ use db::{self};
 use health_report::HealthReportApplyMode;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
-use rpc::forge::HealthSourceOrigin;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::HealthSourceOrigin;
+use rpc::nico::nico_server::Nico;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::{
@@ -58,7 +58,7 @@ async fn test_update_dpu_agent_health_report(
     txn.commit().await?;
 
     check_reports_equal(
-        "forge-dpu-agent",
+        "nico-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
             .dpu_agent_health_report()
             .cloned()
@@ -79,7 +79,7 @@ async fn test_update_dpu_agent_health_report(
     txn.commit().await?;
 
     check_reports_equal(
-        "forge-dpu-agent",
+        "nico-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
             .dpu_agent_health_report()
             .cloned()
@@ -100,7 +100,7 @@ async fn test_machine_health_reporting(
     // As part of test fixtures creating the managed host, we send an empty hardware health
     // report and an empty dpu agent health report.
     check_reports_equal(
-        "forge-dpu-agent",
+        "nico-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
             .dpu_agent_health_report()
             .cloned()
@@ -135,7 +135,7 @@ async fn test_machine_health_reporting(
     assert_eq!(aggregate_health.alerts, vec![]);
     assert_eq!(aggregate_health.successes, vec![]);
 
-    // Let forge-dpu-agent submit a report which claims the DPU is no longer healthy
+    // Let nico-dpu-agent submit a report which claims the DPU is no longer healthy
 
     let dpu_health = hr(
         "should-get-updated",
@@ -146,7 +146,7 @@ async fn test_machine_health_reporting(
     network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone().into())).await;
 
     check_reports_equal(
-        "forge-dpu-agent",
+        "nico-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
             .dpu_agent_health_report()
             .cloned()
@@ -159,7 +159,7 @@ async fn test_machine_health_reporting(
         .await
         .unwrap();
     check_time(&current_dpu_health);
-    check_reports_equal("forge-dpu-agent", current_dpu_health, dpu_health.clone());
+    check_reports_equal("nico-dpu-agent", current_dpu_health, dpu_health.clone());
     let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
         .await
         .unwrap();
@@ -238,7 +238,7 @@ async fn test_machine_health_aggregation(
     // we start off with no overrides
     let mut override_metrics = env
         .test_meter
-        .formatted_metrics("carbide_hosts_health_overrides_count");
+        .formatted_metrics("nico_hosts_health_overrides_count");
     override_metrics.sort();
     assert_eq!(
         override_metrics,
@@ -250,7 +250,7 @@ async fn test_machine_health_aggregation(
         ]
     );
 
-    // Let forge-dpu-agent submit a report which claims the DPU is no longer healthy
+    // Let nico-dpu-agent submit a report which claims the DPU is no longer healthy
     let dpu_health = hr(
         "dpu-health",
         vec![("Success1", None)],
@@ -309,7 +309,7 @@ async fn test_machine_health_aggregation(
     env.run_machine_state_controller_iteration().await;
     let mut override_metrics = env
         .test_meter
-        .formatted_metrics("carbide_hosts_health_overrides_count");
+        .formatted_metrics("nico_hosts_health_overrides_count");
     override_metrics.sort();
     assert_eq!(
         override_metrics,
@@ -365,7 +365,7 @@ async fn test_machine_health_aggregation(
     env.run_machine_state_controller_iteration().await;
     let mut override_metrics = env
         .test_meter
-        .formatted_metrics("carbide_hosts_health_overrides_count");
+        .formatted_metrics("nico_hosts_health_overrides_count");
     override_metrics.sort();
     assert_eq!(
         override_metrics,
@@ -539,13 +539,13 @@ async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let env = create_env(pool).await;
 
     let (_, dpu_machine_id) = create_managed_host(&env).await.into();
-    use rpc::forge::forge_server::Forge;
+    use rpc::nico::nico_server::Nico;
     use tonic::Request;
     let _ = env
         .api
-        .insert_machine_health_report(Request::new(rpc::forge::InsertMachineHealthReportRequest {
+        .insert_machine_health_report(Request::new(rpc::nico::InsertMachineHealthReportRequest {
             machine_id: Some(dpu_machine_id),
-            health_report_entry: Some(rpc::forge::HealthReportEntry {
+            health_report_entry: Some(rpc::nico::HealthReportEntry {
                 report: Some(health_report::HealthReport::empty("".to_string()).into()),
                 mode: health_report::HealthReportApplyMode::Replace as i32,
             }),
@@ -571,13 +571,13 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     // Inserting a Replace override then a Merge override with the same source
     // should result in the Replace override being replaced.
-    use rpc::forge::forge_server::Forge;
+    use rpc::nico::nico_server::Nico;
     use tonic::Request;
     let _ = env
         .api
-        .insert_machine_health_report(Request::new(rpc::forge::InsertMachineHealthReportRequest {
+        .insert_machine_health_report(Request::new(rpc::nico::InsertMachineHealthReportRequest {
             machine_id: Some(host_machine_id),
-            health_report_entry: Some(rpc::forge::HealthReportEntry {
+            health_report_entry: Some(rpc::nico::HealthReportEntry {
                 report: Some(health_report::HealthReport::empty("over".to_string()).into()),
                 mode: health_report::HealthReportApplyMode::Replace as i32,
             }),
@@ -597,9 +597,9 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let merge_hr = hr("over", vec![], vec![("Fan2", None, "")]);
     let _ = env
         .api
-        .insert_machine_health_report(Request::new(rpc::forge::InsertMachineHealthReportRequest {
+        .insert_machine_health_report(Request::new(rpc::nico::InsertMachineHealthReportRequest {
             machine_id: Some(host_machine_id),
-            health_report_entry: Some(rpc::forge::HealthReportEntry {
+            health_report_entry: Some(rpc::nico::HealthReportEntry {
                 report: Some(merge_hr.clone().into()),
                 mode: health_report::HealthReportApplyMode::Merge as i32,
             }),
@@ -760,7 +760,7 @@ fn hr(
 /// Loads machine snapshot
 async fn load_snapshot(
     env: &TestEnv,
-    host_machine_id: &::carbide_uuid::machine::MachineId,
+    host_machine_id: &::nico_uuid::machine::MachineId,
 ) -> Result<model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
     let host_health_config = HostHealthConfig {
         hardware_health_reports: HardwareHealthReportsConfig::Enabled,
@@ -782,10 +782,10 @@ async fn load_snapshot(
 /// Calls get_machine api
 async fn find_machine(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
+    machine_id: &::nico_uuid::machine::MachineId,
 ) -> rpc::Machine {
     env.api
-        .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![*machine_id],
             include_history: true,
         }))
@@ -798,11 +798,11 @@ async fn find_machine(
 
 async fn load_host_health_history(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
-) -> Vec<::rpc::forge::HealthHistoryRecord> {
+    machine_id: &::nico_uuid::machine::MachineId,
+) -> Vec<::rpc::nico::HealthHistoryRecord> {
     env.api
         .find_machine_health_histories(tonic::Request::new(
-            ::rpc::forge::MachineHealthHistoriesRequest {
+            ::rpc::nico::MachineHealthHistoriesRequest {
                 machine_ids: vec![*machine_id],
                 start_time: None,
                 end_time: None,
@@ -825,10 +825,10 @@ fn aggregate(m: rpc::Machine) -> Option<health_report::HealthReport> {
 /// Loads aggregate health via FindMachinesByIds api
 async fn load_health_via_find_machines_by_ids(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
+    machine_id: &::nico_uuid::machine::MachineId,
 ) -> Option<health_report::HealthReport> {
     env.api
-        .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![*machine_id],
             include_history: false,
         }))
@@ -886,14 +886,14 @@ fn check_reports_equal(
 /// Loads health alerts by time range via FindMachineHealthHistories RPC with time filtering
 async fn load_health_alerts_by_time_range(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
+    machine_id: &::nico_uuid::machine::MachineId,
     start_time: chrono::DateTime<chrono::Utc>,
     end_time: chrono::DateTime<chrono::Utc>,
-) -> Vec<::rpc::forge::HealthHistoryRecord> {
+) -> Vec<::rpc::nico::HealthHistoryRecord> {
     let response = env
         .api
         .find_machine_health_histories(tonic::Request::new(
-            ::rpc::forge::MachineHealthHistoriesRequest {
+            ::rpc::nico::MachineHealthHistoriesRequest {
                 machine_ids: vec![*machine_id],
                 start_time: Some(start_time.into()),
                 end_time: Some(end_time.into()),
@@ -914,7 +914,7 @@ async fn load_health_alerts_by_time_range(
 /// Inserts health report and processes it via state controller
 async fn insert_health_and_process(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
+    machine_id: &::nico_uuid::machine::MachineId,
     health: health_report::HealthReport,
 ) {
     send_health_report_entry(env, machine_id, (health, HealthReportApplyMode::Replace)).await;

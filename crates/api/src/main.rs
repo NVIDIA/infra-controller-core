@@ -18,9 +18,9 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use carbide::{Command, Options};
+use nico::{Command, Options};
 use clap::CommandFactory;
-use forge_secrets::CredentialConfig;
+use nico_secrets::CredentialConfig;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use tokio_util::sync::CancellationToken;
@@ -29,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 async fn main() -> eyre::Result<()> {
     let options = Options::load();
     if options.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
     let debug = options.debug;
@@ -55,10 +55,10 @@ async fn main() -> eyre::Result<()> {
         }
         Command::Run(run) => {
             // THIS SECTION HAS BEEN INTENTIONALLY KEPT SMALL.
-            // Nothing should go before the call to carbide::run that isn't already here.
-            // Everything that you think might belong here, belongs in carbide::run.
+            // Nothing should go before the call to nico::run that isn't already here.
+            // Everything that you think might belong here, belongs in nico::run.
             let (ready_tx, _ready_rx) = tokio::sync::oneshot::channel();
-            carbide::run(
+            nico::run(
                 debug,
                 run.config_path,
                 run.site_config_path,

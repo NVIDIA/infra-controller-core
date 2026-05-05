@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use rpc::forge::ExpectedSwitch;
+use rpc::nico::ExpectedSwitch;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

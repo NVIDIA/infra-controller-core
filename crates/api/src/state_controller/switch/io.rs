@@ -17,7 +17,7 @@
 
 //! State Controller IO implementation for Switches
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use config_version::{ConfigVersion, Versioned};
 use db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
 use model::StateSla;

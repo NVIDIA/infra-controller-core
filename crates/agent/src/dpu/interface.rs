@@ -51,8 +51,8 @@ pub struct IpInterfaceAddress {
 
 #[derive(Debug, Clone)]
 pub struct Interface {
-    /// Represents the current configuration of interfaces as described in the forge-dpu-agent configuration file
-    /// Interfaces configured outside forge-dpu-agent are not represented here
+    /// Represents the current configuration of interfaces as described in the nico-dpu-agent configuration file
+    /// Interfaces configured outside nico-dpu-agent are not represented here
     pub current: Vec<IpInterfaceAddress>,
     /// Represents the plan, a series of actions that are taken to reconcile the current configuration with the desired configuration
     pub desired: HashMap<String, Vec<IpNetwork>>,

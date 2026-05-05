@@ -26,15 +26,15 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_firmware::FirmwareDownloader;
-use carbide_redfish::libredfish::conv::IntoLibredfish;
-use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
-use carbide_utils::periodic_timer::PeriodicTimer;
+use nico_firmware::FirmwareDownloader;
+use nico_redfish::libredfish::conv::IntoLibredfish;
+use nico_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
+use nico_utils::periodic_timer::PeriodicTimer;
 use chrono::{DateTime, Utc};
 pub use config::PreingestionManagerConfig;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, WithTransaction};
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures_util::FutureExt;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
@@ -182,7 +182,7 @@ impl PreingestionManager {
         {
             Ok(lock) => lock,
             Err(e) => {
-                // Unable to obtain the lock, we'll sleep and try again later.  There must be another instance of carbide-api running.
+                // Unable to obtain the lock, we'll sleep and try again later.  There must be another instance of nico-api running.
                 tracing::warn!(
                     "Unable to acquire lock for {}. Will try again on next iteration: {}",
                     Self::ITERATION_WORK_KEY,
@@ -2203,7 +2203,7 @@ impl PreingestionManagerStatic {
             }
         };
 
-        match forge_ssh::ssh::check_console_for_markers(bmc_addr, username, password, MARKERS).await
+        match nico_ssh::ssh::check_console_for_markers(bmc_addr, username, password, MARKERS).await
         {
             Ok(found) => found,
             Err(e) => {

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, OutputFormat};
 use prettytable::{Cell, Row, Table};
 
 use super::args::Args;
@@ -25,7 +25,7 @@ pub async fn apply(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     println!(
         "Applying firmware ID '{}' ({}) to rack '{}'...",
         opts.firmware_id, opts.firmware_type, opts.rack_id
@@ -35,7 +35,7 @@ pub async fn apply(
         .0
         .apply_rack_firmware(opts)
         .await
-        .map_err(CarbideCliError::from)?;
+        .map_err(NicoCliError::from)?;
 
     if format == OutputFormat::Json {
         let result = serde_json::json!({
@@ -122,7 +122,7 @@ pub async fn apply(
     }
 
     if response.failed_updates > 0 {
-        return Err(CarbideCliError::GenericError(format!(
+        return Err(NicoCliError::GenericError(format!(
             "{} firmware updates failed",
             response.failed_updates
         )));

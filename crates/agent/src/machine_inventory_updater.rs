@@ -17,9 +17,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico as rpc;
+use ::rpc::nico_tls_client::{self, ApiConfig, NicoClientConfig};
+use nico_uuid::machine::MachineId;
 
 use crate::command_line::AgentPlatformType;
 use crate::containerd::container;
@@ -31,8 +31,8 @@ pub struct MachineInventoryUpdaterConfig {
     /// How often to update the inventory
     pub update_inventory_interval: Duration,
     pub machine_id: MachineId,
-    pub forge_api: String,
-    pub forge_client_config: Arc<ForgeClientConfig>,
+    pub nico_api: String,
+    pub nico_client_config: Arc<NicoClientConfig>,
     pub agent_platform_type: AgentPlatformType,
 }
 
@@ -82,7 +82,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
     // Add the DPU agent version to the inventory
     inventory.push(rpc::MachineInventorySoftwareComponent {
-        name: "forge-dpu-agent".to_string(),
+        name: "nico-dpu-agent".to_string(),
         version: config.dpu_agent_version.clone(),
         url: String::new(),
     });
@@ -98,8 +98,8 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
     if let Err(e) = update_agent_reported_inventory(
         agent_report,
-        &config.forge_client_config,
-        &config.forge_api,
+        &config.nico_client_config,
+        &config.nico_api,
     )
     .await
     {
@@ -116,11 +116,11 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
 async fn update_agent_reported_inventory(
     inventory_report: rpc::DpuAgentInventoryReport,
-    client_config: &forge_tls_client::ForgeClientConfig,
-    forge_api: &str,
+    client_config: &nico_tls_client::NicoClientConfig,
+    nico_api: &str,
 ) -> eyre::Result<()> {
-    let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
-        forge_api,
+    let mut client = match nico_tls_client::NicoTlsClient::retry_build(&ApiConfig::new(
+        nico_api,
         client_config,
     ))
     .await
@@ -128,8 +128,8 @@ async fn update_agent_reported_inventory(
         Ok(client) => client,
         Err(err) => {
             return Err(eyre::eyre!(
-                "Could not connect to Forge API server at {}: {err}",
-                forge_api
+                "Could not connect to Nico API server at {}: {err}",
+                nico_api
             ));
         }
     };

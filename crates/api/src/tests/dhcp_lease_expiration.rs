@@ -21,8 +21,8 @@ use std::str::FromStr;
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ExpireDhcpLeaseRequest, ExpireDhcpLeaseStatus};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{ExpireDhcpLeaseRequest, ExpireDhcpLeaseStatus};
 use tonic::Request;
 
 use crate::tests::common;

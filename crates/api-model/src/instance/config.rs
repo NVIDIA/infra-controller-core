@@ -21,7 +21,7 @@ pub mod network;
 pub mod nvlink;
 pub mod tenant_config;
 
-use carbide_uuid::network_security_group::{
+use nico_uuid::network_security_group::{
     NetworkSecurityGroupId, NetworkSecurityGroupIdParseError,
 };
 use rpc::errors::RpcDataConversionError;
@@ -130,15 +130,15 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: InstanceConfig) -> Result<rpc::InstanceConfig, Self::Error> {
-        let tenant = rpc::forge::TenantConfig::try_from(config.tenant)?;
-        let os = rpc::forge::InstanceOperatingSystemConfig::try_from(config.os)?;
+        let tenant = rpc::nico::TenantConfig::try_from(config.tenant)?;
+        let os = rpc::nico::InstanceOperatingSystemConfig::try_from(config.os)?;
         let network = rpc::InstanceNetworkConfig::try_from(config.network)?;
         let infiniband = rpc::InstanceInfinibandConfig::try_from(config.infiniband)?;
         let infiniband = match infiniband.ib_interfaces.is_empty() {
             true => None,
             false => Some(infiniband),
         };
-        let nvlink = rpc::forge::InstanceNvLinkConfig::try_from(config.nvlink)?;
+        let nvlink = rpc::nico::InstanceNvLinkConfig::try_from(config.nvlink)?;
         let nvlink = match nvlink.gpu_configs.is_empty() {
             true => None,
             false => Some(nvlink),
@@ -153,7 +153,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             .collect();
         let extension_services = match active_extension_services.is_empty() {
             true => None,
-            false => Some(rpc::forge::InstanceDpuExtensionServicesConfig::try_from(
+            false => Some(rpc::nico::InstanceDpuExtensionServicesConfig::try_from(
                 InstanceExtensionServicesConfig {
                     service_configs: active_extension_services,
                 },

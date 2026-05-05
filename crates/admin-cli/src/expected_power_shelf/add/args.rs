@@ -17,7 +17,7 @@
 
 use std::net::IpAddr;
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -93,15 +93,15 @@ pub struct Args {
     pub bmc_retain_credentials: Option<bool>,
 }
 
-impl From<Args> for rpc::forge::ExpectedPowerShelf {
+impl From<Args> for rpc::nico::ExpectedPowerShelf {
     fn from(value: Args) -> Self {
         let labels = parse_rpc_labels(value.labels.unwrap_or_default());
-        let metadata = rpc::forge::Metadata {
+        let metadata = rpc::nico::Metadata {
             name: value.meta_name.unwrap_or_default(),
             description: value.meta_description.unwrap_or_default(),
             labels,
         };
-        rpc::forge::ExpectedPowerShelf {
+        rpc::nico::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,

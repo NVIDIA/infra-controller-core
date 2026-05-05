@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 
-pub fn str_to_rpc_uuid(id: &str) -> CarbideCliResult<::rpc::common::Uuid> {
+pub fn str_to_rpc_uuid(id: &str) -> NicoCliResult<::rpc::common::Uuid> {
     let id: ::rpc::common::Uuid = uuid::Uuid::parse_str(id)
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
+        .map_err(|e| NicoCliError::GenericError(e.to_string()))?
         .into();
     Ok(id)
 }

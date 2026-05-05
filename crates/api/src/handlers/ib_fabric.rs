@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 
 pub(crate) fn find_ids(
@@ -49,14 +49,14 @@ pub(crate) async fn ufm_browse(
         .ib_fabric_manager
         .new_client(&request.fabric_id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     let response = fabric
         .raw_get(&request.path)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
-    Ok(tonic::Response::new(::rpc::forge::UfmBrowseResponse {
+    Ok(tonic::Response::new(::rpc::nico::UfmBrowseResponse {
         body: response.body,
         code: response.code.into(),
         headers: response

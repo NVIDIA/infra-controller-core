@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::vpc::VpcPrefixId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::vpc::VpcPrefixId;
 use clap::{ArgGroup, Parser};
-use rpc::forge::InstanceOperatingSystemConfig;
+use rpc::nico::InstanceOperatingSystemConfig;
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]
@@ -31,7 +31,7 @@ pub struct Args {
 
     #[clap(short, long)]
     // This will not be needed after vpc_prefix implementation.
-    // Code can query to carbide and fetch it from db using vpc_prefix_id.
+    // Code can query to nico and fetch it from db using vpc_prefix_id.
     pub tenant_org: Option<String>,
 
     #[clap(short, long, required = true)]

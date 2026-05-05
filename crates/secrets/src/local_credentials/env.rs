@@ -23,7 +23,7 @@ use super::CredentialSnapshot;
 use crate::SecretsError;
 use crate::credentials::{CredentialKey, CredentialReader, Credentials};
 
-const DEFAULT_ENV_PREFIX: &str = "CARBIDE_STATIC_CREDENTIAL_";
+const DEFAULT_ENV_PREFIX: &str = "NICO_STATIC_CREDENTIAL_";
 
 #[derive(Default, Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -36,7 +36,7 @@ impl EnvCredentialsConfig {
     pub fn enabled(&self) -> bool {
         self.enabled
             .or_else(|| {
-                std::env::var("CARBIDE_CREDENTIALS_ENV_ENABLED")
+                std::env::var("NICO_CREDENTIALS_ENV_ENABLED")
                     .ok()
                     .and_then(|v| v.parse().ok())
             })
@@ -46,7 +46,7 @@ impl EnvCredentialsConfig {
     pub fn prefix(&self) -> String {
         self.prefix
             .clone()
-            .or_else(|| std::env::var("CARBIDE_CREDENTIALS_ENV_PREFIX").ok())
+            .or_else(|| std::env::var("NICO_CREDENTIALS_ENV_PREFIX").ok())
             .unwrap_or_else(|| DEFAULT_ENV_PREFIX.to_string())
     }
 }
@@ -91,7 +91,7 @@ mod tests {
     use crate::credentials::{CredentialKey, CredentialType, Credentials};
 
     fn env_name(parts: &[&str]) -> String {
-        let mut name = "CARBIDE_STATIC_CREDENTIAL".to_string();
+        let mut name = "NICO_STATIC_CREDENTIAL".to_string();
         for part in parts {
             name.push_str("__");
             name.push_str(part);

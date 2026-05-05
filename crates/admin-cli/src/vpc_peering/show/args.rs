@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::vpc::VpcId;
-use carbide_uuid::vpc_peering::VpcPeeringId;
+use nico_uuid::vpc::VpcId;
+use nico_uuid::vpc_peering::VpcPeeringId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

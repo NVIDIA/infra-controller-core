@@ -1,13 +1,13 @@
 --
 -- FOR LOCAL DEVELOPMENT ONLY
 --
--- Delete everything that `cargo make bootstrap-forge-docker` puts in the database, so that we
+-- Delete everything that `cargo make bootstrap-nico-docker` puts in the database, so that we
 -- can re-run it without a full env restart.
 --
 -- Handy SQL to select * from all tables:
 --  SELECT schemaname,relname,n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC;
 --
--- Usage: PGPASSWORD=<thing> psql -h 172.20.0.16 -U carbide_development < cleanup_bootstrap.sql
+-- Usage: PGPASSWORD=<thing> psql -h 172.20.0.16 -U nico_development < cleanup_bootstrap.sql
 
 DELETE FROM instance_addresses;
 DELETE FROM instances;

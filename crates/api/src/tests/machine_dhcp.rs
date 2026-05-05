@@ -18,8 +18,8 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use carbide_network::ip::IpAddressFamily;
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_network::ip::IpAddressFamily;
+use nico_uuid::machine::MachineInterfaceId;
 use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
@@ -33,8 +33,8 @@ use db::{self, ObjectColumnFilter, dhcp_entry};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use rpc::forge::ManagedHostNetworkConfigRequest;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::ManagedHostNetworkConfigRequest;
+use rpc::nico::nico_server::Nico;
 
 use crate::DatabaseError;
 use crate::tests::common;
@@ -232,7 +232,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     };
 
     mh.instance_builer(&env).network(network).build().await;
-    // Instance dhcp is not handled by carbide. Best way to find out allocated IP info is to read
+    // Instance dhcp is not handled by nico. Best way to find out allocated IP info is to read
     // data from managedhostnetworkconfig.
     let response = env
         .api
@@ -323,7 +323,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         env: &TestEnv,
         mac_address: MacAddress,
         vendor_string: Option<&str>,
-    ) -> rpc::protos::forge::DhcpRecord {
+    ) -> rpc::protos::nico::DhcpRecord {
         let builder = DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS);
         let builder = if let Some(vendor_string) = vendor_string {
             builder.vendor_string(vendor_string)
@@ -484,7 +484,7 @@ async fn test_dhcp_record_address_family(
 /// see in production.
 async fn host_interface_and_gateway(
     env: &TestEnv,
-    host_machine_id: carbide_uuid::machine::MachineId,
+    host_machine_id: nico_uuid::machine::MachineId,
 ) -> Result<(MacAddress, IpAddr), Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
     let interfaces_by_machine =
@@ -512,7 +512,7 @@ async fn host_interface_and_gateway(
 /// `instances.machine_id`, so a minimal INSERT is enough.
 async fn attach_bare_instance(
     env: &TestEnv,
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: nico_uuid::machine::MachineId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
     sqlx::query("INSERT INTO instances (machine_id) VALUES ($1)")

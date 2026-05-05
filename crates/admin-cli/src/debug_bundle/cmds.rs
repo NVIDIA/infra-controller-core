@@ -18,7 +18,7 @@
 //! Debug Bundle Module
 //!
 //! This module contains all functionality related to creating debug bundles
-//! for troubleshooting managed hosts and Carbide API issues.
+//! for troubleshooting managed hosts and Nico API issues.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -27,11 +27,11 @@ use std::fs::File;
 use std::io::Write;
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::BmcEndpointRequest;
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::BmcEndpointRequest;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Local, NaiveDateTime, NaiveTime, Utc};
-use rpc::admin_cli::CarbideCliError::InvalidDateTimeFromUserInput;
+use rpc::admin_cli::NicoCliError::InvalidDateTimeFromUserInput;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zip::CompressionMethod;
@@ -41,7 +41,7 @@ use crate::managed_host::DebugBundle;
 use crate::rpc::ApiClient;
 
 const MAX_BATCH_SIZE: u32 = 5000;
-const CARBIDE_API_CONTAINER_NAME: &str = "carbide-api";
+const NICO_API_CONTAINER_NAME: &str = "nico-api";
 const K8S_CONTAINER_NAME_LABEL: &str = "k8s_container_name";
 
 // 🔗 Grafana link generation
@@ -68,7 +68,7 @@ struct GrafanaTimeRange {
 // LogType enum for log categorization
 #[derive(Debug, Clone, Copy)]
 enum LogType {
-    CarbideApi,
+    NicoApi,
     HostSpecific,
     DpuAgent,
 }
@@ -76,7 +76,7 @@ enum LogType {
 impl LogType {
     fn batch_label(&self, batch_number: usize) -> String {
         match self {
-            LogType::CarbideApi => format!("Carbide-API Batch {batch_number}"),
+            LogType::NicoApi => format!("Nico-API Batch {batch_number}"),
             LogType::HostSpecific => format!("Host Batch {batch_number}"),
             LogType::DpuAgent => format!("DPU-Agent Batch {batch_number}"),
         }
@@ -84,7 +84,7 @@ impl LogType {
 
     fn as_str(&self) -> &'static str {
         match self {
-            LogType::CarbideApi => "carbide-api",
+            LogType::NicoApi => "nico-api",
             LogType::HostSpecific => "host-specific",
             LogType::DpuAgent => "dpu-agent",
         }
@@ -157,7 +157,7 @@ impl LogBatch {
         grafana_base_url: &str,
         loki_uid: &str,
         expr: &str,
-    ) -> CarbideCliResult<()> {
+    ) -> NicoCliResult<()> {
         let (start_ms, end_ms) = self.time_range.to_grafana_format();
         let link = generate_grafana_link(grafana_base_url, loki_uid, expr, start_ms, end_ms)?;
         self.grafana_link = Some(link);
@@ -177,7 +177,7 @@ impl LogBatch {
         previous_entry_count: usize,
         newest_timestamp: Option<i64>,
         batch_size: u32,
-    ) -> CarbideCliResult<Option<TimeRange>> {
+    ) -> NicoCliResult<Option<TimeRange>> {
         if let Some(next_start_time) =
             handle_pagination(previous_entry_count, newest_timestamp, batch_size as usize)?
         {
@@ -224,7 +224,7 @@ impl<'a> LogCollector<'a> {
         grafana_base_url: Cow<'a, str>,
         loki_uid: Cow<'a, str>,
         batch_size: u32,
-    ) -> CarbideCliResult<Self> {
+    ) -> NicoCliResult<Self> {
         // Validate and cap batch size
         let capped_batch_size = batch_size.min(MAX_BATCH_SIZE);
         if batch_size > MAX_BATCH_SIZE {
@@ -252,7 +252,7 @@ impl<'a> LogCollector<'a> {
         expr: &str,
         log_type: LogType,
         mut time_range: TimeRange,
-    ) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
+    ) -> NicoCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
         let mut batch_number = 1;
 
         loop {
@@ -319,7 +319,7 @@ impl<'a> LogCollector<'a> {
         expr: &str,
         start_ms: i64,
         end_ms: i64,
-    ) -> CarbideCliResult<BatchResult> {
+    ) -> NicoCliResult<BatchResult> {
         let query_request =
             build_grafana_query_request(expr, start_ms, end_ms, &self.loki_uid, self.batch_size);
 
@@ -339,7 +339,7 @@ impl<'a> LogCollector<'a> {
         })
     }
 
-    fn finalize_and_validate_logs(&self, log_type: &LogType) -> CarbideCliResult<()> {
+    fn finalize_and_validate_logs(&self, log_type: &LogType) -> NicoCliResult<()> {
         let log_type_upper = log_type.as_str().to_uppercase();
         println!(
             "   TOTAL {} LOGS COLLECTED: {}",
@@ -357,7 +357,7 @@ impl<'a> LogCollector<'a> {
                 logs_count,
                 unique_ids_count
             );
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "Log validation failed for {}: {logs_count} logs but {unique_ids_count} unique IDs",
                 log_type.as_str()
             )));
@@ -382,9 +382,9 @@ struct GrafanaClient<'a> {
 }
 
 impl<'a> GrafanaClient<'a> {
-    fn new(grafana_url: Cow<'a, str>) -> CarbideCliResult<Self> {
+    fn new(grafana_url: Cow<'a, str>) -> NicoCliResult<Self> {
         let auth_token = std::env::var("GRAFANA_AUTH_TOKEN")
-            .map_err(|_| CarbideCliError::GenericError(
+            .map_err(|_| NicoCliError::GenericError(
                 "GRAFANA_AUTH_TOKEN environment variable not set. Please set it with your Grafana bearer token.".to_string()
             ))?;
 
@@ -400,7 +400,7 @@ impl<'a> GrafanaClient<'a> {
         {
             println!("   Using proxy: {}", proxy_url);
             let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| {
-                CarbideCliError::GenericError(format!("Failed to configure proxy: {}", e))
+                NicoCliError::GenericError(format!("Failed to configure proxy: {}", e))
             })?;
             client_builder = client_builder.proxy(proxy);
         } else {
@@ -408,7 +408,7 @@ impl<'a> GrafanaClient<'a> {
         }
 
         let client = client_builder.build().map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to build HTTP client: {}", e))
+            NicoCliError::GenericError(format!("Failed to build HTTP client: {}", e))
         })?;
 
         Ok(Self {
@@ -418,7 +418,7 @@ impl<'a> GrafanaClient<'a> {
         })
     }
 
-    async fn get_loki_datasource_uid(&self) -> CarbideCliResult<String> {
+    async fn get_loki_datasource_uid(&self) -> NicoCliResult<String> {
         println!(
             "   Fetching Loki datasource UID from Grafana: {}",
             self.base_url
@@ -444,7 +444,7 @@ impl<'a> GrafanaClient<'a> {
                     let datasources: Vec<GrafanaDatasource> = match resp.json().await {
                         Ok(data) => data,
                         Err(e) => {
-                            return Err(CarbideCliError::GenericError(format!(
+                            return Err(NicoCliError::GenericError(format!(
                                 "Failed to parse datasources JSON: {e}"
                             )));
                         }
@@ -457,17 +457,17 @@ impl<'a> GrafanaClient<'a> {
                         }
                     }
 
-                    Err(CarbideCliError::GenericError(
+                    Err(NicoCliError::GenericError(
                         "Loki datasource not found in the response".to_string(),
                     ))
                 } else {
                     let body = resp.text().await.unwrap_or_default();
-                    Err(CarbideCliError::GenericError(format!(
+                    Err(NicoCliError::GenericError(format!(
                         "HTTP Error {status}: {body}"
                     )))
                 }
             }
-            Err(e) => Err(CarbideCliError::GenericError(format!(
+            Err(e) => Err(NicoCliError::GenericError(format!(
                 "Failed to fetch datasources: {e}"
             ))),
         }
@@ -568,25 +568,25 @@ struct GrafanaDatasource {
 // Site Controller Details - Holds BMC endpoint exploration data
 struct SiteControllerAnalysis {
     exploration_report: ::rpc::site_explorer::EndpointExplorationReport,
-    credential_status: ::rpc::forge::BmcCredentialStatusResponse,
+    credential_status: ::rpc::nico::BmcCredentialStatusResponse,
     bmc_ip: String,
     bmc_mac: Option<String>,
 }
 
 // Machine Info - Holds machine state machine data
 struct MachineAnalysis {
-    machine: ::rpc::forge::Machine,
-    validation_results: Vec<::rpc::forge::MachineValidationResult>,
+    machine: ::rpc::nico::Machine,
+    validation_results: Vec<::rpc::nico::MachineValidationResult>,
 }
 
 /// Helper function to get BMC IP and MAC address from machine_id
 async fn get_bmc_ip_from_host_id(
     api_client: &ApiClient,
     host_id: &str,
-) -> CarbideCliResult<(String, Option<String>)> {
+) -> NicoCliResult<(String, Option<String>)> {
     // Parse machine ID
     let machine_id = MachineId::from_str(host_id).map_err(|e| {
-        CarbideCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
+        NicoCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
     })?;
 
     // Get machine details from API
@@ -594,7 +594,7 @@ async fn get_bmc_ip_from_host_id(
 
     // Extract BMC info
     let bmc_info = machine.bmc_info.ok_or_else(|| {
-        CarbideCliError::GenericError(format!(
+        NicoCliError::GenericError(format!(
             "Machine {} does not have BMC info available",
             host_id
         ))
@@ -602,7 +602,7 @@ async fn get_bmc_ip_from_host_id(
 
     // Extract BMC IP (required)
     let bmc_ip = bmc_info.ip.ok_or_else(|| {
-        CarbideCliError::GenericError(format!(
+        NicoCliError::GenericError(format!(
             "Machine {} does not have BMC IP address available",
             host_id
         ))
@@ -618,7 +618,7 @@ async fn get_bmc_ip_from_host_id(
 async fn get_site_controller_analysis(
     api_client: &ApiClient,
     host_id: &str,
-) -> CarbideCliResult<SiteControllerAnalysis> {
+) -> NicoCliResult<SiteControllerAnalysis> {
     println!("   Fetching BMC information for machine {}...", host_id);
 
     // Step 1: Get BMC IP and MAC from machine_id
@@ -633,7 +633,7 @@ async fn get_site_controller_analysis(
     let mac_address = if let Some(ref mac_str) = bmc_mac {
         use mac_address::MacAddress;
         Some(MacAddress::from_str(mac_str).map_err(|e| {
-            CarbideCliError::GenericError(format!("Invalid MAC address '{}': {:?}", mac_str, e))
+            NicoCliError::GenericError(format!("Invalid MAC address '{}': {:?}", mac_str, e))
         })?)
     } else {
         None
@@ -680,7 +680,7 @@ async fn get_site_controller_analysis(
 async fn get_machine_analysis(
     api_client: &ApiClient,
     machine_id: &MachineId,
-) -> CarbideCliResult<MachineAnalysis> {
+) -> NicoCliResult<MachineAnalysis> {
     println!("   Fetching machine state and metadata...");
 
     // Get machine details (state, SLA, controller outcome, reboot info, errors)
@@ -721,7 +721,7 @@ async fn get_machine_analysis(
 /// The debug bundle includes the following components:
 ///
 /// 1. **Host-Specific Logs**: Machine-specific logs from Loki (filtered by `host_machine_id`)
-/// 2. **Carbide-API Logs**: API server logs from Loki (filtered by `k8s_container_name`)
+/// 2. **Nico-API Logs**: API server logs from Loki (filtered by `k8s_container_name`)
 /// 3. **DPU Agent Logs**: DPU agent service logs from Loki (filtered by `systemd_unit` and `host_machine_id`)
 /// 4. **Health Alerts**: Historical health alerts for the machine within the specified time range
 /// 5. **Health Report Entries**: Current health report entries configured for the machine
@@ -746,13 +746,13 @@ async fn get_machine_analysis(
 ///   - `site`: Site name (e.g., "dev3", "prod")
 ///   - `batch_size`: Maximum logs per batch (default: 5000)
 ///
-/// * `api_client` - Authenticated API client for making RPC calls to Carbide API
+/// * `api_client` - Authenticated API client for making RPC calls to Nico API
 ///
 /// # Output
 ///
 /// Creates a ZIP file with the following structure:
 /// - `host_logs_<machine_id>.txt` - Host-specific logs
-/// - `carbide_api_logs.txt` - API server logs
+/// - `nico_api_logs.txt` - API server logs
 /// - `dpu_agent_logs_<machine_id>.txt` - DPU agent service logs
 /// - `health_alerts.json` - Health alerts history
 /// - `health_alert_overrides.json` - Active health report entries
@@ -762,7 +762,7 @@ async fn get_machine_analysis(
 ///
 /// # Returns
 ///
-/// Returns `Ok(())` on successful bundle creation, or a `CarbideCliError` if any step fails.
+/// Returns `Ok(())` on successful bundle creation, or a `NicoCliError` if any step fails.
 ///
 /// # Example
 ///
@@ -786,7 +786,7 @@ async fn get_machine_analysis(
 pub async fn handle_debug_bundle(
     debug_bundle: DebugBundle,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     println!(
         "   Creating debug bundle for host: {}",
         debug_bundle.host_id
@@ -814,8 +814,8 @@ pub async fn handle_debug_bundle(
     let (
         host_logs,
         host_batch_links,
-        carbide_api_logs,
-        carbide_batch_links,
+        nico_api_logs,
+        nico_batch_links,
         dpu_agent_logs,
         dpu_batch_links,
         loki_uid,
@@ -836,9 +836,9 @@ pub async fn handle_debug_bundle(
         )
         .await?;
 
-        println!("\nDownloading carbide-api logs...");
-        let (carbide_api_logs, carbide_batch_links) =
-            get_carbide_api_logs(time_range, grafana_url, &loki_uid, debug_bundle.batch_size)
+        println!("\nDownloading nico-api logs...");
+        let (nico_api_logs, nico_batch_links) =
+            get_nico_api_logs(time_range, grafana_url, &loki_uid, debug_bundle.batch_size)
                 .await?;
 
         println!("\nDownloading DPU agent logs...");
@@ -854,8 +854,8 @@ pub async fn handle_debug_bundle(
         (
             host_logs,
             host_batch_links,
-            carbide_api_logs,
-            carbide_batch_links,
+            nico_api_logs,
+            nico_batch_links,
             dpu_agent_logs,
             dpu_batch_links,
             Some(loki_uid),
@@ -896,7 +896,7 @@ pub async fn handle_debug_bundle(
     // Machine Info
     println!("\nFetching machine info...");
     let machine_id = MachineId::from_str(&debug_bundle.host_id).map_err(|e| {
-        CarbideCliError::GenericError(format!(
+        NicoCliError::GenericError(format!(
             "Invalid machine ID '{}': {}",
             debug_bundle.host_id, e
         ))
@@ -906,8 +906,8 @@ pub async fn handle_debug_bundle(
     println!("\nDebug Bundle Summary:");
     println!("   Host Logs: {} logs collected", host_logs.len());
     println!(
-        "   Carbide-API Logs: {} logs collected",
-        carbide_api_logs.len()
+        "   Nico-API Logs: {} logs collected",
+        nico_api_logs.len()
     );
     println!("   DPU Agent Logs: {} logs collected", dpu_agent_logs.len());
     println!(
@@ -926,7 +926,7 @@ pub async fn handle_debug_bundle(
     println!("   Machine State Information: Collected");
     println!(
         "   Total Logs: {}",
-        host_logs.len() + carbide_api_logs.len() + dpu_agent_logs.len()
+        host_logs.len() + nico_api_logs.len() + dpu_agent_logs.len()
     );
 
     // Create ZIP file with logs, health alerts, health report entries, site controller details, and machine info
@@ -934,10 +934,10 @@ pub async fn handle_debug_bundle(
     create_debug_bundle_zip(
         &debug_bundle,
         &host_logs,
-        &carbide_api_logs,
+        &nico_api_logs,
         &dpu_agent_logs,
         &host_batch_links,
-        &carbide_batch_links,
+        &nico_batch_links,
         &dpu_batch_links,
         loki_uid.as_deref(),
         &health_alerts,
@@ -957,7 +957,7 @@ async fn get_host_logs(
     grafana_url: &str,
     loki_uid: &str,
     batch_size: u32,
-) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
+) -> NicoCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
     let expr = format!("{{host_machine_id=\"{host_id}\"}} |= ``");
     let log_type = LogType::HostSpecific;
 
@@ -968,14 +968,14 @@ async fn get_host_logs(
         .await
 }
 
-async fn get_carbide_api_logs(
+async fn get_nico_api_logs(
     time_range: TimeRange,
     grafana_url: &str,
     loki_uid: &str,
     batch_size: u32,
-) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
-    let expr = format!("{{{K8S_CONTAINER_NAME_LABEL}=\"{CARBIDE_API_CONTAINER_NAME}\"}} |= ``");
-    let log_type = LogType::CarbideApi;
+) -> NicoCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
+    let expr = format!("{{{K8S_CONTAINER_NAME_LABEL}=\"{NICO_API_CONTAINER_NAME}\"}} |= ``");
+    let log_type = LogType::NicoApi;
 
     // NEW() NOW RETURNS RESULT
     let collector = LogCollector::new(grafana_url.into(), loki_uid.into(), batch_size)?;
@@ -990,9 +990,9 @@ async fn get_dpu_agent_logs(
     grafana_url: &str,
     loki_uid: &str,
     batch_size: u32,
-) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
+) -> NicoCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
     let expr = format!(
-        "{{systemd_unit=\"forge-dpu-agent.service\", host_machine_id=\"{host_id}\"}} |= ``"
+        "{{systemd_unit=\"nico-dpu-agent.service\", host_machine_id=\"{host_id}\"}} |= ``"
     );
     let log_type = LogType::DpuAgent;
 
@@ -1007,14 +1007,14 @@ async fn get_health_alerts(
     api_client: &ApiClient,
     host_id: &str,
     time_range: &TimeRange,
-) -> CarbideCliResult<::rpc::forge::HealthHistories> {
+) -> NicoCliResult<::rpc::nico::HealthHistories> {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
 
     // Parse machine ID
     let machine_id = MachineId::from_str(host_id).map_err(|e| {
-        CarbideCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
+        NicoCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
     })?;
 
     // Get DateTime objects from TimeRange
@@ -1026,7 +1026,7 @@ async fn get_health_alerts(
     let end_time_proto: ::rpc::Timestamp = end_dt.into();
 
     // Build request with time filtering
-    let request = ::rpc::forge::MachineHealthHistoriesRequest {
+    let request = ::rpc::nico::MachineHealthHistoriesRequest {
         machine_ids: vec![machine_id],
         start_time: Some(start_time_proto),
         end_time: Some(end_time_proto),
@@ -1037,7 +1037,7 @@ async fn get_health_alerts(
         .0
         .find_machine_health_histories(request)
         .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+        .map_err(NicoCliError::ApiInvocationError)?;
 
     Ok(response)
 }
@@ -1046,14 +1046,14 @@ async fn get_health_alerts(
 async fn get_alert_entries(
     api_client: &ApiClient,
     host_id: &str,
-) -> CarbideCliResult<::rpc::forge::ListHealthReportResponse> {
+) -> NicoCliResult<::rpc::nico::ListHealthReportResponse> {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
 
     // Parse machine ID
     let machine_id = MachineId::from_str(host_id).map_err(|e| {
-        CarbideCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
+        NicoCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
     })?;
 
     // Call API to get current health report entries
@@ -1091,11 +1091,11 @@ fn build_grafana_query_request(
 async fn execute_grafana_query(
     query_request: &GrafanaQueryRequest,
     grafana_client: &GrafanaClient<'_>,
-) -> CarbideCliResult<String> {
+) -> NicoCliResult<String> {
     let response = grafana_client
         .client
         .post(format!("{}/api/ds/query", grafana_client.base_url))
-        .header("X-Scope-OrgID", "forge")
+        .header("X-Scope-OrgID", "nico")
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .header(
@@ -1113,17 +1113,17 @@ async fn execute_grafana_query(
 
             if status.is_success() {
                 let body = resp.text().await.map_err(|e| {
-                    CarbideCliError::GenericError(format!("Failed to read response body: {e}"))
+                    NicoCliError::GenericError(format!("Failed to read response body: {e}"))
                 })?;
                 Ok(body)
             } else {
                 let body = resp.text().await.unwrap_or_default();
-                Err(CarbideCliError::GenericError(format!(
+                Err(NicoCliError::GenericError(format!(
                     "HTTP Error {status}: {body}"
                 )))
             }
         }
-        Err(e) => Err(CarbideCliError::GenericError(format!(
+        Err(e) => Err(NicoCliError::GenericError(format!(
             "Connection failed: {e}"
         ))),
     }
@@ -1141,7 +1141,7 @@ fn handle_pagination(
     entry_count: usize,
     newest_timestamp: Option<i64>,
     batch_size: usize,
-) -> CarbideCliResult<Option<DateTime<Utc>>> {
+) -> NicoCliResult<Option<DateTime<Utc>>> {
     // Parse response to check if we need pagination
     if entry_count < batch_size {
         return Ok(None);
@@ -1156,12 +1156,12 @@ fn handle_pagination(
 }
 
 // Parse Grafana JSON response using strongly typed structs
-fn parse_grafana_logs(json_response: String) -> CarbideCliResult<(Vec<LogEntry>, Option<i64>)> {
+fn parse_grafana_logs(json_response: String) -> NicoCliResult<(Vec<LogEntry>, Option<i64>)> {
     let response: GrafanaResponse = serde_json::from_str(&json_response)
-        .map_err(|e| CarbideCliError::GenericError(format!("Failed to parse JSON: {e}")))?;
+        .map_err(|e| NicoCliError::GenericError(format!("Failed to parse JSON: {e}")))?;
 
     let Some(frame) = response.results.a.frames.into_iter().next() else {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "No frames found in grafana results".to_string(),
         ));
     };
@@ -1176,7 +1176,7 @@ fn parse_grafana_logs(json_response: String) -> CarbideCliResult<(Vec<LogEntry>,
         .collect::<Vec<_>>()
         .try_into()
         .map_err(|v: Vec<_>| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "Invalid grafana frame: Expected at least 5 values, got {}",
                 v.len()
             ))
@@ -1267,7 +1267,7 @@ fn format_timestamp_header(timestamp_ms: i64) -> String {
 }
 
 // datetime parsing function
-fn parse_datetime_input(input: &str, use_utc: bool) -> CarbideCliResult<DateTime<Utc>> {
+fn parse_datetime_input(input: &str, use_utc: bool) -> NicoCliResult<DateTime<Utc>> {
     let dash_count = input.chars().filter(|&c| c == '-').count();
     let colon_count = input.chars().filter(|&c| c == ':').count();
 
@@ -1276,9 +1276,9 @@ fn parse_datetime_input(input: &str, use_utc: bool) -> CarbideCliResult<DateTime
         let parts: Vec<&str> = input.split_whitespace().collect();
         if parts.len() == 2 {
             NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S")
-                .map_err(|_| CarbideCliError::InvalidDateTimeFromUserInput(input.to_string()))?
+                .map_err(|_| NicoCliError::InvalidDateTimeFromUserInput(input.to_string()))?
         } else {
-            return Err(CarbideCliError::InvalidDateTimeFromUserInput(
+            return Err(NicoCliError::InvalidDateTimeFromUserInput(
                 input.to_string(),
             ));
         }
@@ -1289,7 +1289,7 @@ fn parse_datetime_input(input: &str, use_utc: bool) -> CarbideCliResult<DateTime
             .map_err(|_| InvalidDateTimeFromUserInput(input.to_string()))?;
         NaiveDateTime::new(today, time)
     } else {
-        return Err(CarbideCliError::InvalidDateTimeFromUserInput(
+        return Err(NicoCliError::InvalidDateTimeFromUserInput(
             input.to_string(),
         ));
     };
@@ -1300,7 +1300,7 @@ fn parse_datetime_input(input: &str, use_utc: bool) -> CarbideCliResult<DateTime
         let local = naive_datetime
             .and_local_timezone(Local)
             .single()
-            .ok_or_else(|| CarbideCliError::GenericError(format!("Invalid or ambiguous time '{input}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.")))?;
+            .ok_or_else(|| NicoCliError::GenericError(format!("Invalid or ambiguous time '{input}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.")))?;
         Ok(local.into())
     }
 }
@@ -1311,7 +1311,7 @@ fn generate_grafana_link(
     expr: &str,
     start_ms: i64,
     end_ms: i64,
-) -> CarbideCliResult<String> {
+) -> NicoCliResult<String> {
     let config = GrafanaConfig {
         datasource: loki_uid.to_string(),
         queries: vec![GrafanaQuery {
@@ -1325,7 +1325,7 @@ fn generate_grafana_link(
     };
 
     let json_str = serde_json::to_string(&config).map_err(|e| {
-        CarbideCliError::GenericError(format!("Failed to serialize Grafana config: {e}"))
+        NicoCliError::GenericError(format!("Failed to serialize Grafana config: {e}"))
     })?;
 
     let encoded = urlencoding::encode(&json_str);
@@ -1352,22 +1352,22 @@ impl<'a> ZipBundleCreator<'a> {
     fn create_bundle(
         &self,
         host_logs: &[LogEntry],
-        carbide_logs: &[LogEntry],
+        nico_logs: &[LogEntry],
         dpu_agent_logs: &[LogEntry],
         host_batch_links: &[(String, String, usize, String)],
-        carbide_batch_links: &[(String, String, usize, String)],
+        nico_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::HealthHistories,
-        alert_entries: &::rpc::forge::ListHealthReportResponse,
+        health_alerts: &::rpc::nico::HealthHistories,
+        alert_entries: &::rpc::nico::ListHealthReportResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
-    ) -> CarbideCliResult<String> {
+    ) -> NicoCliResult<String> {
         let filename = format!("{}_{}.zip", self.timestamp, self.config.host_id);
         let output_path = self.config.output_path.trim_end_matches('/');
         let filepath = format!("{}/{}", output_path, filename);
         let mut zip = ZipWriter::new(File::create(&filepath).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to create ZIP file: {e}"))
+            NicoCliError::GenericError(format!("Failed to create ZIP file: {e}"))
         })?);
         let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
 
@@ -1378,7 +1378,7 @@ impl<'a> ZipBundleCreator<'a> {
             host_logs,
             options,
         )?;
-        self.add_file(&mut zip, "carbide_api_logs.txt", carbide_logs, options)?;
+        self.add_file(&mut zip, "nico_api_logs.txt", nico_logs, options)?;
         self.add_file(
             &mut zip,
             &format!("dpu_agent_logs_{}.txt", self.config.host_id),
@@ -1392,10 +1392,10 @@ impl<'a> ZipBundleCreator<'a> {
         self.add_metadata(
             &mut zip,
             host_logs.len(),
-            carbide_logs.len(),
+            nico_logs.len(),
             dpu_agent_logs.len(),
             host_batch_links,
-            carbide_batch_links,
+            nico_batch_links,
             dpu_batch_links,
             loki_uid,
             health_alerts,
@@ -1406,14 +1406,14 @@ impl<'a> ZipBundleCreator<'a> {
         )?;
 
         zip.finish()
-            .map_err(|e| CarbideCliError::GenericError(format!("Failed to finish ZIP: {e}")))?;
+            .map_err(|e| NicoCliError::GenericError(format!("Failed to finish ZIP: {e}")))?;
 
         println!("ZIP created: {filepath}");
         println!(
-            "Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), dpu_agent_logs_{}.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} entries), site_controller_details.json, machine_info.json, metadata.txt",
+            "Files: host_logs_{}.txt ({} logs), nico_api_logs.txt ({} logs), dpu_agent_logs_{}.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} entries), site_controller_details.json, machine_info.json, metadata.txt",
             self.config.host_id,
             host_logs.len(),
-            carbide_logs.len(),
+            nico_logs.len(),
             self.config.host_id,
             dpu_agent_logs.len(),
             health_alerts
@@ -1433,9 +1433,9 @@ impl<'a> ZipBundleCreator<'a> {
         filename: &str,
         logs: &[LogEntry],
         options: FileOptions,
-    ) -> CarbideCliResult<()> {
+    ) -> NicoCliResult<()> {
         zip.start_file(filename, options).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to create file {filename}: {e}"))
+            NicoCliError::GenericError(format!("Failed to create file {filename}: {e}"))
         })?;
         for entry in logs {
             writeln!(zip, "{} {}", entry.format_header(), entry.message)?;
@@ -1446,11 +1446,11 @@ impl<'a> ZipBundleCreator<'a> {
     fn add_alerts_json(
         &self,
         zip: &mut ZipWriter<File>,
-        health_alerts: &::rpc::forge::HealthHistories,
+        health_alerts: &::rpc::nico::HealthHistories,
         options: FileOptions,
-    ) -> CarbideCliResult<()> {
+    ) -> NicoCliResult<()> {
         zip.start_file("health_alerts.json", options).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to create health_alerts.json: {e}"))
+            NicoCliError::GenericError(format!("Failed to create health_alerts.json: {e}"))
         })?;
 
         // Build JSON, extracting ONLY alerts from each HealthReport
@@ -1506,7 +1506,7 @@ impl<'a> ZipBundleCreator<'a> {
 
         // Write pretty-formatted JSON to ZIP
         let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to serialize health alerts to JSON: {e}"))
+            NicoCliError::GenericError(format!("Failed to serialize health alerts to JSON: {e}"))
         })?;
 
         write!(zip, "{}", json_string)?;
@@ -1516,12 +1516,12 @@ impl<'a> ZipBundleCreator<'a> {
     fn add_alert_entries_json(
         &self,
         zip: &mut ZipWriter<File>,
-        alert_entries: &::rpc::forge::ListHealthReportResponse,
+        alert_entries: &::rpc::nico::ListHealthReportResponse,
         options: FileOptions,
-    ) -> CarbideCliResult<()> {
+    ) -> NicoCliResult<()> {
         zip.start_file("health_alert_overrides.json", options)
             .map_err(|e| {
-                CarbideCliError::GenericError(format!(
+                NicoCliError::GenericError(format!(
                     "Failed to create health_alert_overrides.json: {e}"
                 ))
             })?;
@@ -1565,7 +1565,7 @@ impl<'a> ZipBundleCreator<'a> {
 
         // Write pretty-formatted JSON to ZIP
         let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to serialize entries to JSON: {e}"))
+            NicoCliError::GenericError(format!("Failed to serialize entries to JSON: {e}"))
         })?;
 
         write!(zip, "{}", json_string)?;
@@ -1577,10 +1577,10 @@ impl<'a> ZipBundleCreator<'a> {
         zip: &mut ZipWriter<File>,
         analysis: &SiteControllerAnalysis,
         options: FileOptions,
-    ) -> CarbideCliResult<()> {
+    ) -> NicoCliResult<()> {
         zip.start_file("site_controller_details.json", options)
             .map_err(|e| {
-                CarbideCliError::GenericError(format!(
+                NicoCliError::GenericError(format!(
                     "Failed to create site_controller_details.json: {e}"
                 ))
             })?;
@@ -1689,7 +1689,7 @@ impl<'a> ZipBundleCreator<'a> {
 
         // Write pretty-formatted JSON to ZIP
         let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "Failed to serialize site controller analysis to JSON: {e}"
             ))
         })?;
@@ -1703,9 +1703,9 @@ impl<'a> ZipBundleCreator<'a> {
         zip: &mut ZipWriter<File>,
         analysis: &MachineAnalysis,
         options: FileOptions,
-    ) -> CarbideCliResult<()> {
+    ) -> NicoCliResult<()> {
         zip.start_file("machine_info.json", options).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to create machine_info.json: {e}"))
+            NicoCliError::GenericError(format!("Failed to create machine_info.json: {e}"))
         })?;
 
         let machine = &analysis.machine;
@@ -1791,7 +1791,7 @@ impl<'a> ZipBundleCreator<'a> {
 
         // Write pretty-formatted JSON to ZIP
         let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "Failed to serialize machine analysis to JSON: {e}"
             ))
         })?;
@@ -1805,20 +1805,20 @@ impl<'a> ZipBundleCreator<'a> {
         &self,
         zip: &mut ZipWriter<File>,
         host_count: usize,
-        carbide_count: usize,
+        nico_count: usize,
         dpu_agent_count: usize,
         host_batch_links: &[(String, String, usize, String)],
-        carbide_batch_links: &[(String, String, usize, String)],
+        nico_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::HealthHistories,
-        alert_entries: &::rpc::forge::ListHealthReportResponse,
+        health_alerts: &::rpc::nico::HealthHistories,
+        alert_entries: &::rpc::nico::ListHealthReportResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
         options: FileOptions,
-    ) -> CarbideCliResult<()> {
+    ) -> NicoCliResult<()> {
         zip.start_file("metadata.txt", options).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to create metadata file: {e}"))
+            NicoCliError::GenericError(format!("Failed to create metadata file: {e}"))
         })?;
         writeln!(zip, "Debug Bundle: {}", self.config.host_id)?;
         let end_time_display = self
@@ -1840,12 +1840,12 @@ impl<'a> ZipBundleCreator<'a> {
                 .unwrap_or("N/A (logs not collected)")
         )?;
         writeln!(zip, "Host Logs: {host_count}")?;
-        writeln!(zip, "Carbide-API Logs: {carbide_count}")?;
+        writeln!(zip, "Nico-API Logs: {nico_count}")?;
         writeln!(zip, "DPU Agent Logs: {dpu_agent_count}")?;
         writeln!(
             zip,
             "Total: {}",
-            host_count + carbide_count + dpu_agent_count
+            host_count + nico_count + dpu_agent_count
         )?;
         writeln!(zip)?;
 
@@ -1992,13 +1992,13 @@ impl<'a> ZipBundleCreator<'a> {
             let host_overall_link =
                 generate_grafana_link(grafana_url, loki_uid, &host_expr, start_ms, end_ms)?;
 
-            let carbide_expr =
-                format!("{{{K8S_CONTAINER_NAME_LABEL}=\"{CARBIDE_API_CONTAINER_NAME}\"}} |= ``");
-            let carbide_overall_link =
-                generate_grafana_link(grafana_url, loki_uid, &carbide_expr, start_ms, end_ms)?;
+            let nico_expr =
+                format!("{{{K8S_CONTAINER_NAME_LABEL}=\"{NICO_API_CONTAINER_NAME}\"}} |= ``");
+            let nico_overall_link =
+                generate_grafana_link(grafana_url, loki_uid, &nico_expr, start_ms, end_ms)?;
 
             let dpu_agent_expr = format!(
-                "{{systemd_unit=\"forge-dpu-agent.service\", host_machine_id=\"{}\"}} |= ``",
+                "{{systemd_unit=\"nico-dpu-agent.service\", host_machine_id=\"{}\"}} |= ``",
                 self.config.host_id
             );
             let dpu_agent_overall_link =
@@ -2019,15 +2019,15 @@ impl<'a> ZipBundleCreator<'a> {
                 }
             }
 
-            // Carbide-API Logs - Overall Link and Batches
-            writeln!(zip, "Carbide-API Logs Grafana Link (Complete Time Range):")?;
-            writeln!(zip, "  {}", carbide_overall_link)?;
+            // Nico-API Logs - Overall Link and Batches
+            writeln!(zip, "Nico-API Logs Grafana Link (Complete Time Range):")?;
+            writeln!(zip, "  {}", nico_overall_link)?;
             writeln!(zip)?;
 
-            if !carbide_batch_links.is_empty() {
-                writeln!(zip, "Carbide-API Logs Batches:")?;
+            if !nico_batch_links.is_empty() {
+                writeln!(zip, "Nico-API Logs Batches:")?;
                 for (batch_label, grafana_link, log_count, time_range_display) in
-                    carbide_batch_links
+                    nico_batch_links
                 {
                     writeln!(zip, "  {batch_label} ({log_count} logs):")?;
                     writeln!(zip, "    Time Range: {time_range_display}")?;
@@ -2060,23 +2060,23 @@ impl<'a> ZipBundleCreator<'a> {
 fn create_debug_bundle_zip(
     debug_bundle: &DebugBundle,
     host_logs: &[LogEntry],
-    carbide_api_logs: &[LogEntry],
+    nico_api_logs: &[LogEntry],
     dpu_agent_logs: &[LogEntry],
     host_batch_links: &[(String, String, usize, String)],
-    carbide_batch_links: &[(String, String, usize, String)],
+    nico_batch_links: &[(String, String, usize, String)],
     dpu_batch_links: &[(String, String, usize, String)],
     loki_uid: Option<&str>,
-    health_alerts: &::rpc::forge::HealthHistories,
-    alert_entries: &::rpc::forge::ListHealthReportResponse,
+    health_alerts: &::rpc::nico::HealthHistories,
+    alert_entries: &::rpc::nico::ListHealthReportResponse,
     site_controller_analysis: &SiteControllerAnalysis,
     machine_analysis: &MachineAnalysis,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     ZipBundleCreator::new(debug_bundle).create_bundle(
         host_logs,
-        carbide_api_logs,
+        nico_api_logs,
         dpu_agent_logs,
         host_batch_links,
-        carbide_batch_links,
+        nico_batch_links,
         dpu_batch_links,
         loki_uid,
         health_alerts,

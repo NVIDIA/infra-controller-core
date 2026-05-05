@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-//! carbide-host-support is a library that is used by applications that run on
-//! carbide managed hosts
+//! nico-host-support is a library that is used by applications that run on
+//! nico managed hosts
 
 use std::sync::Once;
 

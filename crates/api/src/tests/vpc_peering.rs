@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::vpc::VpcId;
-use carbide_uuid::vpc_peering::VpcPeeringId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::vpc::VpcId;
+use nico_uuid::vpc_peering::VpcPeeringId;
 use model::metadata::Metadata;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
     VpcPeeringList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest, VpcVirtualizationType,
 };
@@ -270,7 +270,7 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
 
     let vpc_delete_response = env
         .api
-        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+        .delete_vpc(tonic::Request::new(rpc::nico::VpcDeletionRequest {
             id: Some(vpc_id_1),
         }))
         .await;
@@ -510,7 +510,7 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
 
     let vpc_delete_response = env
         .api
-        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+        .delete_vpc(tonic::Request::new(rpc::nico::VpcDeletionRequest {
             id: Some(peer_vpc_id),
         }))
         .await;

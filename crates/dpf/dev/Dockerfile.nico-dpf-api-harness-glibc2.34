@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Dockerfile for building nico-dpf-api-harness against GLIBC 2.34
+# Uses Ubuntu 22.04 (Jammy) which ships with GLIBC 2.34
+# Build from workspace root: docker build -f crates/dpf/dev/Dockerfile.nico-dpf-api-harness-glibc2.34 -t nico-dpf-api-harness:glibc2.34 .
+
+FROM ubuntu:22.04 AS builder
+
+WORKDIR /workspace
+
+# Install build dependencies and Rust
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    git \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.90.0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Rust to PATH
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy workspace configuration files
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+
+# Verify workspace structure
+RUN grep -q '^\[workspace\]' Cargo.toml && \
+    grep -q 'members.*crates' Cargo.toml && \
+    echo "Workspace structure verified"
+
+# Copy workspace crates
+COPY crates/ crates/
+
+# Download and cache dependencies
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/workspace/target \
+    cargo fetch --locked
+
+# Build nico-dpf-api-harness with driver feature using cached dependencies
+# Copy binary out of cache mount to persist it
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/workspace/target \
+    cargo build --release --package nico-dpf --bin nico-dpf-api-harness --features driver && \
+    cp target/release/nico-dpf-api-harness /tmp/nico-dpf-api-harness && \
+    strip /tmp/nico-dpf-api-harness && \
+    echo "Binary built successfully from workspace"
+
+# Verify binary was copied successfully and check GLIBC version
+RUN test -f /tmp/nico-dpf-api-harness && \
+    echo "Workspace build verified" && \
+    ldd /tmp/nico-dpf-api-harness 2>/dev/null | head -1 || echo "Binary built successfully" && \
+    strings /tmp/nico-dpf-api-harness | grep -q "GLIBC_2.34" && \
+    echo "GLIBC 2.34 requirement verified"
+
+# Output stage - copy the binary
+FROM ubuntu:22.04
+
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /tmp/nico-dpf-api-harness /usr/local/bin/nico-dpf-api-harness
+
+# Verify binary is linked correctly
+RUN ldd /usr/local/bin/nico-dpf-api-harness | grep libc.so || echo "Binary linked successfully"
+
+ENTRYPOINT ["/usr/local/bin/nico-dpf-api-harness"]

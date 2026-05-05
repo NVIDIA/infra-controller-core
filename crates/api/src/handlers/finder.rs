@@ -19,26 +19,26 @@ use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::protos::{common as rpc_common, forge as rpc};
-use carbide_network::ip::IdentifyAddressFamily;
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::dpa_interface::DpaInterfaceId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineInterfaceId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use ::rpc::protos::{common as rpc_common, nico as rpc};
+use nico_network::ip::IdentifyAddressFamily;
+use nico_uuid::domain::DomainId;
+use nico_uuid::dpa_interface::DpaInterfaceId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineInterfaceId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
 use model::allocation_type::AllocationType;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 
 /// Returns true when this machine-interface address should be labeled as operator/static BMC
 /// (`IpTypeStaticBmcIp`): either explicitly static allocation, or an address on the synthetic
-/// `static-assignments` segment used for external IPs outside Carbide-managed prefixes.
+/// `static-assignments` segment used for external IPs outside Nico-managed prefixes.
 fn machine_interface_address_is_operator_static(
     segment_name: &str,
     allocation_type: AllocationType,
@@ -60,7 +60,7 @@ pub(crate) async fn find_ip_address(
     let ip = req.ip;
     let (matches, errors) = by_ip(api, &ip).await;
     if matches.is_empty() && errors.is_empty() {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "ip",
             id: ip.to_string(),
         }
@@ -80,14 +80,14 @@ pub(crate) async fn identify_uuid(
     let req = request.into_inner();
 
     let Some(u) = req.uuid else {
-        return Err(CarbideError::InvalidArgument("UUID missing from query".to_string()).into());
+        return Err(NicoError::InvalidArgument("UUID missing from query".to_string()).into());
     };
     match by_uuid(api, &u).await {
         Ok(Some(object_type)) => Ok(tonic::Response::new(rpc::IdentifyUuidResponse {
             uuid: Some(u),
             object_type: object_type.into(),
         })),
-        Ok(None) => Err(CarbideError::NotFoundError {
+        Ok(None) => Err(NicoError::NotFoundError {
             kind: "uuid",
             id: u.to_string(),
         }
@@ -104,11 +104,11 @@ pub(crate) async fn identify_mac(
     let req = request.into_inner();
 
     if req.mac_address.is_empty() {
-        return Err(CarbideError::InvalidArgument("MAC missing from query".to_string()).into());
+        return Err(NicoError::InvalidArgument("MAC missing from query".to_string()).into());
     };
     let Ok(mac) = mac_address::MacAddress::from_str(&req.mac_address) else {
         return Err(
-            CarbideError::InvalidArgument("Could not parse MAC address".to_string()).into(),
+            NicoError::InvalidArgument("Could not parse MAC address".to_string()).into(),
         );
     };
     match by_mac(api, mac).await {
@@ -119,12 +119,12 @@ pub(crate) async fn identify_mac(
                 object_type: object_type.into(),
             }))
         }
-        Ok(None) => Err(CarbideError::NotFoundError {
+        Ok(None) => Err(NicoError::NotFoundError {
             kind: "MAC",
             id: mac.to_string(),
         }
         .into()),
-        Err(err) => Err(CarbideError::from(err).into()),
+        Err(err) => Err(NicoError::from(err).into()),
     }
 }
 
@@ -179,7 +179,7 @@ impl fmt::Display for Finder {
     }
 }
 
-async fn by_ip(api: &Api, ip: &str) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideError>) {
+async fn by_ip(api: &Api, ip: &str) -> (Vec<rpc::IpAddressMatch>, Vec<NicoError>) {
     use Finder::*;
     let futures = vec![
         search(StaticData, api, ip),
@@ -214,7 +214,7 @@ async fn search(
     finder: Finder,
     api: &Api,
     ip: &str,
-) -> Result<Option<rpc::IpAddressMatch>, CarbideError> {
+) -> Result<Option<rpc::IpAddressMatch>, NicoError> {
     let addr: IpAddr = ip.parse()?;
 
     let db = &api.database_connection;
@@ -403,7 +403,7 @@ async fn search(
 
         // Search the RouteServers table to see if it's a "config"
         // source (via the config TOML), or an "admin" source (via
-        // forge-admin-cli).
+        // nico-admin-cli).
         RouteServers => {
             let out = db::route_servers::find_by_address(db, addr).await?;
             out.map(|route_server| rpc::IpAddressMatch {
@@ -433,7 +433,7 @@ async fn search(
     Ok(match_result)
 }
 
-async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, CarbideError> {
+async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, NicoError> {
     let db = &api.database_connection;
     let mut db_reader = api.db_reader();
 

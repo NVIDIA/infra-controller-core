@@ -22,11 +22,11 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_rpc_utils::dhcp::DhcpConfig;
+use nico_rpc_utils::dhcp::DhcpConfig;
 use chrono::{DateTime, Utc};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::Base;
 use crate::api::Api;
@@ -49,7 +49,7 @@ struct DhcpEntryDisplay {
 }
 
 impl DhcpEntryDisplay {
-    fn from_interface(mi: forgerpc::MachineInterface) -> Vec<Self> {
+    fn from_interface(mi: nicorpc::MachineInterface) -> Vec<Self> {
         let created: DateTime<Utc> = mi
             .created
             .and_then(|t| t.try_into().ok())
@@ -125,8 +125,8 @@ pub async fn dhcp_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(interfaces)).into_response()
 }
 
-async fn fetch_interfaces(api: Arc<Api>) -> Result<Vec<forgerpc::MachineInterface>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::InterfaceSearchQuery { id: None, ip: None });
+async fn fetch_interfaces(api: Arc<Api>) -> Result<Vec<nicorpc::MachineInterface>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::InterfaceSearchQuery { id: None, ip: None });
     let mut out = api
         .find_interfaces(request)
         .await
@@ -295,7 +295,7 @@ pub async fn underlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
 
 #[derive(sqlx::FromRow)]
 struct UnderlaySegmentRow {
-    segment_id: carbide_uuid::network::NetworkSegmentId,
+    segment_id: nico_uuid::network::NetworkSegmentId,
     segment_name: String,
     segment_type: String,
     segment_prefix: Option<ipnetwork::IpNetwork>,
@@ -353,7 +353,7 @@ pub async fn underlay_segment_html(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {
-    let segment_uuid: carbide_uuid::network::NetworkSegmentId = match segment_id.parse() {
+    let segment_uuid: nico_uuid::network::NetworkSegmentId = match segment_id.parse() {
         Ok(id) => id,
         Err(e) => {
             return (StatusCode::BAD_REQUEST, format!("Invalid segment ID: {e}")).into_response();
@@ -362,7 +362,7 @@ pub async fn underlay_segment_html(
 
     // Fetch the segment for metadata.
     let segment = match state
-        .find_network_segments_by_ids(tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
+        .find_network_segments_by_ids(tonic::Request::new(nicorpc::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_uuid],
             include_history: false,
             include_num_free_ips: false,
@@ -385,7 +385,7 @@ pub async fn underlay_segment_html(
         .unwrap_or_default();
     let segment_type = format!(
         "{:?}",
-        forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+        nicorpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
     );
 
     // Fetch machine interface addresses in this segment.
@@ -475,7 +475,7 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     };
 
     // Fetch all VPC prefix IDs, and then the prefixes themselves.
-    let prefix_request = tonic::Request::new(forgerpc::VpcPrefixSearchQuery::default());
+    let prefix_request = tonic::Request::new(nicorpc::VpcPrefixSearchQuery::default());
     let prefix_ids = match state
         .search_vpc_prefixes(prefix_request)
         .await
@@ -496,7 +496,7 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         Vec::new()
     } else {
         match state
-            .get_vpc_prefixes(tonic::Request::new(forgerpc::VpcPrefixGetRequest {
+            .get_vpc_prefixes(tonic::Request::new(nicorpc::VpcPrefixGetRequest {
                 vpc_prefix_ids: prefix_ids,
             }))
             .await
@@ -581,8 +581,8 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::VpcSearchFilter::default());
+async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<nicorpc::Vpc>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::VpcSearchFilter::default());
     let vpc_ids = api.find_vpc_ids(request).await?.into_inner().vpc_ids;
 
     let mut vpcs = Vec::new();
@@ -592,7 +592,7 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
         let page_size = PAGE_SIZE.min(vpc_ids.len() - offset);
         let next_ids = &vpc_ids[offset..offset + page_size];
         let next = api
-            .find_vpcs_by_ids(tonic::Request::new(forgerpc::VpcsByIdsRequest {
+            .find_vpcs_by_ids(tonic::Request::new(nicorpc::VpcsByIdsRequest {
                 vpc_ids: next_ids.to_vec(),
             }))
             .await?
@@ -646,7 +646,7 @@ pub async fn overlay_prefix_html(
 
     // Fetch the VPC prefix.
     let prefix = match state
-        .get_vpc_prefixes(tonic::Request::new(forgerpc::VpcPrefixGetRequest {
+        .get_vpc_prefixes(tonic::Request::new(nicorpc::VpcPrefixGetRequest {
             vpc_prefix_ids: vec![vpc_prefix_uuid],
         }))
         .await
@@ -679,7 +679,7 @@ pub async fn overlay_prefix_html(
     // Fetch the parent VPC for name/VNI.
     let (vpc_name, vni) = if let Ok(vpc_uuid) = vpc_id.parse() {
         match state
-            .find_vpcs_by_ids(tonic::Request::new(forgerpc::VpcsByIdsRequest {
+            .find_vpcs_by_ids(tonic::Request::new(nicorpc::VpcsByIdsRequest {
                 vpc_ids: vec![vpc_uuid],
             }))
             .await
@@ -751,7 +751,7 @@ pub async fn overlay_prefix_html(
 
 #[derive(sqlx::FromRow)]
 struct OverlaySegmentRow {
-    segment_id: carbide_uuid::network::NetworkSegmentId,
+    segment_id: nico_uuid::network::NetworkSegmentId,
     segment_name: String,
     segment_type: String,
     segment_prefix: ipnetwork::IpNetwork,
@@ -803,7 +803,7 @@ pub async fn overlay_segment_html(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {
-    let segment_uuid: carbide_uuid::network::NetworkSegmentId = match segment_id.parse() {
+    let segment_uuid: nico_uuid::network::NetworkSegmentId = match segment_id.parse() {
         Ok(id) => id,
         Err(e) => {
             return (StatusCode::BAD_REQUEST, format!("Invalid segment ID: {e}")).into_response();
@@ -812,7 +812,7 @@ pub async fn overlay_segment_html(
 
     // Fetch the segment for metadata.
     let segment = match state
-        .find_network_segments_by_ids(tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
+        .find_network_segments_by_ids(tonic::Request::new(nicorpc::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_uuid],
             include_history: false,
             include_num_free_ips: false,
@@ -837,7 +837,7 @@ pub async fn overlay_segment_html(
     // Fetch VPC name if available.
     let vpc_name = if let Some(vpc_id) = segment.vpc_id {
         match state
-            .find_vpcs_by_ids(tonic::Request::new(forgerpc::VpcsByIdsRequest {
+            .find_vpcs_by_ids(tonic::Request::new(nicorpc::VpcsByIdsRequest {
                 vpc_ids: vec![vpc_id],
             }))
             .await

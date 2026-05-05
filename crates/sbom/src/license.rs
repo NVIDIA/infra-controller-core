@@ -91,7 +91,7 @@ impl License {
             }
         }
 
-        // Don't forget the last license
+        // Don't nicot the last license
         if let Some(name) = current_license_name
             && !current_license_content.is_empty()
         {

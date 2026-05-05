@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, OutputFormat};
 use prettytable::{Cell, Row, Table};
 
 use super::args::Args;
@@ -25,14 +25,14 @@ pub async fn history(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     let result = api_client.0.get_rack_firmware_history(opts).await?;
 
     if format == OutputFormat::Json {
         // Flatten to map<rack_id, Vec<record>> for serialization
         let json_histories: std::collections::HashMap<
             &str,
-            Vec<&rpc::forge::RackFirmwareHistoryRecord>,
+            Vec<&rpc::nico::RackFirmwareHistoryRecord>,
         > = result
             .histories
             .iter()

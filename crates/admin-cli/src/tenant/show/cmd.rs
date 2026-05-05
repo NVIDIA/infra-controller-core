@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico as nicorpc;
 use prettytable::{Table, row};
-use rpc::forge::TenantByOrganizationIdsRequest;
+use rpc::nico::TenantByOrganizationIdsRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -28,8 +28,8 @@ use crate::rpc::ApiClient;
 ///
 /// * `tenants`    - A slice of tenants
 pub(crate) fn convert_tenants_to_table(
-    tenants: &[forgerpc::Tenant],
-) -> CarbideCliResult<Box<Table>> {
+    tenants: &[nicorpc::Tenant],
+) -> NicoCliResult<Box<Table>> {
     let mut table = Box::new(Table::new());
     let default_metadata = Default::default();
 
@@ -65,8 +65,8 @@ pub async fn show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
-) -> CarbideCliResult<()> {
-    let req: Option<rpc::forge::FindTenantRequest> = (&args).into();
+) -> NicoCliResult<()> {
+    let req: Option<rpc::nico::FindTenantRequest> = (&args).into();
 
     let tenants = if let Some(req) = req {
         let id = req.tenant_organization_id.clone();
@@ -75,13 +75,13 @@ pub async fn show(
             .find_tenant(req)
             .await?
             .tenant
-            .ok_or(CarbideCliError::TenantNotFound(id))?;
+            .ok_or(NicoCliError::TenantNotFound(id))?;
 
         vec![tenant]
     } else {
         let all_tenant_orgs = api_client
             .0
-            .find_tenant_organization_ids(rpc::forge::TenantSearchFilter {
+            .find_tenant_organization_ids(rpc::nico::TenantSearchFilter {
                 tenant_organization_name: None,
             })
             .await?
@@ -106,16 +106,16 @@ pub async fn show(
     match output_format {
         OutputFormat::Json => println!(
             "{}",
-            serde_json::to_string_pretty(&tenants).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&tenants).map_err(NicoCliError::JsonError)?
         ),
         OutputFormat::Yaml => println!(
             "{}",
-            serde_yaml::to_string(&tenants).map_err(CarbideCliError::YamlError)?
+            serde_yaml::to_string(&tenants).map_err(NicoCliError::YamlError)?
         ),
         OutputFormat::Csv => {
             convert_tenants_to_table(&tenants)?
                 .to_csv(std::io::stdout())
-                .map_err(CarbideCliError::CsvError)?
+                .map_err(NicoCliError::CsvError)?
                 .flush()?;
         }
 

@@ -18,13 +18,13 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 
-use carbide_uuid::UuidConversionError;
-use carbide_uuid::instance::InstanceId;
+use nico_uuid::UuidConversionError;
+use nico_uuid::instance::InstanceId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use itertools::Itertools;
 use rpc::errors::RpcDataConversionError;
-use rpc::forge as rpc_forge;
+use rpc::nico as rpc_nico;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sqlx::postgres::PgRow;
@@ -53,8 +53,8 @@ pub struct TenantSearchFilter {
     pub tenant_organization_name: Option<String>,
 }
 
-impl From<rpc::forge::TenantSearchFilter> for TenantSearchFilter {
-    fn from(filter: rpc::forge::TenantSearchFilter) -> Self {
+impl From<rpc::nico::TenantSearchFilter> for TenantSearchFilter {
+    fn from(filter: rpc::nico::TenantSearchFilter) -> Self {
         TenantSearchFilter {
             tenant_organization_name: filter.tenant_organization_name,
         }
@@ -66,8 +66,8 @@ pub struct TenantKeysetSearchFilter {
     pub tenant_org_id: Option<String>,
 }
 
-impl From<rpc::forge::TenantKeysetSearchFilter> for TenantKeysetSearchFilter {
-    fn from(filter: rpc::forge::TenantKeysetSearchFilter) -> Self {
+impl From<rpc::nico::TenantKeysetSearchFilter> for TenantKeysetSearchFilter {
+    fn from(filter: rpc::nico::TenantKeysetSearchFilter) -> Self {
         TenantKeysetSearchFilter {
             tenant_org_id: filter.tenant_org_id,
         }
@@ -88,7 +88,7 @@ pub struct Tenant {
     pub version: ConfigVersion,
 }
 
-impl TryFrom<Tenant> for rpc::forge::Tenant {
+impl TryFrom<Tenant> for rpc::nico::Tenant {
     type Error = RpcDataConversionError;
 
     fn try_from(src: Tenant) -> Result<Self, Self::Error> {
@@ -101,10 +101,10 @@ impl TryFrom<Tenant> for rpc::forge::Tenant {
     }
 }
 
-impl TryFrom<rpc::forge::Tenant> for Tenant {
+impl TryFrom<rpc::nico::Tenant> for Tenant {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::Tenant) -> Result<Self, Self::Error> {
+    fn try_from(src: rpc::nico::Tenant) -> Result<Self, Self::Error> {
         let metadata = src
             .metadata
             .ok_or(RpcDataConversionError::MissingArgument("metadata"))?;
@@ -127,31 +127,31 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
     }
 }
 
-impl TryFrom<Tenant> for rpc::forge::CreateTenantResponse {
+impl TryFrom<Tenant> for rpc::nico::CreateTenantResponse {
     type Error = RpcDataConversionError;
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
-        Ok(rpc::forge::CreateTenantResponse {
+        Ok(rpc::nico::CreateTenantResponse {
             tenant: Some(value.try_into()?),
         })
     }
 }
 
-impl TryFrom<Tenant> for rpc::forge::FindTenantResponse {
+impl TryFrom<Tenant> for rpc::nico::FindTenantResponse {
     type Error = RpcDataConversionError;
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
-        Ok(rpc::forge::FindTenantResponse {
+        Ok(rpc::nico::FindTenantResponse {
             tenant: Some(value.try_into()?),
         })
     }
 }
 
-impl TryFrom<Tenant> for rpc::forge::UpdateTenantResponse {
+impl TryFrom<Tenant> for rpc::nico::UpdateTenantResponse {
     type Error = RpcDataConversionError;
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
-        Ok(rpc::forge::UpdateTenantResponse {
+        Ok(rpc::nico::UpdateTenantResponse {
             tenant: Some(value.try_into()?),
         })
     }
@@ -233,8 +233,8 @@ impl FromStr for PublicKey {
     }
 }
 
-impl From<rpc::forge::TenantPublicKey> for TenantPublicKey {
-    fn from(src: rpc::forge::TenantPublicKey) -> Self {
+impl From<rpc::nico::TenantPublicKey> for TenantPublicKey {
+    fn from(src: rpc::nico::TenantPublicKey) -> Self {
         let public_key: PublicKey = src.public_key.parse().expect("Key parsing can never fail.");
         Self {
             public_key,
@@ -243,7 +243,7 @@ impl From<rpc::forge::TenantPublicKey> for TenantPublicKey {
     }
 }
 
-impl From<TenantPublicKey> for rpc::forge::TenantPublicKey {
+impl From<TenantPublicKey> for rpc::nico::TenantPublicKey {
     fn from(src: TenantPublicKey) -> Self {
         Self {
             public_key: src.public_key.to_string(),
@@ -252,15 +252,15 @@ impl From<TenantPublicKey> for rpc::forge::TenantPublicKey {
     }
 }
 
-impl From<rpc::forge::TenantKeysetContent> for TenantKeysetContent {
-    fn from(src: rpc::forge::TenantKeysetContent) -> Self {
+impl From<rpc::nico::TenantKeysetContent> for TenantKeysetContent {
+    fn from(src: rpc::nico::TenantKeysetContent) -> Self {
         Self {
             public_keys: src.public_keys.into_iter().map(|x| x.into()).collect(),
         }
     }
 }
 
-impl From<TenantKeysetContent> for rpc::forge::TenantKeysetContent {
+impl From<TenantKeysetContent> for rpc::nico::TenantKeysetContent {
     fn from(src: TenantKeysetContent) -> Self {
         Self {
             public_keys: src.public_keys.into_iter().map(|x| x.into()).collect(),
@@ -268,10 +268,10 @@ impl From<TenantKeysetContent> for rpc::forge::TenantKeysetContent {
     }
 }
 
-impl TryFrom<rpc::forge::TenantKeysetIdentifier> for TenantKeysetIdentifier {
+impl TryFrom<rpc::nico::TenantKeysetIdentifier> for TenantKeysetIdentifier {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::TenantKeysetIdentifier) -> Result<Self, Self::Error> {
+    fn try_from(src: rpc::nico::TenantKeysetIdentifier) -> Result<Self, Self::Error> {
         Ok(Self {
             organization_id: src
                 .organization_id
@@ -283,7 +283,7 @@ impl TryFrom<rpc::forge::TenantKeysetIdentifier> for TenantKeysetIdentifier {
     }
 }
 
-impl From<TenantKeysetIdentifier> for rpc::forge::TenantKeysetIdentifier {
+impl From<TenantKeysetIdentifier> for rpc::nico::TenantKeysetIdentifier {
     fn from(src: TenantKeysetIdentifier) -> Self {
         Self {
             organization_id: src.organization_id.to_string(),
@@ -292,10 +292,10 @@ impl From<TenantKeysetIdentifier> for rpc::forge::TenantKeysetIdentifier {
     }
 }
 
-impl TryFrom<rpc::forge::TenantKeyset> for TenantKeyset {
+impl TryFrom<rpc::nico::TenantKeyset> for TenantKeyset {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::TenantKeyset) -> Result<Self, Self::Error> {
+    fn try_from(src: rpc::nico::TenantKeyset) -> Result<Self, Self::Error> {
         let keyset_identifier: TenantKeysetIdentifier = src
             .keyset_identifier
             .ok_or(RpcDataConversionError::MissingArgument(
@@ -319,7 +319,7 @@ impl TryFrom<rpc::forge::TenantKeyset> for TenantKeyset {
     }
 }
 
-impl From<TenantKeyset> for rpc::forge::TenantKeyset {
+impl From<TenantKeyset> for rpc::nico::TenantKeyset {
     fn from(src: TenantKeyset) -> Self {
         Self {
             keyset_identifier: Some(src.keyset_identifier.into()),
@@ -329,10 +329,10 @@ impl From<TenantKeyset> for rpc::forge::TenantKeyset {
     }
 }
 
-impl TryFrom<rpc::forge::CreateTenantKeysetRequest> for TenantKeyset {
+impl TryFrom<rpc::nico::CreateTenantKeysetRequest> for TenantKeyset {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::CreateTenantKeysetRequest) -> Result<Self, Self::Error> {
+    fn try_from(src: rpc::nico::CreateTenantKeysetRequest) -> Result<Self, Self::Error> {
         let keyset_identifier: TenantKeysetIdentifier = src
             .keyset_identifier
             .ok_or(RpcDataConversionError::MissingArgument(
@@ -365,10 +365,10 @@ pub struct UpdateTenantKeyset {
     pub if_version_match: Option<String>,
 }
 
-impl TryFrom<rpc::forge::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
+impl TryFrom<rpc::nico::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::UpdateTenantKeysetRequest) -> Result<Self, Self::Error> {
+    fn try_from(src: rpc::nico::UpdateTenantKeysetRequest) -> Result<Self, Self::Error> {
         let keyset_identifier: TenantKeysetIdentifier = src
             .keyset_identifier
             .ok_or(RpcDataConversionError::MissingArgument(
@@ -392,7 +392,7 @@ impl TryFrom<rpc::forge::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
     }
 }
 
-/// Identifies a forge tenant
+/// Identifies a nico tenant
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TenantOrganizationId(String);
 
@@ -551,7 +551,7 @@ impl IdentityConfig {
     /// `subject_prefix` resolution against `issuer` (optional proto field defaults to
     /// `spiffe://<trust-domain-from-issuer>`).
     pub fn try_from_proto(
-        value: rpc_forge::TenantIdentityConfig,
+        value: rpc_nico::TenantIdentityConfig,
         bounds: &IdentityConfigValidationBounds,
     ) -> Result<Self, IdentityConfigValidationError> {
         if value.default_audience.is_empty() {
@@ -673,14 +673,14 @@ pub fn truncate_hash_for_display(full_hash: &str) -> String {
 /// Only used when auth_method is ClientSecretBasic; for None the oneof is omitted.
 pub fn stored_to_response_auth_config(
     auth_method: TokenDelegationAuthMethod,
-    stored: Option<rpc_forge::ClientSecretBasic>,
-) -> Option<rpc_forge::token_delegation_response::AuthMethodConfig> {
+    stored: Option<rpc_nico::ClientSecretBasic>,
+) -> Option<rpc_nico::token_delegation_response::AuthMethodConfig> {
     match auth_method {
         TokenDelegationAuthMethod::ClientSecretBasic => {
             stored.filter(|s| !s.client_secret.is_empty()).map(|s| {
                 let hash = compute_client_secret_hash(&s.client_secret);
-                rpc_forge::token_delegation_response::AuthMethodConfig::ClientSecretBasic(
-                    rpc_forge::ClientSecretBasicResponse {
+                rpc_nico::token_delegation_response::AuthMethodConfig::ClientSecretBasic(
+                    rpc_nico::ClientSecretBasicResponse {
                         client_id: s.client_id,
                         client_secret_hash: truncate_hash_for_display(&hash),
                     },
@@ -705,7 +705,7 @@ impl TokenDelegation {
     /// Validates gRPC `TokenDelegation` and converts, including optional `token_endpoint` domain allowlist.
     /// When the allowlist is non-empty, `token_endpoint` must be an **`http://` or `https://` URL** with a DNS hostname (not an IP literal).
     pub fn try_from_proto(
-        value: rpc_forge::TokenDelegation,
+        value: rpc_nico::TokenDelegation,
         bounds: &TokenDelegationValidationBounds,
     ) -> Result<Self, TokenDelegationValidationError> {
         if value.token_endpoint.is_empty() {
@@ -730,7 +730,7 @@ impl TokenDelegation {
         }
         let auth_method_config = match value.auth_method_config {
             None => TokenDelegationAuthMethodConfig::None,
-            Some(rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(c)) => {
+            Some(rpc_nico::token_delegation::AuthMethodConfig::ClientSecretBasic(c)) => {
                 if c.client_id.is_empty() {
                     return Err(TokenDelegationValidationError(
                         "client_id is required".to_string(),
@@ -764,7 +764,7 @@ impl TokenDelegation {
                 client_id,
                 client_secret,
             } => {
-                let stored = rpc_forge::ClientSecretBasic {
+                let stored = rpc_nico::ClientSecretBasic {
                     client_id: client_id.clone(),
                     client_secret: client_secret.clone(),
                 };
@@ -776,15 +776,15 @@ impl TokenDelegation {
     }
 }
 
-impl TryFrom<rpc_forge::TokenDelegation> for TokenDelegation {
+impl TryFrom<rpc_nico::TokenDelegation> for TokenDelegation {
     type Error = TokenDelegationValidationError;
 
-    fn try_from(value: rpc_forge::TokenDelegation) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc_nico::TokenDelegation) -> Result<Self, Self::Error> {
         TokenDelegation::try_from_proto(value, &TokenDelegationValidationBounds::default())
     }
 }
 
-impl TryFrom<TenantIdentityConfigDecrypted> for rpc_forge::TokenDelegationResponse {
+impl TryFrom<TenantIdentityConfigDecrypted> for rpc_nico::TokenDelegationResponse {
     type Error = RpcDataConversionError;
 
     fn try_from(value: TenantIdentityConfigDecrypted) -> Result<Self, Self::Error> {
@@ -796,7 +796,7 @@ impl TryFrom<TenantIdentityConfigDecrypted> for rpc_forge::TokenDelegationRespon
             .auth_method
             .ok_or(RpcDataConversionError::MissingArgument("token_delegation"))?;
 
-        let stored: Option<rpc_forge::ClientSecretBasic> = value
+        let stored: Option<rpc_nico::ClientSecretBasic> = value
             .auth_method_config
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok());
@@ -814,7 +814,7 @@ impl TryFrom<TenantIdentityConfigDecrypted> for rpc_forge::TokenDelegationRespon
 
         let created_at = row.token_delegation_created_at.map(rpc::Timestamp::from);
 
-        Ok(rpc_forge::TokenDelegationResponse {
+        Ok(rpc_nico::TokenDelegationResponse {
             organization_id: row.organization_id.as_str().to_string(),
             token_endpoint,
             auth_method_config,
@@ -830,9 +830,9 @@ pub struct TenantPublicKeyValidationRequest {
     pub public_key: String,
 }
 
-impl TryFrom<rpc::forge::ValidateTenantPublicKeyRequest> for TenantPublicKeyValidationRequest {
+impl TryFrom<rpc::nico::ValidateTenantPublicKeyRequest> for TenantPublicKeyValidationRequest {
     type Error = UuidConversionError;
-    fn try_from(value: rpc::forge::ValidateTenantPublicKeyRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::nico::ValidateTenantPublicKeyRequest) -> Result<Self, Self::Error> {
         let instance_id = InstanceId::from_str(&value.instance_id)?;
         Ok(TenantPublicKeyValidationRequest {
             instance_id,
@@ -861,8 +861,8 @@ impl TenantPublicKeyValidationRequest {
 
 #[cfg(test)]
 mod tests {
-    use rpc::forge as rpc_forge;
-    use rpc::forge::token_delegation_response::AuthMethodConfig;
+    use rpc::nico as rpc_nico;
+    use rpc::nico::token_delegation_response::AuthMethodConfig;
 
     use super::*;
 
@@ -883,7 +883,7 @@ mod tests {
 
     #[test]
     fn test_stored_to_response_auth_config_client_secret_basic() {
-        let stored = rpc_forge::ClientSecretBasic {
+        let stored = rpc_nico::ClientSecretBasic {
             client_id: "my-client".to_string(),
             client_secret: "secret".to_string(),
         };
@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     fn test_stored_to_response_auth_config_omits_cleartext() {
-        let stored = rpc_forge::ClientSecretBasic {
+        let stored = rpc_nico::ClientSecretBasic {
             client_id: "my-client".to_string(),
             client_secret: "secret".to_string(),
         };
@@ -916,7 +916,7 @@ mod tests {
 
     #[test]
     fn test_stored_to_response_auth_config_client_secret_empty_returns_none() {
-        let stored = rpc_forge::ClientSecretBasic {
+        let stored = rpc_nico::ClientSecretBasic {
             client_id: "x".to_string(),
             client_secret: String::new(),
         };
@@ -999,7 +999,7 @@ mod tests {
         };
         let (auth_method, config_json) = config.to_db_format();
         assert_eq!(auth_method, TokenDelegationAuthMethod::ClientSecretBasic);
-        let stored: rpc_forge::ClientSecretBasic = serde_json::from_str(&config_json).unwrap();
+        let stored: rpc_nico::ClientSecretBasic = serde_json::from_str(&config_json).unwrap();
         assert_eq!(stored.client_id, "client");
         assert_eq!(stored.client_secret, "secret");
         // Hash is computed on the fly when retrieving
@@ -1022,7 +1022,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_success() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1052,7 +1052,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_stores_normalized_issuer() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "HTTPS://Issuer.EXAMPLE.COM/wl".to_string(),
             default_audience: "api".to_string(),
@@ -1090,7 +1090,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_empty_issuer() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: String::new(),
             default_audience: "api".to_string(),
@@ -1112,7 +1112,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_empty_default_audience() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: String::new(),
@@ -1134,7 +1134,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_accepts_custom_subject_prefix_in_proto() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1159,7 +1159,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_empty_optional_subject_prefix_defaults() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1181,7 +1181,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_rejects_non_spiffe_subject_prefix() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1203,7 +1203,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_rejects_subject_prefix_trust_domain_mismatch() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1225,7 +1225,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_token_ttl_zero() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1247,7 +1247,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_token_ttl_below_min() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1269,7 +1269,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_token_ttl_above_max() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1291,7 +1291,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_rejects_trust_domain_not_on_allowlist() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://evil.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1314,7 +1314,7 @@ mod tests {
 
     #[test]
     fn identity_config_try_from_proto_accepts_trust_domain_matching_allowlist() {
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://auth.login.example.com".to_string(),
             default_audience: "api".to_string(),
@@ -1345,7 +1345,7 @@ mod tests {
             validate_trust_domain_allowlist_patterns(&allowlist).is_ok(),
             "fixture patterns valid at startup"
         );
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://idp.other.example/oidc".to_string(),
             default_audience: "api".to_string(),
@@ -1372,7 +1372,7 @@ mod tests {
             "login.example.com".to_string(),
             "*.tenant.example.net".to_string(),
         ];
-        let proto = rpc_forge::TenantIdentityConfig {
+        let proto = rpc_nico::TenantIdentityConfig {
             enabled: true,
             issuer: "https://idp.other.example/".to_string(),
             default_audience: "api".to_string(),
@@ -1394,7 +1394,7 @@ mod tests {
 
     #[test]
     fn token_delegation_try_from_success_none() {
-        let proto = rpc_forge::TokenDelegation {
+        let proto = rpc_nico::TokenDelegation {
             token_endpoint: "https://auth.example.com/token".to_string(),
             subject_token_audience: "https://api.example.com".to_string(),
             auth_method_config: None,
@@ -1410,12 +1410,12 @@ mod tests {
 
     #[test]
     fn token_delegation_try_from_success_client_secret_basic() {
-        let proto = rpc_forge::TokenDelegation {
+        let proto = rpc_nico::TokenDelegation {
             token_endpoint: "https://auth.example.com/token".to_string(),
             subject_token_audience: "https://api.example.com".to_string(),
             auth_method_config: Some(
-                rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
-                    rpc_forge::ClientSecretBasic {
+                rpc_nico::token_delegation::AuthMethodConfig::ClientSecretBasic(
+                    rpc_nico::ClientSecretBasic {
                         client_id: "my-client".to_string(),
                         client_secret: "my-secret".to_string(),
                     },
@@ -1439,7 +1439,7 @@ mod tests {
 
     #[test]
     fn token_delegation_try_from_empty_token_endpoint() {
-        let proto = rpc_forge::TokenDelegation {
+        let proto = rpc_nico::TokenDelegation {
             token_endpoint: String::new(),
             subject_token_audience: "https://api.example.com".to_string(),
             auth_method_config: None,
@@ -1450,7 +1450,7 @@ mod tests {
 
     #[test]
     fn token_delegation_try_from_empty_subject_token_audience() {
-        let proto = rpc_forge::TokenDelegation {
+        let proto = rpc_nico::TokenDelegation {
             token_endpoint: "https://auth.example.com/token".to_string(),
             subject_token_audience: String::new(),
             auth_method_config: None,
@@ -1461,12 +1461,12 @@ mod tests {
 
     #[test]
     fn token_delegation_try_from_empty_client_id() {
-        let proto = rpc_forge::TokenDelegation {
+        let proto = rpc_nico::TokenDelegation {
             token_endpoint: "https://auth.example.com/token".to_string(),
             subject_token_audience: "https://api.example.com".to_string(),
             auth_method_config: Some(
-                rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
-                    rpc_forge::ClientSecretBasic {
+                rpc_nico::token_delegation::AuthMethodConfig::ClientSecretBasic(
+                    rpc_nico::ClientSecretBasic {
                         client_id: String::new(),
                         client_secret: "secret".to_string(),
                     },
@@ -1479,12 +1479,12 @@ mod tests {
 
     #[test]
     fn token_delegation_try_from_empty_client_secret() {
-        let proto = rpc_forge::TokenDelegation {
+        let proto = rpc_nico::TokenDelegation {
             token_endpoint: "https://auth.example.com/token".to_string(),
             subject_token_audience: "https://api.example.com".to_string(),
             auth_method_config: Some(
-                rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
-                    rpc_forge::ClientSecretBasic {
+                rpc_nico::token_delegation::AuthMethodConfig::ClientSecretBasic(
+                    rpc_nico::ClientSecretBasic {
                         client_id: "client".to_string(),
                         client_secret: String::new(),
                     },
@@ -1504,7 +1504,7 @@ pub struct TenantKeysetId {
     pub keyset_id: String,
 }
 
-impl From<TenantKeysetId> for rpc::forge::TenantKeysetIdentifier {
+impl From<TenantKeysetId> for rpc::nico::TenantKeysetIdentifier {
     fn from(src: TenantKeysetId) -> Self {
         Self {
             organization_id: src.organization_id,

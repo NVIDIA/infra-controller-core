@@ -26,12 +26,12 @@ use std::time::Duration;
 use std::{fmt, fs, io};
 
 use ::rpc::InterfaceFunctionType;
-use ::rpc::forge::{
+use ::rpc::nico::{
     self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
-use carbide_network::ip::prefix::Ipv4Net;
-use carbide_network::virtualization::{VpcVirtualizationType, build_dual_stack_list};
+use nico_network::ip::prefix::Ipv4Net;
+use nico_network::virtualization::{VpcVirtualizationType, build_dual_stack_list};
 use eyre::WrapErr;
 use mac_address::MacAddress;
 use nvue_client::{NvueClient, NvueConfig};
@@ -231,14 +231,14 @@ pub async fn update_nvue(
                 interface_name: physical_name,
                 is_phy: true,
                 vlan: admin_interface.vlan_id as u16,
-                vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn
+                vni: if nc.network_virtualization_type() == ::rpc::nico::VpcVirtualizationType::Fnn
                 {
                     Some(admin_interface.vni)
                 } else {
                     None
                 },
                 l3_vni: if nc.network_virtualization_type()
-                    == ::rpc::forge::VpcVirtualizationType::Fnn
+                    == ::rpc::nico::VpcVirtualizationType::Fnn
                 {
                     Some(admin_interface.vpc_vni)
                 } else {
@@ -258,7 +258,7 @@ pub async fn update_nvue(
                 tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip.clone(),
                 network_security_group_id: None, // NSGs are not applied on the admin network.
                 is_l2_segment: if nc.network_virtualization_type()
-                    == ::rpc::forge::VpcVirtualizationType::Fnn
+                    == ::rpc::nico::VpcVirtualizationType::Fnn
                 {
                     admin_interface.is_l2_segment
                 } else {
@@ -438,7 +438,7 @@ pub async fn update_nvue(
         ct_vrf_loopback: "FNN".to_string(),
         l3_domains: vec![],
         ct_routing_profile: if nc.network_virtualization_type()
-            == ::rpc::forge::VpcVirtualizationType::Fnn
+            == ::rpc::nico::VpcVirtualizationType::Fnn
             && nc.routing_profile.is_none()
         {
             return Err(eyre::eyre!(
@@ -870,13 +870,13 @@ async fn update_dhcp_via_grpc(
             )
         })?;
 
-    let dhcp_config = carbide_rpc_utils::dhcp::DhcpConfig::from_forge_dhcp_config(
+    let dhcp_config = nico_rpc_utils::dhcp::DhcpConfig::from_nico_dhcp_config(
         pxe_ip_v4,
         ntpservers_v4,
         nameservers_v4,
         loopback_ip,
     )?;
-    let mut host_config = carbide_rpc_utils::dhcp::HostConfig::try_from(
+    let mut host_config = nico_rpc_utils::dhcp::HostConfig::try_from(
         network_config.clone(),
         hbn_device_names.reps[0],
         hbn_device_names.virt_rep_begin,
@@ -1209,7 +1209,7 @@ fn write_dhcp_v4_server_config(
         let mut interfaces = Vec::with_capacity(nc.tenant_interfaces.len());
         for interface in &nc.tenant_interfaces {
             let interface_name = if nc.network_virtualization_type()
-                == ::rpc::forge::VpcVirtualizationType::Fnn
+                == ::rpc::nico::VpcVirtualizationType::Fnn
                 && !interface.is_l2_segment
             {
                 if interface.function_type() == InterfaceFunctionType::Physical {
@@ -1710,9 +1710,9 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
-    use ::rpc::{common as rpc_common, forge as rpc};
-    use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
-    use carbide_rpc_utils::dhcp::{DhcpConfig, HostConfig};
+    use ::rpc::{common as rpc_common, nico as rpc};
+    use nico_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+    use nico_rpc_utils::dhcp::{DhcpConfig, HostConfig};
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
 
@@ -1723,7 +1723,7 @@ mod tests {
     use crate::{HBNDeviceNames, dhcp, nvue};
     #[ctor::ctor]
     fn setup() {
-        carbide_host_support::init_logging().unwrap();
+        nico_host_support::init_logging().unwrap();
     }
 
     #[test]
@@ -1769,7 +1769,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml
@@ -1808,7 +1808,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml (includes bridge block)
@@ -1858,7 +1858,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml
@@ -1908,7 +1908,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml
@@ -2025,7 +2025,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml
@@ -2079,7 +2079,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml.
@@ -2136,7 +2136,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml.
@@ -2202,7 +2202,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml.
@@ -2258,7 +2258,7 @@ mod tests {
         );
 
         // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        let expected = include_str!("../templates/tests/70-nico_nvue.rules.expected");
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml.
@@ -2301,7 +2301,7 @@ mod tests {
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
             prefix: "10.217.5.123/28".to_string(),
-            fqdn: "myhost.forge".to_string(),
+            fqdn: "myhost.nico".to_string(),
             booturl: Some("test".to_string()),
             svi_ip: None,
             tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
@@ -2345,7 +2345,7 @@ mod tests {
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis,
                 prefix: "10.217.5.169/29".to_string(),
-                fqdn: "myhost.forge.1".to_string(),
+                fqdn: "myhost.nico.1".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(
                     &Some(svi_ip1),
@@ -2375,7 +2375,7 @@ mod tests {
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
                 prefix: "10.217.5.162/30".to_string(),
-                fqdn: "myhost.forge.2".to_string(),
+                fqdn: "myhost.nico.2".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(
                     &Some(svi_ip2),
@@ -2672,7 +2672,7 @@ mod tests {
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
         fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
-        fs::create_dir_all(hbn_root.join("var/support/forge-dhcp/conf"))?;
+        fs::create_dir_all(hbn_root.join("var/support/nico-dhcp/conf"))?;
 
         // Create NVUE config to verify it gets cleaned up
         let nvue_dir = hbn_root.join(crate::nvue::PATH);
@@ -2686,7 +2686,7 @@ mod tests {
         assert!(!nvue_dir.exists());
 
         // check dhcp server
-        let dhcp_path = hbn_root.join("etc/supervisor/conf.d/default-forge-dhcp-server.conf");
+        let dhcp_path = hbn_root.join("etc/supervisor/conf.d/default-nico-dhcp-server.conf");
         let dhcp_contents =
             super::read_limited(&dhcp_path).wrap_err(format!("Failed reading {dhcp_path:?}"))?;
         assert_eq!(dhcp_contents, crate::dhcp::TMPL_EMPTY);
@@ -2892,14 +2892,14 @@ mod tests {
         assert_eq!(received.lease_time_secs, expected.lease_time_secs);
         assert_eq!(received.renewal_time_secs, expected.renewal_time_secs);
         assert_eq!(received.rebinding_time_secs, expected.rebinding_time_secs);
-        assert_eq!(received.carbide_nameservers, expected.carbide_nameservers);
-        assert_eq!(received.carbide_api_url, expected.carbide_api_url);
-        assert_eq!(received.carbide_ntpservers, expected.carbide_ntpservers);
+        assert_eq!(received.nico_nameservers, expected.nico_nameservers);
+        assert_eq!(received.nico_api_url, expected.nico_api_url);
+        assert_eq!(received.nico_ntpservers, expected.nico_ntpservers);
         assert_eq!(
-            received.carbide_provisioning_server_ipv4,
-            expected.carbide_provisioning_server_ipv4
+            received.nico_provisioning_server_ipv4,
+            expected.nico_provisioning_server_ipv4
         );
-        assert_eq!(received.carbide_dhcp_server, expected.carbide_dhcp_server);
+        assert_eq!(received.nico_dhcp_server, expected.nico_dhcp_server);
     }
 
     fn validate_host_config(received: HostConfig, expected: HostConfig) {
@@ -2943,7 +2943,7 @@ mod tests {
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
             prefix: "10.217.5.123".to_string(),
-            fqdn: "myhost.forge".to_string(),
+            fqdn: "myhost.nico".to_string(),
             booturl: Some("test".to_string()),
             svi_ip: None,
             tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
@@ -2977,7 +2977,7 @@ mod tests {
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
                 prefix: "10.217.5.169/29".to_string(),
-                fqdn: "myhost.forge.1".to_string(),
+                fqdn: "myhost.nico.1".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(&Some(svi_ip), VpcVirtualizationType::Fnn, true, 24)
                     .unwrap()
@@ -3002,7 +3002,7 @@ mod tests {
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
                 prefix: "10.217.5.162/30".to_string(),
-                fqdn: "myhost.forge.2".to_string(),
+                fqdn: "myhost.nico.2".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(&Some(svi_ip), VpcVirtualizationType::Fnn, false, 24)
                     .unwrap()
@@ -3028,18 +3028,18 @@ mod tests {
         };
 
         let dhcp_config = DhcpConfig {
-            carbide_nameservers: vec![Ipv4Addr::from([10, 1, 1, 1])],
-            carbide_ntpservers: vec![
+            nico_nameservers: vec![Ipv4Addr::from([10, 1, 1, 1])],
+            nico_ntpservers: vec![
                 Ipv4Addr::from([127, 0, 0, 1]),
                 Ipv4Addr::from([127, 0, 0, 2]),
                 Ipv4Addr::from([127, 0, 0, 3]),
             ],
-            carbide_provisioning_server_ipv4: Ipv4Addr::from([10, 0, 0, 1]),
+            nico_provisioning_server_ipv4: Ipv4Addr::from([10, 0, 0, 1]),
             lease_time_secs: 604800,
             renewal_time_secs: 3600,
             rebinding_time_secs: 432000,
-            carbide_api_url: None,
-            carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            nico_api_url: None,
+            nico_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
         };
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
@@ -3220,14 +3220,14 @@ mod tests {
             }
         }
         let dhcp_config = DhcpConfig {
-            carbide_nameservers: vec![Ipv4Addr::from([10, 1, 1, 1])],
-            carbide_ntpservers: vec![],
-            carbide_provisioning_server_ipv4: Ipv4Addr::from([10, 0, 0, 1]),
+            nico_nameservers: vec![Ipv4Addr::from([10, 1, 1, 1])],
+            nico_ntpservers: vec![],
+            nico_provisioning_server_ipv4: Ipv4Addr::from([10, 0, 0, 1]),
             lease_time_secs: 604800,
             renewal_time_secs: 3600,
             rebinding_time_secs: 432000,
-            carbide_api_url: None,
-            carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            nico_api_url: None,
+            nico_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
         };
         let dhcp_contents = super::read_limited(g.path())?;
         assert!(dhcp_contents.contains("vlan196"));

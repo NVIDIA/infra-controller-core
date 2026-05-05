@@ -17,9 +17,9 @@
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use model::firmware::FirmwareComponentType;
-use rpc::forge_server::Forge;
+use rpc::nico_server::Nico;
 use tonic::Code;
 
 use crate::tests::common;

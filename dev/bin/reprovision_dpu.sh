@@ -27,9 +27,9 @@ fi
 
 MAX_RETRY=10
 API_SERVER=$1:$2
-DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
+DPU_CONFIG_FILE="/tmp/nico-dpu-agent-sim-config.toml"
 
-HOST_MACHINE_ID=$(grpcurl -d '{}' -insecure "${API_SERVER}" forge.Forge/FindMachines | python3 -c "import sys,json
+HOST_MACHINE_ID=$(grpcurl -d '{}' -insecure "${API_SERVER}" nico.Nico/FindMachines | python3 -c "import sys,json
 data=sys.stdin.read()
 j=json.loads(data)
 for machine in j['machines']:
@@ -37,7 +37,7 @@ for machine in j['machines']:
     print(machine['interfaces'][0]['machineId']['id'])
     break")
 
-DPU_MACHINE_ID=$(grpcurl -d '{"search_config": {"include_dpus": true, "include_predicted_host": true}}' -insecure "${API_SERVER}" forge.Forge/FindMachines | python3 -c "import sys,json
+DPU_MACHINE_ID=$(grpcurl -d '{"search_config": {"include_dpus": true, "include_predicted_host": true}}' -insecure "${API_SERVER}" nico.Nico/FindMachines | python3 -c "import sys,json
 data=sys.stdin.read()
 j=json.loads(data)
 for machine in j['machines']:
@@ -48,10 +48,10 @@ for machine in j['machines']:
 echo "Found machine with host: $HOST_MACHINE_ID and DPU: $DPU_MACHINE_ID."
 
 # Check Instance state
-INSTANCE_ID=$(grpcurl -d '{}' -insecure "${API_SERVER}" forge.Forge/FindInstances | jq ".instances[0].id.value" | tr -d '"')
+INSTANCE_ID=$(grpcurl -d '{}' -insecure "${API_SERVER}" nico.Nico/FindInstances | jq ".instances[0].id.value" | tr -d '"')
 
 if [[ "$INSTANCE_ID" != "null" ]]; then
-	INSTANCE_STATE=$(grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure "${API_SERVER}" forge.Forge/FindInstances | jq ".instances[0].status.tenant.state" | tr -d '"')
+	INSTANCE_STATE=$(grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure "${API_SERVER}" nico.Nico/FindInstances | jq ".instances[0].status.tenant.state" | tr -d '"')
 	echo "Instance found with ID $INSTANCE_ID in state $INSTANCE_STATE"
 fi
 
@@ -59,14 +59,14 @@ fi
 # Set maintenance mode and trigger reprovision
 #
 echo "Setting maintenance mode."
-grpcurl -d "{\"operation\": 0, \"host_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"reference\": \"test script\"}" -insecure "${API_SERVER}" forge.Forge/SetMaintenance
+grpcurl -d "{\"operation\": 0, \"host_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"reference\": \"test script\"}" -insecure "${API_SERVER}" nico.Nico/SetMaintenance
 echo "Triggering DPU reprovision."
-grpcurl -d "{\"dpu_id\": { \"id\": \"$DPU_MACHINE_ID\" }, \"mode\": 0, \"initiator\": 0, \"update_firmware\": true}" -insecure "${API_SERVER}" forge.Forge/TriggerDpuReprovisioning
+grpcurl -d "{\"dpu_id\": { \"id\": \"$DPU_MACHINE_ID\" }, \"mode\": 0, \"initiator\": 0, \"update_firmware\": true}" -insecure "${API_SERVER}" nico.Nico/TriggerDpuReprovisioning
 
 # In case of Instance, reprovision will be triggered after user approval.
 if [[ "$INSTANCE_ID" != "null" ]]; then
 	echo "Sending reboot message with apply_updates_on_reboot true".
-	grpcurl -d "{\"operation\": 0, \"machine_id\": { \"id\": \"$HOST_MACHINE_ID\" }, \"apply_updates_on_reboot\": true}" -insecure "${API_SERVER}" forge.Forge/InvokeInstancePower
+	grpcurl -d "{\"operation\": 0, \"machine_id\": { \"id\": \"$HOST_MACHINE_ID\" }, \"apply_updates_on_reboot\": true}" -insecure "${API_SERVER}" nico.Nico/InvokeInstancePower
 fi
 
 #
@@ -76,7 +76,7 @@ i=0
 while [[ $i -lt $MAX_RETRY ]]; do
 	sleep 4
 
-	MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+	MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" nico.Nico/FindMachines | jq ".machines[0].state" | tr -d '"')
 	if [[ "${MACHINE_STATE,,}" =~ "firmwareupgrade" ]]; then
 		break
 	fi
@@ -89,13 +89,13 @@ if [[ $i -ge "$MAX_RETRY" ]]; then
 fi
 
 # Reboot indication from DPU and wait for state change.
-grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "$API_SERVER" forge.Forge/ForgeAgentControl
+grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "$API_SERVER" nico.Nico/NicoAgentControl
 
 i=0
 while [[ $i -lt $MAX_RETRY ]]; do
 	sleep 4
 
-	MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+	MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" nico.Nico/FindMachines | jq ".machines[0].state" | tr -d '"')
 	if [[ "${MACHINE_STATE,,}" =~ "waitingfornetworkinstall" ]]; then
 		break
 	fi
@@ -108,14 +108,14 @@ if [[ $i -ge "$MAX_RETRY" ]]; then
 fi
 
 # Reboot and discovery completed indication from DPU and wait for state change.
-grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "$API_SERVER" forge.Forge/ForgeAgentControl
-grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "${API_SERVER}" forge.Forge/DiscoveryCompleted
+grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "$API_SERVER" nico.Nico/NicoAgentControl
+grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "${API_SERVER}" nico.Nico/DiscoveryCompleted
 
 i=0
 while [[ $i -lt $MAX_RETRY ]]; do
 	sleep 10
 
-	MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+	MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" nico.Nico/FindMachines | jq ".machines[0].state" | tr -d '"')
 	if [[ "${MACHINE_STATE,,}" =~ "waitingfornetworkconfig" ]]; then
 		break
 	fi
@@ -130,7 +130,7 @@ fi
 echo "HBN files are in ${HBN_ROOT}"
 
 # Reboot indication from DPU and wait for state change.
-grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "$API_SERVER" forge.Forge/ForgeAgentControl
+grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "$API_SERVER" nico.Nico/NicoAgentControl
 
 # Start the agent in the background to apply the networking configuration
 # Put our fake binaries from dev/bin first on the path so that health check succeeds
@@ -144,7 +144,7 @@ if [[ "$INSTANCE_ID" == "null" ]]; then # No instance is configured
 	while [[ $i -lt $MAX_RETRY ]]; do
 		sleep 10
 
-		MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+		MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" nico.Nico/FindMachines | jq ".machines[0].state" | tr -d '"')
 		if [[ "${MACHINE_STATE,,}" =~ "discovered" ]]; then
 			break
 		fi
@@ -153,13 +153,13 @@ if [[ "$INSTANCE_ID" == "null" ]]; then # No instance is configured
 	done
 	if [[ $i -ge "$MAX_RETRY" ]]; then
 		echo "Even after $MAX_RETRY retries, Host did not come in discovered state."
-    kill $(pidof forge-dpu-agent)
+    kill $(pidof nico-dpu-agent)
     export PATH=${PREV_PATH}
 		exit 1
 	fi
 
 	# Reboot indication from DPU and wait for state change.
-	grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure "$API_SERVER" forge.Forge/ForgeAgentControl
+	grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure "$API_SERVER" nico.Nico/NicoAgentControl
 fi
 
 # Next state is ready
@@ -167,7 +167,7 @@ i=0
 while [[ $i -lt $MAX_RETRY ]]; do
 	sleep 10
 
-	MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+	MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure "$API_SERVER" nico.Nico/FindMachines | jq ".machines[0].state" | tr -d '"')
 	if [[ "${MACHINE_STATE,,}" =~ "ready" ]]; then
 		break
 	fi
@@ -175,7 +175,7 @@ while [[ $i -lt $MAX_RETRY ]]; do
 	i=$((i + 1))
 done
 
-kill $(pidof forge-dpu-agent)
+kill $(pidof nico-dpu-agent)
 export PATH=${PREV_PATH}
 
 if [[ $i -ge "$MAX_RETRY" ]]; then
@@ -184,4 +184,4 @@ if [[ $i -ge "$MAX_RETRY" ]]; then
 fi
 
 # Clear maintenance mode
-grpcurl -d "{\"operation\": 1, \"host_id\": {\"id\": \"$HOST_MACHINE_ID\" }}" -insecure "${API_SERVER}" forge.Forge/SetMaintenance
+grpcurl -d "{\"operation\": 1, \"host_id\": {\"id\": \"$HOST_MACHINE_ID\" }}" -insecure "${API_SERVER}" nico.Nico/SetMaintenance

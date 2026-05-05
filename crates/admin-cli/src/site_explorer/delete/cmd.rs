@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn delete_endpoint(api_client: &ApiClient, opts: Args) -> CarbideCliResult<()> {
+pub async fn delete_endpoint(api_client: &ApiClient, opts: Args) -> NicoCliResult<()> {
     let response = api_client.0.delete_explored_endpoint(opts.address).await?;
 
     if response.deleted {

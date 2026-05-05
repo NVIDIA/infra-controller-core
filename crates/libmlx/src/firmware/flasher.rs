@@ -323,7 +323,7 @@ impl FirmwareFlasher {
     // returned FirmwareFlashReport rather than returning an error,
     // so the caller always gets visibility into what happened, which
     // in this case is useful for scout logging + reporting back to
-    // carbide-api which part(s) failed.
+    // nico-api which part(s) failed.
     pub async fn apply(
         &self,
         profile: &FirmwareFlasherProfile,

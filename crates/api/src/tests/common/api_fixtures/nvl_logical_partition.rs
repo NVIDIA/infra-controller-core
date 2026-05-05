@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::{self as rpc};
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
+use ::rpc::nico::{self as rpc};
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use tonic::Request;
 
 use super::TestEnv;
-use crate::api::rpc::forge_server::Forge;
+use crate::api::rpc::nico_server::Nico;
 use crate::api::rpc::{NvLinkLogicalPartitionConfig, NvLinkLogicalPartitionCreationRequest};
 
 pub struct NvlLogicalPartitionFixture {

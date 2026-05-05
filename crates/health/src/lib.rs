@@ -55,10 +55,10 @@ use crate::sink::{
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("Unable to connect to nico API: {0}")]
     ApiConnectFailed(String),
 
-    #[error("The API call to the Carbide API server returned {0}")]
+    #[error("The API call to the Nico API server returned {0}")]
     ApiInvocationError(tonic::Status),
 
     #[error("Generic Error: {0}")]
@@ -118,7 +118,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
         sources.push(Arc::new(static_source));
     }
 
-    if let Configurable::Enabled(ref source_cfg) = config.endpoint_sources.carbide_api {
+    if let Configurable::Enabled(ref source_cfg) = config.endpoint_sources.nico_api {
         let api_client = Arc::new(ApiClientWrapper::new(
             source_cfg.root_ca.clone(),
             source_cfg.client_cert.clone(),

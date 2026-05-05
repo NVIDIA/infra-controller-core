@@ -21,13 +21,13 @@ use std::default::Default;
 use std::io;
 use std::sync::Arc;
 
-use carbide_utils::periodic_timer::PeriodicTimer;
+use nico_utils::periodic_timer::PeriodicTimer;
 use db::ObjectFilter;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use self::metrics::MachineValidationMetrics;
-use crate::CarbideResult;
+use crate::NicoResult;
 use crate::cfg::file::MachineValidationConfig;
 
 pub struct MachineValidationManager {
@@ -88,7 +88,7 @@ impl MachineValidationManager {
 
     /// run_single_iteration runs a single iteration of the state machine across all explored endpoints in the preingestion state.
     /// Returns true if we stopped early due to a timeout.
-    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+    pub async fn run_single_iteration(&self) -> NicoResult<()> {
         let mut metrics = MachineValidationMetrics::new();
 
         let mut txn = db::Transaction::begin(&self.database_connection).await?;

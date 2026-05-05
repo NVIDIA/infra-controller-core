@@ -16,10 +16,10 @@
  */
 use std::ffi::OsStr;
 
-use carbide_utils::cmd::TokioCmd;
-use scout::CarbideClientError;
+use nico_utils::cmd::TokioCmd;
+use scout::NicoClientError;
 
-pub async fn run_prog<I, S>(command: S, args: I) -> Result<String, CarbideClientError>
+pub async fn run_prog<I, S>(command: S, args: I) -> Result<String, NicoClientError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -29,5 +29,5 @@ where
         .args(args)
         .output()
         .await
-        .map_err(CarbideClientError::from)
+        .map_err(NicoClientError::from)
 }

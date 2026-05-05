@@ -19,9 +19,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use ::rpc::forge as rpc;
-use carbide_authn::SpiffeContext;
-use carbide_authn::middleware::{CertDescriptionMiddleware, ConnectionAttributes};
+use ::rpc::nico as rpc;
+use nico_authn::SpiffeContext;
+use nico_authn::middleware::{CertDescriptionMiddleware, ConnectionAttributes};
 use hyper::server::conn::{http1, http2};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
@@ -42,7 +42,7 @@ use crate::api::Api;
 use crate::auth;
 use crate::auth::Authorization;
 use crate::cfg::file::AuthConfig;
-use crate::errors::CarbideError;
+use crate::errors::NicoError;
 use crate::logging::api_logs::LogLayer;
 
 pub enum ApiListenMode {
@@ -209,9 +209,9 @@ pub async fn start(
         })
         .map(SpiffeContext::try_from)
         .transpose()?
-        .ok_or(CarbideError::InvalidConfiguration(
+        .ok_or(NicoError::InvalidConfiguration(
             ConfigValidationError::InvalidValue(
-                "could not parse trust config from auth config in carbide api config toml file"
+                "could not parse trust config from auth config in nico api config toml file"
                     .to_string(),
             ),
         ))?;
@@ -246,8 +246,8 @@ pub async fn start(
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
         .route_service(
-            "/forge.Forge/{*rpc}",
-            rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
+            "/nico.Nico/{*rpc}",
+            rpc::nico_server::NicoServer::from_arc(api_service.clone()),
         )
         .route_service(
             "/grpc.reflection.v1alpha.ServerReflection/{*r}",
@@ -263,15 +263,15 @@ pub async fn start(
         .service(router);
 
     let connection_total_counter = meter
-        .u64_counter("carbide-api.tls.connection_attempted")
+        .u64_counter("nico-api.tls.connection_attempted")
         .with_description("The amount of tls connections that were attempted")
         .build();
     let connection_succeeded_counter = meter
-        .u64_counter("carbide-api.tls.connection_success")
+        .u64_counter("nico-api.tls.connection_success")
         .with_description("The amount of tls connections that were successful")
         .build();
     let connection_failed_counter = meter
-        .u64_counter("carbide-api.tls.connection_fail")
+        .u64_counter("nico-api.tls.connection_fail")
         .with_description("The amount of tcp connections that were failures")
         .build();
 
@@ -395,7 +395,7 @@ pub async fn start(
                 .expect("could not spawn task to handle HTTP connection");
         }
 
-        tracing::info!("carbide-api shutting down");
+        tracing::info!("nico-api shutting down");
     })?;
 
     Ok(())
@@ -403,10 +403,10 @@ pub async fn start(
 
 /// Handle the root URL. Health check services often expect a 200 here.
 async fn root_url() -> &'static str {
-    const ROOT_CONTENTS: &str = if carbide_version::literal!(build_version).is_empty() {
-        "Forge development build\n"
+    const ROOT_CONTENTS: &str = if nico_version::literal!(build_version).is_empty() {
+        "Nico development build\n"
     } else {
-        concat!("Forge ", carbide_version::literal!(build_version), "\n")
+        concat!("Nico ", nico_version::literal!(build_version), "\n")
     };
     ROOT_CONTENTS
 }

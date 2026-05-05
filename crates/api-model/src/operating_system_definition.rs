@@ -21,12 +21,12 @@
 //! this model (in api-db), then this model is converted to RPC types (here).
 //! The model type name matches the RPC message name (OperatingSystem).
 
-use ::rpc::forge::{self as forgerpc};
-use carbide_ipxe_renderer::{
+use ::rpc::nico::{self as nicorpc};
+use nico_ipxe_renderer::{
     IpxeTemplateArtifact, IpxeTemplateArtifactCacheStrategy, IpxeTemplateParameter,
 };
-use carbide_uuid::ipxe_template::IpxeTemplateId;
-use carbide_uuid::operating_system::OperatingSystemId;
+use nico_uuid::ipxe_template::IpxeTemplateId;
+use nico_uuid::operating_system::OperatingSystemId;
 
 /// Database value for the raw inline iPXE script OS type.
 pub const OS_TYPE_IPXE: &str = "iPXE";
@@ -35,7 +35,7 @@ pub const OS_TYPE_TEMPLATED_IPXE: &str = "ipxe_os_definition";
 
 /// Operating system definition (list/get/create/update response).
 ///
-/// Name matches the RPC message `rpc::forge::OperatingSystem`;
+/// Name matches the RPC message `rpc::nico::OperatingSystem`;
 /// DB row type is `OperatingSystem` (in api-db).
 #[derive(Clone, Debug)]
 pub struct OperatingSystem {
@@ -58,12 +58,12 @@ pub struct OperatingSystem {
     pub ipxe_template_definition_hash: Option<String>,
 }
 
-impl From<OperatingSystem> for forgerpc::OperatingSystem {
+impl From<OperatingSystem> for nicorpc::OperatingSystem {
     fn from(m: OperatingSystem) -> Self {
         let os_type = match m.type_.as_str() {
-            OS_TYPE_IPXE => forgerpc::OperatingSystemType::OsTypeIpxe,
-            OS_TYPE_TEMPLATED_IPXE => forgerpc::OperatingSystemType::OsTypeTemplatedIpxe,
-            _ => forgerpc::OperatingSystemType::OsTypeUnspecified,
+            OS_TYPE_IPXE => nicorpc::OperatingSystemType::OsTypeIpxe,
+            OS_TYPE_TEMPLATED_IPXE => nicorpc::OperatingSystemType::OsTypeTemplatedIpxe,
+            _ => nicorpc::OperatingSystemType::OsTypeUnspecified,
         };
         Self {
             id: Some(
@@ -74,7 +74,7 @@ impl From<OperatingSystem> for forgerpc::OperatingSystem {
             description: m.description,
             tenant_organization_id: m.tenant_organization_id,
             r#type: os_type as i32,
-            status: forgerpc::TenantState::from_str_name(&m.status.to_uppercase())
+            status: nicorpc::TenantState::from_str_name(&m.status.to_uppercase())
                 .unwrap_or_default() as i32,
             is_active: m.is_active,
             allow_override: m.allow_override,
@@ -90,7 +90,7 @@ impl From<OperatingSystem> for forgerpc::OperatingSystem {
             ipxe_template_parameters: m
                 .ipxe_template_parameters
                 .into_iter()
-                .map(|p| forgerpc::IpxeTemplateParameter {
+                .map(|p| nicorpc::IpxeTemplateParameter {
                     name: p.name,
                     value: p.value,
                 })
@@ -98,7 +98,7 @@ impl From<OperatingSystem> for forgerpc::OperatingSystem {
             ipxe_template_artifacts: m
                 .ipxe_template_artifacts
                 .into_iter()
-                .map(|a| forgerpc::IpxeTemplateArtifact {
+                .map(|a| nicorpc::IpxeTemplateArtifact {
                     name: a.name,
                     url: a.url,
                     sha: a.sha,

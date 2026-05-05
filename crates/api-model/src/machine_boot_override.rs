@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::machine::MachineInterfaceId;
 use rpc::errors::RpcDataConversionError;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -38,9 +38,9 @@ impl<'r> FromRow<'r, PgRow> for MachineBootOverride {
     }
 }
 
-impl TryFrom<rpc::forge::MachineBootOverride> for MachineBootOverride {
+impl TryFrom<rpc::nico::MachineBootOverride> for MachineBootOverride {
     type Error = RpcDataConversionError;
-    fn try_from(value: rpc::forge::MachineBootOverride) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::nico::MachineBootOverride) -> Result<Self, Self::Error> {
         let machine_interface_id =
             value
                 .machine_interface_id
@@ -55,9 +55,9 @@ impl TryFrom<rpc::forge::MachineBootOverride> for MachineBootOverride {
     }
 }
 
-impl From<MachineBootOverride> for rpc::forge::MachineBootOverride {
+impl From<MachineBootOverride> for rpc::nico::MachineBootOverride {
     fn from(value: MachineBootOverride) -> Self {
-        rpc::forge::MachineBootOverride {
+        rpc::nico::MachineBootOverride {
             machine_interface_id: Some(value.machine_interface_id),
             custom_pxe: value.custom_pxe,
             custom_user_data: value.custom_user_data,

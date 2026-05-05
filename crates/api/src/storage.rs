@@ -19,7 +19,7 @@ use model::tenant::TenantOrganizationId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 
 // these functions are the grpc api handlers called from api.rs
@@ -31,24 +31,24 @@ pub(crate) async fn create_os_image(
 ) -> Result<Response<crate::api::rpc::OsImage>, Status> {
     let mut txn = api.txn_begin().await?;
     let attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
     if attrs.source_url.is_empty() || attrs.digest.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("os_image url or digest is empty".to_string()).into(),
+            NicoError::InvalidArgument("os_image url or digest is empty".to_string()).into(),
         );
     }
     let image =
         db::os_image::create(&mut txn, &attrs)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: e.to_string(),
             })?;
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: e.to_string(),
     })?;
 
     let resp: crate::api::rpc::OsImage =
-        rpc::forge::OsImage::try_from(image).map_err(|e| CarbideError::Internal {
+        rpc::nico::OsImage::try_from(image).map_err(|e| NicoError::Internal {
             message: e.to_string(),
         })?;
     Ok(Response::new(resp))
@@ -62,24 +62,24 @@ pub(crate) async fn list_os_image(
     let tenant: Option<TenantOrganizationId> = match request.into_inner().tenant_organization_id {
         Some(x) => Some(
             TenantOrganizationId::try_from(x)
-                .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?,
+                .map_err(|e| NicoError::InvalidArgument(e.to_string()))?,
         ),
         None => None,
     };
     let os_images =
         db::os_image::list(&mut txn, tenant)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: e.to_string(),
             })?;
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: e.to_string(),
     })?;
 
     let mut images: Vec<crate::api::rpc::OsImage> = Vec::new();
     for os_image in os_images.iter() {
-        let image = rpc::forge::OsImage::try_from(os_image.clone()).map_err(|e| {
-            CarbideError::Internal {
+        let image = rpc::nico::OsImage::try_from(os_image.clone()).map_err(|e| {
+            NicoError::Internal {
                 message: e.to_string(),
             }
         })?;
@@ -95,19 +95,19 @@ pub(crate) async fn get_os_image(
 ) -> Result<Response<crate::api::rpc::OsImage>, Status> {
     let mut txn = api.txn_begin().await?;
     let image_id: Uuid = Uuid::try_from(request.into_inner())
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
     let image =
         db::os_image::get(&mut txn, image_id)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: e.to_string(),
             })?;
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: e.to_string(),
     })?;
 
     let resp: crate::api::rpc::OsImage =
-        rpc::forge::OsImage::try_from(image).map_err(|e| CarbideError::Internal {
+        rpc::nico::OsImage::try_from(image).map_err(|e| NicoError::Internal {
             message: e.to_string(),
         })?;
     Ok(Response::new(resp))
@@ -120,31 +120,31 @@ pub(crate) async fn delete_os_image(
     let mut txn = api.txn_begin().await?;
     let req = request.into_inner();
     if req.id.is_none() {
-        return Err(CarbideError::InvalidArgument("os image id missing".to_string()).into());
+        return Err(NicoError::InvalidArgument("os image id missing".to_string()).into());
     }
     let image_id: Uuid = Uuid::try_from(req.id.unwrap())
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
     let tenant: TenantOrganizationId = TenantOrganizationId::try_from(req.tenant_organization_id)
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
     let image =
         db::os_image::get(&mut txn, image_id)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: e.to_string(),
             })?;
     if image.attributes.tenant_organization_id != tenant {
-        return Err(CarbideError::InvalidArgument("os image tenant mismatch".to_string()).into());
+        return Err(NicoError::InvalidArgument("os image tenant mismatch".to_string()).into());
     }
     if image.status == OsImageStatus::InProgress {
-        return Err(CarbideError::FailedPrecondition("os image busy".to_string()).into());
+        return Err(NicoError::FailedPrecondition("os image busy".to_string()).into());
     }
 
     db::os_image::delete(&image, &mut txn)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: e.to_string(),
         })?;
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: e.to_string(),
     })?;
 
@@ -159,10 +159,10 @@ pub(crate) async fn update_os_image(
     let mut txn = api.txn_begin().await?;
 
     let new_attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
     let image = db::os_image::get(&mut txn, new_attrs.id)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: e.to_string(),
         })?;
     if new_attrs.source_url != image.attributes.source_url
@@ -173,23 +173,23 @@ pub(crate) async fn update_os_image(
         || new_attrs.rootfs_label != image.attributes.rootfs_label
         || new_attrs.capacity != image.attributes.capacity
     {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "os_image update read-only attributes changed".into(),
         )
         .into());
     }
     let updated = db::os_image::update(&image, &mut txn, new_attrs)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: e.to_string(),
         })?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: e.to_string(),
     })?;
 
     let resp: crate::api::rpc::OsImage =
-        rpc::forge::OsImage::try_from(updated).map_err(|e| CarbideError::Internal {
+        rpc::nico::OsImage::try_from(updated).map_err(|e| NicoError::Internal {
             message: e.to_string(),
         })?;
     Ok(Response::new(resp))

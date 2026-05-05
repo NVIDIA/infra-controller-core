@@ -18,9 +18,9 @@
 use std::collections::VecDeque;
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico as nicorpc;
+use nico_uuid::machine::MachineId;
 use prettytable::{Table, row};
 use rpc::Machine;
 
@@ -30,9 +30,9 @@ use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv, async_writeln};
 
 fn convert_machine_to_nice_format(
-    machine: forgerpc::Machine,
+    machine: nicorpc::Machine,
     history_count: u32,
-) -> CarbideCliResult<String> {
+) -> NicoCliResult<String> {
     let mut lines = String::new();
     let sku = machine.hw_sku.unwrap_or_default();
     let sku_device_type = machine.hw_sku_device_type.unwrap_or_default();
@@ -215,7 +215,7 @@ fn get_machine_type(machine_id: Option<MachineId>) -> String {
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
-fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
+fn convert_machines_to_nice_table(machines: nicorpc::MachineList) -> Box<Table> {
     let mut table = Box::new(Table::new());
 
     table.set_titles(row![
@@ -240,7 +240,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             .interfaces
             .into_iter()
             .filter(|x| x.primary_interface)
-            .collect::<Vec<forgerpc::MachineInterface>>();
+            .collect::<Vec<nicorpc::MachineInterface>>();
 
         let (id, address, mac, machine_type, dpu_id) = if machine_interfaces.is_empty() {
             (
@@ -325,10 +325,10 @@ async fn show_all_machines(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
-    search_config: rpc::forge::MachineSearchConfig,
+    search_config: rpc::nico::MachineSearchConfig,
     page_size: usize,
     sort_by: &SortField,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let mut machines = api_client
         .get_all_machines(search_config, page_size)
         .await?;
@@ -351,7 +351,7 @@ async fn show_all_machines(
             async_write_table_as_csv!(output_file, table)?;
         }
         OutputFormat::Yaml => {
-            return Err(CarbideCliError::NotImplemented(
+            return Err(NicoCliError::NotImplemented(
                 "YAML formatted output".to_string(),
             ));
         }
@@ -365,7 +365,7 @@ async fn show_machine_information(
     output_format: &OutputFormat,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let machine = api_client.get_machine(machine_id).await?;
     match output_format {
         OutputFormat::Json => {
@@ -378,12 +378,12 @@ async fn show_machine_information(
                 .unwrap_or_else(|x| x.to_string())
         )?,
         OutputFormat::Csv => {
-            return Err(CarbideCliError::NotImplemented(
+            return Err(NicoCliError::NotImplemented(
                 "CSV formatted output".to_string(),
             ));
         }
         OutputFormat::Yaml => {
-            return Err(CarbideCliError::NotImplemented(
+            return Err(NicoCliError::NotImplemented(
                 "YAML formatted output".to_string(),
             ));
         }
@@ -398,14 +398,14 @@ pub async fn handle_show(
     api_client: &ApiClient,
     page_size: usize,
     sort_by: &SortField,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if let Some(machine_id) = args.machine {
         show_machine_information(machine_id, &args, output_format, output_file, api_client).await?;
     } else {
         // Show both hosts and DPUs if neither flag is specified
         let show_all_types = !args.dpus && !args.hosts;
         let dpus_only = args.dpus && !args.hosts;
-        let search_config = rpc::forge::MachineSearchConfig {
+        let search_config = rpc::nico::MachineSearchConfig {
             include_dpus: args.dpus || show_all_types,
             exclude_hosts: dpus_only,
             include_predicted_host: args.hosts || show_all_types,

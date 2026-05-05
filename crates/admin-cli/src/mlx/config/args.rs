@@ -18,9 +18,9 @@
 // config/args.rs
 // Command-line argument definitions for config commands.
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::admin_cli::{NicoCliError, NicoCliResult};
 use rpc::protos::mlx_device as mlx_device_pb;
 
 // ConfigCommand are the config subcommands.
@@ -42,7 +42,7 @@ pub enum ConfigCommand {
 // ConfigQueryCommand queries device configuration values.
 #[derive(Parser, Debug)]
 pub struct ConfigQueryCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
@@ -59,7 +59,7 @@ pub struct ConfigQueryCommand {
 // ConfigSetCommand sets device configuration values.
 #[derive(Parser, Debug)]
 pub struct ConfigSetCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
@@ -75,7 +75,7 @@ pub struct ConfigSetCommand {
 // ConfigSyncCommand synchronizes configuration values to a device.
 #[derive(Parser, Debug)]
 pub struct ConfigSyncCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
@@ -91,7 +91,7 @@ pub struct ConfigSyncCommand {
 // ConfigCompareCommand compares device configuration against expected values.
 #[derive(Parser, Debug)]
 pub struct ConfigCompareCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
@@ -116,7 +116,7 @@ impl From<ConfigQueryCommand> for mlx_device_pb::MlxAdminConfigQueryRequest {
 }
 
 impl TryFrom<ConfigSetCommand> for mlx_device_pb::MlxAdminConfigSetRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
 
     fn try_from(cmd: ConfigSetCommand) -> Result<Self, Self::Error> {
         let parsed_assignments = parse_assignments(&cmd.assignments)?;
@@ -130,7 +130,7 @@ impl TryFrom<ConfigSetCommand> for mlx_device_pb::MlxAdminConfigSetRequest {
 }
 
 impl TryFrom<ConfigSyncCommand> for mlx_device_pb::MlxAdminConfigSyncRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
 
     fn try_from(cmd: ConfigSyncCommand) -> Result<Self, Self::Error> {
         let parsed_assignments = parse_assignments(&cmd.assignments)?;
@@ -144,7 +144,7 @@ impl TryFrom<ConfigSyncCommand> for mlx_device_pb::MlxAdminConfigSyncRequest {
 }
 
 impl TryFrom<ConfigCompareCommand> for mlx_device_pb::MlxAdminConfigCompareRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
 
     fn try_from(cmd: ConfigCompareCommand) -> Result<Self, Self::Error> {
         let parsed_assignments = parse_assignments(&cmd.assignments)?;
@@ -160,13 +160,13 @@ impl TryFrom<ConfigCompareCommand> for mlx_device_pb::MlxAdminConfigCompareReque
 // parse_assignments is a helper to parse "var=value" assignments.
 fn parse_assignments(
     assignments: &[String],
-) -> CarbideCliResult<Vec<mlx_device_pb::VariableAssignment>> {
+) -> NicoCliResult<Vec<mlx_device_pb::VariableAssignment>> {
     let mut result = Vec::new();
 
     for assignment in assignments {
         let parts: Vec<&str> = assignment.splitn(2, '=').collect();
         if parts.len() != 2 {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "invalid assignment format: {assignment} (expected: variable=value)"
             )));
         }

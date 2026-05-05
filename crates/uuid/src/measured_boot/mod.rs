@@ -49,7 +49,7 @@ use crate::typed_uuids::{TypedUuid, UuidSubtype};
 // ============================================================================
 
 /// TrustedMachineId is a special adaptation of a
-/// Carbide MachineId, which has support for being
+/// Nico MachineId, which has support for being
 /// expressed as a machine ID, or "*", for the purpose
 /// of doing trusted machine approvals for measured
 /// boot.

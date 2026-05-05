@@ -14,13 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{
     NewSwitch, SwitchConfig, SwitchControllerState, SwitchSearchFilter, SwitchStatus,
 };
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{AdminForceDeleteSwitchRequest, SwitchDeletionRequest, SwitchQuery};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{AdminForceDeleteSwitchRequest, SwitchDeletionRequest, SwitchQuery};
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -421,7 +421,7 @@ async fn test_switch_conversion_roundtrip(
     db_switch::update(&switch, &mut txn).await?;
 
     // Test conversion to RPC format
-    let rpc_switch = rpc::forge::Switch::try_from(switch.clone())?;
+    let rpc_switch = rpc::nico::Switch::try_from(switch.clone())?;
 
     assert_eq!(rpc_switch.id.unwrap().to_string(), switch_id.to_string());
     assert_eq!(rpc_switch.config.as_ref().unwrap().name, "Switch1");
@@ -574,8 +574,8 @@ async fn test_find_switch_bmc_info_no_matching_data(
         "NO-BMC-SERIAL",
         "NVIDIA",
         "Switch",
-        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
-        carbide_uuid::switch::SwitchType::NvLink,
+        nico_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        nico_uuid::switch::SwitchType::NvLink,
     )
     .unwrap();
 

@@ -15,17 +15,17 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 use prettytable::{Table, row};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn list(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn list(data: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let response = api_client.0.admin_list_resource_pools(data).await?;
     if response.pools.is_empty() {
         println!("No resource pools defined");
-        return Err(CarbideCliError::Empty);
+        return Err(NicoCliError::Empty);
     }
 
     let mut table = Table::new();

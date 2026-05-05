@@ -19,16 +19,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use ::rpc::forge::{self as rpc};
-use ::rpc::forge_tls_client::ForgeClientConfig;
+use ::rpc::nico::{self as rpc};
+use ::rpc::nico_tls_client::NicoClientConfig;
 use axum::Router;
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use carbide_host_support::agent_config::AgentConfig;
+use nico_host_support::agent_config::AgentConfig;
 use eyre::{Context, Result};
-use forge_tls::client_config::ClientCert;
+use nico_tls::client_config::ClientCert;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics;
 use prometheus::{Encoder, TextEncoder};
@@ -52,19 +52,19 @@ struct State {
 
 #[tokio::test]
 pub async fn test_network_monitor() -> eyre::Result<()> {
-    carbide_host_support::init_logging()?;
+    nico_host_support::init_logging()?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
 
-    // Start carbide API
+    // Start nico API
     let app = Router::new()
         .route("/up", get(handle_up))
         .route(
-            "/forge.Forge/GetDpuInfoList",
+            "/nico.Nico/GetDpuInfoList",
             post(handle_get_dpu_info_list),
         )
-        // ForgeApiClient needs a working Version route for connection retrying
-        .route("/forge.Forge/Version", post(handle_version))
+        // NicoApiClient needs a working Version route for connection retrying
+        .route("/nico.Nico/Version", post(handle_version))
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;
@@ -94,18 +94,18 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
         ),
     };
 
-    let forge_client_config = Arc::new(
-        ForgeClientConfig::new(
-            agent.forge_system.root_ca.clone(),
+    let nico_client_config = Arc::new(
+        NicoClientConfig::new(
+            agent.nico_system.root_ca.clone(),
             Some(ClientCert {
-                cert_path: agent.forge_system.client_cert.clone(),
-                key_path: agent.forge_system.client_key.clone(),
+                cert_path: agent.nico_system.client_cert.clone(),
+                key_path: agent.nico_system.client_key.clone(),
             }),
         )
         .use_mgmt_vrf()?,
     );
 
-    let forge_api = agent.forge_system.api_server;
+    let nico_api = agent.nico_system.api_server;
 
     let machine_id = DPU_ID.parse()?;
 
@@ -115,8 +115,8 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     let metrics_states = NetworkMonitorMetricsState::initialize(test_meter.meter(), machine_id);
 
     // Initialize network monitor
-    let forge_api_clone = forge_api.clone();
-    let forge_client_config_clone = Arc::clone(&forge_client_config);
+    let nico_api_clone = nico_api.clone();
+    let nico_client_config_clone = Arc::clone(&nico_client_config);
     let (close_sender, mut close_receiver) = watch::channel(false);
 
     info!("Initializing network monitor");
@@ -130,8 +130,8 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     tokio::spawn(async move {
         network_monitor
             .run(
-                &forge_api_clone,
-                forge_client_config_clone,
+                &nico_api_clone,
+                nico_client_config_clone,
                 &mut close_receiver,
             )
             .await
@@ -191,25 +191,25 @@ fn verify_metrics(test_meter: &TestMeter) {
     let expected_network_loss_percentage_sum = format!("{attribute} 0.8");
 
     // Verify network_latency_count
-    match test_meter.formatted_metric("forge_dpu_agent_network_latency_milliseconds_count") {
+    match test_meter.formatted_metric("nico_dpu_agent_network_latency_milliseconds_count") {
         Some(network_latency_count) => {
             assert_eq!(
                 network_latency_count, expected_network_latency_count,
-                "forge_dpu_agent_network_latency_milliseconds_count does not match"
+                "nico_dpu_agent_network_latency_milliseconds_count does not match"
             );
         }
-        None => panic!("forge_dpu_agent_network_latency_milliseconds_count metric not found"),
+        None => panic!("nico_dpu_agent_network_latency_milliseconds_count metric not found"),
     }
 
     // Verify network_loss_percentage_sum
-    match test_meter.formatted_metric("forge_dpu_agent_network_loss_percentage_sum") {
+    match test_meter.formatted_metric("nico_dpu_agent_network_loss_percentage_sum") {
         Some(network_loss_percentage_sum) => {
             assert_eq!(
                 network_loss_percentage_sum, expected_network_loss_percentage_sum,
-                "forge_dpu_agent_network_loss_percentage_sum does not match"
+                "nico_dpu_agent_network_loss_percentage_sum does not match"
             );
         }
-        None => panic!("forge_dpu_agent_network_loss_percentage_sum metric not found"),
+        None => panic!("nico_dpu_agent_network_loss_percentage_sum metric not found"),
     }
 }
 

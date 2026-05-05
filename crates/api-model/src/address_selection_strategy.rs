@@ -32,9 +32,9 @@ pub enum AddressSelectionStrategy {
     /// Assign a specific IP address to the interface.
     ///
     /// This IP address can either be a "reservation" within an
-    /// existing carbide-dhcp managed network (and allows you
+    /// existing nico-dhcp managed network (and allows you
     /// to pin your device to an IP within a managed network),
-    /// or it can be outside of the Carbide-managed networks
+    /// or it can be outside of the Nico-managed networks
     /// entirely, allowing you to effectively BYO DHCP for
     /// underlay interfaces.
     StaticAddress(std::net::IpAddr),

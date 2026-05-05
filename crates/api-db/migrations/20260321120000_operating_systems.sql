@@ -1,4 +1,4 @@
--- Operating system definitions in carbide-core (source of truth per design 0076).
+-- Operating system definitions in nico-core (source of truth per design 0076).
 -- Supports iPXE and template-based iPXE OS definition variants.
 -- OS images have pre-existing storage and are not stored in this table.
 -- Type values match bare-metal-manager-rest conventions for sync compatibility.

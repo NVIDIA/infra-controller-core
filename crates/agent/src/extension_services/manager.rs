@@ -16,7 +16,7 @@
  */
 use std::collections::HashMap;
 
-use ::rpc::forge::{self as rpc, DpuExtensionServiceType};
+use ::rpc::nico::{self as rpc, DpuExtensionServiceType};
 
 use super::k8s_pod_handler::KubernetesPodServicesHandler;
 use super::service_handler::{ExtensionServiceHandler, ServiceConfig};

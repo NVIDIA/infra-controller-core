@@ -77,7 +77,7 @@ pub async fn callback(
     // to the hostname `localhost:1079` (tested on Firefox).
     //
     // This isn't a problem when going through Kubernetes, which strips the port before
-    // a request reaches carbide-api. It is a problem for local development outside of
+    // a request reaches nico-api. It is a problem for local development outside of
     // Kubernetes.
     //
     // https://stackoverflow.com/a/16328399 references https://www.rfc-editor.org/rfc/rfc6265#section-8.5
@@ -338,7 +338,7 @@ pub async fn callback(
         .unwrap_or_else(|| "/admin/".to_string());
 
     // We're using a private cookie jar and really using the cookie similar to a simple JWT.
-    // When someone tries to access carbide-web, we just need to see that they have the cookie
+    // When someone tries to access nico-web, we just need to see that they have the cookie
     // and that it's not expired and hasn't been tampered with, which we'll know when we decrypt it,
     // so we don't have a use for storing the actual token secret for later use at the moment.
     //

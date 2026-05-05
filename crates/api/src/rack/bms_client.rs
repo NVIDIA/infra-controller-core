@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bms_dsx_exchange::{BmsDsxExchangePublisher, Publication, PublisherConfig, SourceUpdate};
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use chrono::Utc;
 use db::db_read::PgPoolReader;
 use db::{ObjectColumnFilter, rack as db_rack};
@@ -279,7 +279,7 @@ async fn seed_current_rack_state(
 mod tests {
     use std::sync::Arc;
 
-    use carbide_uuid::rack::RackId;
+    use nico_uuid::rack::RackId;
     use mqttea::MqtteaClientError;
     use opentelemetry::global;
     use tokio::sync::{Mutex, Notify};

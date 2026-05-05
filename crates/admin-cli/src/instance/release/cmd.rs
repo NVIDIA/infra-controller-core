@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::InstanceReleaseRequest;
-use carbide_uuid::instance::InstanceId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::InstanceReleaseRequest;
+use nico_uuid::instance::InstanceId;
 
 use super::args::Args;
 use crate::instance::common::GlobalOptions;
@@ -27,9 +27,9 @@ pub async fn release(
     api_client: &ApiClient,
     release_request: Args,
     opts: GlobalOptions<'_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if opts.cloud_unsafe_op.is_none() {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "Operation not allowed due to potential inconsistencies with cloud database."
                 .to_owned(),
         ));
@@ -44,13 +44,13 @@ pub async fn release(
     ) {
         (Some(instance_id), _, _) => instance_ids.push(
             uuid::Uuid::parse_str(&instance_id)
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
+                .map_err(|e| NicoCliError::GenericError(e.to_string()))?
                 .into(),
         ),
         (_, Some(machine_id), _) => {
             let instances = api_client.0.find_instance_by_machine_id(machine_id).await?;
             if instances.instances.is_empty() {
-                return Err(CarbideCliError::GenericError(
+                return Err(NicoCliError::GenericError(
                     "No instances assigned to that machine".to_string(),
                 ));
             }
@@ -68,7 +68,7 @@ pub async fn release(
                 )
                 .await?;
             if instances.instances.is_empty() {
-                return Err(CarbideCliError::GenericError(
+                return Err(NicoCliError::GenericError(
                     "No instances with the passed label.key exist".to_string(),
                 ));
             }

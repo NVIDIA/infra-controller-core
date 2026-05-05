@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::CreateOperatingSystemRequest;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::CreateOperatingSystemRequest;
 
 use super::args::Args;
 use crate::operating_system::common::{str_to_ipxe_template_id, str_to_os_id};
 use crate::rpc::ApiClient;
 
-pub async fn create(opts: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn create(opts: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let id = opts.id.as_deref().map(str_to_os_id).transpose()?;
     let ipxe_template_id = opts
         .ipxe_template_id
@@ -47,7 +47,7 @@ pub async fn create(opts: Args, api_client: &ApiClient) -> CarbideCliResult<()> 
             ipxe_template_artifacts: vec![],
         })
         .await
-        .map_err(CarbideCliError::from)?;
+        .map_err(NicoCliError::from)?;
 
     println!(
         "Operating system created: {} (id={})",

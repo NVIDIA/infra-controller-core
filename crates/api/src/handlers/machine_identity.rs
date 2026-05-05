@@ -20,19 +20,19 @@
 
 use std::convert::TryFrom;
 
-use ::rpc::forge::{
+use ::rpc::nico::{
     self as rpc, Jwks, JwksKind, JwksRequest, MachineIdentityResponse, OpenIdConfigRequest,
     OpenIdConfiguration,
 };
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::Utc;
 use db::{WithTransaction, tenant_identity_config};
-use forge_secrets::key_encryption;
+use nico_secrets::key_encryption;
 use model::tenant::{InvalidTenantOrg, TenantIdentityConfig, TenantOrganizationId};
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 use crate::machine_identity::{
@@ -44,7 +44,7 @@ use crate::machine_identity::{
 /// Shared gate for APIs that require site `[machine_identity].enabled` (identity admin + discovery).
 pub(crate) fn require_machine_identity_site_enabled(api: &Api) -> Result<(), Status> {
     if !api.runtime_config.machine_identity.enabled {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "Machine identity must be enabled in site config".to_string(),
         )
         .into());
@@ -76,7 +76,7 @@ async fn load_enabled_identity_for_well_known(
         .await??;
     match cfg {
         Some(c) if c.enabled => Ok(c),
-        _ => Err(CarbideError::NotFoundError {
+        _ => Err(NicoError::NotFoundError {
             kind: "tenant_identity_config",
             id: org_id_str,
         }
@@ -96,7 +96,7 @@ fn validate_audiences_in_allowlist(
 ) -> Result<(), Status> {
     for a in audiences {
         if !allowlist.iter().any(|x| x == a) {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "audience {a:?} is not in allowed_audiences for this organization"
             ))
             .into());
@@ -114,7 +114,7 @@ fn validate_audiences_in_allowlist(
 /// subject prefix, audiences, TTL, and signing key material.
 ///
 /// When per-org **token delegation** is configured (`token_endpoint` + `subject_token_audience` +
-/// `auth_method`), Carbide first signs a subject JWT (`aud` = exchange service,
+/// `auth_method`), Nico first signs a subject JWT (`aud` = exchange service,
 /// `request_meta_data.aud` = caller-requested workload audiences) with the same `exp` / `iat` delta
 /// as `token_ttl_sec`, then performs an RFC 8693 token exchange `POST` to the tenant
 /// `token_endpoint` and returns that response (**`expires_in_sec` is taken from the tenant STS JSON
@@ -127,7 +127,7 @@ pub(crate) async fn sign_machine_identity(
     log_request_data(&request);
 
     if !api.runtime_config.machine_identity.enabled {
-        return Err(CarbideError::UnavailableError(
+        return Err(NicoError::UnavailableError(
             "Machine identity is disabled in site config".into(),
         )
         .into());
@@ -146,7 +146,7 @@ pub(crate) async fn sign_machine_identity(
 
     let machine_id: MachineId = machine_id_str
         .parse()
-        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine ID format: {e}")))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("Invalid machine ID format: {e}")))?;
 
     let req = request.get_ref();
 
@@ -179,11 +179,11 @@ pub(crate) async fn sign_machine_identity(
                 org_id = %identity_row.organization_id.as_str(),
                 "tenant signing key decrypt failed"
             );
-            CarbideError::internal("stored signing key could not be decrypted".to_string())
+            NicoError::internal("stored signing key could not be decrypted".to_string())
         })?;
 
     let signer = Es256Signer::new(&private_pem, &identity_row.key_id)
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
 
     let now = Utc::now().timestamp();
 
@@ -214,7 +214,7 @@ pub(crate) async fn sign_machine_identity(
 
         let subject_jwt = signer
             .sign(&claims, &SignOptions::default())
-            .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+            .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
 
         let delegation_plain = decrypt_token_delegation_encrypted_blob(
             api.credential_manager.as_ref(),
@@ -267,7 +267,7 @@ pub(crate) async fn sign_machine_identity(
 
     let token = signer
         .sign(&claims, &SignOptions::default())
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
 
     let response = MachineIdentityResponse {
         access_token: token,
@@ -291,17 +291,17 @@ pub(crate) async fn get_jwks(
     let org_raw = req.organization_id.trim();
     if org_raw.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("organization_id is required".to_string()).into(),
+            NicoError::InvalidArgument("organization_id is required".to_string()).into(),
         );
     }
     let org_id: TenantOrganizationId = org_raw
         .parse()
-        .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e: InvalidTenantOrg| NicoError::InvalidArgument(e.to_string()))?;
 
     let jwks_kind = match req.kind {
         None => JwksKind::Unspecified,
         Some(raw) => JwksKind::try_from(raw).map_err(|_| {
-            CarbideError::InvalidArgument(format!("invalid JwksRequest.kind enum value: {raw}"))
+            NicoError::InvalidArgument(format!("invalid JwksRequest.kind enum value: {raw}"))
         })?,
     };
 
@@ -320,9 +320,9 @@ pub(crate) async fn get_jwks(
         cfg.algorithm.as_jwt_alg_str(),
         jwk_key_use,
     )
-    .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+    .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
     let jwks = crate::machine_identity::jwks_document_string(&jwk)
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
 
     Ok(Response::new(Jwks { jwks }))
 }
@@ -339,17 +339,17 @@ pub(crate) async fn get_open_id_configuration(
     let org_raw = req.organization_id.trim();
     if org_raw.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("organization_id is required".to_string()).into(),
+            NicoError::InvalidArgument("organization_id is required".to_string()).into(),
         );
     }
     let org_id: TenantOrganizationId = org_raw
         .parse()
-        .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e: InvalidTenantOrg| NicoError::InvalidArgument(e.to_string()))?;
 
     let cfg = load_enabled_identity_for_well_known(api, &org_id).await?;
 
     if cfg.issuer.as_str().trim().is_empty() {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "tenant_identity_config",
             id: org_id.as_str().to_string(),
         }
@@ -370,7 +370,7 @@ pub(crate) async fn get_open_id_configuration(
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
 
     use super::*;
 

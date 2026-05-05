@@ -16,11 +16,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM registry.minikube/runtime-container:latest as carbide
+FROM registry.minikube/runtime-container:latest as nico
 
-WORKDIR ./carbide
-COPY .skaffold/target/carbide-api/debug/carbide-api /opt/carbide/
-COPY .skaffold/target/carbide-admin-cli/debug/carbide-admin-cli /opt/carbide/
-RUN ln -s /opt/carbide/carbide-admin-cli /opt/carbide/forge-admin-cli
-COPY crates/api/casbin-policy.csv /opt/carbide/
-ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv
+WORKDIR ./nico
+COPY .skaffold/target/nico-api/debug/nico-api /opt/nico/
+COPY .skaffold/target/nico-admin-cli/debug/nico-admin-cli /opt/nico/
+RUN ln -s /opt/nico/nico-admin-cli /opt/nico/nico-admin-cli
+COPY crates/api/casbin-policy.csv /opt/nico/
+ENV CASBIN_POLICY_FILE=/opt/nico/casbin-policy.csv

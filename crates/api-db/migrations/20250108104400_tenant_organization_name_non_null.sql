@@ -1,4 +1,4 @@
--- FORGE-5085
+-- NICO-5085
 -- The API proto field for tenants.metadata.name is non-optional, which plumbs into tenants.organization_name. Nulls
 -- cause server errors, so make the DB match the API expectations: we don't want to inadvertently get nulls in the
 -- future.

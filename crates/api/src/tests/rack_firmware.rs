@@ -16,11 +16,11 @@
  */
 
 use common::api_fixtures::create_test_env;
-use rpc::forge::{
+use rpc::nico::{
     RackFirmwareCreateRequest, RackFirmwareDeleteRequest, RackFirmwareGetRequest,
     RackFirmwareSearchFilter,
 };
-use rpc::protos::forge::forge_server::Forge;
+use rpc::protos::nico::nico_server::Nico;
 
 use crate::tests::common;
 

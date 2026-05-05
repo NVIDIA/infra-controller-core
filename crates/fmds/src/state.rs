@@ -18,15 +18,15 @@
 use std::sync::Arc;
 
 use arc_swap::{ArcSwap, ArcSwapOption};
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use forge_dpu_fmds_shared::machine_identity::{MachineIdentityParams, MachineIdentityServing};
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use nico_dpu_fmds_shared::machine_identity::{MachineIdentityParams, MachineIdentityServing};
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
 use nonzero_ext::nonzero;
-use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::nico_tls_client::NicoClientConfig;
 
 const PHONE_HOME_RATE_LIMIT: Quota = Quota::per_minute(nonzero!(10u32));
 
@@ -34,8 +34,8 @@ const PHONE_HOME_RATE_LIMIT: Quota = Quota::per_minute(nonzero!(10u32));
 pub struct FmdsState {
     pub config: ArcSwapOption<FmdsConfig>,
     pub machine_id: ArcSwapOption<MachineId>,
-    pub forge_api: String,
-    pub forge_client_config: Option<Arc<ForgeClientConfig>>,
+    pub nico_api: String,
+    pub nico_client_config: Option<Arc<NicoClientConfig>>,
     pub outbound_governor:
         Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
     pub machine_identity: ArcSwap<MachineIdentityServing>,
@@ -44,15 +44,15 @@ pub struct FmdsState {
 
 impl FmdsState {
     pub fn try_new(
-        forge_api: String,
-        forge_client_config: Option<Arc<ForgeClientConfig>>,
+        nico_api: String,
+        nico_client_config: Option<Arc<NicoClientConfig>>,
     ) -> Result<Self, String> {
         let serving = Arc::new(MachineIdentityServing::try_default()?);
         Ok(Self {
             config: ArcSwapOption::new(None),
             machine_id: ArcSwapOption::new(None),
-            forge_api,
-            forge_client_config,
+            nico_api,
+            nico_client_config,
             outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
             machine_identity: ArcSwap::new(serving),
             last_machine_identity_params: ArcSwapOption::new(None),

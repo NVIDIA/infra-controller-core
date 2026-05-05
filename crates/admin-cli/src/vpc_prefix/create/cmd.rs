@@ -16,7 +16,7 @@
  */
 
 use ::rpc::admin_cli::output::{FormattedOutput, OutputFormat};
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -26,7 +26,7 @@ pub async fn create(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let output = api_client
         .0
         .create_vpc_prefix(args)
@@ -35,5 +35,5 @@ pub async fn create(
 
     output
         .write_output(output_format, ::rpc::admin_cli::Destination::Stdout())
-        .map_err(CarbideCliError::from)
+        .map_err(NicoCliError::from)
 }

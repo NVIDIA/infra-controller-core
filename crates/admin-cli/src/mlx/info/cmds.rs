@@ -21,14 +21,14 @@
 use libmlx::device::info::MlxDeviceInfo;
 use libmlx::device::report::MlxDeviceReport;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{InfoCommand, InfoDeviceCommand, InfoMachineCommand};
 use crate::mlx::{CliContext, wrap_text};
 
 // dispatch routes info subcommands to their handlers.
-pub async fn dispatch(command: InfoCommand, ctxt: &mut CliContext<'_, '_>) -> CarbideCliResult<()> {
+pub async fn dispatch(command: InfoCommand, ctxt: &mut CliContext<'_, '_>) -> NicoCliResult<()> {
     match command {
         InfoCommand::Device(cmd) => handle_device_info(cmd, ctxt).await,
         InfoCommand::Machine(cmd) => handle_device_report(cmd, ctxt).await,
@@ -39,15 +39,15 @@ pub async fn dispatch(command: InfoCommand, ctxt: &mut CliContext<'_, '_>) -> Ca
 async fn handle_device_info(
     cmd: InfoDeviceCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminDeviceInfoRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_show_device(request).await?;
 
     let device_info: MlxDeviceInfo = match response.device_info {
         Some(device_info) => device_info.try_into().map_err(|e| {
-            CarbideCliError::GenericError(format!("failed to convert device info: {}", e))
+            NicoCliError::GenericError(format!("failed to convert device info: {}", e))
         }),
-        None => Err(CarbideCliError::GenericError(
+        None => Err(NicoCliError::GenericError(
             "no device info found for device".to_string(),
         )),
     }?;
@@ -73,15 +73,15 @@ async fn handle_device_info(
 async fn handle_device_report(
     cmd: InfoMachineCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminDeviceReportRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_show_machine(request).await?;
 
     let device_report: MlxDeviceReport = match response.device_report {
         Some(device_report) => device_report.try_into().map_err(|e| {
-            CarbideCliError::GenericError(format!("failed to convert device report: {}", e))
+            NicoCliError::GenericError(format!("failed to convert device report: {}", e))
         }),
-        None => Err(CarbideCliError::GenericError(
+        None => Err(NicoCliError::GenericError(
             "no device report found for device".to_string(),
         )),
     }?;

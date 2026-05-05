@@ -17,10 +17,10 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 use mac_address::MacAddress;
 use prettytable::{Cell, Row, Table};
-use rpc::forge::{BmcEndpointRequest, PowerOptions};
+use rpc::nico::{BmcEndpointRequest, PowerOptions};
 
 use super::args::{ShowPowerOptions, UpdatePowerOptions};
 use crate::rpc::ApiClient;
@@ -29,11 +29,11 @@ pub async fn power_options_show(
     args: ShowPowerOptions,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if let Some(machine_id) = args.machine {
         let mut power_options = api_client.get_power_options(vec![machine_id]).await?;
         if power_options.len() != 1 {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "More than one entry is received for id: {machine_id}; Data: {power_options:?}"
             )));
         }
@@ -50,7 +50,7 @@ pub async fn power_options_show(
 pub fn power_options_show_one(
     power_option: &PowerOptions,
     output_format: OutputFormat,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if output_format == OutputFormat::Json {
         println!("{}", serde_json::to_string(power_option).unwrap());
         return Ok(());
@@ -136,7 +136,7 @@ pub fn power_options_show_one(
 
     writeln!(
         &mut lines,
-        "{:<width$}: {} (Carbide will wait for DPUs to come up before rebooting host after power on)",
+        "{:<width$}: {} (Nico will wait for DPUs to come up before rebooting host after power on)",
         "Wait Until Next Reboot",
         power_option
             .wait_until_time_before_performing_next_power_action
@@ -151,7 +151,7 @@ pub fn power_options_show_one(
 pub async fn power_options_show_all(
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let mut table = Table::new();
     let all_options = api_client.get_power_options(vec![]).await?;
 
@@ -211,7 +211,7 @@ pub async fn power_options_show_all(
 pub async fn update_power_option(
     args: UpdatePowerOptions,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let updated_power_option = api_client.0.update_power_option(args).await?.response;
     println!("Power options updated successfully!!");
     println!("Updated power options are");
@@ -224,7 +224,7 @@ pub async fn update_power_option(
 pub(crate) async fn get_machine_state(
     api_client: &ApiClient,
     mac_address: &MacAddress,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     let machine_state = api_client
         .0
         .determine_machine_ingestion_state(BmcEndpointRequest {
@@ -244,7 +244,7 @@ pub(crate) async fn get_machine_state(
 pub(crate) async fn allow_ingestion_and_power_on(
     api_client: &ApiClient,
     mac_address: &MacAddress,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     api_client
         .0
         .allow_ingestion_and_power_on(BmcEndpointRequest {

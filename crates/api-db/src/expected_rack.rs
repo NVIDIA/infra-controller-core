@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use model::expected_rack::ExpectedRack;
 use sqlx::PgConnection;
 

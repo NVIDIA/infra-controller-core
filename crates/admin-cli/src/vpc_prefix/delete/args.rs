@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::vpc::VpcPrefixId;
+use nico_uuid::vpc::VpcPrefixId;
 use clap::Parser;
-use rpc::forge::VpcPrefixDeletionRequest;
+use rpc::nico::VpcPrefixDeletionRequest;
 
 #[derive(Parser, Debug)]
 pub struct Args {

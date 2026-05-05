@@ -88,13 +88,13 @@ generate_config() {
 # Ports: ${START_PORT}..$((START_PORT + COUNT - 1))
 #
 # Run health with:
-#   cargo run -p carbide-health --bin forge-hw-health -- ${CONFIG_OUT}
+#   cargo run -p nico-health --bin nico-hw-health -- ${CONFIG_OUT}
 
 shard = 0
 shards_count = 1
 cache_size = 100
 
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.tracing]

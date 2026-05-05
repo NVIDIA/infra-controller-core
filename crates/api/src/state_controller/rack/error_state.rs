@@ -17,7 +17,7 @@
 
 //! Handler for RackState::Error.
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use model::rack::{Rack, RackConfig, RackState};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;

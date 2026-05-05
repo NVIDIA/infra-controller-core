@@ -17,15 +17,15 @@
 use std::ops::DerefMut;
 use std::time::SystemTime;
 
-use ::rpc::forge::{
+use ::rpc::nico::{
     CreateDpuExtensionServiceRequest, DpuExtensionServiceType, DpuNetworkStatus,
     InstanceDpuExtensionServiceConfig, InstanceDpuExtensionServicesConfig,
     ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
-use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
+use nico_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use model::machine::network::ManagedHostQuarantineMode;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
@@ -239,7 +239,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     // Query the aggregate health.
     let reported_health = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![mh.dpu().id],
             include_history: false,
         }))
@@ -305,10 +305,10 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
     let default_tenant_org = "best_org";
     let _ = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: default_tenant_org.to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: default_tenant_org.to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -496,7 +496,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     // Query the new HealthReport format
     let reported_health = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![dpu_machine_id],
             include_history: false,
         }))
@@ -523,7 +523,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone())).await;
     let reported_health = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![dpu_machine_id],
             include_history: false,
         }))
@@ -558,7 +558,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let quarantine_state = env
             .api
             .get_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::GetManagedHostQuarantineStateRequest {
+                rpc::nico::GetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
                 },
             ))
@@ -576,7 +576,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     {
         let ids = env
             .api
-            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
                 only_quarantine: true,
                 ..Default::default()
             }))
@@ -594,10 +594,10 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let set_result = env
             .api
             .set_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::SetManagedHostQuarantineStateRequest {
+                rpc::nico::SetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
-                    quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
-                        mode: rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                    quarantine_state: Some(rpc::nico::ManagedHostQuarantineState {
+                        mode: rpc::nico::ManagedHostQuarantineMode::BlockAllTraffic as i32,
                         reason: Some("test reason 1".to_string()),
                     }),
                 },
@@ -615,7 +615,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     {
         let ids = env
             .api
-            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
                 only_quarantine: true,
                 ..Default::default()
             }))
@@ -651,7 +651,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let quarantine_state = env
             .api
             .get_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::GetManagedHostQuarantineStateRequest {
+                rpc::nico::GetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
                 },
             ))
@@ -675,10 +675,10 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let set_result = env
             .api
             .set_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::SetManagedHostQuarantineStateRequest {
+                rpc::nico::SetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
-                    quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
-                        mode: rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                    quarantine_state: Some(rpc::nico::ManagedHostQuarantineState {
+                        mode: rpc::nico::ManagedHostQuarantineMode::BlockAllTraffic as i32,
                         reason: Some("test reason 2".to_string()),
                     }),
                 },
@@ -718,7 +718,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let quarantine_state = env
             .api
             .get_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::GetManagedHostQuarantineStateRequest {
+                rpc::nico::GetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
                 },
             ))
@@ -742,7 +742,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let clear_result = env
             .api
             .clear_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::ClearManagedHostQuarantineStateRequest {
+                rpc::nico::ClearManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
                 },
             ))
@@ -776,7 +776,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     {
         let ids = env
             .api
-            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            .find_machine_ids(tonic::Request::new(rpc::nico::MachineSearchConfig {
                 only_quarantine: true,
                 ..Default::default()
             }))

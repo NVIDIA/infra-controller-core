@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use forge_ssh::ssh::copy_bfb_to_bmc_rshim;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use nico_ssh::ssh::copy_bfb_to_bmc_rshim;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn copy_bfb(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub async fn copy_bfb(api_client: &ApiClient, args: Args) -> NicoCliResult<()> {
     let bmc_ip = args.ssh_args.credentials.bmc_ip_address.ip().to_string();
     let is_bf2 = match api_client.get_explored_endpoints_by_ids(&[bmc_ip]).await {
         Ok(list) => list
@@ -57,6 +57,6 @@ pub async fn copy_bfb(api_client: &ApiClient, args: Args) -> CarbideCliResult<()
         is_bf2,
     )
     .await
-    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+    .map_err(|e| NicoCliError::GenericError(e.to_string()))?;
     Ok(())
 }

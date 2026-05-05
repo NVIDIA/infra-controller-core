@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_utils::arch::CpuArchitecture;
+use nico_utils::arch::CpuArchitecture;
 
 use crate as rpc;
 

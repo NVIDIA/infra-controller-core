@@ -546,7 +546,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         collected_at: std::time::Instant,
     ) {
         // We don't remove objects from the database here but store them first
-        // and remove them later in order to not forget about these in case there
+        // and remove them later in order to not nicot about these in case there
         // is a transient database error
         self.completed_objects.insert(task_result.object_id.clone());
         // If the state handler returned `Transition`, then run the handler again

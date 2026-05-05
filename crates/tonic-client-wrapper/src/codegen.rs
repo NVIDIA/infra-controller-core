@@ -525,7 +525,7 @@ impl CodeGenerator {
         }
     }
 
-    /// Convert tye protobuf type (which looks like `.forge.VersionRequest` or similar) to the proper
+    /// Convert tye protobuf type (which looks like `.nico.VersionRequest` or similar) to the proper
     /// rust type, by:
     ///
     /// - Converting it to a known base type (bool, (), etc) if it's a known base type

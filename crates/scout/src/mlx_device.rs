@@ -20,7 +20,7 @@ use ::rpc::protos::mlx_device::{
     PublishMlxDeviceReportRequest, PublishMlxDeviceReportResponse,
     PublishMlxObservationReportRequest, PublishMlxObservationReportResponse,
 };
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use libmlx::device::discovery;
 use libmlx::device::report::MlxDeviceReport;
 use libmlx::firmware::config::FirmwareFlasherProfile;
@@ -34,7 +34,7 @@ use libmlx::runner::applier::MlxConfigApplier;
 use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use libmlx::runner::runner::MlxConfigRunner;
 use rpc::protos::mlx_device as mlx_device_pb;
-use scout::CarbideClientResult;
+use scout::NicoClientResult;
 
 use crate::cfg::Options;
 use crate::client;
@@ -42,7 +42,7 @@ use crate::client;
 // create_device_report_request is a one stop shop to collect
 // Mellanox device data from the machine, create a report, convert
 // it into the underlying protobuf type, and then return a request
-// instance to publish to carbide-api.
+// instance to publish to nico-api.
 pub fn create_device_report_request(
     machine_id: MachineId,
 ) -> Result<PublishMlxDeviceReportRequest, String> {
@@ -57,7 +57,7 @@ pub fn create_device_report_request(
 
 // publish_mlx_device_report is used to publish an MlxDeviceReport for the current
 // machine, which will collect the hardware + firmware/version details of all Mellanox
-// devices on the machine, including DPUs and DPAs. This is then published to carbide-api,
+// devices on the machine, including DPUs and DPAs. This is then published to nico-api,
 // which leverages this data for ensuring devices are synced with the correct mlxconfig
 // settings, and have been (or will be instructed to) updated to the correct firmware version.
 //
@@ -66,10 +66,10 @@ pub fn create_device_report_request(
 pub async fn publish_mlx_device_report(
     config: &Options,
     req: PublishMlxDeviceReportRequest,
-) -> CarbideClientResult<PublishMlxDeviceReportResponse> {
+) -> NicoClientResult<PublishMlxDeviceReportResponse> {
     tracing::info!("sending PublishMlxDeviceReportRequest: {req:?}");
     let request = tonic::Request::new(req);
-    let mut client = client::create_forge_client(config).await?;
+    let mut client = client::create_nico_client(config).await?;
     let response = client
         .publish_mlx_device_report(request)
         .await?
@@ -80,10 +80,10 @@ pub async fn publish_mlx_device_report(
 pub async fn publish_mlx_observation_report(
     config: &Options,
     req: PublishMlxObservationReportRequest,
-) -> CarbideClientResult<PublishMlxObservationReportResponse> {
+) -> NicoClientResult<PublishMlxObservationReportResponse> {
     tracing::info!("sending PublishMlxObservationReportRequest: {req:?}");
     let request = tonic::Request::new(req);
-    let mut client = client::create_forge_client(config).await?;
+    let mut client = client::create_nico_client(config).await?;
     let response = client
         .publish_mlx_observation_report(request)
         .await?
@@ -1083,7 +1083,7 @@ pub async fn apply_firmware(
     };
 
     // ...and now that we've got our FirmwareFlasher, lets take
-    // the FirmwareFlasherProfile we got from carbide-api and
+    // the FirmwareFlasherProfile we got from nico-api and
     // execute the full firmware lifecycle.
     match flasher.apply(profile).await {
         Ok(result) => {

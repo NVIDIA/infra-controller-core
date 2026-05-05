@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use forge_secrets::certificates::Certificate;
+use nico_secrets::certificates::Certificate;
 
-use crate::protos::forge::MachineCertificate;
+use crate::protos::nico::MachineCertificate;
 
 impl From<Certificate> for MachineCertificate {
     fn from(value: Certificate) -> Self {

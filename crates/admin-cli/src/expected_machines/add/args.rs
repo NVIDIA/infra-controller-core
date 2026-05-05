@@ -17,15 +17,15 @@
 
 use std::net::IpAddr;
 
-use carbide_utils::has_duplicates;
-use carbide_uuid::rack::RackId;
+use nico_utils::has_duplicates;
+use nico_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::{DpuMode, ExpectedHostNic};
+use rpc::admin_cli::{NicoCliError, NicoCliResult};
+use rpc::nico::{DpuMode, ExpectedHostNic};
 use serde::{Deserialize, Serialize};
 
-/// `forge-admin-cli expected-machine add` — mirrors expected switch flags; optional
+/// `nico-admin-cli expected-machine add` — mirrors expected switch flags; optional
 /// `--bmc-ip-address` forwards to the API static-BMC pre-allocation path.
 #[derive(Parser, Debug, Serialize, Deserialize)]
 pub struct Args {
@@ -155,9 +155,9 @@ impl Args {
     }
 }
 
-impl TryFrom<Args> for rpc::forge::ExpectedMachine {
-    type Error = CarbideCliError;
-    fn try_from(value: Args) -> CarbideCliResult<Self> {
+impl TryFrom<Args> for rpc::nico::ExpectedMachine {
+    type Error = NicoCliError;
+    fn try_from(value: Args) -> NicoCliResult<Self> {
         let labels = crate::metadata::parse_rpc_labels(value.labels.unwrap_or_default());
         let metadata = rpc::Metadata {
             name: value.meta_name.unwrap_or_default(),
@@ -171,7 +171,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             .transpose()?
             .unwrap_or_default();
 
-        Ok(rpc::forge::ExpectedMachine {
+        Ok(rpc::nico::ExpectedMachine {
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,
             bmc_password: value.bmc_password,
@@ -190,7 +190,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             bmc_retain_credentials: value.bmc_retain_credentials,
             dpu_mode: value.dpu_mode.map(|m| m as i32),
             host_lifecycle_profile: value.disable_lockdown.map(|dl| {
-                rpc::forge::HostLifecycleProfile {
+                rpc::nico::HostLifecycleProfile {
                     disable_lockdown: Some(dl),
                 }
             }),

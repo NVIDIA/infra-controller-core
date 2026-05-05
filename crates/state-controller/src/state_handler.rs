@@ -16,8 +16,8 @@
  */
 use std::panic::Location;
 
-use carbide_redfish::libredfish::RedfishClientCreationError;
-use carbide_uuid::machine::MachineId;
+use nico_redfish::libredfish::RedfishClientCreationError;
+use nico_uuid::machine::MachineId;
 use db::DatabaseError;
 use libredfish::RedfishError;
 use librms::RackManagerError;
@@ -297,7 +297,7 @@ pub enum StateHandlerError {
     RackManagerError(#[source] Box<RackManagerError>),
 
     #[error("DPF error: {0}")]
-    DpfError(#[source] Box<carbide_dpf::DpfError>),
+    DpfError(#[source] Box<nico_dpf::DpfError>),
 }
 
 impl StateHandlerError {
@@ -374,8 +374,8 @@ impl From<RackManagerError> for StateHandlerError {
     }
 }
 
-impl From<carbide_dpf::DpfError> for StateHandlerError {
-    fn from(error: carbide_dpf::DpfError) -> Self {
+impl From<nico_dpf::DpfError> for StateHandlerError {
+    fn from(error: nico_dpf::DpfError) -> Self {
         Self::DpfError(Box::new(error))
     }
 }

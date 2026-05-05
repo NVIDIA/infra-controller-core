@@ -23,7 +23,7 @@ fi
 
 set -e
 
-rawout=$(echo y | TERM=xterm ssh -tt $1 sudo kubectl exec -qti deploy/carbide-api -n forge-system -- bash -c "'"'/opt/carbide/forge-admin-cli -c https://${CARBIDE_API_SERVICE_HOST}:${CARBIDE_API_SERVICE_PORT} machine show --machine='$2' 2> /dev/null  && sleep 1 && /opt/carbide/forge-admin-cli -f json -c https://${CARBIDE_API_SERVICE_HOST}:${CARBIDE_API_SERVICE_PORT} machine dpu-ssh-credentials --query='$2' 2> /dev/null '"'" 2> /dev/null | col -b)
+rawout=$(echo y | TERM=xterm ssh -tt $1 sudo kubectl exec -qti deploy/nico-api -n nico-system -- bash -c "'"'/opt/nico/nico-admin-cli -c https://${NICO_API_SERVICE_HOST}:${NICO_API_SERVICE_PORT} machine show --machine='$2' 2> /dev/null  && sleep 1 && /opt/nico/nico-admin-cli -f json -c https://${NICO_API_SERVICE_HOST}:${NICO_API_SERVICE_PORT} machine dpu-ssh-credentials --query='$2' 2> /dev/null '"'" 2> /dev/null | col -b)
 #echo ---${rawout}---
 
 address=$(echo $rawout | sed -e 's/.*Addresses : \([0-9.]*\).*/\1/g')

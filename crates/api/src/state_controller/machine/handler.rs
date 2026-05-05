@@ -24,17 +24,17 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
-use carbide_redfish::libredfish::conv::{
+use nico_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
+use nico_redfish::libredfish::conv::{
     IntoLibredfish, IntoModel, machine_last_reboot_requested_mode,
 };
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use db::DatabaseError;
 use db::db_read::PgPoolReader;
 use eyre::eyre;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures::TryFutureExt;
 use futures_util::FutureExt;
 use health_report::{
@@ -87,9 +87,9 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::cfg::file::{
-    BomValidationConfig, CarbideConfig, MachineValidationConfig, PowerManagerOptions, TimePeriod,
+    BomValidationConfig, NicoConfig, MachineValidationConfig, PowerManagerOptions, TimePeriod,
 };
 use crate::dpf::DpfOperations;
 use crate::redfish::{
@@ -113,7 +113,7 @@ use helpers::{
     DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, NextState,
     ReprovisionStateHelper, all_equal,
 };
-use rpc::forge_agent_control_response::FileArtifact;
+use rpc::nico_agent_control_response::FileArtifact;
 
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::write_ops::MachineWriteOp;
@@ -2363,7 +2363,7 @@ async fn handle_bfb_install_state(
         InstallDpuOsState::InstallingBFB => {
             let task = dpu_redfish_client
                 .update_firmware_simple_update(
-                    "carbide-pxe.forge//public/blobs/internal/aarch64/forge.bfb",
+                    "nico-pxe.nico//public/blobs/internal/aarch64/nico.bfb",
                     vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
                     TransferProtocolType::HTTP,
                 )
@@ -2848,9 +2848,9 @@ async fn handle_dpu_reprovision(
             .with_txn(txn))
         }
         ReprovisionState::RebootHostBmc => {
-            // Work around for FORGE-3864
+            // Work around for NICO-3864
             // A NIC FW update from 24.39.2048 to 24.41.1000 can cause the Redfish service to become unavailable on Lenovos.
-            // Forge initiates a NIC FW update in ReprovisionState::FirmwareUpgrade
+            // Nico initiates a NIC FW update in ReprovisionState::FirmwareUpgrade
             // At this point, all of the host's DPU have finished the NIC FW Update, been power cycled, and the ARM has come up on the DPU.
             if state.host_snapshot.bmc_vendor().is_lenovo() {
                 tracing::info!(
@@ -2964,7 +2964,7 @@ pub async fn try_wait_for_dpu_discovery(
 ) -> Result<Option<MachineId>, StateHandlerError> {
     // We are waiting for the `DiscoveryCompleted` RPC call to update the
     // `last_discovery_time` timestamp.
-    // This indicates that all forge-scout actions have succeeded.
+    // This indicates that all nico-scout actions have succeeded.
     for dpu_snapshot in &state.dpu_snapshots {
         if is_reprovision_case && dpu_snapshot.reprovision_requested.is_none() {
             // This is reprovision handling and this DPU is not under reprovisioning.
@@ -3884,7 +3884,7 @@ impl DpuMachineStateHandler {
                                 })?;
 
                             if pk_certs.is_empty() {
-                                let mut cert_file = File::open("/forge-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem").await.map_err(|e| StateHandlerError::RedfishError {
+                                let mut cert_file = File::open("/nico-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem").await.map_err(|e| StateHandlerError::RedfishError {
                                     operation: "open_secure_boot_certificate_file",
                                     error: RedfishError::FileError(format!("Error opening secure boot certificate file: {e}")),
                                 })?;
@@ -4971,7 +4971,7 @@ impl StateHandler for HostMachineStateHandler {
                     ) {
                         tracing::trace!(
                             machine_id = %host_machine_id,
-                            "Waiting for forge-scout to report host online. \
+                            "Waiting for nico-scout to report host online. \
                                          Host last seen {:?}, must come after DPU's {}",
                             mh_snapshot.host_snapshot.last_discovery_time,
                             mh_snapshot.host_snapshot.state.version.timestamp()
@@ -5111,7 +5111,7 @@ impl StateHandler for HostMachineStateHandler {
                             }
                         }
                         LockdownState::WaitForDPUUp => {
-                            // Has forge-dpu-agent reported state? That means DPU is up.
+                            // Has nico-dpu-agent reported state? That means DPU is up.
                             if are_dpus_up_trigger_reboot_if_needed(
                                 mh_snapshot,
                                 &self.host_handler_params.reachability_params,
@@ -5120,7 +5120,7 @@ impl StateHandler for HostMachineStateHandler {
                             .await
                             {
                                 // reboot host
-                                // When forge changes BIOS params (for lockdown enable/disable both), host does a power cycle.
+                                // When nico changes BIOS params (for lockdown enable/disable both), host does a power cycle.
                                 // During power cycle, DPU also reboots. Now DPU and Host are coming up together. Since DPU is not ready yet,
                                 // it does not forward DHCP discover from host and host goes into failure mode and stops sending further
                                 // DHCP Discover. A second reboot starts DHCP cycle again when DPU is already up.
@@ -5142,7 +5142,7 @@ impl StateHandler for HostMachineStateHandler {
                                 };
                                 Ok(StateHandlerOutcome::transition(next_state))
                             } else {
-                                Ok(StateHandlerOutcome::wait("Waiting for DPU to report UP. This requires forge-dpu-agent to call the RecordDpuNetworkStatus API".to_string()))
+                                Ok(StateHandlerOutcome::wait("Waiting for DPU to report UP. This requires nico-dpu-agent to call the RecordDpuNetworkStatus API".to_string()))
                             }
                         }
                         LockdownState::PollingLockdownStatus => {
@@ -5912,7 +5912,7 @@ impl StateHandler for InstanceStateHandler {
                     Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
                 }
                 InstanceState::WaitingForNetworkReconfig => {
-                    // Has forge-dpu-agent applied the new network config so that
+                    // Has nico-dpu-agent applied the new network config so that
                     // we are back on the admin network?
                     if !mh_snapshot.managed_host_network_config_version_synced() {
                         return Ok(StateHandlerOutcome::wait(
@@ -7161,7 +7161,7 @@ impl HostUpgradeState {
                         .firmware_global
                         .firmware_directory
                         .to_string_lossy();
-                    const PXE_URL: &str = "http://carbide-pxe.forge:8080";
+                    const PXE_URL: &str = "http://nico-pxe.nico:8080";
                     let to_pxe_url = |path: &str| -> String {
                         let relative = path
                             .strip_prefix(firmware_dir.as_ref())
@@ -7172,7 +7172,7 @@ impl HostUpgradeState {
 
                     let upgrade_task_id = uuid::Uuid::new_v4().to_string();
                     let file_artifact_count = to_install.files.len();
-                    let task = rpc::forge_agent_control_response::ScoutFirmwareUpgradeTask {
+                    let task = rpc::nico_agent_control_response::ScoutFirmwareUpgradeTask {
                         upgrade_task_id: upgrade_task_id.clone(),
                         component_type: firmware_type.to_string(),
                         target_version: to_install.version,
@@ -7504,7 +7504,7 @@ impl HostUpgradeState {
                 firmware_type: FirmwareComponentType::Unknown,
                 report_time: Some(Utc::now()),
                 reason: Some(format!(
-                    "The upgrade script failed.  Search the log for \"Upgrade script {}\" for script output.  Use \"forge-admin-cli mh reset-host-reprovisioning --machine {}\" to retry.",
+                    "The upgrade script failed.  Search the log for \"Upgrade script {}\" for script output.  Use \"nico-admin-cli mh reset-host-reprovisioning --machine {}\" to retry.",
                     state.host_snapshot.id, state.host_snapshot.id
                 )),
             };
@@ -8017,7 +8017,7 @@ impl HostUpgradeState {
                             )));
                         }
 
-                        // We have also observed (FORGE-6177) the upgrade somehow disappearing, but working when retried.  If a long time has passed, go back to checking to retry.
+                        // We have also observed (NICO-6177) the upgrade somehow disappearing, but working when retried.  If a long time has passed, go back to checking to retry.
                         if let Some(started_waiting) = started_waiting
                             && Utc::now().signed_duration_since(started_waiting)
                                 > chrono::TimeDelta::minutes(15)
@@ -8410,7 +8410,7 @@ impl AsyncFirmwareUploader {
         address: String,
     ) {
         if self.upload_status(&id).is_some() {
-            // This situation can happen during an upgrade (typically a config upgrade) where the new instance of carbide-api starts an upgrade,
+            // This situation can happen during an upgrade (typically a config upgrade) where the new instance of nico-api starts an upgrade,
             // the old one sees that it's not the uploader and returns us to Checking, then the new one is following this path.  As we would be
             // trying to return to the exact same state that we generated before and the upload is already in progress, all we need to do here is
             // return.  It's possible that we may fluctuate the state a few times, but once the old instance dies we will be fine.
@@ -8498,7 +8498,7 @@ pub async fn host_power_state(
 
 fn requires_manual_firmware_upgrade(
     state: &ManagedHostStateSnapshot,
-    config: &CarbideConfig,
+    config: &NicoConfig,
 ) -> bool {
     if !config.firmware_global.requires_manual_upgrade {
         return false;
@@ -9294,7 +9294,7 @@ async fn call_machine_setup_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
     boot_interface_mac: Option<&str>,
     expected_dpu_count: usize,
-    site_config: &CarbideConfig,
+    site_config: &NicoConfig,
 ) -> Result<Option<String>, RedfishError> {
     let setup_result = redfish_client
         .machine_setup(
@@ -9324,7 +9324,7 @@ async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
     boot_interface_mac: &str,
     expected_dpu_count: usize,
-    site_config: &CarbideConfig,
+    site_config: &NicoConfig,
 ) -> Result<Option<String>, RedfishError> {
     let setup_result = redfish_client
         .set_boot_order_dpu_first(boot_interface_mac)
@@ -9546,7 +9546,7 @@ async fn handle_instance_host_platform_config(
                             },
                         ));
                     }
-                    Err(CarbideError::RedfishError(RedfishError::NotSupported(_))) => {
+                    Err(NicoError::RedfishError(RedfishError::NotSupported(_))) => {
                         // if not supported, just power on
                         tracing::info!("AC Powercycle not supported, skipping to power on");
                     }
@@ -10642,8 +10642,8 @@ mod tests {
     /// This test catches regressions where the argument gets dropped or replaced with an empty map.
     #[tokio::test]
     async fn test_oem_manager_profiles_passed_to_machine_setup() {
-        use carbide_redfish::libredfish::RedfishClientPool;
-        use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimAction};
+        use nico_redfish::libredfish::RedfishClientPool;
+        use nico_redfish::libredfish::test_support::{RedfishSim, RedfishSimAction};
         use libredfish::BiosProfileType;
         use libredfish::model::service_root::RedfishVendor;
 
@@ -10664,8 +10664,8 @@ mod tests {
             )]),
         )]);
 
-        use carbide_redfish::libredfish::RedfishAuth;
-        use forge_secrets::credentials::{CredentialKey, CredentialType};
+        use nico_redfish::libredfish::RedfishAuth;
+        use nico_secrets::credentials::{CredentialKey, CredentialType};
 
         let sim = RedfishSim::default();
         let timepoint = sim.timepoint();

@@ -224,7 +224,7 @@ pub async fn find(
 }
 
 pub fn generate_test_id(name: &str) -> String {
-    format!("forge_{}", name.to_ascii_lowercase())
+    format!("nico_{}", name.to_ascii_lowercase())
 }
 
 pub async fn save(
@@ -355,16 +355,16 @@ mod tests {
 
     #[test]
     fn test_generate_test_id_lowercases_name() {
-        assert_eq!(generate_test_id("MyTest"), "forge_mytest");
-        assert_eq!(generate_test_id("ALLCAPS"), "forge_allcaps");
-        assert_eq!(generate_test_id("already_lower"), "forge_already_lower");
-        assert_eq!(generate_test_id("MiXeD_CaSe_123"), "forge_mixed_case_123");
+        assert_eq!(generate_test_id("MyTest"), "nico_mytest");
+        assert_eq!(generate_test_id("ALLCAPS"), "nico_allcaps");
+        assert_eq!(generate_test_id("already_lower"), "nico_already_lower");
+        assert_eq!(generate_test_id("MiXeD_CaSe_123"), "nico_mixed_case_123");
     }
 
     #[test]
     fn test_build_select_query_uses_lower_for_strings() {
         let req = MachineValidationTestsGetRequest {
-            test_id: Some("Forge_MyTest".to_string()),
+            test_id: Some("Nico_MyTest".to_string()),
             ..Default::default()
         };
         let query = build_select_query(req, "machine_validation_tests").unwrap();
@@ -373,7 +373,7 @@ mod tests {
             "Expected LOWER() in query, got: {query}"
         );
         assert!(
-            query.contains("LOWER(test_id)=LOWER('Forge_MyTest')"),
+            query.contains("LOWER(test_id)=LOWER('Nico_MyTest')"),
             "Expected case-insensitive test_id comparison, got: {query}"
         );
     }

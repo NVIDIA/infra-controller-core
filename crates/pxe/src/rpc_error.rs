@@ -19,11 +19,11 @@ use std::fmt::{Debug, Display};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_client_ip::Rejection;
-use carbide_uuid::UuidConversionError;
+use nico_uuid::UuidConversionError;
 use rpc::errors::RpcDataConversionError;
 
 pub enum PxeRequestError {
-    CarbideApiError(tonic::Status),
+    NicoApiError(tonic::Status),
     MissingClientConfig,
     MissingMachineId,
     MissingIp(Rejection),
@@ -55,7 +55,7 @@ impl Display for PxeRequestError {
             f,
             "{}",
             match self {
-                Self::CarbideApiError(err) => format!("Error making a carbide API request: {err}"),
+                Self::NicoApiError(err) => format!("Error making a nico API request: {err}"),
                 Self::MissingClientConfig =>
                     "Missing client configuration from server config (should not reach this case)"
                         .to_string(),

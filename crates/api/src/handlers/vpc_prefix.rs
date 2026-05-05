@@ -16,15 +16,15 @@
  */
 
 use ::db::{ObjectColumnFilter, vpc_prefix as db};
-use ::rpc::forge as rpc;
-use ::rpc::forge::PrefixMatchType;
-use carbide_network::virtualization::VpcVirtualizationType;
+use ::rpc::nico as rpc;
+use ::rpc::nico::PrefixMatchType;
+use nico_network::virtualization::VpcVirtualizationType;
 use ipnetwork::IpNetwork;
 use model::network_prefix::NetworkPrefix;
 use model::vpc_prefix;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 pub async fn create(
     api: &Api,
@@ -45,7 +45,7 @@ pub async fn create(
             specified as {canonical_address}/{prefix_len} and not \
             {prefix_address}/{prefix_len}."
         );
-        return Err(CarbideError::InvalidArgument(msg).into());
+        return Err(NicoError::InvalidArgument(msg).into());
     }
 
     // Validate that the new VPC prefix is contained within the site prefixes
@@ -54,7 +54,7 @@ pub async fn create(
     if let Some(ref site_prefixes) = api.eth_data.site_fabric_prefixes {
         let prefix = new_prefix.config.prefix;
         if !site_prefixes.contains(prefix) {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "The VPC prefix {prefix} is not contained within the site fabric prefixes"
             ))
             .into());
@@ -71,10 +71,10 @@ pub async fn create(
         )
         .await?;
         let vpc = vpcs.first().ok_or_else(|| {
-            CarbideError::internal(format!("VPC ID: {} not found", new_prefix.vpc_id))
+            NicoError::internal(format!("VPC ID: {} not found", new_prefix.vpc_id))
         })?;
         if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "IPv6 VPC prefixes are only supported for FNN VPCs".to_string(),
             )
             .into());
@@ -92,7 +92,7 @@ pub async fn create(
             existing VPC prefix ({conflicting_vpc_prefixes})",
             vpc_prefix = new_prefix.config.prefix,
         );
-        return Err(CarbideError::InvalidArgument(msg).into());
+        return Err(NicoError::InvalidArgument(msg).into());
     }
 
     let segment_prefixes = db::probe_segment_prefixes(new_prefix.config.prefix, &mut txn).await?;
@@ -115,7 +115,7 @@ pub async fn create(
                 owned by another VPC",
                 vpc_prefix = new_prefix.config.prefix,
             );
-            return Err(CarbideError::InvalidArgument(msg).into());
+            return Err(NicoError::InvalidArgument(msg).into());
         }
         // We don't need the associated VpcIds anymore, get rid of them.
         own_segment_prefixes
@@ -137,7 +137,7 @@ pub async fn create(
             vpc_prefix = new_prefix.config.prefix,
             larger_segment_prefix = larger_segment_prefix.prefix,
         );
-        return Err(CarbideError::InvalidArgument(msg).into());
+        return Err(NicoError::InvalidArgument(msg).into());
     }
 
     // Check that the network segment prefixes aren't already tied to a VPC
@@ -156,13 +156,13 @@ pub async fn create(
             vpc_prefix = new_prefix.config.prefix,
             segment_prefix = segment_prefix.prefix,
         );
-        return Err(CarbideError::InvalidArgument(msg).into());
+        return Err(NicoError::InvalidArgument(msg).into());
     }
 
     new_prefix
         .metadata
         .validate(true)
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     let vpc_prefix = db::persist(new_prefix, &mut txn).await?;
 
@@ -198,8 +198,8 @@ pub async fn search(
     // We don't have tenant prefixes in this version, so searching against them
     // isn't allowed.
     tenant_prefix_id
-        .map(|_| -> Result<(), CarbideError> {
-            Err(CarbideError::InvalidArgument(
+        .map(|_| -> Result<(), NicoError> {
+            Err(NicoError::InvalidArgument(
                 "Searching on tenant_prefix_id is currently unsupported".to_owned(),
             ))
         })
@@ -208,13 +208,13 @@ pub async fn search(
     // If prefix_match was specified, we'll combine it with prefix_match_type to
     // determine the match semantics.
     let prefix_match = prefix_match
-        .map(|prefix| -> Result<_, CarbideError> {
+        .map(|prefix| -> Result<_, NicoError> {
             let prefix =
-                IpNetwork::try_from(prefix.as_str()).map_err(CarbideError::NetworkParseError)?;
+                IpNetwork::try_from(prefix.as_str()).map_err(NicoError::NetworkParseError)?;
             let prefix_match_type = prefix_match_type
-                .ok_or_else(|| CarbideError::MissingArgument("prefix_match_type"))?;
+                .ok_or_else(|| NicoError::MissingArgument("prefix_match_type"))?;
             let prefix_match_type = PrefixMatchType::try_from(prefix_match_type).map_err(|_e| {
-                CarbideError::InvalidArgument(format!(
+                NicoError::InvalidArgument(format!(
                     "Unknown PrefixMatchType value: {prefix_match_type}"
                 ))
             })?;
@@ -251,7 +251,7 @@ pub async fn get(
             "Too many VPC prefix IDs were specified (the limit is {maximum})",
             maximum = api.runtime_config.max_find_by_ids,
         );
-        return Err(CarbideError::InvalidArgument(msg).into());
+        return Err(NicoError::InvalidArgument(msg).into());
     }
 
     let mut txn = api.txn_begin().await?;
@@ -281,7 +281,7 @@ pub async fn update(
     update_prefix
         .metadata
         .validate(true)
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     let updated = db::update(&update_prefix, &mut txn).await?;
 

@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::instance_type::InstanceTypeId;
+use nico_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
 use model::instance_type::{
     InstanceType, InstanceTypeAssociationDetails, InstanceTypeMachineCapabilityFilter,

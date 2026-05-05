@@ -28,8 +28,8 @@ use model::address_selection_strategy::AddressSelectionStrategy;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_id::from_hardware_info;
 use model::machine_interface_address::MachineInterfaceAssociation;
-use rpc::forge::InterfaceSearchQuery;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::InterfaceSearchQuery;
+use rpc::nico::nico_server::Nico;
 use tokio::sync::broadcast;
 use tonic::Code;
 
@@ -418,7 +418,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     let dhcp_response = env
         .api
-        .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
+        .discover_dhcp(tonic::Request::new(rpc::nico::DhcpDiscovery {
             mac_address: "FF:FF:FF:FF:FF:AA".to_string(),
             relay_address: "192.0.2.1".to_string(),
             link_address: None,
@@ -438,7 +438,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // Find the Machine Interface ID for our new record
     let interface = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(rpc::nico::InterfaceSearchQuery {
             id: None,
             ip: Some(dhcp_response.address.clone()),
         }))
@@ -450,7 +450,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let interface_id = interface.id.unwrap();
 
     env.api
-        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+        .delete_interface(tonic::Request::new(rpc::nico::InterfaceDeleteQuery {
             id: Some(interface_id),
         }))
         .await
@@ -468,7 +468,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // The next discover_dhcp should return an updated timestamp
     let dhcp_response = env
         .api
-        .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
+        .discover_dhcp(tonic::Request::new(rpc::nico::DhcpDiscovery {
             mac_address: "FF:FF:FF:FF:FF:AA".to_string(),
             relay_address: "192.0.2.1".to_string(),
             link_address: None,
@@ -506,7 +506,7 @@ async fn test_delete_interface_with_machine(
 
     let response = env
         .api
-        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+        .delete_interface(tonic::Request::new(rpc::nico::InterfaceDeleteQuery {
             id: Some(interface.id),
         }))
         .await;
@@ -556,7 +556,7 @@ async fn test_delete_bmc_interface_with_machine(
 
     let response = env
         .api
-        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+        .delete_interface(tonic::Request::new(rpc::nico::InterfaceDeleteQuery {
             id: Some(bmc_interface.id),
         }))
         .await;
@@ -615,8 +615,8 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 async fn test_max_one_interface_association(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use carbide_uuid::power_shelf::PowerShelfId;
-    use carbide_uuid::switch::SwitchId;
+    use nico_uuid::power_shelf::PowerShelfId;
+    use nico_uuid::switch::SwitchId;
     use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
     use model::switch::{NewSwitch, SwitchConfig};
 
@@ -693,7 +693,7 @@ async fn test_max_one_interface_association(
 async fn test_power_shelf_association(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use carbide_uuid::power_shelf::PowerShelfId;
+    use nico_uuid::power_shelf::PowerShelfId;
     use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 
     let env = create_test_env(pool).await;
@@ -742,7 +742,7 @@ async fn test_power_shelf_association(
 
 #[crate::sqlx_test]
 async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    use carbide_uuid::switch::SwitchId;
+    use nico_uuid::switch::SwitchId;
     use model::switch::{NewSwitch, SwitchConfig};
 
     let env = create_test_env(pool).await;

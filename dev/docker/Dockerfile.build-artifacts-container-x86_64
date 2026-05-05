@@ -22,8 +22,8 @@
 # `~/.docker/config.json`)
 # - `git describe` to get the tag
 # - `cd dev/docker`
-# - `docker build -t urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:{OUTPUT_OF_GIT_DESCRIBE_HERE} -f Dockerfile.build-container .`
-# - `docker push urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:{OUTPUT_OF_GIT_DESCRIBE_HERE}`
+# - `docker build -t urm.nvidia.com/swngc-ngcc-docker-local/nico/nico/x86-64/build-container:{OUTPUT_OF_GIT_DESCRIBE_HERE} -f Dockerfile.build-container .`
+# - `docker push urm.nvidia.com/swngc-ngcc-docker-local/nico/nico/x86-64/build-container:{OUTPUT_OF_GIT_DESCRIBE_HERE}`
 
 # This should match rust-toolchain.toml
 FROM rust:1.90.0-slim-bullseye

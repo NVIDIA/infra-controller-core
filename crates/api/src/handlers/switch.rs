@@ -16,13 +16,13 @@
  */
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, HealthReportEntry};
+use ::rpc::nico::{self as rpc, HealthReportEntry};
 use db::{ObjectColumnFilter, switch as db_switch};
 use health_report::HealthReportApplyMode;
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
@@ -35,7 +35,7 @@ pub async fn find_switch(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
@@ -46,7 +46,7 @@ pub async fn find_switch(
             db::ObjectColumnFilter::One(db_switch::IdColumn, &id),
         )
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Failed to find switch: {}", e),
         })?
     } else if let Some(name) = query.name {
@@ -56,14 +56,14 @@ pub async fn find_switch(
             db::ObjectColumnFilter::One(db_switch::NameColumn, &name),
         )
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Failed to find switch: {}", e),
         })?
     } else {
         // No filter - return all
         db_switch::find_by(&mut txn, db::ObjectColumnFilter::<db_switch::IdColumn>::All)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("Failed to find switch: {}", e),
             })?
     };
@@ -71,7 +71,7 @@ pub async fn find_switch(
     let bmc_info_map: std::collections::HashMap<String, rpc::BmcInfo> = {
         let rows = db_switch::list_switch_bmc_info(&mut txn)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("Failed to get switch BMC info: {}", e),
             })?;
 
@@ -91,7 +91,7 @@ pub async fn find_switch(
             .collect()
     };
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -109,7 +109,7 @@ pub async fn find_switch(
             })
         })
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Failed to convert switch: {}", e),
         })?;
 
@@ -139,13 +139,13 @@ pub async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if switch_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if switch_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -160,7 +160,7 @@ pub async fn find_by_ids(
     let bmc_info_map: std::collections::HashMap<_, _> = {
         let rows = db_switch::find_bmc_info_by_switch_ids(&mut txn, &switch_ids)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("Failed to get switch BMC info: {}", e),
             })?;
 
@@ -194,7 +194,7 @@ pub async fn find_by_ids(
             })
         })
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Failed to convert switch: {}", e),
         })?;
 
@@ -211,13 +211,13 @@ pub async fn find_switch_state_histories(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if switch_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if switch_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -229,13 +229,13 @@ pub async fn find_switch_state_histories(
         &switch_ids,
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     let mut response = rpc::StateHistories::default();
     for (switch_id, records) in results {
         response.histories.insert(
             switch_id,
-            ::rpc::forge::StateHistoryRecords {
+            ::rpc::nico::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -256,7 +256,7 @@ pub async fn delete_switch(
     let switch_id = match req.id {
         Some(id) => id,
         None => {
-            return Err(CarbideError::InvalidArgument("Switch ID is required".to_string()).into());
+            return Err(NicoError::InvalidArgument("Switch ID is required".to_string()).into());
         }
     };
 
@@ -264,7 +264,7 @@ pub async fn delete_switch(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
@@ -273,12 +273,12 @@ pub async fn delete_switch(
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
     )
     .await
-    .map_err(|e| CarbideError::Internal {
+    .map_err(|e| NicoError::Internal {
         message: format!("Failed to find switch: {}", e),
     })?;
 
     if switch_list.is_empty() {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "switch",
             id: switch_id.to_string(),
         }
@@ -288,11 +288,11 @@ pub async fn delete_switch(
     let switch = switch_list.first_mut().unwrap();
     db_switch::mark_as_deleted(switch, &mut txn)
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Failed to delete switch: {}", e),
         })?;
 
-    txn.commit().await.map_err(|e| CarbideError::Internal {
+    txn.commit().await.map_err(|e| NicoError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
@@ -311,7 +311,7 @@ pub async fn admin_force_delete_switch(
 
     let switch_id = request
         .switch_id
-        .ok_or_else(|| CarbideError::InvalidArgument("switch_id is required".to_string()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("switch_id is required".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -321,10 +321,10 @@ pub async fn admin_force_delete_switch(
         ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     if switch_list.is_empty() {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "switch",
             id: switch_id.to_string(),
         }
@@ -336,11 +336,11 @@ pub async fn admin_force_delete_switch(
     if request.delete_interfaces {
         let interface_ids = db::machine_interface::find_ids_by_switch_id(&mut txn, &switch_id)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
         for interface_id in &interface_ids {
             db::machine_interface::delete(interface_id, &mut txn)
                 .await
-                .map_err(CarbideError::from)?;
+                .map_err(NicoError::from)?;
         }
         interfaces_deleted = interface_ids.len() as u32;
     }
@@ -352,12 +352,12 @@ pub async fn admin_force_delete_switch(
         &switch_id,
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     // Hard-delete the switch.
     db_switch::final_delete(switch_id, &mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     txn.commit().await?;
 
@@ -375,17 +375,17 @@ pub(crate) async fn update_switch_metadata(
     let request = request.into_inner();
     let switch_id = request
         .switch_id
-        .ok_or_else(|| CarbideError::from(RpcDataConversionError::MissingArgument("switch_id")))?;
+        .ok_or_else(|| NicoError::from(RpcDataConversionError::MissingArgument("switch_id")))?;
 
     let metadata = match request.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -394,18 +394,18 @@ pub(crate) async fn update_switch_metadata(
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(NicoError::from)?;
 
     let switch = switches
         .into_iter()
         .next()
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "switch",
             id: switch_id.to_string(),
         })?;
 
     let expected_version: config_version::ConfigVersion = match request.if_version_match {
-        Some(version) => version.parse().map_err(CarbideError::from)?,
+        Some(version) => version.parse().map_err(NicoError::from)?,
         None => switch.version,
     };
 
@@ -425,20 +425,20 @@ pub async fn list_switch_health_reports(
     let req = request.into_inner();
     let switch_id = req
         .switch_id
-        .ok_or_else(|| CarbideError::MissingArgument("switch_id"))?;
+        .ok_or_else(|| NicoError::MissingArgument("switch_id"))?;
 
     let mut conn = api
         .database_connection
         .acquire()
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("Database error: {}", e),
         })?;
 
     let switch = db_switch::find_by_id(&mut conn, &switch_id)
         .await
-        .map_err(CarbideError::from)?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .map_err(NicoError::from)?
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "switch",
             id: switch_id.to_string(),
         })?;
@@ -472,15 +472,15 @@ pub async fn insert_switch_health_report(
         health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
     else {
-        return Err(CarbideError::MissingArgument("override").into());
+        return Err(NicoError::MissingArgument("override").into());
     };
-    let switch_id = switch_id.ok_or_else(|| CarbideError::MissingArgument("switch_id"))?;
+    let switch_id = switch_id.ok_or_else(|| NicoError::MissingArgument("switch_id"))?;
 
     let Some(report) = report else {
-        return Err(CarbideError::MissingArgument("report").into());
+        return Err(NicoError::MissingArgument("report").into());
     };
     let Ok(mode) = rpc::HealthReportApplyMode::try_from(mode) else {
-        return Err(CarbideError::InvalidArgument("mode".to_string()).into());
+        return Err(NicoError::InvalidArgument("mode".to_string()).into());
     };
     let mode: HealthReportApplyMode = mode.into();
 
@@ -488,14 +488,14 @@ pub async fn insert_switch_health_report(
 
     let switch = db_switch::find_by_id(&mut txn, &switch_id)
         .await
-        .map_err(CarbideError::from)?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .map_err(NicoError::from)?
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "switch",
             id: switch_id.to_string(),
         })?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
     if report.observed_at.is_none() {
         report.observed_at = Some(chrono::Utc::now());
     }
@@ -503,7 +503,7 @@ pub async fn insert_switch_health_report(
     report.update_in_alert_since(None);
 
     match remove_switch_health_report_by_source(&switch, &mut txn, report.source.clone()).await {
-        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Ok(_) | Err(NicoError::NotFoundError { .. }) => {}
         Err(e) => return Err(e.into()),
     }
 
@@ -521,14 +521,14 @@ pub async fn remove_switch_health_report(
     log_request_data(&request);
 
     let rpc::RemoveSwitchHealthReportRequest { switch_id, source } = request.into_inner();
-    let switch_id = switch_id.ok_or_else(|| CarbideError::MissingArgument("switch_id"))?;
+    let switch_id = switch_id.ok_or_else(|| NicoError::MissingArgument("switch_id"))?;
 
     let mut txn = api.txn_begin().await?;
 
     let switch = db_switch::find_by_id(&mut txn, &switch_id)
         .await
-        .map_err(CarbideError::from)?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .map_err(NicoError::from)?
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "switch",
             id: switch_id.to_string(),
         })?;
@@ -543,13 +543,13 @@ async fn remove_switch_health_report_by_source(
     switch: &model::switch::Switch,
     txn: &mut db::Transaction<'_>,
     source: String,
-) -> Result<(), CarbideError> {
+) -> Result<(), NicoError> {
     let mode = if switch.health_reports.replace.as_ref().map(|o| &o.source) == Some(&source) {
         HealthReportApplyMode::Replace
     } else if switch.health_reports.merges.contains_key(&source) {
         HealthReportApplyMode::Merge
     } else {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "switch health report with source",
             id: source,
         });

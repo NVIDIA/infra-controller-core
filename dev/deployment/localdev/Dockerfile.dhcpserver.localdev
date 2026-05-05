@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM runtime-container-localdev:latest as carbide
-WORKDIR ./carbide
+FROM runtime-container-localdev:latest as nico
+WORKDIR ./nico
 
-COPY ".skaffold/target/carbide-dhcp-server/debug/forge-dhcp-server" /opt/carbide/
+COPY ".skaffold/target/nico-dhcp-server/debug/nico-dhcp-server" /opt/nico/

@@ -18,7 +18,7 @@
 pub mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
     use common::api_fixtures::tpm_attestation::{
         AK_NAME, AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, AK_PUB_SERIALIZED_2, ATTEST_SERIALIZED,
         ATTEST_SERIALIZED_2, ATTEST_SERIALIZED_SHORT, CRED_SERIALIZED, EK_CERT_SERIALIZED,
@@ -29,8 +29,8 @@ pub mod tests {
         TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
     };
     use model::hardware_info::{HardwareInfo, TpmEkCertificate};
-    use rpc::forge::AttestQuoteRequest;
-    use rpc::forge::forge_server::Forge;
+    use rpc::nico::AttestQuoteRequest;
+    use rpc::nico::nico_server::Nico;
     use rpc::machine_discovery::AttestKeyInfo;
     use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
     use tonic::Code;
@@ -437,7 +437,7 @@ pub mod tests {
         }
     }
 
-    // carbide/api/attestation.rs tests
+    // nico/api/attestation.rs tests
 
     use num_bigint_dig::BigUint;
     use rsa::RsaPublicKey;
@@ -446,7 +446,7 @@ pub mod tests {
     use tss_esapi::structures::{EccPoint, Public, Signature};
     use tss_esapi::traits::{Marshall, UnMarshall};
 
-    use crate::CarbideError::AttestBindKeyError;
+    use crate::NicoError::AttestBindKeyError;
     use crate::attestation::{verify_pcr_hash, verify_signature};
 
     #[test]
@@ -650,7 +650,7 @@ pub mod tests {
         }
     }
 
-    use crate::CarbideError::AttestQuoteError;
+    use crate::NicoError::AttestQuoteError;
 
     /*const ATTEST_SERIALIZED: [u8; 129] = [
         255, 84, 67, 71, 128, 24, 0, 34, 0, 11, 131, 45, 55, 82, 140, 235, 232, 215, 180, 133, 115,

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::admin_cli::NicoCliError;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -23,7 +23,7 @@ use crate::rpc::ApiClient;
 pub async fn revoke_dpu_remediation(
     data: Args,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     let id = data.id;
     api_client.0.revoke_remediation(data).await?;
 

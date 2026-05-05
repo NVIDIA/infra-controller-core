@@ -27,8 +27,8 @@ pub mod profile;
 pub mod report;
 pub mod site;
 
-use ::rpc::admin_cli::{CarbideCliResult, ToTable, set_summary};
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliResult, ToTable, set_summary};
+use nico_uuid::machine::MachineId;
 use serde::Serialize;
 
 use crate::cfg::dispatch::Dispatch;
@@ -36,7 +36,7 @@ use crate::cfg::measurement::{Cmd, GlobalOptions};
 use crate::cfg::runtime::RuntimeContext;
 
 impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+    async fn dispatch(self, ctx: RuntimeContext) -> NicoCliResult<()> {
         // Build internal GlobalOptions from RuntimeContext
         let args = GlobalOptions {
             format: ctx.config.format,

@@ -21,11 +21,11 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::network::NetworkSegmentId;
+use nico_uuid::domain::DomainId;
+use nico_uuid::network::NetworkSegmentId;
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -51,8 +51,8 @@ struct NetworkSegmentRowDisplay {
     version: String,
 }
 
-impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
-    fn from(segment: forgerpc::NetworkSegment) -> Self {
+impl From<nicorpc::NetworkSegment> for NetworkSegmentRowDisplay {
+    fn from(segment: nicorpc::NetworkSegment) -> Self {
         Self {
             id: segment.id.unwrap_or_default().to_string(),
             name: segment.name,
@@ -60,7 +60,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
             created: segment.created.unwrap_or_default().to_string(),
             state: format!(
                 "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                nicorpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
             time_in_state_above_sla: segment
                 .state_sla
@@ -107,10 +107,10 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         let segment_type = n.segment_type;
         let mut display: NetworkSegmentRowDisplay = n.into();
         display.sub_domain = domain_name;
-        match forgerpc::NetworkSegmentType::try_from(segment_type) {
-            Ok(forgerpc::NetworkSegmentType::Admin) => admin.push(display),
-            Ok(forgerpc::NetworkSegmentType::Underlay) => underlay.push(display),
-            Ok(forgerpc::NetworkSegmentType::Tenant) => tenant.push(display),
+        match nicorpc::NetworkSegmentType::try_from(segment_type) {
+            Ok(nicorpc::NetworkSegmentType::Admin) => admin.push(display),
+            Ok(nicorpc::NetworkSegmentType::Underlay) => underlay.push(display),
+            Ok(nicorpc::NetworkSegmentType::Tenant) => tenant.push(display),
             _ => {
                 tracing::error!(segment_type, "Invalid NetworkSegmentType, skipping");
             }
@@ -142,8 +142,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 
 async fn fetch_network_segments(
     api: Arc<Api>,
-) -> Result<Vec<forgerpc::NetworkSegment>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::NetworkSegmentSearchFilter::default());
+) -> Result<Vec<nicorpc::NetworkSegment>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::NetworkSegmentSearchFilter::default());
 
     let network_segments_ids = api
         .find_network_segment_ids(request)
@@ -159,7 +159,7 @@ async fn fetch_network_segments(
         let next_ids = &network_segments_ids[offset..offset + page_size];
         let next_vpcs = api
             .find_network_segments_by_ids(tonic::Request::new(
-                forgerpc::NetworkSegmentsByIdsRequest {
+                nicorpc::NetworkSegmentsByIdsRequest {
                     network_segments_ids: next_ids.to_vec(),
                     include_history: false,
                     include_num_free_ips: false,
@@ -226,8 +226,8 @@ struct NetworkSegmentHistory {
     version: String,
 }
 
-impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
-    fn from(segment: forgerpc::NetworkSegment) -> Self {
+impl From<nicorpc::NetworkSegment> for NetworkSegmentDetail {
+    fn from(segment: nicorpc::NetworkSegment) -> Self {
         let mut prefixes = Vec::new();
         for (i, p) in segment.prefixes.into_iter().enumerate() {
             prefixes.push(NetworkSegmentPrefix {
@@ -251,7 +251,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
         }
         let state = format!(
             "{:?}",
-            forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+            nicorpc::TenantState::try_from(segment.state).unwrap_or_default()
         );
         let version = segment.version;
         Self {
@@ -277,7 +277,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             domain_name: String::new(), // filled in later
             segment_type: format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                nicorpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
             ),
             prefixes,
             history,
@@ -306,7 +306,7 @@ pub async fn detail(
         }
     };
 
-    let request = tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
+    let request = tonic::Request::new(nicorpc::NetworkSegmentsByIdsRequest {
         network_segments_ids: vec![segment_id],
         include_history: true,
         include_num_free_ips: true,

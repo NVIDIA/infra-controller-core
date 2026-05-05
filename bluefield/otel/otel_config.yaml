@@ -41,10 +41,10 @@ receivers:
     start_at: beginning
     storage: file_storage/cursors
 
-  journald/forge-dpu-agent:
+  journald/nico-dpu-agent:
     directory: /var/log/journal
     units:
-      - forge-dpu-agent
+      - nico-dpu-agent
     storage: file_storage/cursors
     operators:
       # If you want to extract more than a few key=value pairs, use
@@ -84,7 +84,7 @@ receivers:
   prometheus/fmds:
     config:
       scrape_configs:
-        - job_name: 'forge-metrics'
+        - job_name: 'nico-metrics'
           scrape_interval: 10s
           static_configs:
             - targets: ['localhost:8888']
@@ -203,7 +203,7 @@ receivers:
           names:
             - bgpd
             - clx
-            - forge-dpu-agent
+            - nico-dpu-agent
             - neighmgrd
             - nl2docad
             - nvued
@@ -382,7 +382,7 @@ processors:
 
 exporters:
   otlp/site:
-    endpoint: otel-receiver.forge:443
+    endpoint: otel-receiver.nico:443
     tls:
       ca_file: /etc/otelcol-contrib/certs/ca.pem
       cert_file: /etc/otelcol-contrib/certs/otel-cert.pem
@@ -401,7 +401,7 @@ exporters:
 service:
   pipelines:
     logs/journald:
-      receivers: [journald/forge-dpu-agent]
+      receivers: [journald/nico-dpu-agent]
       processors:
         - memory_limiter
         - resourcedetection
@@ -517,7 +517,7 @@ service:
 
   extensions: [file_storage/cursors]
   # Internal otel collector metrics by default are exposed on port 8888,
-  # already in use by Forge, causing otelcol-contrib to terminate with an
+  # already in use by Nico, causing otelcol-contrib to terminate with an
   # error.
   telemetry:
     metrics:

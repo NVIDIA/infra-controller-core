@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Minimal image for running Cargo via Docker on macOS.
-# Adds protoc (carbide-rpc), libpq, and sccache for faster repeat builds.
+# Adds protoc (nico-rpc), libpq, and sccache for faster repeat builds.
 # Matches rust-toolchain.toml (Rust 1.90).
 #
 # On Apple Silicon (M1/M2/M3): do not set --platform=linux/amd64. Building on
@@ -25,6 +25,6 @@ RUN apt-get update && \
 RUN cargo install sccache --locked && rm -rf /usr/local/cargo/registry/src
 ENV RUSTC_WRAPPER=sccache
 ENV SCCACHE_DIR=/sccache
-# Use lld for linking (uses less RAM than default ld; avoids OOM when linking carbide-api tests).
+# Use lld for linking (uses less RAM than default ld; avoids OOM when linking nico-api tests).
 # Enable tokio_unstable so tokio::task::Builder is available (used by api-db, api, etc.).
 ENV RUSTFLAGS="-C link-arg=-fuse-ld=lld --cfg tokio_unstable"

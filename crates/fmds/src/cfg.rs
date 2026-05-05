@@ -18,13 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser)]
-#[clap(name = "carbide-fmds")]
+#[clap(name = "nico-fmds")]
 pub struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
 
     /// gRPC listen address for receiving config updates from
-    /// carbide-dpu-agent. The tenant should not be able to
+    /// nico-dpu-agent. The tenant should not be able to
     /// communicate with this address.
     #[clap(long, default_value = "0.0.0.0:50052")]
     pub grpc_address: String,
@@ -33,22 +33,22 @@ pub struct Options {
     #[clap(long, default_value = "0.0.0.0:80")]
     pub rest_address: String,
 
-    /// Carbide API server address for phone_home.
-    #[clap(long, default_value = "https://carbide-api.forge")]
-    pub forge_api: String,
+    /// Nico API server address for phone_home.
+    #[clap(long, default_value = "https://nico-api.nico")]
+    pub nico_api: String,
 
     /// Path to root CA certificate.
-    /// This will probably be shared with the carbide-dpu-agent.
+    /// This will probably be shared with the nico-dpu-agent.
     #[clap(long)]
     pub root_ca: Option<String>,
 
     /// Path to client certificate.
-    /// This will probably be shared with the carbide-dpu-agent.
+    /// This will probably be shared with the nico-dpu-agent.
     #[clap(long)]
     pub client_cert: Option<String>,
 
     /// Path to client key.
-    /// This will probably be shared with the carbide-dpu-agent.
+    /// This will probably be shared with the nico-dpu-agent.
     #[clap(long)]
     pub client_key: Option<String>,
 

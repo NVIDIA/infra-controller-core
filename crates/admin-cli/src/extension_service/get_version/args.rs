@@ -31,7 +31,7 @@ pub struct Args {
     pub versions: Vec<String>,
 }
 
-impl From<Args> for ::rpc::forge::GetDpuExtensionServiceVersionsInfoRequest {
+impl From<Args> for ::rpc::nico::GetDpuExtensionServiceVersionsInfoRequest {
     fn from(args: Args) -> Self {
         Self {
             service_id: args.service_id,

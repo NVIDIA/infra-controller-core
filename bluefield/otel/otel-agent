@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-# forge-dpu-otel-agent wrapper that first copies mTLS certs from forge-dpu-agent.
+# nico-dpu-otel-agent wrapper that first copies mTLS certs from nico-dpu-agent.
 
 /usr/local/sbin/otel_copy_certs.sh
-/usr/bin/forge-dpu-otel-agent --config-path=/etc/forge-dpu-otel-agent/config.toml run
+/usr/bin/nico-dpu-otel-agent --config-path=/etc/nico-dpu-otel-agent/config.toml run

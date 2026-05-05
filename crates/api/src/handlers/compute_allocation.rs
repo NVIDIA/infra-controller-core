@@ -18,9 +18,9 @@
 use std::num::TryFromIntError;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::compute_allocation::ComputeAllocationId;
-use carbide_uuid::instance_type::InstanceTypeId;
+use ::rpc::nico as rpc;
+use nico_uuid::compute_allocation::ComputeAllocationId;
+use nico_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
 use db::{compute_allocation, instance, instance_type, machine};
 use model::compute_allocation::MAX_COMPUTE_ALLOCATION_SIZE;
@@ -29,7 +29,7 @@ use model::tenant::{InvalidTenantOrg, TenantOrganizationId};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 
 pub(crate) async fn create(
@@ -42,9 +42,9 @@ pub(crate) async fn create(
 
     let (instance_type_id, count) = req
         .attributes
-        .map(|attr| -> Result<(InstanceTypeId, u32), CarbideError> {
+        .map(|attr| -> Result<(InstanceTypeId, u32), NicoError> {
             if attr.count > MAX_COMPUTE_ALLOCATION_SIZE {
-                return Err(CarbideError::from(RpcDataConversionError::InvalidValue(
+                return Err(NicoError::from(RpcDataConversionError::InvalidValue(
                     "count".to_string(),
                     format!("exceeds max allocation size of {MAX_COMPUTE_ALLOCATION_SIZE}"),
                 )));
@@ -54,12 +54,12 @@ pub(crate) async fn create(
                 .instance_type_id
                 .parse::<InstanceTypeId>()
                 .map_err(|e| {
-                    CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
+                    NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
                 })?;
             Ok((i, attr.count))
         })
         .transpose()?
-        .ok_or(CarbideError::from(RpcDataConversionError::MissingArgument(
+        .ok_or(NicoError::from(RpcDataConversionError::MissingArgument(
             "attributes",
         )))?;
 
@@ -73,20 +73,20 @@ pub(crate) async fn create(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Prepare the metadata
     let metadata = match req.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
 
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     // Start a new transaction for a db write.
     let mut txn = api.txn_begin().await?;
@@ -116,7 +116,7 @@ pub(crate) async fn create(
     .overflowing_add(count);
 
     if overflow {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "requested allocation would cause total allocations to exceed u32 limits".to_string(),
         )
         .into());
@@ -128,17 +128,17 @@ pub(crate) async fn create(
     // just block instance creation for no good reason.
     let machine_count = machine::find_ids_by_instance_type_id(&mut txn, &instance_type_id, false)
         .await
-        .map_err(CarbideError::from)?
+        .map_err(NicoError::from)?
         .len();
 
     if machine_count
         < new_tenant_allocation_total
             .try_into()
-            .map_err(|e: TryFromIntError| CarbideError::Internal {
+            .map_err(|e: TryFromIntError| NicoError::Internal {
                 message: format!("unable to compare current machine and allocation counts - {e}"),
             })?
     {
-        return Err(CarbideError::FailedPrecondition(format!(
+        return Err(NicoError::FailedPrecondition(format!(
                 "requested allocation would increase allocation count ({new_tenant_allocation_total}) above associated machines count ({machine_count})"
             ))
             .into());
@@ -154,7 +154,7 @@ pub(crate) async fn create(
         &metadata,
         count
             .try_into()
-            .map_err(|e: TryFromIntError| CarbideError::Internal {
+            .map_err(|e: TryFromIntError| NicoError::Internal {
                 message: format!("allocation count cannot be converted to i32 - {e}"),
             })?,
         &instance_type_id,
@@ -188,7 +188,7 @@ pub(crate) async fn find_ids(
         .map(|i| i.parse::<InstanceTypeId>())
         .transpose()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+            NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
         })?
         .map(|i| vec![i]);
 
@@ -199,7 +199,7 @@ pub(crate) async fn find_ids(
             .map(|t| t.parse::<TenantOrganizationId>())
             .transpose()
             .map_err(|e: InvalidTenantOrg| {
-                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?
             .as_ref(),
         instance_type_ids.as_deref(),
@@ -226,7 +226,7 @@ pub(crate) async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if req.ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be submitted"
         ))
         .into());
@@ -234,7 +234,7 @@ pub(crate) async fn find_by_ids(
 
     if req.ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -276,9 +276,9 @@ pub(crate) async fn update(
 
     let (instance_type_id, count) = req
         .attributes
-        .map(|attr| -> Result<(InstanceTypeId, u32), CarbideError> {
+        .map(|attr| -> Result<(InstanceTypeId, u32), NicoError> {
             if attr.count > MAX_COMPUTE_ALLOCATION_SIZE {
-                return Err(CarbideError::from(RpcDataConversionError::InvalidValue(
+                return Err(NicoError::from(RpcDataConversionError::InvalidValue(
                     "count".to_string(),
                     format!("exceeds max allocation size of {MAX_COMPUTE_ALLOCATION_SIZE}"),
                 )));
@@ -288,33 +288,33 @@ pub(crate) async fn update(
                 .instance_type_id
                 .parse::<InstanceTypeId>()
                 .map_err(|e| {
-                    CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
+                    NicoError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
                 })?;
             Ok((i, attr.count))
         })
         .transpose()?
-        .ok_or(CarbideError::from(RpcDataConversionError::MissingArgument(
+        .ok_or(NicoError::from(RpcDataConversionError::MissingArgument(
             "attributes",
         )))?;
 
     // Get the target ID
     let id = req
         .id
-        .ok_or(CarbideError::from(RpcDataConversionError::MissingArgument(
+        .ok_or(NicoError::from(RpcDataConversionError::MissingArgument(
             "id",
         )))?;
 
     // Prepare the metadata
     let metadata = match req.metadata {
-        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        Some(m) => Metadata::try_from(m).map_err(NicoError::from)?,
         _ => {
             return Err(
-                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                NicoError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
             );
         }
     };
 
-    metadata.validate(true).map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(NicoError::from)?;
 
     // Start a new transaction for a db write.
     let mut txn = api.txn_begin().await?;
@@ -323,7 +323,7 @@ pub(crate) async fn update(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Look up the ComputeAllocation.  We'll need to check the current
@@ -338,7 +338,7 @@ pub(crate) async fn update(
 
     // If we found more than one, the DB is corrupt.
     if current_compute_allocation.len() > 1 {
-        return Err(CarbideError::Internal {
+        return Err(NicoError::Internal {
             message: format!("multiple ComputeAllocation records found for '{id}'"),
         }
         .into());
@@ -349,7 +349,7 @@ pub(crate) async fn update(
     let current_compute_allocation = match current_compute_allocation.first() {
         Some(i) => i,
         None => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "ComputeAllocation",
                 id: format!(
                     "{} for tenant org `{}`",
@@ -364,7 +364,7 @@ pub(crate) async fn update(
     // Check instance type id against the one we find in the actual record for the
     // requested allocation.
     if current_compute_allocation.instance_type_id != instance_type_id {
-        return Err(CarbideError::InvalidArgument(format!("requested ComputeAllocation record '{id}' is not associated with requested InstanceTypeId '{instance_type_id}'"))
+        return Err(NicoError::InvalidArgument(format!("requested ComputeAllocation record '{id}' is not associated with requested InstanceTypeId '{instance_type_id}'"))
         .into());
     }
 
@@ -390,7 +390,7 @@ pub(crate) async fn update(
         )
         .await?
         .get(&instance_type_id)
-        .ok_or_else(|| CarbideError::Internal {
+        .ok_or_else(|| NicoError::Internal {
             message: format!(
                 "expected allocation sum for instance type `{instance_type_id}` not found"
             ),
@@ -403,19 +403,19 @@ pub(crate) async fn update(
         let machine_count =
             machine::find_ids_by_instance_type_id(&mut txn, &instance_type_id, false)
                 .await
-                .map_err(CarbideError::from)?
+                .map_err(NicoError::from)?
                 .len();
 
         if machine_count
             < new_tenant_allocation_total
                 .try_into()
-                .map_err(|e: TryFromIntError| CarbideError::Internal {
+                .map_err(|e: TryFromIntError| NicoError::Internal {
                     message: format!(
                         "unable to compare current machine and allocation counts - {e}"
                     ),
                 })?
         {
-            return Err(CarbideError::FailedPrecondition(format!(
+            return Err(NicoError::FailedPrecondition(format!(
                 "requested update would increase allocation count ({new_tenant_allocation_total}) above associated machines count ({machine_count})"
             ))
             .into());
@@ -435,7 +435,7 @@ pub(crate) async fn update(
         )
         .await?
         .get(&instance_type_id)
-        .ok_or_else(|| CarbideError::Internal {
+        .ok_or_else(|| NicoError::Internal {
             message: format!(
                 "expected allocation sum for instance type `{instance_type_id}` not found"
             ),
@@ -456,13 +456,13 @@ pub(crate) async fn update(
         if instance_count
             > new_tenant_allocation_total
                 .try_into()
-                .map_err(|e: TryFromIntError| CarbideError::Internal {
+                .map_err(|e: TryFromIntError| NicoError::Internal {
                     message: format!(
                         "unable to compare current instance and allocation counts - {e}"
                     ),
                 })?
         {
-            return Err(CarbideError::FailedPrecondition(format!(
+            return Err(NicoError::FailedPrecondition(format!(
                 "requested update would decrease allocation count ({new_tenant_allocation_total}) below existing instances count ({instance_count})"
             ))
             .into());
@@ -473,10 +473,10 @@ pub(crate) async fn update(
     if let Some(if_version_match) = req.if_version_match {
         let target_version = if_version_match
             .parse::<ConfigVersion>()
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
         if current_compute_allocation.version != target_version {
-            return Err(CarbideError::ConcurrentModificationError(
+            return Err(NicoError::ConcurrentModificationError(
                 "ComputeAllocation",
                 target_version.to_string(),
             )
@@ -493,7 +493,7 @@ pub(crate) async fn update(
         &metadata,
         count
             .try_into()
-            .map_err(|e: TryFromIntError| CarbideError::Internal {
+            .map_err(|e: TryFromIntError| NicoError::Internal {
                 message: format!("allocation count cannot be converted to i32 - {e}"),
             })?,
         current_compute_allocation.version,
@@ -523,7 +523,7 @@ pub(crate) async fn delete(
 
     let id = req
         .id
-        .ok_or(CarbideError::from(RpcDataConversionError::MissingArgument(
+        .ok_or(NicoError::from(RpcDataConversionError::MissingArgument(
             "id",
         )))?;
 
@@ -534,7 +534,7 @@ pub(crate) async fn delete(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+                NicoError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Make our DB query for the ComputeAllocation.
@@ -557,7 +557,7 @@ pub(crate) async fn delete(
         && allocation.deleted.is_none()
     {
         if allocation.tenant_organization_id != tenant_organization_id {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "ComputeAllocation `{}` is not owned by Tenant `{}`",
                 allocation.id.clone(),
                 tenant_organization_id.clone()
@@ -577,7 +577,7 @@ pub(crate) async fn delete(
         )
         .await?
         .get(&allocation.instance_type_id)
-        .ok_or_else(|| CarbideError::Internal {
+        .ok_or_else(|| NicoError::Internal {
             message: format!(
                 "expected allocation sum for instance type `{}` not found",
                 allocation.instance_type_id
@@ -599,13 +599,13 @@ pub(crate) async fn delete(
         if instance_count
             > new_tenant_allocation_total
                 .try_into()
-                .map_err(|e: TryFromIntError| CarbideError::Internal {
+                .map_err(|e: TryFromIntError| NicoError::Internal {
                     message: format!(
                         "unable to compare current instance and allocation counts - {e}"
                     ),
                 })?
         {
-            return Err(CarbideError::FailedPrecondition(format!(
+            return Err(NicoError::FailedPrecondition(format!(
                 "requested delete would decrease allocation count ({new_tenant_allocation_total}) below existing instances count ({instance_count})"
             ))
             .into());

@@ -342,9 +342,9 @@
                   ipv4-unicast:
                     policy:
                       inbound:
-                        prefix-list: FORGE_FROM_UNDERLAY
+                        prefix-list: NICO_FROM_UNDERLAY
                       outbound:
-                        route-map: FORGE_TO_UNDERLAY
+                        route-map: NICO_TO_UNDERLAY
                     aspath:
                       allow-my-asn:
                         enable: on

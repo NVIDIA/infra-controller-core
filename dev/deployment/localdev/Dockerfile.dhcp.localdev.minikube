@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM registry.minikube/runtime-container:latest as carbide
-WORKDIR ./carbide
+FROM registry.minikube/runtime-container:latest as nico
+WORKDIR ./nico
 
-COPY ".skaffold/target/carbide-dhcp/debug/libdhcp.so" "/usr/lib/x86_64-linux-gnu/kea/hooks"
+COPY ".skaffold/target/nico-dhcp/debug/libdhcp.so" "/usr/lib/x86_64-linux-gnu/kea/hooks"

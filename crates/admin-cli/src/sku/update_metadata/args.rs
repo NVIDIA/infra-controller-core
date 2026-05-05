@@ -28,9 +28,9 @@ pub struct Args {
     pub device_type: Option<String>,
 }
 
-impl From<Args> for ::rpc::forge::SkuUpdateMetadataRequest {
+impl From<Args> for ::rpc::nico::SkuUpdateMetadataRequest {
     fn from(value: Args) -> Self {
-        ::rpc::forge::SkuUpdateMetadataRequest {
+        ::rpc::nico::SkuUpdateMetadataRequest {
             sku_id: value.sku_id,
             description: value.description,
             device_type: value.device_type,

@@ -15,16 +15,16 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::DpuReprovisioningRequest;
-use carbide_uuid::machine::MachineType;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::DpuReprovisioningRequest;
+use nico_uuid::machine::MachineType;
 use prettytable::{Table, row};
 
 use super::args::Args;
 use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
-pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResult<()> {
+pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> NicoCliResult<()> {
     match reprov {
         Args::Set(data) => {
             if let Some(update_message) = &data.update_message {
@@ -50,9 +50,9 @@ pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResu
 
 async fn apply_health_report(
     api_client: &ApiClient,
-    id: carbide_uuid::machine::MachineId,
+    id: nico_uuid::machine::MachineId,
     update_message: String,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     // Set a HostUpdateInProgress health report entry on the Host
     let host_id = match id.machine_type() {
         MachineType::Host => Some(id),
@@ -67,13 +67,13 @@ async fn apply_health_report(
             if let Some(host_id) = machine.map(|x| x.associated_host_machine_id) {
                 host_id
             } else {
-                return Err(CarbideCliError::GenericError(format!(
+                return Err(NicoCliError::GenericError(format!(
                     "Could not find host attached with dpu {id}",
                 )));
             }
         }
         _ => {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "Invalid machine ID for reprevisioning, only Hosts and DPUs are supported: {update_message}"
             )));
         }
@@ -94,7 +94,7 @@ async fn apply_health_report(
                 .iter()
                 .any(|or| or.source == "host-update")
         {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "Host machine: {:?} already has a \"host-update\" health report entry.",
                 host_machine.id,
             )));
@@ -110,13 +110,13 @@ async fn apply_health_report(
     Ok(())
 }
 
-pub async fn list_dpus_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn list_dpus_pending(api_client: &ApiClient) -> NicoCliResult<()> {
     let response = api_client.0.list_dpu_waiting_for_reprovisioning().await?;
     print_pending_dpus(response);
     Ok(())
 }
 
-fn print_pending_dpus(dpus: ::rpc::forge::DpuReprovisioningListResponse) {
+fn print_pending_dpus(dpus: ::rpc::nico::DpuReprovisioningListResponse) {
     let mut table = Table::new();
 
     table.set_titles(row![

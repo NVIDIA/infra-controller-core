@@ -37,7 +37,7 @@ static_resources:
               domains: ["*"]
               routes:
               - match: { prefix: "/" }
-                route: { cluster: carbide-api }
+                route: { cluster: nico-api }
           http_filters:
           - name: envoy.filters.http.router
   - name: listener_1
@@ -59,36 +59,36 @@ static_resources:
               routes:
               - match: { prefix: "/" }
                 route:
-                  cluster: carbide-pxe
+                  cluster: nico-pxe
                   timeout: 0s # fix to allow large files to be proxied, like a file server
           http_filters:
           - name: envoy.filters.http.router
   clusters:
-  - name: carbide-api
+  - name: nico-api
     connect_timeout: 0.25s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
     http2_protocol_options: {}
     load_assignment:
-      cluster_name: carbide
+      cluster_name: nico
       endpoints:
       - lb_endpoints:
         - endpoint:
             address:
               socket_address:
-                address: carbide-api
+                address: nico-api
                 port_value: 1079
-  - name: carbide-pxe
+  - name: nico-pxe
     connect_timeout: 0.25s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
     http2_protocol_options: {}
     load_assignment:
-      cluster_name: carbide
+      cluster_name: nico
       endpoints:
       - lb_endpoints:
         - endpoint:
             address:
               socket_address:
-                address: carbide-pxe
+                address: nico-pxe
                 port_value: 1080

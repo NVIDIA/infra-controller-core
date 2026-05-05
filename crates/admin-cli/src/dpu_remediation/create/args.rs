@@ -50,7 +50,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn into_metadata(self) -> Option<::rpc::forge::Metadata> {
+    pub fn into_metadata(self) -> Option<::rpc::nico::Metadata> {
         if self.labels.is_none() && self.meta_name.is_none() && self.meta_description.is_none() {
             return None;
         }
@@ -59,11 +59,11 @@ impl Args {
         if let Some(list) = &self.labels {
             for label in list {
                 let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
+                    Some((k, v)) => rpc::nico::Label {
                         key: k.trim().to_string(),
                         value: Some(v.trim().to_string()),
                     },
-                    None => rpc::forge::Label {
+                    None => rpc::nico::Label {
                         key: label.trim().to_string(),
                         value: None,
                     },
@@ -72,7 +72,7 @@ impl Args {
             }
         }
 
-        Some(::rpc::forge::Metadata {
+        Some(::rpc::nico::Metadata {
             name: self.meta_name.unwrap_or_default(),
             description: self.meta_description.unwrap_or_default(),
             labels,

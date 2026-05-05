@@ -16,12 +16,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM runtime-container-localdev:latest as carbide
+FROM runtime-container-localdev:latest as nico
 
-WORKDIR ./carbide
-COPY .skaffold/target/carbide-machine-a-tron/debug/machine-a-tron /opt/machine-a-tron/bin/
+WORKDIR ./nico
+COPY .skaffold/target/nico-machine-a-tron/debug/machine-a-tron /opt/machine-a-tron/bin/
 COPY crates/machine-a-tron/templates /opt/machine-a-tron/templates
 
 # bmc-mock expects certs here
-COPY crates/bmc-mock/tls.crt /opt/carbide/
-COPY crates/bmc-mock/tls.key /opt/carbide/
+COPY crates/bmc-mock/tls.crt /opt/nico/
+COPY crates/bmc-mock/tls.key /opt/nico/

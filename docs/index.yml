@@ -119,7 +119,7 @@ navigation:
     - section: Playbooks
       contents:
         - page: Azure OIDC for Infra Controller Web UI
-          path: playbooks/carbide_web_oauth2.md
+          path: playbooks/nico_web_oauth2.md
         - page: Force Deleting and Rebuilding Hosts
           path: playbooks/force_delete.md
         - page: Rebooting a Machine

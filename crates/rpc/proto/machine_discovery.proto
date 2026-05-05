@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package machine_discovery;
 
-// Carries information about a host that was discovered by the Forge system
+// Carries information about a host that was discovered by the Nico system
 message DiscoveryInfo {
   // Enumerates discovered network interfaces on the host
   repeated NetworkInterface network_interfaces = 1;

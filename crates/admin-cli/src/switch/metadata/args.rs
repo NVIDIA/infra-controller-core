@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]

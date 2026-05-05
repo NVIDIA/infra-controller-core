@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use config_version::Versioned;
 use serde::{Deserialize, Serialize};
 

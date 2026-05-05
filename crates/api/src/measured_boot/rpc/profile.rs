@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::measured_boot::MeasurementSystemProfileId;
+use nico_uuid::measured_boot::MeasurementSystemProfileId;
 use db::measured_boot::interface::profile::{
     export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
     get_machines_for_profile_id, get_machines_for_profile_name,
@@ -44,7 +44,7 @@ use rpc::protos::measured_boot::{
 use sqlx::PgConnection;
 use tonic::Status;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 
 /// handle_create_system_measurement_profile handles the
@@ -67,7 +67,7 @@ pub async fn handle_create_system_measurement_profile(
 
     let system_profile = db::measured_boot::profile::new(&mut txn, req.name, &vals)
         .await
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
 
     txn.commit().await?;
     Ok(CreateMeasurementSystemProfileResponse {
@@ -92,7 +92,7 @@ pub async fn handle_rename_measurement_system_profile(
             req.new_profile_name,
         )
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("rename failed: {e}"),
         })?,
 
@@ -105,14 +105,14 @@ pub async fn handle_rename_measurement_system_profile(
             req.new_profile_name,
         )
         .await
-        .map_err(|e| CarbideError::Internal {
+        .map_err(|e| NicoError::Internal {
             message: format!("rename failed: {e}"),
         })?,
 
         // ID or name is needed.
         None => {
             return Err(
-                CarbideError::InvalidArgument("rename selector is required".to_string()).into(),
+                NicoError::InvalidArgument("rename selector is required".to_string()).into(),
             );
         }
     };
@@ -142,12 +142,12 @@ pub async fn handle_delete_measurement_system_profile(
         // Trying to delete a profile without a selector.
         None => {
             return Err(
-                CarbideError::InvalidArgument("profile selector is required".to_string()).into(),
+                NicoError::InvalidArgument("profile selector is required".to_string()).into(),
             );
         }
     };
 
-    let system_profile = profile.ok_or(CarbideError::NotFoundError {
+    let system_profile = profile.ok_or(NicoError::NotFoundError {
         kind: "profile",
         id: "provided selector".to_string(),
     })?;
@@ -170,7 +170,7 @@ pub async fn handle_show_measurement_system_profile(
         Some(show_measurement_system_profile_request::Selector::ProfileId(profile_uuid)) => {
             db::measured_boot::profile::load_from_id(&mut txn, profile_uuid)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("{e}"),
                 })?
         }
@@ -178,12 +178,12 @@ pub async fn handle_show_measurement_system_profile(
         Some(show_measurement_system_profile_request::Selector::ProfileName(profile_name)) => {
             db::measured_boot::profile::load_from_name(&mut txn, profile_name)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("{e}"),
                 })?
         }
         // Show all system profiles.
-        None => return Err(CarbideError::InvalidArgument("selector required".to_string()).into()),
+        None => return Err(NicoError::InvalidArgument("selector required".to_string()).into()),
     };
     txn.commit().await?;
 
@@ -201,7 +201,7 @@ pub async fn handle_show_measurement_system_profiles(
     Ok(ShowMeasurementSystemProfilesResponse {
         system_profiles: db::measured_boot::profile::get_all(&mut api.db_reader())
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?
             .into_iter()
@@ -219,7 +219,7 @@ pub async fn handle_list_measurement_system_profiles(
     let system_profiles: Vec<MeasurementSystemProfileRecordPb> =
         export_measurement_profile_records(&api.database_connection)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?
             .into_iter()
@@ -242,7 +242,7 @@ pub async fn handle_list_measurement_system_profile_bundles(
             profile_uuid,
         )) => get_bundles_for_profile_id(&mut txn, profile_uuid)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?,
 
@@ -251,12 +251,12 @@ pub async fn handle_list_measurement_system_profile_bundles(
             profile_name,
         )) => get_bundles_for_profile_name(&mut txn, profile_name)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?,
 
         // ... either a UUID or name is required.
-        None => return Err(CarbideError::InvalidArgument("selector required".to_string()).into()),
+        None => return Err(NicoError::InvalidArgument("selector required".to_string()).into()),
     };
 
     txn.commit().await?;
@@ -276,7 +276,7 @@ pub async fn handle_list_measurement_system_profile_machines(
         Some(list_measurement_system_profile_machines_request::Selector::ProfileId(profile_id)) => {
             get_machines_for_profile_id(&mut txn, profile_id)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("{e}"),
                 })?
                 .drain(..)
@@ -288,14 +288,14 @@ pub async fn handle_list_measurement_system_profile_machines(
             profile_name,
         )) => get_machines_for_profile_name(&mut txn, profile_name)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?
             .drain(..)
             .map(|machine_id| machine_id.to_string())
             .collect(),
         // ...and it has to be either by ID or name.
-        None => return Err(CarbideError::InvalidArgument("selector required".to_string()).into()),
+        None => return Err(NicoError::InvalidArgument("selector required".to_string()).into()),
     };
     txn.commit().await?;
 
@@ -310,7 +310,7 @@ async fn delete_for_uuid(
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
     match db::measured_boot::profile::delete_for_id(txn, profile_id).await {
         Ok(optional_profile) => Ok(optional_profile),
-        Err(e) => Err(CarbideError::Internal {
+        Err(e) => Err(NicoError::Internal {
             message: format!("error deleting profile: {e}"),
         }
         .into()),
@@ -325,7 +325,7 @@ async fn delete_for_name(
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
     match db::measured_boot::profile::delete_for_name(txn, profile_name).await {
         Ok(optional_profile) => Ok(optional_profile),
-        Err(e) => Err(CarbideError::Internal {
+        Err(e) => Err(NicoError::Internal {
             message: format!("error deleting profile: {e}"),
         }
         .into()),

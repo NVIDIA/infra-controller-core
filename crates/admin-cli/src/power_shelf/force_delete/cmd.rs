@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use rpc::forge::AdminForceDeletePowerShelfRequest;
+use rpc::nico::AdminForceDeletePowerShelfRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

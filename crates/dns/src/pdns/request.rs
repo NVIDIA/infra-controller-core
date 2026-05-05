@@ -70,7 +70,7 @@ impl TryFrom<&PdnsRequest> for rpc::protos::dns::GetAllDomainsRequest {
 ///
 /// This conversion is used to handle DNS lookup requests from PowerDNS, typically
 /// initiated by DNS clients (e.g., `dig` or `nslookup`). The request is validated
-/// and transformed into a format that can be submitted to `carbide-api`.
+/// and transformed into a format that can be submitted to `nico-api`.
 impl TryFrom<&PdnsRequest> for rpc::protos::dns::DnsResourceRecordLookupRequest {
     type Error = eyre::Report;
 

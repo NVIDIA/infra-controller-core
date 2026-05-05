@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::admin_cli::{NicoCliError, NicoCliResult};
 
 use crate::os_image::common::str_to_rpc_uuid;
 
@@ -41,9 +41,9 @@ pub enum ShowQuery {
 }
 
 impl TryFrom<Args> for ShowQuery {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
 
-    fn try_from(args: Args) -> CarbideCliResult<Self> {
+    fn try_from(args: Args) -> NicoCliResult<Self> {
         match args.id {
             Some(id) => {
                 let uuid = str_to_rpc_uuid(&id)?;

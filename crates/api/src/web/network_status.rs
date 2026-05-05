@@ -23,10 +23,10 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -176,8 +176,8 @@ async fn fetch_network_status(
     current_page: usize,
     limit: usize,
 ) -> Result<(usize, Vec<NetworkStatusDisplay>), tonic::Status> {
-    let request: tonic::Request<forgerpc::ManagedHostNetworkStatusRequest> =
-        tonic::Request::new(forgerpc::ManagedHostNetworkStatusRequest {});
+    let request: tonic::Request<nicorpc::ManagedHostNetworkStatusRequest> =
+        tonic::Request::new(nicorpc::ManagedHostNetworkStatusRequest {});
     // The only reason we require the get_all_managed_host_network_status
     // API here is for retrieving the actually applied network_config_version
     // and the time of last contact (observed_at).
@@ -219,7 +219,7 @@ async fn fetch_network_status(
         .collect();
 
     let all_dpus = api
-        .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(nicorpc::MachinesByIdsRequest {
             machine_ids: ids_for_page,
             include_history: false,
         }))
@@ -250,7 +250,7 @@ async fn fetch_network_status(
                 inventory
                     .components
                     .iter()
-                    .find(|c| c.name == "forge-dpu-agent")
+                    .find(|c| c.name == "nico-dpu-agent")
                     .map(|c| c.version.clone())
             })
             .unwrap_or_default();
@@ -275,7 +275,7 @@ async fn fetch_network_status(
             network_config_version: status.network_config_version.unwrap_or_default(),
             is_healthy: health.alerts.is_empty(),
             health,
-            is_agent_updated: agent_version == carbide_version::v!(build_version),
+            is_agent_updated: agent_version == nico_version::v!(build_version),
             agent_version,
         });
     }

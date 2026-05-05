@@ -18,9 +18,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use model::machine::{Machine, ManagedHostState};
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::{Api, TestEnv};
@@ -43,7 +43,7 @@ impl TestMachine {
 
     pub async fn rpc_machine(&self) -> rpc::Machine {
         self.api
-            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
                 machine_ids: vec![self.id],
                 include_history: true,
             }))
@@ -81,10 +81,10 @@ impl TestMachine {
         )
     }
 
-    pub async fn reboot_completed(&self) -> rpc::forge::MachineRebootCompletedResponse {
+    pub async fn reboot_completed(&self) -> rpc::nico::MachineRebootCompletedResponse {
         tracing::info!("Machine ={} rebooted", self.id);
         self.api
-            .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
+            .reboot_completed(Request::new(rpc::nico::MachineRebootCompletedRequest {
                 machine_id: self.id.into(),
             }))
             .await
@@ -92,10 +92,10 @@ impl TestMachine {
             .into_inner()
     }
 
-    pub async fn forge_agent_control(&self) -> rpc::forge::ForgeAgentControlResponse {
+    pub async fn nico_agent_control(&self) -> rpc::nico::NicoAgentControlResponse {
         self.reboot_completed().await;
         self.api
-            .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
+            .nico_agent_control(Request::new(rpc::nico::NicoAgentControlRequest {
                 machine_id: self.id.into(),
             }))
             .await
@@ -105,7 +105,7 @@ impl TestMachine {
 
     pub async fn discovery_completed(&self) {
         self.api
-            .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
+            .discovery_completed(Request::new(rpc::nico::MachineDiscoveryCompletedRequest {
                 machine_id: self.id.into(),
             }))
             .await
@@ -115,16 +115,16 @@ impl TestMachine {
 
     pub async fn trigger_dpu_reprovisioning(
         &self,
-        mode: rpc::forge::dpu_reprovisioning_request::Mode,
+        mode: rpc::nico::dpu_reprovisioning_request::Mode,
         update_firmware: bool,
     ) {
         self.api
             .trigger_dpu_reprovisioning(tonic::Request::new(
-                ::rpc::forge::DpuReprovisioningRequest {
+                ::rpc::nico::DpuReprovisioningRequest {
                     dpu_id: None,
                     machine_id: self.id.into(),
                     mode: mode as i32,
-                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                    initiator: ::rpc::nico::UpdateInitiator::AdminCli as i32,
                     update_firmware,
                 },
             ))

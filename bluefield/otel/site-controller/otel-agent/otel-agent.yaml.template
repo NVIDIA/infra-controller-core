@@ -5,9 +5,9 @@ metadata:
 spec:
   hostNetwork: true
   hostAliases:
-    - ip: ${CARBIDE_API_IP_ADDR}
+    - ip: ${NICO_API_IP_ADDR}
       hostnames:
-        - carbide-api.forge
+        - nico-api.nico
   containers:
     - name: otel-agent
       image: otel-agent

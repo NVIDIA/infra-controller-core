@@ -308,10 +308,10 @@ pub type KeyId = NonEmptyStr<TenantIdentitySigningKeyIdTag>;
 impl KeyId {
     /// JWT `kid` from `hex(sha256(utf8_bytes(public_key_material)))`.
     ///
-    /// Delegates to [`forge_secrets::key_encryption::key_id_from_public_key`] (e.g. SPKI PEM from
+    /// Delegates to [`nico_secrets::key_encryption::key_id_from_public_key`] (e.g. SPKI PEM from
     /// ES256 key generation). Infallible: that function always yields 64 hex characters.
     pub fn from_public_key_material(public_key_material: &str) -> Self {
-        Self::try_from(forge_secrets::key_encryption::key_id_from_public_key(
+        Self::try_from(nico_secrets::key_encryption::key_id_from_public_key(
             public_key_material,
         ))
         .expect("key_id_from_public_key yields 64 hex chars, always non-empty")

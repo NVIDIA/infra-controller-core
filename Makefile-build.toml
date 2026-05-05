@@ -22,35 +22,35 @@ REPO_ROOT = { script = [
 
 [tasks.build-component-local]
 category = "Build"
-description = "compile carbide package"
+description = "compile nico package"
 workspace = false
 script = '''
 
-echo "building ${CARBIDE_PROFILE}/${CARBIDE_ARCH} of ${CARBIDE_CRATE}"
+echo "building ${NICO_PROFILE}/${NICO_ARCH} of ${NICO_CRATE}"
 
-if [ "${CARBIDE_PROFILE}" = "release" ]
+if [ "${NICO_PROFILE}" = "release" ]
 then
   profile_arg="--release"
 fi
-pkg_args="${pkg_args} -p ${CARBIDE_CRATE}"
+pkg_args="${pkg_args} -p ${NICO_CRATE}"
 
-cargo build ${profile_arg} --target=${CARBIDE_ARCH}-unknown-linux-gnu ${pkg_args}
+cargo build ${profile_arg} --target=${NICO_ARCH}-unknown-linux-gnu ${pkg_args}
 '''
 
 [tasks.build-component-in-container]
 category = "Build"
-description = "compile carbide package x86_64"
+description = "compile nico package x86_64"
 workspace = false
 script = '''
 
-echo "building ${CARBIDE_PROFILE}/${CARBIDE_ARCH} of ${CARBIDE_CRATE}"
+echo "building ${NICO_PROFILE}/${NICO_ARCH} of ${NICO_CRATE}"
 
-if [ "${CARBIDE_PROFILE}" = "release" ]
+if [ "${NICO_PROFILE}" = "release" ]
 then
   profile_arg="--release"
 fi
 
-case "${CARBIDE_ARCH}" in
+case "${NICO_ARCH}" in
   "x86_64")
     IMAGE_NAME="urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest"
     ;;
@@ -63,28 +63,28 @@ case "${CARBIDE_ARCH}" in
     ;;
 esac
 
-pkg_args="${pkg_args} -p ${CARBIDE_CRATE}"
+pkg_args="${pkg_args} -p ${NICO_CRATE}"
 
 docker run \
     --rm \
-    --workdir /carbide \
+    --workdir /nico \
     --env CARGO_HOME=/cargo \
     --user $(id -u):$(id -g) \
-    --volume $REPO_ROOT:/carbide \
+    --volume $REPO_ROOT:/nico \
     --volume $CARGO_HOME:/cargo \
     $IMAGE_NAME \
-    cargo build ${profile_arg} --target=${CARBIDE_ARCH}-unknown-linux-gnu ${pkg_args}
+    cargo build ${profile_arg} --target=${NICO_ARCH}-unknown-linux-gnu ${pkg_args}
 
-  if [ "${CARBIDE_PROFILE}" = "release" ] && [ "${CARBIDE_ARCH}" = "x86_64" ]
+  if [ "${NICO_PROFILE}" = "release" ] && [ "${NICO_ARCH}" = "x86_64" ]
   then
   docker run \
     --rm \
     --user $(id -u):$(id -g) \
-    --volume $REPO_ROOT:/carbide \
+    --volume $REPO_ROOT:/nico \
     urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
-    x86_64-linux-gnu-strip /carbide/target/x86_64-unknown-linux-gnu/release/forge-scout
+    x86_64-linux-gnu-strip /nico/target/x86_64-unknown-linux-gnu/release/nico-scout
   else
-    echo "Skipping strip of sysmbols in profile ${CARBIDE_PROFILE}"
+    echo "Skipping strip of sysmbols in profile ${NICO_PROFILE}"
   fi
 '''
 dependencies = [

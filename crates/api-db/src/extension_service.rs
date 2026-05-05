@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::extension_service::ExtensionServiceId;
+use nico_uuid::extension_service::ExtensionServiceId;
 use config_version::{ConfigVersion, ConfigVersionChange};
 use model::extension_service::{
     ExtensionService, ExtensionServiceObservability, ExtensionServiceSnapshot,

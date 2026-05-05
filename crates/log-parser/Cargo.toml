@@ -15,15 +15,15 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-log-parser"
+name = "nico-log-parser"
 version = "0.0.2"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [[bin]]
-# TODO: rename to carbide-log-parser
-name = "forge-log-parser"
+# TODO: rename to nico-log-parser
+name = "nico-log-parser"
 path = "src/main.rs"
 
 [dependencies]
@@ -38,10 +38,10 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 
 # [local-dependencies]
-carbide-health-report = { path = "../health-report" }
-carbide-rpc = { path = "../rpc" }
-carbide-uuid = { path = "../uuid" }
-carbide-tls = { path = "../tls" }
+nico-health-report = { path = "../health-report" }
+nico-rpc = { path = "../rpc" }
+nico-uuid = { path = "../uuid" }
+nico-tls = { path = "../tls" }
 
 [build-dependencies]
 

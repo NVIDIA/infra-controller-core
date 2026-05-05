@@ -28,15 +28,15 @@ use axum::middleware::{Next, from_fn_with_state};
 use axum::response::IntoResponse;
 use axum::routing::{any, get};
 use bytes::Bytes;
-use carbide_authn::SpiffeContext;
-use carbide_authn::middleware::{
+use nico_authn::SpiffeContext;
+use nico_authn::middleware::{
     AuthContext, Authorization, CertDescriptionMiddleware, ConnectionAttributes, Principal,
 };
-use carbide_utils::HostPortPair;
-use forge_secrets::credentials::{
+use nico_utils::HostPortPair;
+use nico_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialReader, Credentials,
 };
-use forge_secrets::{CredentialConfig, create_credential_manager};
+use nico_secrets::{CredentialConfig, create_credential_manager};
 use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 use hyper::server::conn::http2;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -121,10 +121,10 @@ pub async fn start(
 
     tracing::info!(
         address = config.listen.to_string(),
-        build_version = carbide_version::v!(build_version),
-        build_date = carbide_version::v!(build_date),
-        rust_version = carbide_version::v!(rust_version),
-        "Start carbide BMC proxy",
+        build_version = nico_version::v!(build_version),
+        build_date = nico_version::v!(build_date),
+        rust_version = nico_version::v!(rust_version),
+        "Start nico BMC proxy",
     );
 
     let credential_manager = create_credential_manager(&credential_config, meter.clone())
@@ -203,19 +203,19 @@ impl BmcProxy {
         let connection_total_counter = self
             .state
             .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_attempted")
+            .u64_counter("nico-bmc-proxy.tls.connection_attempted")
             .with_description("The amount of tls connections that were attempted")
             .build();
         let connection_succeeded_counter = self
             .state
             .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_success")
+            .u64_counter("nico-bmc-proxy.tls.connection_success")
             .with_description("The amount of tls connections that were successful")
             .build();
         let connection_failed_counter = self
             .state
             .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_fail")
+            .u64_counter("nico-bmc-proxy.tls.connection_fail")
             .with_description("The amount of tcp connections that were failures")
             .build();
 
@@ -301,7 +301,7 @@ impl BmcProxy {
                 .expect("could not spawn task to handle HTTP connection");
         }
 
-        tracing::info!("carbide-bmc-proxy shutting down");
+        tracing::info!("nico-bmc-proxy shutting down");
     }
 }
 
@@ -435,12 +435,12 @@ pub fn cert_description_layer<AZ: Authorization>(
 }
 
 async fn root_url() -> &'static str {
-    const ROOT_CONTENTS: &str = if carbide_version::literal!(build_version).is_empty() {
-        "Carbide BMC proxy development build\n"
+    const ROOT_CONTENTS: &str = if nico_version::literal!(build_version).is_empty() {
+        "Nico BMC proxy development build\n"
     } else {
         concat!(
-            "Carbide BMC proxy ",
-            carbide_version::literal!(build_version),
+            "Nico BMC proxy ",
+            nico_version::literal!(build_version),
             "\n"
         )
     };

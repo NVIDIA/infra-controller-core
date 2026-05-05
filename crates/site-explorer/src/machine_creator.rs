@@ -17,9 +17,9 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use db::{ObjectColumnFilter, Transaction};
-use forge_secrets::credentials::{
+use nico_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
 use librms::RmsApi;
@@ -612,7 +612,7 @@ impl MachineCreator {
         let _topology =
             db::machine_topology::create_or_update(txn, machine_id, &hardware_info).await?;
 
-        // Forge scout will update this topology with a full information.
+        // Nico scout will update this topology with a full information.
         db::machine_topology::set_topology_update_needed(txn, machine_id, true).await?;
 
         // call enrich_mac_address to fill the MAC address info from the machine_interfaces table

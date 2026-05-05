@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use rpc::forge::DhcpRecord;
+use rpc::nico::DhcpRecord;
 use tokio::net::UdpSocket;
 
 use crate::Config;
@@ -58,7 +58,7 @@ pub fn machine_get_filename(
 
         let VendorClass { arch, .. } = vendor_class;
 
-        let base_url = config.dhcp_config.carbide_provisioning_server_ipv4;
+        let base_url = config.dhcp_config.nico_provisioning_server_ipv4;
         match arch {
             MachineArchitecture::EfiX64 => {
                 format!("http://{base_url}:8080/public/blobs/internal/x86_64/ipxe.efi")

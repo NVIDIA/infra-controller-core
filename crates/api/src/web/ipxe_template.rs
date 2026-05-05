@@ -23,13 +23,13 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::Base;
 
 fn ipxe_template_scope_fmt(scope: &i32) -> Cow<'static, str> {
-    rpc::forge::IpxeTemplateScope::try_from(*scope)
+    rpc::nico::IpxeTemplateScope::try_from(*scope)
         .map(|scope| Cow::Owned(format!("{scope:?}")))
         .unwrap_or(Cow::Borrowed("Unknown"))
 }
@@ -47,7 +47,7 @@ use crate::api::Api;
 #[derive(Template)]
 #[template(path = "ipxe_template_show.html")]
 struct IpxeTemplateShow {
-    templates: Vec<forgerpc::IpxeTemplate>,
+    templates: Vec<nicorpc::IpxeTemplate>,
 }
 
 pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
@@ -82,8 +82,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(templates)).into_response()
 }
 
-async fn fetch_templates(api: Arc<Api>) -> Result<Vec<forgerpc::IpxeTemplate>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::ListIpxeTemplatesRequest {});
+async fn fetch_templates(api: Arc<Api>) -> Result<Vec<nicorpc::IpxeTemplate>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::ListIpxeTemplatesRequest {});
     let response = api.list_ipxe_templates(request).await?;
     let mut templates = response.into_inner().templates;
     templates.sort_unstable_by(|a, b| a.name.cmp(&b.name));
@@ -93,11 +93,11 @@ async fn fetch_templates(api: Arc<Api>) -> Result<Vec<forgerpc::IpxeTemplate>, t
 #[derive(Template)]
 #[template(path = "ipxe_template_detail.html")]
 struct IpxeTemplateDetail {
-    tmpl: forgerpc::IpxeTemplate,
+    tmpl: nicorpc::IpxeTemplate,
 }
 
-impl From<forgerpc::IpxeTemplate> for IpxeTemplateDetail {
-    fn from(tmpl: forgerpc::IpxeTemplate) -> Self {
+impl From<nicorpc::IpxeTemplate> for IpxeTemplateDetail {
+    fn from(tmpl: nicorpc::IpxeTemplate) -> Self {
         Self { tmpl }
     }
 }
@@ -111,12 +111,12 @@ pub async fn detail(
         None => (false, id_str),
     };
 
-    let id: carbide_uuid::ipxe_template::IpxeTemplateId = match id_str.parse() {
+    let id: nico_uuid::ipxe_template::IpxeTemplateId = match id_str.parse() {
         Ok(v) => v,
         Err(_) => return super::not_found_response(id_str),
     };
 
-    let request = tonic::Request::new(forgerpc::GetIpxeTemplateRequest { id: Some(id) });
+    let request = tonic::Request::new(nicorpc::GetIpxeTemplateRequest { id: Some(id) });
 
     let tmpl = match state.get_ipxe_template(request).await {
         Ok(resp) => resp.into_inner(),

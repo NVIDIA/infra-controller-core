@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::dpu_extension_service_credential::Type;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::dpu_extension_service_credential::Type;
 use clap::Parser;
 
 use super::super::common::ExtensionServiceType;
@@ -61,23 +61,23 @@ pub struct Args {
     pub observability: Option<String>,
 }
 
-impl TryFrom<Args> for ::rpc::forge::CreateDpuExtensionServiceRequest {
-    type Error = CarbideCliError;
+impl TryFrom<Args> for ::rpc::nico::CreateDpuExtensionServiceRequest {
+    type Error = NicoCliError;
 
-    fn try_from(args: Args) -> CarbideCliResult<Self> {
+    fn try_from(args: Args) -> NicoCliResult<Self> {
         let credential =
             if args.username.is_some() || args.password.is_some() || args.registry_url.is_some() {
                 if args.username.is_none() || args.password.is_none() || args.registry_url.is_none()
                 {
-                    return Err(CarbideCliError::GenericError(
+                    return Err(NicoCliError::GenericError(
                     "All of username, password and registry URL are required to create credential"
                         .to_string(),
                 ));
                 }
 
-                Some(::rpc::forge::DpuExtensionServiceCredential {
+                Some(::rpc::nico::DpuExtensionServiceCredential {
                     registry_url: args.registry_url.unwrap_or_default(),
-                    r#type: Some(Type::UsernamePassword(rpc::forge::UsernamePassword {
+                    r#type: Some(Type::UsernamePassword(rpc::nico::UsernamePassword {
                         username: args.username.unwrap_or_default(),
                         password: args.password.unwrap_or_default(),
                     })),
@@ -86,7 +86,7 @@ impl TryFrom<Args> for ::rpc::forge::CreateDpuExtensionServiceRequest {
                 None
             };
 
-        let observability: Vec<::rpc::forge::DpuExtensionServiceObservabilityConfig> =
+        let observability: Vec<::rpc::nico::DpuExtensionServiceObservabilityConfig> =
             if let Some(r) = args.observability {
                 serde_json::from_str(&r)?
             } else {
@@ -101,7 +101,7 @@ impl TryFrom<Args> for ::rpc::forge::CreateDpuExtensionServiceRequest {
             data: args.data,
             description: args.description,
             credential,
-            observability: Some(::rpc::forge::DpuExtensionServiceObservability {
+            observability: Some(::rpc::nico::DpuExtensionServiceObservability {
                 configs: observability,
             }),
         })

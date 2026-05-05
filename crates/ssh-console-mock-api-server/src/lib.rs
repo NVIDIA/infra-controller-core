@@ -28,13 +28,13 @@ use tokio::sync::oneshot;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use uuid::Uuid;
 
-use crate::generated::forge::forge_server::ForgeServer;
-use crate::generated::forge::{self};
+use crate::generated::nico::nico_server::NicoServer;
+use crate::generated::nico::{self};
 use crate::generated::{common, machine_discovery};
 
 #[derive(Debug, Clone)]
 pub struct MockHost {
-    pub machine_id: carbide_uuid::machine::MachineId,
+    pub machine_id: nico_uuid::machine::MachineId,
     pub instance_id: Uuid,
     pub tenant_public_key: String,
     pub sys_vendor: &'static str,
@@ -45,7 +45,7 @@ pub struct MockHost {
     pub bmc_password: String,
 }
 
-impl From<MockHost> for forge::Machine {
+impl From<MockHost> for nico::Machine {
     fn from(value: MockHost) -> Self {
         Self {
             id: Some(value.machine_id),
@@ -61,7 +61,7 @@ impl From<MockHost> for forge::Machine {
     }
 }
 
-impl From<MockHost> for forge::Instance {
+impl From<MockHost> for nico::Instance {
     fn from(value: MockHost) -> Self {
         Self {
             id: Some(common::InstanceId {
@@ -112,7 +112,7 @@ impl MockApiServer {
         tokio::spawn(
             Server::builder()
                 .tls_config(tls)?
-                .add_service(ForgeServer::new(self))
+                .add_service(NicoServer::new(self))
                 .serve_with_shutdown(addr, async move {
                     shutdown_rx.await.ok();
                 }),

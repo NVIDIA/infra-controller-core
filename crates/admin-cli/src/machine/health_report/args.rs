@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::{ArgGroup, Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
@@ -48,7 +48,7 @@ pub struct HealthAddOptions {
     pub message: Option<String>,
     #[clap(long, help = "Replace all other health reports with this source")]
     pub replace: bool,
-    #[clap(long, help = "Print the template that is going to be send to carbide")]
+    #[clap(long, help = "Print the template that is going to be send to nico")]
     pub print_only: bool,
 }
 

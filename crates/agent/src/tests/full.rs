@@ -28,17 +28,17 @@ use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::network::NetworkSegmentId;
+use nico_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+use nico_uuid::domain::DomainId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::network::NetworkSegmentId;
 use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
 use ipnetwork::IpNetwork;
-use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig, InterfaceAssociationType};
+use rpc::nico::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig, InterfaceAssociationType};
 use rpc::{Timestamp, common as rpc_common};
 use tokio::sync::Mutex;
 
@@ -155,7 +155,7 @@ async fn test_nvue_generic(
 
 // Query the FMDS endpoint to retrieve tenant metadata
 // and make sure it matches expected values. run_common_parts
-// launches the forge_dpu_agent, and by passing in true to run_common_parts,
+// launches the nico_dpu_agent, and by passing in true to run_common_parts,
 // we are asking it to launch the metadata service. run_common_parts also launches
 // a gRPC server that returns data in response to GetManagedHostNetworkConfig call,
 // and that data populates the data retrieved by the metadata endpoint server.
@@ -265,43 +265,43 @@ async fn run_common_parts(
     virtualization_type: VpcVirtualizationType,
     test_metadata_service: bool,
 ) -> eyre::Result<TestOut> {
-    carbide_host_support::init_logging()?;
+    nico_host_support::init_logging()?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
     state.lock().await.virtualization_type = virtualization_type;
 
-    // Simulate a local carbide-api by initializing a new axum::Router that exposes the
-    // same gRPC endpoints that Carbide API would (and, in this case, the exact gRPC
+    // Simulate a local nico-api by initializing a new axum::Router that exposes the
+    // same gRPC endpoints that Nico API would (and, in this case, the exact gRPC
     // endpoints that our local agent that we're spawning will need to make calls to).
     // A `state` is provided to the Router so that each mocked call (e.g. how `handle_netconf
-    // is leveraged for `/forge.Forge/GetManagedHostNetworkConfig` calls) can have
-    // additional bits of context (just like carbide-api would).
+    // is leveraged for `/nico.Nico/GetManagedHostNetworkConfig` calls) can have
+    // additional bits of context (just like nico-api would).
     let app = Router::new()
         .route("/up", get(handle_up))
-        .route("/forge.Forge/DiscoverMachine", post(handle_discover))
+        .route("/nico.Nico/DiscoverMachine", post(handle_discover))
         .route(
-            "/forge.Forge/GetManagedHostNetworkConfig",
+            "/nico.Nico/GetManagedHostNetworkConfig",
             post(handle_netconf),
         )
         .route(
-            "/forge.Forge/RecordDpuNetworkStatus",
+            "/nico.Nico/RecordDpuNetworkStatus",
             post(handle_record_netstat),
         )
         .route(
-            "/forge.Forge/DpuAgentUpgradeCheck",
+            "/nico.Nico/DpuAgentUpgradeCheck",
             post(handle_dpu_agent_upgrade_check),
         )
         .route(
-            "/forge.Forge/UpdateAgentReportedInventory",
+            "/nico.Nico/UpdateAgentReportedInventory",
             post(handle_update_agent_reported_inventory),
         )
         .route(
-            "/forge.Forge/GetDpuInfoList",
+            "/nico.Nico/GetDpuInfoList",
             post(handle_get_dpu_info_list),
         )
-        .route("/forge.Forge/FindInterfaces", post(handle_find_interfaces))
-        // ForgeApiClient needs a working Version route for connection retrying
-        .route("/forge.Forge/Version", post(handle_version))
+        .route("/nico.Nico/FindInterfaces", post(handle_find_interfaces))
+        // NicoApiClient needs a working Version route for connection retrying
+        .route("/nico.Nico/Version", post(handle_version))
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;
@@ -322,7 +322,7 @@ async fn run_common_parts(
             }
         };
 
-    // Start forge-dpu-agent
+    // Start nico-dpu-agent
     tokio::spawn(async move {
         if let Err(e) = crate::start(opts).await {
             tracing::error!("Failed to start DPU agent: {:#}", e);
@@ -375,7 +375,7 @@ async fn handle_up() -> &'static str {
 
 async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
     state.lock().await.has_discovered = true;
-    common::respond(rpc::forge::MachineDiscoveryResult {
+    common::respond(rpc::nico::MachineDiscoveryResult {
         machine_id: Some(
             "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g"
                 .parse()
@@ -388,9 +388,9 @@ async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl
 }
 
 async fn handle_version() -> impl IntoResponse {
-    let mut resp = rpc::forge::BuildInfo::default();
+    let mut resp = rpc::nico::BuildInfo::default();
 
-    let rc = rpc::forge::RuntimeConfig {
+    let rc = rpc::nico::RuntimeConfig {
         sitename: Some("testsite".to_string()),
         ..Default::default()
     };
@@ -435,8 +435,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let admin_interface_prefix: IpNetwork = "192.168.0.12/32".parse().unwrap();
     let svi_ip = IpAddr::from_str("192.168.0.3").unwrap();
 
-    let admin_interface = rpc::forge::FlatInterfaceConfig {
-        function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
+    let admin_interface = rpc::nico::FlatInterfaceConfig {
+        function_type: rpc::nico::InterfaceFunctionType::Physical.into(),
         vlan_id: 10,
         vni: 10100,
         vpc_vni: 10101,
@@ -464,8 +464,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
 
     let tenant_interface_prefix: IpNetwork = "192.168.1.12/32".parse().unwrap();
 
-    let tenant_interface = rpc::forge::FlatInterfaceConfig {
-        function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
+    let tenant_interface = rpc::nico::FlatInterfaceConfig {
+        function_type: rpc::nico::InterfaceFunctionType::Physical.into(),
         vlan_id: 10,
         vni: 10100,
         vpc_vni: 10101,
@@ -487,138 +487,138 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         network_security_group: Some(FlatInterfaceNetworkSecurityGroupConfig {
             id: "5b931164-d9c6-11ef-8292-232e57575621".to_string(),
             version: "V1-1".to_string(),
-            source: rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc.into(),
+            source: rpc::nico::NetworkSecurityGroupSource::NsgSourceVpc.into(),
             stateful_egress: true,
-            rules: vec![rpc::forge::ResolvedNetworkSecurityGroupRule {
+            rules: vec![rpc::nico::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["0.0.0.0/0".to_string()],
                 dst_prefixes: vec!["0.0.0.0/0".to_string()],
-                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                     id: Some("anything".to_string()),
-                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                    direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                         .into(),
                     ipv6: false,
                     src_port_start: Some(80),
                     src_port_end: Some(81),
                     dst_port_start: Some(80),
                     dst_port_end: Some(81),
-                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 9001,
                     source_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                             "0.0.0.0/0".to_string(),
                         ),
                     ),
                     destination_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                             "0.0.0.0/0".to_string(),
                         ),
                     ),
                 }),
             },
-            rpc::forge::ResolvedNetworkSecurityGroupRule {
+            rpc::nico::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["0.0.0.0/0".to_string()],
                 dst_prefixes: vec!["1.0.0.0/0".to_string()],
-                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                     id: Some("anything".to_string()),
-                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                    direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                         .into(),
                     ipv6: false,
                     src_port_start: Some(80),
                     src_port_end: Some(81),
                     dst_port_start: Some(80),
                     dst_port_end: Some(81),
-                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 9001,
                     source_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                             "1.0.0.0/0".to_string(),
                         ),
                     ),
                     destination_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                             "1.0.0.0/0".to_string(),
                         ),
                     ),
                 }),
             },
-            rpc::forge::ResolvedNetworkSecurityGroupRule {
+            rpc::nico::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["0.0.0.0/0".to_string()],
                 dst_prefixes: vec!["1.0.0.0/0".to_string()],
-                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                     id: Some("anything".to_string()),
-                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                    direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                         .into(),
                     ipv6: false,
                     src_port_start: None,
                     src_port_end: None,
                     dst_port_start: Some(8080),
                     dst_port_end: Some(8080),
-                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 9001,
                     source_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                             "1.0.0.0/0".to_string(),
                         ),
                     ),
                     destination_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                             "1.0.0.0/0".to_string(),
                         ),
                     ),
                 }),
             },
-            rpc::forge::ResolvedNetworkSecurityGroupRule {
+            rpc::nico::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
                 dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
-                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                     id: Some("anything".to_string()),
-                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                    direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                         .into(),
                     ipv6: true,
                     src_port_start: Some(80),
                     src_port_end: Some(81),
                     dst_port_start: Some(80),
                     dst_port_end: Some(81),
-                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 9001,
                     source_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                             "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
                         ),
                     ),
                     destination_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                             "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
                         ),
                     ),
                 }),
             },
-            rpc::forge::ResolvedNetworkSecurityGroupRule {
+            rpc::nico::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
                 dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
-                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                     id: Some("anything".to_string()),
-                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                    direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                         .into(),
                     ipv6: true,
                     src_port_start: Some(80),
                     src_port_end: Some(81),
                     dst_port_start: Some(80),
                     dst_port_end: Some(81),
-                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 9001,
                     source_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                             "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
                         ),
                     ),
                     destination_net: Some(
-                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                             "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
                         ),
                     ),
@@ -631,109 +631,109 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     };
 
     let network_security_policy_overrides = vec![
-        rpc::forge::ResolvedNetworkSecurityGroupRule {
+        rpc::nico::ResolvedNetworkSecurityGroupRule {
             src_prefixes: vec!["0.0.0.0/0".to_string()],
             dst_prefixes: vec!["0.0.0.0/0".to_string()],
-            rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+            rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                     .into(),
                 ipv6: false,
                 src_port_start: Some(80),
                 src_port_end: Some(81),
                 dst_port_start: Some(80),
                 dst_port_end: Some(81),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
             }),
         },
-        rpc::forge::ResolvedNetworkSecurityGroupRule {
+        rpc::nico::ResolvedNetworkSecurityGroupRule {
             src_prefixes: vec!["0.0.0.0/0".to_string()],
             dst_prefixes: vec!["1.0.0.0/0".to_string()],
-            rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+            rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                     .into(),
                 ipv6: false,
                 src_port_start: Some(80),
                 src_port_end: Some(81),
                 dst_port_start: Some(80),
                 dst_port_end: Some(81),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "1.0.0.0/0".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "1.0.0.0/0".to_string(),
                     ),
                 ),
             }),
         },
-        rpc::forge::ResolvedNetworkSecurityGroupRule {
+        rpc::nico::ResolvedNetworkSecurityGroupRule {
             src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
             dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
-            rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+            rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                     .into(),
                 ipv6: true,
                 src_port_start: Some(80),
                 src_port_end: Some(81),
                 dst_port_start: Some(80),
                 dst_port_end: Some(81),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
                     ),
                 ),
             }),
         },
-        rpc::forge::ResolvedNetworkSecurityGroupRule {
+        rpc::nico::ResolvedNetworkSecurityGroupRule {
             src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
             dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
-            rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+            rule: Some(rpc::nico::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                direction: rpc::nico::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                     .into(),
                 ipv6: true,
                 src_port_start: Some(80),
                 src_port_end: Some(81),
                 dst_port_start: Some(80),
                 dst_port_end: Some(81),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: rpc::nico::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: rpc::nico::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    rpc::nico::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    rpc::nico::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
                     ),
                 ),
@@ -748,16 +748,16 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         instance_type_id: None,
         config: Some(rpc::InstanceConfig {
             tenant: Some(rpc::TenantConfig {
-                tenant_organization_id: "Forge-simulation-tenant".to_string(),
+                tenant_organization_id: "Nico-simulation-tenant".to_string(),
                 hostname: None,
                 tenant_keyset_ids: vec![],
             }),
-            os: Some(rpc::forge::InstanceOperatingSystemConfig {
+            os: Some(rpc::nico::InstanceOperatingSystemConfig {
                 phone_home_enabled: false,
                 run_provisioning_instructions_on_every_boot: false,
                 user_data: Some("".to_string()),
-                variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(rpc::forge::InlineIpxe {
-                    ipxe_script: " chain http://10.217.126.4/public/blobs/internal/x86_64/qcow-imager.efi loglevel=7 console=ttyS0,115200 console=tty0 pci=realloc=off image_url=https://pbss.s8k.io/v1/AUTH_team-forge/images.qcow2/carbide-dev-environment/carbide-dev-environment-latest.qcow2".to_string(),
+                variant: Some(rpc::nico::instance_operating_system_config::Variant::Ipxe(rpc::nico::InlineIpxe {
+                    ipxe_script: " chain http://10.217.126.4/public/blobs/internal/x86_64/qcow-imager.efi loglevel=7 console=ttyS0,115200 console=tty0 pci=realloc=off image_url=https://pbss.s8k.io/v1/AUTH_team-nico/images.qcow2/nico-dev-environment/nico-dev-environment-latest.qcow2".to_string(),
                     user_data: Some("".to_string()),
                 })),
             }),
@@ -765,7 +765,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 interfaces: vec![rpc::InstanceInterfaceConfig {
                     function_type: rpc::InterfaceFunctionType::Physical.into(),
                     network_segment_id: Some("a7cdeab1-84ec-48a2-ab59-62863d311f26".parse().unwrap()),
-                    network_details: Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                    network_details: Some(rpc::nico::instance_interface_config::NetworkDetails::SegmentId(
                         "a7cdeab1-84ec-48a2-ab59-62863d311f26".parse().unwrap(),
                     )),
                     device: None,
@@ -802,11 +802,11 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 ib_interfaces: vec![],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),
-            dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesStatus {
+            dpu_extension_services: Some(rpc::nico::InstanceDpuExtensionServicesStatus {
                 dpu_extension_services: vec![],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),
-            nvlink: Some(rpc::forge::InstanceNvLinkStatus {
+            nvlink: Some(rpc::nico::InstanceNvLinkStatus {
                 gpu_statuses: vec![],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),
@@ -821,7 +821,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         nvlink_config_version: "V1-T1748645613333260".to_string(),
     };
 
-    let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
+    let netconf = rpc::nico::ManagedHostNetworkConfigResponse {
         bgp_leaf_session_password: Some("this_is_not_a_real_password".to_string()),
         site_global_vpc_vni: None,
         asn: 65535,
@@ -834,7 +834,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             asn: 11111,
             vni: 22222,
         }],
-        routing_profile: Some(rpc::forge::RoutingProfile {
+        routing_profile: Some(rpc::nico::RoutingProfile {
             tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
@@ -850,8 +850,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
 
         anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
         tenant_host_asn: Some(65100),
-        traffic_intercept_config: Some(rpc::forge::TrafficInterceptConfig {
-            bridging: Some(rpc::forge::TrafficInterceptBridging {
+        traffic_intercept_config: Some(rpc::nico::TrafficInterceptConfig {
+            bridging: Some(rpc::nico::TrafficInterceptBridging {
                 internal_bridge_routing_prefix: "10.255.255.0/29".to_string(),
                 host_intercept_bridge_name: "br-host".to_string(),
                 vf_intercept_bridge_name: "br-dpu".to_string(),
@@ -866,7 +866,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         dhcp_servers: vec!["127.0.0.1".to_string()],
         vni_device: "".to_string(),
 
-        managed_host_config: Some(rpc::forge::ManagedHostNetworkConfig {
+        managed_host_config: Some(rpc::nico::ManagedHostNetworkConfig {
             loopback_ip: "127.0.0.1".to_string(),
             quarantine_state: None,
         }),
@@ -878,14 +878,14 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         instance_network_config_version: config_version,
         instance_id: None,
         network_virtualization_type: Some(
-            rpc::forge::VpcVirtualizationType::from(virtualization_type).into(),
+            rpc::nico::VpcVirtualizationType::from(virtualization_type).into(),
         ),
         vpc_vni: None,
         route_servers: vec![],
         remote_id: "".to_string(),
         deny_prefixes: vec!["1.1.1.1/32".to_string()],
         site_fabric_prefixes: vec!["2.2.2.2/32".to_string()],
-        vpc_isolation_behavior: rpc::forge::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
+        vpc_isolation_behavior: rpc::nico::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
         deprecated_deny_prefixes: vec![],
         enable_dhcp: true,
         host_interface_id: None,
@@ -917,10 +917,10 @@ async fn handle_dpu_agent_upgrade_check(
     AxumState(state): AxumState<Arc<Mutex<State>>>,
 ) -> impl axum::response::IntoResponse {
     state.lock().await.has_checked_for_upgrade = true;
-    common::respond(rpc::forge::DpuAgentUpgradeCheckResponse {
+    common::respond(rpc::nico::DpuAgentUpgradeCheckResponse {
         should_upgrade: false,
-        package_version: carbide_version::v!(build_version)[1..].to_string(),
-        server_version: carbide_version::v!(build_version).to_string(),
+        package_version: nico_version::v!(build_version)[1..].to_string(),
+        server_version: nico_version::v!(build_version).to_string(),
     })
 }
 
@@ -938,7 +938,7 @@ async fn handle_get_dpu_info_list(
             .num_get_dpu_ips
             .fetch_add(1, Ordering::SeqCst);
     }
-    common::respond(rpc::forge::GetDpuInfoListResponse {
+    common::respond(rpc::nico::GetDpuInfoListResponse {
         dpu_list: vec![
             DpuInfo {
                 id: "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg".to_string(),
@@ -959,7 +959,7 @@ fn timestamp_from_secs_nanos(secs: i64, nanos: i32) -> Timestamp {
 }
 
 async fn handle_find_interfaces() -> impl axum::response::IntoResponse {
-    let interface = rpc::forge::MachineInterface {
+    let interface = rpc::nico::MachineInterface {
         id: Some(
             MachineInterfaceId::from_str("c5ab152e-5ba6-4785-bce0-04e9711f6dc6")
                 .expect("valid interface id"),
@@ -992,7 +992,7 @@ async fn handle_find_interfaces() -> impl axum::response::IntoResponse {
         association_type: Some(InterfaceAssociationType::Machine.into()),
     };
 
-    common::respond(rpc::forge::InterfaceList {
+    common::respond(rpc::nico::InterfaceList {
         interfaces: vec![interface],
     })
 }

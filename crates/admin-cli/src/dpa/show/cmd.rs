@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc};
-use carbide_uuid::dpa_interface::DpaInterfaceId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico::{self as nicorpc};
+use nico_uuid::dpa_interface::DpaInterfaceId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -30,7 +30,7 @@ pub async fn show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if let Some(id) = args.id {
         show_dpa_details(id, is_json, api_client).await?
@@ -41,7 +41,7 @@ pub async fn show(
 }
 
 // Show a table of all the DPA interfaces in the system
-async fn show_dpas(json: bool, api_client: &ApiClient, page_size: usize) -> CarbideCliResult<()> {
+async fn show_dpas(json: bool, api_client: &ApiClient, page_size: usize) -> NicoCliResult<()> {
     let all_dpas = api_client.get_all_dpas(page_size).await?;
 
     if json {
@@ -57,12 +57,12 @@ async fn show_dpa_details(
     dpa_id: DpaInterfaceId,
     json: bool,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let dpas = api_client.get_one_dpa(dpa_id).await?;
 
     let dpa = match dpas.interfaces.len() {
         1 => &dpas.interfaces[0],
-        _ => return Err(CarbideCliError::GenericError("Unknown DPA ID".to_string())),
+        _ => return Err(NicoCliError::GenericError("Unknown DPA ID".to_string())),
     };
 
     if json {
@@ -76,7 +76,7 @@ async fn show_dpa_details(
     Ok(())
 }
 
-fn convert_dpas_to_nice_table(dpas: forgerpc::DpaInterfaceList) -> Box<Table> {
+fn convert_dpas_to_nice_table(dpas: nicorpc::DpaInterfaceList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "Machine", "state", "Created",]);
@@ -93,7 +93,7 @@ fn convert_dpas_to_nice_table(dpas: forgerpc::DpaInterfaceList) -> Box<Table> {
     table.into()
 }
 
-fn convert_dpa_to_nice_format(dpa: &forgerpc::DpaInterface) -> CarbideCliResult<String> {
+fn convert_dpa_to_nice_format(dpa: &nicorpc::DpaInterface) -> NicoCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 

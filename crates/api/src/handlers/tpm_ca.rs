@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::attestation as db_attest;
 use tonic::{Request, Response};
 use x509_parser::prelude::FromDer;
 use x509_parser::x509::X509Name;
 
 use crate::api::{Api, log_request_data};
-use crate::{CarbideError, attestation as attest};
+use crate::{NicoError, attestation as attest};
 
 pub(crate) async fn tpm_add_ca_cert(
     api: &Api,
@@ -49,7 +49,7 @@ pub(crate) async fn tpm_add_ca_cert(
     let db_ca_cert = match db_ca_cert_opt {
         Some(cert) => cert,
         None => {
-            return Err(CarbideError::internal(
+            return Err(NicoError::internal(
                 "CA Cert not returned on successful insertion".to_string(),
             )
             .into());

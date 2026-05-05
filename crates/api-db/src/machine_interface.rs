@@ -18,12 +18,12 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use carbide_network::ip::IdentifyAddressFamily;
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::switch::SwitchId;
+use nico_network::ip::IdentifyAddressFamily;
+use nico_uuid::domain::DomainId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
@@ -1273,7 +1273,7 @@ pub async fn allocate_address_for_family(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
     segment: &NetworkSegment,
-    family: carbide_network::ip::IpAddressFamily,
+    family: nico_network::ip::IpAddressFamily,
 ) -> DatabaseResult<()> {
     let mut fast_txn = Transaction::begin_inner(txn).await?;
     lock_network_segment_shared(&mut fast_txn, segment).await?;

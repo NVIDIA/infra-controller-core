@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use db::DatabaseError;
 use model::expected_switch::ExpectedSwitch;
 use model::site_explorer::ExploredManagedSwitch;

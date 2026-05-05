@@ -18,11 +18,11 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use carbide_host_support::agent_config::AgentConfig;
-use carbide_systemd::systemd;
-use forge_certs::cert_renewal::ClientCertRenewer;
-use forge_tls::client_config::ClientCert;
+use ::rpc::nico_tls_client::NicoClientConfig;
+use nico_host_support::agent_config::AgentConfig;
+use nico_systemd::systemd;
+use nico_certs::cert_renewal::ClientCertRenewer;
+use nico_tls::client_config::ClientCert;
 use humantime::format_duration as dt;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::time::sleep;
@@ -30,22 +30,22 @@ use tokio::time::sleep;
 use crate::command_line;
 
 pub async fn setup_and_run(
-    forge_client_config: Arc<ForgeClientConfig>,
+    nico_client_config: Arc<NicoClientConfig>,
     agent_config: AgentConfig,
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
     systemd::notify_start().await?;
     tracing::info!(
         options = ?options,
-        "Started forge-dpu-otel-agent"
+        "Started nico-dpu-otel-agent"
     );
 
     let start = Instant::now();
 
     // Setup client certificate renewal
-    let forge_api_server = agent_config.forge_system.api_server.clone();
+    let nico_api_server = agent_config.nico_system.api_server.clone();
     let client_cert_renewer =
-        ClientCertRenewer::new(forge_api_server.clone(), Arc::clone(&forge_client_config));
+        ClientCertRenewer::new(nico_api_server.clone(), Arc::clone(&nico_client_config));
 
     let main_loop = MainLoop {
         agent_config,
@@ -73,8 +73,8 @@ impl MainLoop {
         let mut term_signal = signal(SignalKind::terminate())?;
 
         let certs = ClientCert {
-            cert_path: self.agent_config.forge_system.client_cert.clone(),
-            key_path: self.agent_config.forge_system.client_key.clone(),
+            cert_path: self.agent_config.nico_system.client_cert.clone(),
+            key_path: self.agent_config.nico_system.client_key.clone(),
         };
 
         loop {

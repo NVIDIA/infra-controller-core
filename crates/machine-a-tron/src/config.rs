@@ -21,13 +21,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo};
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 use duration_str::deserialize_duration;
 use mac_address::MacAddress;
-use rpc::forge::DesiredFirmwareVersionEntry;
-use rpc::forge_tls_client::ForgeClientConfig;
-use rpc::protos::forge_api_client::ForgeApiClient;
+use rpc::nico::DesiredFirmwareVersionEntry;
+use rpc::nico_tls_client::NicoClientConfig;
+use rpc::protos::nico_api_client::NicoApiClient;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
@@ -40,21 +40,21 @@ use crate::machine_state_machine::OsImage;
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "machine-sim")]
 pub struct MachineATronArgs {
-    #[clap(long, env = "FORGE_ROOT_CA_PATH")]
+    #[clap(long, env = "NICO_ROOT_CA_PATH")]
     #[clap(
-        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to NICO_ROOT_CA_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
-    pub forge_root_ca_path: Option<String>,
+    pub nico_root_ca_path: Option<String>,
 
     #[clap(long, env = "CLIENT_CERT_PATH")]
     #[clap(
-        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_cert_path: Option<String>,
 
     #[clap(long, env = "CLIENT_KEY_PATH")]
     #[clap(
-        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_key_path: Option<String>,
 
@@ -106,7 +106,7 @@ pub struct MachineConfig {
     pub network_status_run_interval: Duration,
     /// Network virtualization type for VPCs created by this config section. Accepted values:
     /// "etv" (EthernetVirtualizer, default), "etv_nvue" (EthernetVirtualizer with NVUE), or
-    /// "fnn" (Forge Native Networking). When set to "fnn", network segments will include both
+    /// "fnn" (Nico Native Networking). When set to "fnn", network segments will include both
     /// an IPv4 and an IPv6 prefix, enabling dual-stack IP allocation for machine interfaces.
     /// TODO(chet): Technically etv_nvue is RIP, but I'm leaving it in here for now.. but will
     /// clean it up soon in its own PR.
@@ -182,7 +182,7 @@ pub struct MachineATronConfig {
         serialize_with = "serialize_machine_config"
     )]
     pub machines: BTreeMap<String, Arc<MachineConfig>>,
-    pub carbide_api_url: String,
+    pub nico_api_url: String,
     pub log_file: Option<String>,
     pub interface: String,
     #[serde(default = "default_true")]
@@ -214,7 +214,7 @@ pub struct MachineATronConfig {
     pub pxe_server_host: Option<String>,
     pub pxe_server_port: Option<String>,
     /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the bmc_proxy host (this will be combined with bmc_mock_port.)
-    pub configure_carbide_bmc_proxy_host: Option<String>,
+    pub configure_nico_bmc_proxy_host: Option<String>,
 
     #[serde(default)]
     /// Set this to the path of a directory that can be used to persist machine info between runs
@@ -405,19 +405,19 @@ fn default_true() -> bool {
 #[derive(Debug)]
 pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
-    pub forge_client_config: ForgeClientConfig,
+    pub nico_client_config: NicoClientConfig,
     pub bmc_mock_certs_dir: Option<PathBuf>,
     pub bmc_registration_mode: BmcRegistrationMode,
     pub api_throttler: ApiThrottler,
     /// These are the firmware versions the server wants us to be on. If not configured for other
     /// firmware, DPU's can mock that they already have this installed.
     pub desired_firmware_versions: Vec<DesiredFirmwareVersionEntry>,
-    pub forge_api_client: ForgeApiClient,
+    pub nico_api_client: NicoApiClient,
 }
 
 impl MachineATronContext {
     pub fn api_client(&self) -> ApiClient {
-        self.forge_api_client.clone().into()
+        self.nico_api_client.clone().into()
     }
 }
 
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn test_serialize_config() {
         let cfg_str = r#"
-carbide_api_url = "https://carbide-api.forge:443"
+nico_api_url = "https://nico-api.nico:443"
 log_file = "mat.log"
 interface = "br-77cbb29de011"
 tui_enabled = true
@@ -473,7 +473,7 @@ bmc_mock_port = 1266
 mat_api_server_enabled = true
 mat_api_server_listen_port = 2112
 use_single_bmc_mock = true
-configure_carbide_bmc_proxy_host = "192.168.1.20"
+configure_nico_bmc_proxy_host = "192.168.1.20"
 
 [machines.config]
 host_count = 10

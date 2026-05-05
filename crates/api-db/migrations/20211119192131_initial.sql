@@ -54,7 +54,7 @@ CREATE TABLE instance_types (
 );
 
 
--- a leaf is a hbn endpoint configured by forge-vpc
+-- a leaf is a hbn endpoint configured by nico-vpc
 CREATE TABLE vpc_resource_leafs(
     -- uuid is used for the 'name' of the leaf CRD
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -190,7 +190,7 @@ CREATE TABLE network_segments(
 	deleted TIMESTAMPTZ,
 
 	-- An admin network is not a vxlan but still needs to be sent to froge-vpc
-	-- Forge-vpc has a reserved ResourceGroup name used for 'admin' network
+	-- Nico-vpc has a reserved ResourceGroup name used for 'admin' network
 	admin_network BOOLEAN NOT NULL default 'f',
 
 	-- if an overlay, will be used to disambiguate overlapping IP space in future
@@ -229,7 +229,7 @@ CREATE TABLE network_prefixes(
 -- Make sure there''s at most one IPv4 prefix or one IPv6 prefix on a network segment
 CREATE UNIQUE INDEX network_prefix_family ON network_prefixes (family(prefix), segment_id);
 
--- network_prefixes / network_segments are ResourceGroups in forge-vpc
+-- network_prefixes / network_segments are ResourceGroups in nico-vpc
 CREATE TABLE network_prefix_events(
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   network_prefix_id uuid NOT NULL,
@@ -383,13 +383,13 @@ CREATE TABLE instance_subnets(
   -- if vfid = null(pf) without first deleting the related instance.
   -- deleting an instance_subnet where vfid != null should be permitted as
   -- !null = vf
-  -- when that VF is deleted we need to tell forge-vpc to re-map that VF device to a blackhole network
+  -- when that VF is deleted we need to tell nico-vpc to re-map that VF device to a blackhole network
 );
 
 -- only one null vfid (pf) per (instance_id, machine_interface_id)
 CREATE UNIQUE INDEX idx_one_null_vfid ON instance_subnets (vfid, instance_id, machine_interface_id) WHERE vfid = NULL;
 
--- instance subnets and instance_subnet_addresses = ManagedResource in forge-fpc
+-- instance subnets and instance_subnet_addresses = ManagedResource in nico-fpc
 CREATE TABLE IF NOT EXISTS instance_subnet_events(
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   instance_subnet_id uuid NOT NULL,

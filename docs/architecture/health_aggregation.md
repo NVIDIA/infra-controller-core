@@ -25,7 +25,7 @@ Health checks roughly fall into 3 categories:
 The overall health of the system can be seen as the combination of all health reports
 reports. If any component reports that a subsystem is not healthy, then the
 overall system is not healthy. This combination of health-reports is performed
-inside `carbide-core` at any time the health status of a host is queried.
+inside `nico-core` at any time the health status of a host is queried.
 
 A more detailed list of health probes can be found in [Health Probe IDs](health/health_probe_ids.md).  
 A list of health alert classifications can be found in [Health Alert Classifications](health/health_alert_classifications.md).
@@ -39,7 +39,7 @@ flowchart TB
     classDef bmcclass fill:orange,stroke:#333,stroke-width:3px;
     classDef osclass fill:lightblue,stroke:#333,stroke-width:3px;
     classDef hostclass fill:lightgrey,stroke:#333,stroke-width:3px;
-    classDef carbideclass fill:#76b900,stroke:#333,stroke-width:3px;
+    classDef nicoclass fill:#76b900,stroke:#333,stroke-width:3px;
 
     subgraph Users["Users and External Systems"]
         direction TB
@@ -50,10 +50,10 @@ flowchart TB
     end
 
     subgraph Deployment["NICo Deployment"]
-        carbide-core["<b>carbide-core</b><br>- derives aggregate Health status<br>- uses aggregate health for decision making"]
+        nico-core["<b>nico-core</b><br>- derives aggregate Health status<br>- uses aggregate health for decision making"]
         HWMON["Hardware Health Monitor"]
-        class carbide-core carbideclass;
-        class HWMON carbideclass;
+        class nico-core nicoclass;
+        class HWMON nicoclass;
     end
    
     subgraph Host["Host"]
@@ -62,7 +62,7 @@ flowchart TB
             end
             hbmc:::bmcclass;
             subgraph hostos["Host OS"]
-                forge-scout("forge-scout running<br>validation tests")
+                nico-scout("nico-scout running<br>validation tests")
             end
             class hostos osclass;
     end
@@ -74,7 +74,7 @@ flowchart TB
             dpubmc:::bmcclass;
             subgraph dpuos["DPU OS"]
                 dpu-metrics-collector["DPU metrics collector (DTS, OTEL)"]
-                forge-dpu-agent["forge-dpu-agent<br>Performs additional health checks"]
+                nico-dpu-agent["nico-dpu-agent<br>Performs additional health checks"]
             end
             class dpuos osclass;
     end
@@ -87,17 +87,17 @@ flowchart TB
         class Host hostclass;
     end
 
-    carbide-core -- Host Inventory --> HWMON
+    nico-core -- Host Inventory --> HWMON
     HWMON -- BMC metric extraction<br>via redfish --> hbmc & dpubmc
     HWMON -- Host & DPU BMC Metrics --> Metrics
-    HWMON -- BMC Health Rollups --> carbide-core
-    forge-scout -- Validation Test Results --> carbide-core
-    forge-dpu-agent -- DPU Health rollup --> carbide-core
-    dpu-metrics-collector -- Health related DPU metrics --> forge-dpu-agent
+    HWMON -- BMC Health Rollups --> nico-core
+    nico-scout -- Validation Test Results --> nico-core
+    nico-dpu-agent -- DPU Health rollup --> nico-core
+    dpu-metrics-collector -- Health related DPU metrics --> nico-dpu-agent
     dpu-metrics-collector -- DPU Metrics --> Metrics
-    carbide-core -- Host Health Status --> siteadmin & extautomations
-    siteadmin & extautomations -- overwrite Health status via API --> carbide-core
-    carbide-core -- Instance Health Status --> tenant
+    nico-core -- Host Health Status --> siteadmin & extautomations
+    siteadmin & extautomations -- overwrite Health status via API --> nico-core
+    nico-core -- Instance Health Status --> tenant
 ```
 
 ## Health Report format
@@ -112,7 +112,7 @@ A Health report is described as follows in gRPC format. Health reports are in so
 // Reports the aggregate health of a system or subsystem
 message HealthReport {
   // Identifies the source of the health report
-  // This could e.g. be `forge-dpu-agent`, `forge-host-validation`,
+  // This could e.g. be `nico-dpu-agent`, `nico-host-validation`,
   // or an override (e.g. `overrides.sre-team`)
   string source = 1;
   // The time when this health status was observed.
@@ -149,7 +149,7 @@ message HealthProbeAlert {
   // combination are calculated individually when reports are merged.
   optional string target = 6;
   // The first time the probe raised an alert
-  // If this field is empty while the HealthReport is sent to carbide-api
+  // If this field is empty while the HealthReport is sent to nico-api
   // the behavior is as follows:
   // - If an alert of the same `id` was reported before, the timestamp of the
   // previous alert will be retained.
@@ -226,7 +226,7 @@ The framework thereby allows the execution of off-the-shelf tests, e.g. using th
 
 If Host validation fails, a Health Alert with ID `FailedValidationTest` or `FailedValidationTestCompletion` will be placed on the host to make the host un-allocatable by tenants.
 
-In addition to that, the full test output (stdout and stderr) will be stored within carbide-core and is made available to NICo users via APIs, admin-cli and admin-ui.
+In addition to that, the full test output (stdout and stderr) will be stored within nico-core and is made available to NICo users via APIs, admin-cli and admin-ui.
 
 Details can be found in the [Host Validation guide](../provisioning/host-validation.md).
 
@@ -252,16 +252,16 @@ Details can be found in the [SKU Validation guide](../provisioning/sku-validatio
 
 ### BMC health monitoring
 
-The [`carbide-hw-health`](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/health) service periodically queries all Host and DPU BMCs in the system for health information. It emits the captured health datapoints as metrics on a metrics endpoint that can be scraped by a standard telemetry system (prometheus/otel).
+The [`nico-hw-health`](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/health) service periodically queries all Host and DPU BMCs in the system for health information. It emits the captured health datapoints as metrics on a metrics endpoint that can be scraped by a standard telemetry system (prometheus/otel).
 
 Health metrics fetched from BMCs include:
 - Fan speeds
 - Temperatures
 - Power supply utilization, outputs and voltages
 
-In addition to metrics, `carbide-hw-health` also extracts the values of various event-logs from the BMC and stores them on-disk in order to make them easily accessible for a standard telemetry exporter (e.g. OpenTelemetry Collector based).
+In addition to metrics, `nico-hw-health` also extracts the values of various event-logs from the BMC and stores them on-disk in order to make them easily accessible for a standard telemetry exporter (e.g. OpenTelemetry Collector based).
 
-Finally, `carbide-hw-health` also emits a health-rollup in `HealthReport` format towards `carbide-core` that contains an assessed health status of the host based on the extracted metrics.
+Finally, `nico-hw-health` also emits a health-rollup in `HealthReport` format towards `nico-core` that contains an assessed health status of the host based on the extracted metrics.
 This assessed health status is built by comparing the metrics that are emitted from BMCs against well-defined
 ranges or by interpreting the `health_ok` values provided by BMCs.
 
@@ -275,7 +275,7 @@ In certain conditions the scraping process will place a health alert on the host
 
 ### dpu-agent based health monitoring
 
-[`dpu-agent`](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/agent) collects health information directly on the DPU and sends a health-**rollup** towards `carbide-core`. The agent monitors a variety of health conditions, including
+[`dpu-agent`](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/agent) collects health information directly on the DPU and sends a health-**rollup** towards `nico-core`. The agent monitors a variety of health conditions, including
 - whether BGP sessions are established to peers according to the current configuration of the DPU
 - whether all required services on the DPU are running
 - whether the DPU is configured in restricted mode

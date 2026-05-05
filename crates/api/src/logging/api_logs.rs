@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! A logging middleware for carbide API server requests
+//! A logging middleware for nico API server requests
 
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -41,8 +41,8 @@ impl LogLayer {
         // impact on the prometheus export. On prometheus the metric shows up
         // unitless - which makes the user guess
         let request_times = meter
-            .f64_histogram("carbide-api.grpc.server.duration")
-            .with_description("Processing time for a request on the carbide API server")
+            .f64_histogram("nico-api.grpc.server.duration")
+            .with_description("Processing time for a request on the nico API server")
             .with_unit("ms")
             .build();
 
@@ -76,7 +76,7 @@ struct RequestMetrics {
     db: sqlx_query_tracing::DatabaseMetricEmitters,
 }
 
-// This service implements the Forge API server logging behavior
+// This service implements the Nico API server logging behavior
 #[derive(Clone, Debug)]
 pub struct LogService<S> {
     service: S,
@@ -118,7 +118,7 @@ where
             let mut client_certs = 0;
             if let Some(conn_attrs) = request
                 .extensions()
-                .get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
+                .get::<Arc<nico_authn::middleware::ConnectionAttributes>>()
             {
                 client_address = conn_attrs.peer_address;
                 client_certs = conn_attrs.peer_certificates.len();
@@ -147,7 +147,7 @@ where
                 rpc.service = tracing::field::Empty,
                 rpc.grpc.status_code = tracing::field::Empty,
                 rpc.grpc.status_description = tracing::field::Empty,
-                forge.machine_id = tracing::field::Empty,
+                nico.machine_id = tracing::field::Empty,
                 client.address = client_address.ip().to_canonical().to_string(),
                 client.port = client_address.port() as u64,
                 client.num_certs = client_certs as u64,

@@ -22,10 +22,10 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::nvlink::NvLinkPartitionId;
+use nico_uuid::nvlink::NvLinkPartitionId;
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 use uuid::Uuid;
 
 use super::Base;
@@ -47,12 +47,12 @@ struct LogicalPartitionRowDisplay {
 
 #[derive(serde::Serialize, Clone)]
 struct ShowLogicalPartition {
-    partition: forgerpc::NvLinkLogicalPartition,
+    partition: nicorpc::NvLinkLogicalPartition,
     physical_partitions: Vec<ShowPhysicalPartition>,
 }
 #[derive(serde::Serialize, Clone)]
 struct ShowPhysicalPartition {
-    partition: forgerpc::NvLinkPartition,
+    partition: nicorpc::NvLinkPartition,
     members: Vec<ShowPartitionMember>,
 }
 #[derive(serde::Serialize, Clone)]
@@ -72,7 +72,7 @@ impl From<ShowLogicalPartition> for LogicalPartitionRowDisplay {
                 .metadata
                 .unwrap_or_default()
                 .name,
-            state: forgerpc::TenantState::try_from(show.partition.status.unwrap_or_default().state)
+            state: nicorpc::TenantState::try_from(show.partition.status.unwrap_or_default().state)
                 .unwrap_or_default()
                 .as_str_name()
                 .to_string(),
@@ -124,7 +124,7 @@ impl From<ShowLogicalPartition> for LogicalPartitionDetail {
                 .metadata
                 .unwrap_or_default()
                 .name,
-            state: forgerpc::TenantState::try_from(show.partition.status.unwrap_or_default().state)
+            state: nicorpc::TenantState::try_from(show.partition.status.unwrap_or_default().state)
                 .unwrap_or_default()
                 .as_str_name()
                 .to_string(),
@@ -221,7 +221,7 @@ async fn fetch_logical_partitions(
     pid: Option<Uuid>,
 ) -> Result<Vec<ShowLogicalPartition>, tonic::Status> {
     let request =
-        tonic::Request::new(rpc::forge::NvLinkLogicalPartitionSearchFilter { name: None });
+        tonic::Request::new(rpc::nico::NvLinkLogicalPartitionSearchFilter { name: None });
     let mut show_partitions = Vec::<ShowLogicalPartition>::new();
 
     let partition_ids = api
@@ -236,7 +236,7 @@ async fn fetch_logical_partitions(
     let mut partitions = Vec::new();
     if let Some(pid) = pid {
         let request_partitions =
-            tonic::Request::new(rpc::forge::NvLinkLogicalPartitionsByIdsRequest {
+            tonic::Request::new(rpc::nico::NvLinkLogicalPartitionsByIdsRequest {
                 partition_ids: vec![pid.into()],
                 include_history: false,
             });
@@ -252,7 +252,7 @@ async fn fetch_logical_partitions(
             let page_size = PAGE_SIZE.min(partition_ids.len() - offset);
             let next_ids = &partition_ids[offset..offset + page_size];
             let request_partitions =
-                tonic::Request::new(rpc::forge::NvLinkLogicalPartitionsByIdsRequest {
+                tonic::Request::new(rpc::nico::NvLinkLogicalPartitionsByIdsRequest {
                     partition_ids: next_ids.to_vec(),
                     include_history: false,
                 });
@@ -266,12 +266,12 @@ async fn fetch_logical_partitions(
         }
     }
 
-    let request = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+    let request = tonic::Request::new(rpc::nico::NvLinkPartitionSearchFilter {
         name: None,
         tenant_organization_id: None,
     });
 
-    let mut map: HashMap<_, Vec<forgerpc::NvLinkPartition>> = HashMap::new();
+    let mut map: HashMap<_, Vec<nicorpc::NvLinkPartition>> = HashMap::new();
     let mut member_map: HashMap<NvLinkPartitionId, Vec<ShowPartitionMember>> = HashMap::new();
 
     let ids = api
@@ -281,7 +281,7 @@ async fn fetch_logical_partitions(
         .unwrap();
 
     if !ids.partition_ids.is_empty() {
-        let request = tonic::Request::new(forgerpc::NvLinkPartitionsByIdsRequest {
+        let request = tonic::Request::new(nicorpc::NvLinkPartitionsByIdsRequest {
             partition_ids: ids.partition_ids,
             include_history: false,
         });
@@ -293,7 +293,7 @@ async fn fetch_logical_partitions(
             .unwrap();
 
         if detail {
-            let request = tonic::Request::new(forgerpc::MachineSearchConfig {
+            let request = tonic::Request::new(nicorpc::MachineSearchConfig {
                 mnnvl_only: true,
                 include_predicted_host: true,
                 ..Default::default()
@@ -312,7 +312,7 @@ async fn fetch_logical_partitions(
                 let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
                 let next_ids = &machine_ids[offset..offset + page_size];
                 let next_vpcs = api
-                    .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
+                    .find_machines_by_ids(tonic::Request::new(nicorpc::MachinesByIdsRequest {
                         machine_ids: next_ids.to_vec(),
                         include_history: false,
                     }))
@@ -341,7 +341,7 @@ async fn fetch_logical_partitions(
 
         for lp in &partitions {
             if let Some(ref lp_id) = lp.id {
-                let matching_partitions: Vec<forgerpc::NvLinkPartition> = physical_partitions
+                let matching_partitions: Vec<nicorpc::NvLinkPartition> = physical_partitions
                     .partitions
                     .iter()
                     .filter(|p| p.logical_partition_id.as_ref() == Some(lp_id))

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_ipxe_renderer::{
+use nico_ipxe_renderer::{
     IpxeTemplateArtifact, IpxeTemplateArtifactCacheStrategy, IpxeTemplateParameter,
 };
 use chrono::{DateTime, Utc};

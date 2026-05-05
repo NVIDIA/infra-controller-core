@@ -17,7 +17,7 @@
 
 //! Defines custom metrics that are collected and emitted by the Machine State Controller
 
-use ::carbide_utils::metrics::SharedMetricsHolder;
+use ::nico_utils::metrics::SharedMetricsHolder;
 use opentelemetry::metrics::Meter;
 
 use crate::state_controller::metrics::MetricsEmitter;

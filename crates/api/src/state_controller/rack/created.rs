@@ -22,7 +22,7 @@
 //! column) match the actual device counts (machines, switches,
 //! power shelves with `rack_id` FK).
 
-use carbide_uuid::rack::{RackId, RackProfileId};
+use nico_uuid::rack::{RackId, RackProfileId};
 use db::{machine as db_machine, power_shelf as db_power_shelf, switch as db_switch};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::RackState;

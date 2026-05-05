@@ -5,4 +5,4 @@ SET
     img_name = '',
     container_arg = ''
 where
-    test_id = 'forge_CudaSample';
+    test_id = 'nico_CudaSample';

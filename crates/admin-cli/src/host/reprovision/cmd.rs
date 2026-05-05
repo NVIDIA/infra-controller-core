@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::HostReprovisioningRequest;
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::HostReprovisioningRequest;
+use nico_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
 use super::args::{ReprovisionClear, ReprovisionSet};
@@ -27,7 +27,7 @@ use crate::rpc::ApiClient;
 pub async fn trigger_reprovisioning_set(
     data: ReprovisionSet,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if let Some(update_message) = data.update_message.clone() {
         // Set a HostUpdateInProgress health report entry on the Host
 
@@ -44,7 +44,7 @@ pub async fn trigger_reprovisioning_set(
                 .iter()
                 .any(|or| or.source == "host-update")
         {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "Host machine: {:?} already has a \"host-update\" health report entry.",
                 host_machine.id,
             )));
@@ -66,12 +66,12 @@ pub async fn trigger_reprovisioning_set(
 pub async fn trigger_reprovisioning_clear(
     data: ReprovisionClear,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     api_client.0.trigger_host_reprovisioning(data).await?;
     Ok(())
 }
 
-pub async fn list_hosts_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn list_hosts_pending(api_client: &ApiClient) -> NicoCliResult<()> {
     let response = api_client.0.list_hosts_waiting_for_reprovisioning().await?;
     print_pending_hosts(response);
     Ok(())
@@ -80,7 +80,7 @@ pub async fn list_hosts_pending(api_client: &ApiClient) -> CarbideCliResult<()> 
 pub async fn mark_manual_firmware_upgrade_complete(
     machine_id: MachineId,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     api_client
         .0
         .mark_manual_firmware_upgrade_complete(machine_id)
@@ -91,7 +91,7 @@ pub async fn mark_manual_firmware_upgrade_complete(
     Ok(())
 }
 
-fn print_pending_hosts(hosts: ::rpc::forge::HostReprovisioningListResponse) {
+fn print_pending_hosts(hosts: ::rpc::nico::HostReprovisioningListResponse) {
     let mut table = Table::new();
 
     table.set_titles(row![

@@ -19,15 +19,15 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use ::rpc::{Instance, forge as rpc};
+use ::rpc::nico_tls_client::NicoClientConfig;
+use ::rpc::{Instance, nico as rpc};
 use arc_swap::ArcSwapOption;
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use config_version::ConfigVersion;
 use eyre::Context;
-use forge_dpu_agent_utils::utils::create_forge_client;
+use nico_dpu_agent_utils::utils::create_nico_client;
 use tracing::{error, trace, warn};
 
 use crate::util::{get_periodic_dpu_config, get_sitename};
@@ -50,7 +50,7 @@ pub struct PeriodicConfigFetcherReader {
     state: Arc<PeriodicFetcherState>,
 }
 /// The instance metadata - as fetched from the
-/// Forge Site Controller
+/// Nico Site Controller
 #[derive(Clone, Debug)]
 pub struct InstanceMetadata {
     pub address: String,
@@ -105,10 +105,10 @@ impl Drop for PeriodicConfigFetcher {
 
 impl PeriodicConfigFetcher {
     pub async fn new(config: PeriodicConfigFetcherConfig) -> Self {
-        let forge_client_config = Arc::clone(&config.forge_client_config);
-        // Fetch the sitename from Carbide at the start and keep it in State
+        let nico_client_config = Arc::clone(&config.nico_client_config);
+        // Fetch the sitename from Nico at the start and keep it in State
         // so that it can be made available as instance metadata.
-        let sitename = match fetch_sitename(&forge_client_config, &config.forge_api).await {
+        let sitename = match fetch_sitename(&nico_client_config, &config.nico_api).await {
             Ok(sn) => sn,
             Err(e) => {
                 warn!("Unable to fetch sitename. Error {}", e);
@@ -126,11 +126,11 @@ impl PeriodicConfigFetcher {
 
         // Do an initial synchronous fetch so that caller has data to use
         // This gets a DPU on the network immediately
-        single_fetch(&forge_client_config, state.clone()).await;
+        single_fetch(&nico_client_config, state.clone()).await;
 
         let task_state = state.clone();
         let join_handle = tokio::spawn(async move {
-            while single_fetch(&forge_client_config, task_state.clone()).await {
+            while single_fetch(&nico_client_config, task_state.clone()).await {
                 tokio::time::sleep(task_state.config.config_fetch_interval).await;
             }
         });
@@ -161,24 +161,24 @@ pub struct PeriodicConfigFetcherConfig {
     /// The interval in which the config is fetched
     pub config_fetch_interval: Duration,
     pub machine_id: MachineId,
-    pub forge_api: String,
-    pub forge_client_config: Arc<ForgeClientConfig>,
+    pub nico_api: String,
+    pub nico_client_config: Arc<NicoClientConfig>,
 }
 
-// Use the version grpc call to carbide to get
+// Use the version grpc call to nico to get
 // the sitename. This will be made visible to tenant OS
 // at an FMDS endpoint
 async fn fetch_sitename(
-    forge_client_config: &ForgeClientConfig,
-    forge_api: &str,
+    nico_client_config: &NicoClientConfig,
+    nico_api: &str,
 ) -> Result<Option<String>, eyre::Report> {
-    let mut client = create_forge_client(forge_api, forge_client_config).await?;
+    let mut client = create_nico_client(nico_api, nico_client_config).await?;
 
     get_sitename(&mut client).await
 }
 
 async fn single_fetch(
-    forge_client_config: &ForgeClientConfig,
+    nico_client_config: &NicoClientConfig,
     state: Arc<PeriodicFetcherState>,
 ) -> bool {
     if state
@@ -196,8 +196,8 @@ async fn single_fetch(
 
     match fetch(
         &state.config.machine_id,
-        &state.config.forge_api,
-        forge_client_config,
+        &state.config.nico_api,
+        nico_client_config,
     )
     .await
     {
@@ -240,10 +240,10 @@ async fn single_fetch(
 /// Make the network request to get network config
 pub async fn fetch(
     dpu_machine_id: &MachineId,
-    forge_api: &str,
-    client_config: &ForgeClientConfig,
+    nico_api: &str,
+    client_config: &NicoClientConfig,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
-    let mut client = create_forge_client(forge_api, client_config).await?;
+    let mut client = create_nico_client(nico_api, client_config).await?;
 
     get_periodic_dpu_config(&mut client, dpu_machine_id).await
 }

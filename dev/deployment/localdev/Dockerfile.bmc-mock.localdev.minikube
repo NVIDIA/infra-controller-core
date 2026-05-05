@@ -16,9 +16,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM registry.minikube/runtime-container:latest as carbide
+FROM registry.minikube/runtime-container:latest as nico
 
-WORKDIR ./carbide
-COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/carbide/
-COPY crates/bmc-mock/tls.crt /opt/carbide/
-COPY crates/bmc-mock/tls.key /opt/carbide/
+WORKDIR ./nico
+COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/nico/
+COPY crates/bmc-mock/tls.crt /opt/nico/
+COPY crates/bmc-mock/tls.key /opt/nico/

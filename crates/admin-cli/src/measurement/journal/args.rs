@@ -25,13 +25,13 @@
  *  - `journal promote`: Promote the report from a journal entry into a bundle.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::admin_cli::NicoCliError;
 use ::rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, ListMeasurementJournalRequest, ShowMeasurementJournalRequest,
     list_measurement_journal_request, show_measurement_journal_request,
 };
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementJournalId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementJournalId;
 use clap::Parser;
 use measured_boot::pcr::{PcrSet, parse_pcr_index_input};
 
@@ -101,11 +101,11 @@ impl From<Delete> for DeleteMeasurementJournalRequest {
 }
 
 impl TryFrom<Show> for ShowMeasurementJournalRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
     fn try_from(show: Show) -> Result<Self, Self::Error> {
         let journal_id = show
             .journal_id
-            .ok_or(CarbideCliError::GenericError(String::from(
+            .ok_or(NicoCliError::GenericError(String::from(
                 "journal_id must be set to get a journal",
             )))?;
         Ok(Self {

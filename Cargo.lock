@@ -968,11 +968,11 @@ dependencies = [
  "axum 0.8.6",
  "bmc-mock",
  "bmc-vendor",
- "carbide-api-model",
- "carbide-network",
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
+ "nico-api-model",
+ "nico-network",
  "nv-redfish",
  "regex",
  "tokio",
@@ -984,13 +984,13 @@ name = "bmc-explorer-cli"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
- "carbide-ipmi",
- "carbide-redfish",
- "carbide-secrets",
- "carbide-site-explorer",
  "clap",
  "libredfish",
  "mac_address",
+ "nico-ipmi",
+ "nico-redfish",
+ "nico-secrets",
+ "nico-site-explorer",
  "serde_json",
  "tokio",
  "tracing-subscriber",
@@ -1006,8 +1006,6 @@ dependencies = [
  "axum-server",
  "bmc-vendor",
  "bytes",
- "carbide-rpc",
- "carbide-utils",
  "chrono",
  "clap",
  "duration-str",
@@ -1020,6 +1018,8 @@ dependencies = [
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
+ "nico-rpc",
+ "nico-utils",
  "nv-redfish",
  "rand 0.9.2",
  "regex",
@@ -1164,1620 +1164,6 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[package]]
-name = "carbide-admin-cli"
-version = "0.0.1"
-dependencies = [
- "bmc-vendor",
- "carbide-health-report",
- "carbide-libmlx",
- "carbide-macros",
- "carbide-measured-boot",
- "carbide-network",
- "carbide-rpc",
- "carbide-rpc-utils",
- "carbide-secrets",
- "carbide-ssh",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "clap",
- "clap_complete",
- "color-eyre",
- "csv",
- "eyre",
- "futures",
- "ipnet",
- "libredfish",
- "librms",
- "mac_address",
- "prettytable-rs",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "uuid",
- "x509-parser",
- "zip",
-]
-
-[[package]]
-name = "carbide-agent"
-version = "0.1.0"
-dependencies = [
- "arc-swap",
- "async-trait",
- "axum 0.8.6",
- "axum-server",
- "backon",
- "blake3",
- "carbide-certs",
- "carbide-dpu-agent-utils",
- "carbide-dpu-remediation",
- "carbide-health-report",
- "carbide-host-support",
- "carbide-http-connector",
- "carbide-network",
- "carbide-rpc",
- "carbide-rpc-utils",
- "carbide-systemd",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "clap",
- "colored",
- "config-version",
- "containerd-client",
- "ctor",
- "data-encoding",
- "diff",
- "eyre",
- "futures",
- "futures-util",
- "governor",
- "gtmpl",
- "gtmpl_derive",
- "gtmpl_value",
- "hickory-resolver",
- "http-body",
- "http-body-util",
- "humantime",
- "hyper",
- "hyper-util",
- "ipnetwork",
- "lazy_static",
- "libc",
- "mac_address",
- "mockall",
- "netlink-packet-route",
- "nix 0.30.1",
- "nonzero_ext",
- "nvue-client",
- "opentelemetry",
- "opentelemetry-prometheus",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
- "prometheus",
- "prost 0.14.1",
- "rand 0.9.2",
- "regex",
- "reqwest",
- "resolv-conf",
- "rtnetlink",
- "rustls 0.23.34",
- "rustls-pemfile",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "similar",
- "surge-ping",
- "tempfile",
- "tokio",
- "tonic 0.14.2",
- "tonic-prost",
- "tonic-prost-build",
- "tower 0.5.2",
- "tower-http",
- "tracing",
- "uuid",
- "uzers",
- "version-compare 0.2.1",
-]
-
-[[package]]
-name = "carbide-api"
-version = "0.0.1"
-dependencies = [
- "ansi-to-html",
- "arc-swap",
- "askama",
- "askama_escape",
- "asn1-rs",
- "async-trait",
- "axum 0.8.6",
- "axum-extra",
- "base64 0.22.1",
- "bmc-explorer",
- "bmc-vendor",
- "bms-dsx-exchange",
- "byteorder",
- "bytes",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-authn",
- "carbide-dpf",
- "carbide-firmware",
- "carbide-health-report",
- "carbide-host-support",
- "carbide-ib-fabric",
- "carbide-ipmi",
- "carbide-ipxe-renderer",
- "carbide-libmlx",
- "carbide-macros",
- "carbide-measured-boot",
- "carbide-network",
- "carbide-nvlink-manager",
- "carbide-preingestion-manager",
- "carbide-prost-builder",
- "carbide-redfish",
- "carbide-rpc",
- "carbide-rpc-utils",
- "carbide-secrets",
- "carbide-site-explorer",
- "carbide-sqlx-testing",
- "carbide-ssh",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "casbin",
- "chrono",
- "clap",
- "component-manager",
- "config-version",
- "const_format",
- "crypto-bigint 0.7.0-rc.9",
- "ctor",
- "dashmap",
- "data-encoding",
- "dns-record",
- "duration-str",
- "eyre",
- "figment",
- "futures",
- "futures-util",
- "hex",
- "hkdf",
- "hostname 0.3.1",
- "http",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-timeout",
- "hyper-util",
- "ipnetwork",
- "itertools 0.14.0",
- "jsonwebtoken",
- "k8s-openapi",
- "kube",
- "lazy_static",
- "libnmxm",
- "libredfish",
- "librms",
- "logfmt",
- "mac_address",
- "mockall",
- "mockito",
- "mqttea",
- "nras",
- "num-bigint-dig",
- "num_cpus",
- "oauth2",
- "oid-registry",
- "once_cell",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry-prometheus",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
- "p256",
- "pkcs1",
- "prometheus",
- "prometheus-text-parser",
- "prost 0.14.1",
- "prost-types 0.14.1",
- "rand 0.9.2",
- "rcgen",
- "regex",
- "reqwest",
- "rsa",
- "rumqttc",
- "rustls 0.23.34",
- "rustls-pemfile",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "spancounter",
- "sqlx",
- "sqlx-query-tracing",
- "state-controller",
- "strum 0.26.3",
- "temp-dir",
- "tempfile",
- "tera",
- "thiserror 2.0.17",
- "time",
- "tokio",
- "tokio-rustls 0.26.4",
- "tokio-stream",
- "tokio-util",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tonic-reflection",
- "tower 0.5.2",
- "tower-http",
- "tower-test",
- "tracing",
- "tracing-log",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "tss-esapi",
- "url",
- "urlencoding",
- "uuid",
- "version-compare 0.2.1",
- "x509-parser",
-]
-
-[[package]]
-name = "carbide-api-db"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "carbide-api-model",
- "carbide-health-report",
- "carbide-ipxe-renderer",
- "carbide-libmlx",
- "carbide-macros",
- "carbide-measured-boot",
- "carbide-network",
- "carbide-secrets",
- "carbide-sqlx-testing",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "config-version",
- "ctor",
- "dns-record",
- "domain",
- "eyre",
- "futures",
- "futures-util",
- "hickory-proto",
- "ipnetwork",
- "itertools 0.14.0",
- "lazy_static",
- "mac_address",
- "names",
- "octseq",
- "regex",
- "rustc-hash",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.17",
- "time",
- "tokio",
- "tokio-util",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "version-compare 0.2.1",
-]
-
-[[package]]
-name = "carbide-api-integration-tests"
-version = "0.0.0"
-dependencies = [
- "askama_escape",
- "bmc-mock",
- "carbide-api-test-helper",
- "carbide-machine-a-tron",
- "carbide-secrets",
- "carbide-utils",
- "ctor",
- "eyre",
- "futures",
- "itertools 0.14.0",
- "mac_address",
- "opentelemetry",
- "serde_json",
- "serial_test",
- "sqlx",
- "temp-dir",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "carbide-api-model"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "bmc-vendor",
- "carbide-dpf",
- "carbide-health-report",
- "carbide-host-support",
- "carbide-ipxe-renderer",
- "carbide-libmlx",
- "carbide-network",
- "carbide-rpc",
- "carbide-sqlx-testing",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "casbin",
- "chrono",
- "config-version",
- "dns-record",
- "duration-str",
- "eyre",
- "hex",
- "ipnetwork",
- "itertools 0.14.0",
- "lazy_static",
- "libnmxm",
- "mac_address",
- "nras",
- "once_cell",
- "prost 0.14.1",
- "rand 0.9.2",
- "regex",
- "serde",
- "serde_json",
- "serde_regex",
- "sha2 0.10.9",
- "sqlx",
- "strum 0.26.3",
- "strum_macros 0.26.4",
- "thiserror 2.0.17",
- "tokio",
- "toml 0.8.23",
- "tracing",
- "tss-esapi",
- "url",
- "uuid",
- "version-compare 0.2.1",
-]
-
-[[package]]
-name = "carbide-api-test-helper"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "bmc-mock",
- "carbide-api",
- "carbide-machine-a-tron",
- "carbide-rpc",
- "carbide-secrets",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "ctor",
- "eyre",
- "futures",
- "itertools 0.14.0",
- "lazy_static",
- "librms",
- "metrics-endpoint",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "serial_test",
- "sqlx",
- "temp-dir",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "tokio-util",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "carbide-authn"
-version = "0.0.0"
-dependencies = [
- "hyper",
- "serde",
- "thiserror 2.0.17",
- "tonic 0.14.2",
- "tower 0.5.2",
- "tracing",
- "x509-parser",
-]
-
-[[package]]
-name = "carbide-bmc-proxy"
-version = "0.0.0"
-dependencies = [
- "axum 0.8.6",
- "axum-extra",
- "bytes",
- "carbide-api-db",
- "carbide-authn",
- "carbide-secrets",
- "carbide-utils",
- "carbide-version",
- "casbin",
- "clap",
- "config-version",
- "figment",
- "futures",
- "futures-util",
- "http",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-timeout",
- "hyper-util",
- "lazy_static",
- "logfmt",
- "metrics-endpoint",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry-prometheus",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
- "reqwest",
- "rustls-pemfile",
- "rustls-pki-types",
- "serde",
- "sqlx",
- "thiserror 2.0.17",
- "tokio",
- "tokio-rustls 0.26.4",
- "tokio-stream",
- "tokio-util",
- "tower 0.5.2",
- "tower-http",
- "tracing",
- "tracing-log",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
- "urlencoding",
- "uuid",
- "x509-parser",
-]
-
-[[package]]
-name = "carbide-certs"
-version = "0.0.0"
-dependencies = [
- "carbide-host-support",
- "carbide-rpc",
- "carbide-tls",
- "eyre",
- "rand 0.9.2",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
-name = "carbide-dhcp"
-version = "0.0.0"
-dependencies = [
- "carbide-rpc",
- "carbide-tls",
- "cbindgen",
- "cc",
- "chrono",
- "derive_builder 0.12.0",
- "dhcproto",
- "eyre",
- "http-body-util",
- "hyper",
- "hyper-util",
- "ipnetwork",
- "lazy_static",
- "libc",
- "log",
- "lru 0.16.3",
- "mac_address",
- "metrics-endpoint",
- "once_cell",
- "opentelemetry",
- "prometheus",
- "prost 0.14.1",
- "serde_json",
- "tempfile",
- "test-cdylib",
- "tokio",
- "tokio-util",
- "tonic 0.14.2",
-]
-
-[[package]]
-name = "carbide-dhcp-server"
-version = "0.1.0"
-dependencies = [
- "carbide-rpc",
- "carbide-rpc-utils",
- "carbide-tls",
- "carbide-uuid",
- "chrono",
- "clap",
- "dhcproto",
- "futures",
- "ipnetwork",
- "logfmt",
- "lru 0.16.3",
- "prost 0.14.1",
- "serde",
- "serde_yaml",
- "socket2 0.6.1",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "tokio-util",
- "tonic 0.14.2",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "carbide-dns"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "carbide-rpc",
- "carbide-tls",
- "carbide-version",
- "clap",
- "dns-record",
- "eyre",
- "local-ip-address",
- "metrics-endpoint",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "trust-dns-resolver",
- "trust-dns-server",
- "uuid",
-]
-
-[[package]]
-name = "carbide-dpf"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "carbide-uuid",
- "clap",
- "dashmap",
- "eyre",
- "futures",
- "http",
- "hyper",
- "k8s-openapi",
- "kopium",
- "kube",
- "libredfish",
- "once_cell",
- "rand 0.9.2",
- "rustls 0.23.34",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "strum_macros 0.26.4",
- "thiserror 2.0.17",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower-test",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "carbide-dpu-agent-utils"
-version = "0.0.0"
-dependencies = [
- "carbide-rpc",
- "carbide-tls",
- "eyre",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
-name = "carbide-dpu-otel-agent"
-version = "0.0.1"
-dependencies = [
- "carbide-certs",
- "carbide-host-support",
- "carbide-rpc",
- "carbide-systemd",
- "carbide-tls",
- "clap",
- "ctor",
- "eyre",
- "humantime",
- "prost 0.14.1",
- "rand 0.9.2",
- "reqwest",
- "rustls-pemfile",
- "rustls-pki-types",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "typed-builder 0.20.1",
-]
-
-[[package]]
-name = "carbide-dpu-remediation"
-version = "0.0.0"
-dependencies = [
- "carbide-dpu-agent-utils",
- "carbide-rpc",
- "carbide-tls",
- "carbide-uuid",
- "eyre",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "carbide-dsx-exchange-consumer"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "carbide-health-report",
- "carbide-rpc",
- "carbide-secrets",
- "carbide-tls",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "figment",
- "humantime-serde",
- "logfmt",
- "metrics-endpoint",
- "moka",
- "mqttea",
- "opentelemetry",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "carbide-firmware"
-version = "0.0.1"
-dependencies = [
- "bmc-vendor",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-macros",
- "carbide-sqlx-testing",
- "eyre",
- "futures-util",
- "md5",
- "reqwest",
- "serde",
- "sqlx",
- "tokio",
- "toml 0.8.23",
- "tracing",
-]
-
-[[package]]
-name = "carbide-fmds"
-version = "0.0.1"
-dependencies = [
- "arc-swap",
- "async-trait",
- "axum 0.8.6",
- "axum-server",
- "carbide-dpu-agent-utils",
- "carbide-rpc",
- "carbide-tls",
- "carbide-uuid",
- "carbide-version",
- "clap",
- "eyre",
- "futures-util",
- "governor",
- "http-body-util",
- "hyper",
- "hyper-util",
- "ipnetwork",
- "logfmt",
- "netlink-packet-route",
- "nonzero_ext",
- "prost 0.14.1",
- "rtnetlink",
- "tokio",
- "tonic 0.14.2",
- "tonic-prost",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "carbide-health"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "carbide-health-report",
- "carbide-rpc",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "criterion",
- "dashmap",
- "figment",
- "futures",
- "http",
- "humantime",
- "humantime-serde",
- "hyper",
- "hyper-util",
- "logfmt",
- "mac_address",
- "nv-redfish",
- "prometheus",
- "prost 0.14.1",
- "prost-types 0.14.1",
- "rand 0.9.2",
- "reqwest",
- "serde",
- "serde_json",
- "serde_with",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "tokio-util",
- "tonic 0.14.2",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "carbide-health-report"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "carbide-host-support"
-version = "0.0.0"
-dependencies = [
- "base64 0.22.1",
- "carbide-libmlx",
- "carbide-rpc",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "csv",
- "eyre",
- "ipnetwork",
- "libudev",
- "logfmt",
- "procfs",
- "regex",
- "serde",
- "serde_json",
- "serde_with",
- "smbios-lib",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "tryhard",
- "uname",
- "uuid",
-]
-
-[[package]]
-name = "carbide-http-connector"
-version = "0.0.0"
-dependencies = [
- "futures-util",
- "hickory-resolver",
- "hyper",
- "hyper-util",
- "socket2 0.6.1",
- "tokio",
- "tokio-socks",
- "tower-service",
- "tracing",
- "tryhard",
-]
-
-[[package]]
-name = "carbide-ib-fabric"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-health-report",
- "carbide-rpc",
- "carbide-secrets",
- "carbide-utils",
- "carbide-uuid",
- "chrono",
- "duration-str",
- "eyre",
- "figment",
- "http",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-timeout",
- "hyper-util",
- "opentelemetry",
- "rand 0.9.2",
- "rustls 0.23.34",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.17",
- "tokio",
- "tokio-util",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "carbide-ipmi"
-version = "0.0.1"
-dependencies = [
- "arc-swap",
- "async-trait",
- "carbide-secrets",
- "carbide-utils",
- "carbide-uuid",
- "eyre",
- "reqwest",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
-name = "carbide-ipxe-renderer"
-version = "0.0.1"
-dependencies = [
- "serde",
- "serde_yaml",
- "sha2 0.10.9",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "carbide-kms-provider"
-version = "0.0.1"
-dependencies = [
- "aes-gcm",
- "async-trait",
- "base64 0.22.1",
- "hex",
- "rand 0.9.2",
- "serde",
- "serial_test",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
- "vaultrs",
- "zeroize",
-]
-
-[[package]]
-name = "carbide-libmlx"
-version = "0.0.1"
-dependencies = [
- "async-ssh2-tokio",
- "backon",
- "base64 0.22.1",
- "carbide-rpc",
- "carbide-uuid",
- "chrono",
- "clap",
- "hex",
- "hostname 0.3.1",
- "mac_address",
- "once_cell",
- "prettytable-rs",
- "prost-types 0.14.1",
- "quick-xml 0.31.0",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "wait-timeout",
-]
-
-[[package]]
-name = "carbide-log-parser"
-version = "0.0.2"
-dependencies = [
- "anyhow",
- "carbide-health-report",
- "carbide-rpc",
- "carbide-tls",
- "carbide-uuid",
- "chrono",
- "getopts",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "tonic 0.14.2",
-]
-
-[[package]]
-name = "carbide-machine-a-tron"
-version = "0.0.0"
-dependencies = [
- "axum 0.8.6",
- "base64 0.22.1",
- "bmc-mock",
- "carbide-network",
- "carbide-rpc",
- "carbide-tls",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "clap",
- "crossterm",
- "duration-str",
- "eyre",
- "figment",
- "futures",
- "lazy_static",
- "mac_address",
- "ratatui",
- "rcgen",
- "reqwest",
- "russh",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "carbide-machine-validation"
-version = "0.0.0"
-dependencies = [
- "carbide-rpc",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "chrono",
- "futures-util",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
-name = "carbide-macros"
-version = "0.0.0"
-dependencies = [
- "eyre",
- "proc-macro2",
- "quote",
- "sqlx",
- "sqlx-macros-core",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "carbide-measured-boot"
-version = "0.0.0"
-dependencies = [
- "carbide-rpc",
- "carbide-uuid",
- "chrono",
- "clap",
- "eyre",
- "prettytable-rs",
- "serde",
- "sqlx",
- "thiserror 2.0.17",
- "tonic 0.14.2",
-]
-
-[[package]]
-name = "carbide-mockdpa"
-version = "0.0.1"
-dependencies = [
- "carbide-rpc",
- "chrono",
- "clap",
- "mqttea",
- "prost 0.14.1",
- "prost-build 0.14.1",
- "rumqttc",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "carbide-network"
-version = "0.0.0"
-dependencies = [
- "eyre",
- "ipnet",
- "ipnetwork",
- "mac_address",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "carbide-nvlink-manager"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-rpc",
- "carbide-secrets",
- "carbide-utils",
- "carbide-uuid",
- "chrono",
- "config-version",
- "duration-str",
- "eyre",
- "http",
- "libnmxm",
- "opentelemetry",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.17",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "carbide-preingestion-manager"
-version = "0.0.1"
-dependencies = [
- "bmc-vendor",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-firmware",
- "carbide-redfish",
- "carbide-secrets",
- "carbide-ssh",
- "carbide-utils",
- "chrono",
- "futures-util",
- "libredfish",
- "opentelemetry",
- "prometheus-text-parser",
- "sqlx",
- "thiserror 2.0.17",
- "time",
- "tokio",
- "tokio-util",
- "tracing",
- "version-compare 0.2.1",
-]
-
-[[package]]
-name = "carbide-prost-builder"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "carbide-pxe"
-version = "0.0.1"
-dependencies = [
- "axum 0.8.6",
- "axum-client-ip",
- "axum-template",
- "base64 0.22.1",
- "bytes",
- "carbide-host-support",
- "carbide-rpc",
- "carbide-tls",
- "carbide-uuid",
- "carbide-version",
- "clap",
- "http-body",
- "metrics",
- "metrics-exporter-prometheus",
- "mime",
- "pin-project-lite",
- "serde",
- "tempfile",
- "tera",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tower 0.5.2",
- "tower-http",
- "tower-layer",
- "tower-service",
- "uuid",
-]
-
-[[package]]
-name = "carbide-redfish"
-version = "0.0.1"
-dependencies = [
- "arc-swap",
- "async-trait",
- "bmc-vendor",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-secrets",
- "carbide-utils",
- "chrono",
- "http",
- "libredfish",
- "mac_address",
- "nv-redfish",
- "reqwest",
- "serde_json",
- "sqlx",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "carbide-rpc"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "carbide-health-report",
- "carbide-http-connector",
- "carbide-network",
- "carbide-secrets",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "chrono",
- "clap",
- "csv",
- "data-encoding",
- "dns-record",
- "eyre",
- "hickory-resolver",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "ipnetwork",
- "log",
- "mac_address",
- "nonempty",
- "prettytable-rs",
- "prost 0.14.1",
- "prost-types 0.14.1",
- "resolv-conf",
- "rustls 0.23.34",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "sqlx",
- "thiserror 2.0.17",
- "tokio",
- "tokio-stream",
- "tonic 0.14.2",
- "tonic-client-wrapper 0.1.0",
- "tonic-prost",
- "tonic-prost-build",
- "tower 0.5.2",
- "tracing",
- "tryhard",
- "uuid",
- "x509-parser",
-]
-
-[[package]]
-name = "carbide-rpc-utils"
-version = "0.0.0"
-dependencies = [
- "byte-unit",
- "carbide-health-report",
- "carbide-rpc",
- "carbide-uuid",
- "chrono",
- "config-version",
- "eyre",
- "ipnetwork",
- "itertools 0.14.0",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
-name = "carbide-scout"
-version = "0.0.1"
-dependencies = [
- "axum 0.8.6",
- "carbide-host-support",
- "carbide-libmlx",
- "carbide-machine-validation",
- "carbide-rpc",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "clap",
- "efivar",
- "eyre",
- "futures-util",
- "http",
- "lazy_static",
- "once_cell",
- "pwhash",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "smbios-lib",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "tokio-stream",
- "tonic 0.14.2",
- "tracing",
- "tryhard",
- "tss-esapi",
- "uuid",
- "x509-parser",
-]
-
-[[package]]
-name = "carbide-secrets"
-version = "0.0.0"
-dependencies = [
- "aes-gcm",
- "arc-swap",
- "async-trait",
- "base64 0.22.1",
- "bmc-vendor",
- "carbide-uuid",
- "eyre",
- "figment",
- "hex",
- "mac_address",
- "notify",
- "opentelemetry",
- "p256",
- "rand 0.9.2",
- "rand_core 0.6.4",
- "serde",
- "serde_json",
- "serde_yaml",
- "serial_test",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
- "vaultrs",
-]
-
-[[package]]
-name = "carbide-site-explorer"
-version = "0.0.1"
-dependencies = [
- "arc-swap",
- "async-trait",
- "bmc-explorer",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-firmware",
- "carbide-health-report",
- "carbide-ipmi",
- "carbide-network",
- "carbide-redfish",
- "carbide-secrets",
- "carbide-utils",
- "carbide-uuid",
- "chrono",
- "config-version",
- "duration-str",
- "futures-util",
- "http",
- "itertools 0.14.0",
- "libredfish",
- "librms",
- "mac_address",
- "opentelemetry",
- "rand 0.9.2",
- "regex",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.17",
- "tokio",
- "tokio-util",
- "tracing",
- "version-compare 0.2.1",
-]
-
-[[package]]
-name = "carbide-sqlx-testing"
-version = "0.0.0"
-dependencies = [
- "carbide-api-db",
- "sqlx",
- "sqlx-core",
- "tokio",
-]
-
-[[package]]
-name = "carbide-ssh"
-version = "0.0.0"
-dependencies = [
- "async-ssh2-tokio",
- "russh",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "carbide-ssh-console"
-version = "0.1.0"
-dependencies = [
- "bmc-mock",
- "bmc-vendor",
- "carbide-api-test-helper",
- "carbide-machine-a-tron",
- "carbide-rpc",
- "carbide-ssh-console-mock-api-server",
- "carbide-tls",
- "carbide-uuid",
- "chrono",
- "clap",
- "ctor",
- "duration-str",
- "eyre",
- "futures",
- "futures-util",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
- "indoc",
- "lazy_static",
- "libc",
- "nix 0.30.1",
- "opentelemetry",
- "opentelemetry-prometheus",
- "opentelemetry_sdk",
- "prometheus",
- "prometheus-text-parser",
- "rand 0.9.2",
- "ringbuf",
- "russh",
- "serde",
- "size",
- "strip-ansi-escapes",
- "temp-dir",
- "thiserror 2.0.17",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "carbide-ssh-console-fuzz"
-version = "0.0.1"
-dependencies = [
- "carbide-ssh-console",
- "libfuzzer-sys",
-]
-
-[[package]]
-name = "carbide-ssh-console-mock-api-server"
-version = "0.0.1"
-dependencies = [
- "carbide-api-test-helper",
- "carbide-rpc",
- "carbide-uuid",
- "carbide-version",
- "eyre",
- "prost 0.14.1",
- "prost-types 0.14.1",
- "rustls 0.23.34",
- "rustls-pemfile",
- "tokio",
- "tonic 0.14.2",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "carbide-systemd"
-version = "0.0.0"
-dependencies = [
- "eyre",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "carbide-tls"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tonic 0.14.2",
-]
-
-[[package]]
-name = "carbide-utils"
-version = "0.0.0"
-dependencies = [
- "byte-unit",
- "carbide-network",
- "chrono",
- "clap",
- "ipnetwork",
- "opentelemetry",
- "opentelemetry-prometheus",
- "opentelemetry_sdk",
- "prometheus",
- "serde",
- "sqlx",
- "thiserror 2.0.17",
- "tokio",
-]
-
-[[package]]
-name = "carbide-uuid"
-version = "0.0.0"
-dependencies = [
- "data-encoding",
- "eyre",
- "prost 0.14.1",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "thiserror 2.0.17",
- "uuid",
-]
-
-[[package]]
-name = "carbide-version"
-version = "0.0.0"
 
 [[package]]
 name = "cargo_metadata"
@@ -3129,15 +1515,15 @@ name = "component-manager"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-api-test-helper",
- "carbide-macros",
- "carbide-sqlx-testing",
- "carbide-uuid",
  "chrono",
  "librms",
  "mac_address",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-api-test-helper",
+ "nico-macros",
+ "nico-sqlx-testing",
+ "nico-uuid",
  "prost 0.14.1",
  "prost-types 0.14.1",
  "serde",
@@ -6614,6 +5000,1640 @@ dependencies = [
 ]
 
 [[package]]
+name = "nico-admin-cli"
+version = "0.0.1"
+dependencies = [
+ "bmc-vendor",
+ "chrono",
+ "clap",
+ "clap_complete",
+ "color-eyre",
+ "csv",
+ "eyre",
+ "futures",
+ "ipnet",
+ "libredfish",
+ "librms",
+ "mac_address",
+ "nico-health-report",
+ "nico-libmlx",
+ "nico-macros",
+ "nico-measured-boot",
+ "nico-network",
+ "nico-rpc",
+ "nico-rpc-utils",
+ "nico-secrets",
+ "nico-ssh",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "nico-version",
+ "prettytable-rs",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+ "uuid",
+ "x509-parser",
+ "zip",
+]
+
+[[package]]
+name = "nico-agent"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "axum 0.8.6",
+ "axum-server",
+ "backon",
+ "blake3",
+ "chrono",
+ "clap",
+ "colored",
+ "config-version",
+ "containerd-client",
+ "ctor",
+ "data-encoding",
+ "diff",
+ "eyre",
+ "futures",
+ "futures-util",
+ "governor",
+ "gtmpl",
+ "gtmpl_derive",
+ "gtmpl_value",
+ "hickory-resolver",
+ "http-body",
+ "http-body-util",
+ "humantime",
+ "hyper",
+ "hyper-util",
+ "ipnetwork",
+ "lazy_static",
+ "libc",
+ "mac_address",
+ "mockall",
+ "netlink-packet-route",
+ "nico-certs",
+ "nico-dpu-agent-utils",
+ "nico-dpu-fmds-shared",
+ "nico-dpu-remediation",
+ "nico-health-report",
+ "nico-host-support",
+ "nico-http-connector",
+ "nico-network",
+ "nico-rpc",
+ "nico-rpc-utils",
+ "nico-systemd",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "nico-version",
+ "nix 0.30.1",
+ "nonzero_ext",
+ "nvue-client",
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "prometheus",
+ "prost 0.14.1",
+ "rand 0.9.2",
+ "regex",
+ "reqwest",
+ "resolv-conf",
+ "rtnetlink",
+ "rustls 0.23.34",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "similar",
+ "surge-ping",
+ "tempfile",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower 0.5.2",
+ "tower-http",
+ "tracing",
+ "url",
+ "uuid",
+ "uzers",
+ "version-compare 0.2.1",
+]
+
+[[package]]
+name = "nico-api"
+version = "0.0.1"
+dependencies = [
+ "ansi-to-html",
+ "arc-swap",
+ "askama",
+ "askama_escape",
+ "asn1-rs",
+ "async-trait",
+ "axum 0.8.6",
+ "axum-extra",
+ "base64 0.22.1",
+ "bmc-explorer",
+ "bmc-vendor",
+ "bms-dsx-exchange",
+ "byteorder",
+ "bytes",
+ "casbin",
+ "chrono",
+ "clap",
+ "component-manager",
+ "config-version",
+ "const_format",
+ "crypto-bigint 0.7.0-rc.9",
+ "ctor",
+ "dashmap",
+ "data-encoding",
+ "dns-record",
+ "duration-str",
+ "eyre",
+ "figment",
+ "futures",
+ "futures-util",
+ "hex",
+ "hkdf",
+ "hostname 0.3.1",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-timeout",
+ "hyper-util",
+ "ipnetwork",
+ "itertools 0.14.0",
+ "jsonwebtoken",
+ "k8s-openapi",
+ "kube",
+ "lazy_static",
+ "libnmxm",
+ "libredfish",
+ "librms",
+ "logfmt",
+ "mac_address",
+ "mockall",
+ "mockito",
+ "mqttea",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-authn",
+ "nico-dpf",
+ "nico-firmware",
+ "nico-health-report",
+ "nico-host-support",
+ "nico-ib-fabric",
+ "nico-ipmi",
+ "nico-ipxe-renderer",
+ "nico-libmlx",
+ "nico-macros",
+ "nico-measured-boot",
+ "nico-network",
+ "nico-nvlink-manager",
+ "nico-preingestion-manager",
+ "nico-prost-builder",
+ "nico-redfish",
+ "nico-rpc",
+ "nico-rpc-utils",
+ "nico-secrets",
+ "nico-site-explorer",
+ "nico-sqlx-testing",
+ "nico-ssh",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "nico-version",
+ "nras",
+ "num-bigint-dig",
+ "num_cpus",
+ "oauth2",
+ "oid-registry",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-prometheus",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "p256",
+ "pkcs1",
+ "prometheus",
+ "prometheus-text-parser",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "rand 0.9.2",
+ "rcgen",
+ "regex",
+ "reqwest",
+ "rsa",
+ "rumqttc",
+ "rustls 0.23.34",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "spancounter",
+ "sqlx",
+ "sqlx-query-tracing",
+ "state-controller",
+ "strum 0.26.3",
+ "temp-dir",
+ "tempfile",
+ "tera",
+ "thiserror 2.0.17",
+ "time",
+ "tokio",
+ "tokio-rustls 0.26.4",
+ "tokio-stream",
+ "tokio-util",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tonic-reflection",
+ "tower 0.5.2",
+ "tower-http",
+ "tower-test",
+ "tracing",
+ "tracing-log",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "tss-esapi",
+ "url",
+ "urlencoding",
+ "uuid",
+ "version-compare 0.2.1",
+ "x509-parser",
+]
+
+[[package]]
+name = "nico-api-db"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "config-version",
+ "ctor",
+ "dns-record",
+ "domain",
+ "eyre",
+ "futures",
+ "futures-util",
+ "hickory-proto",
+ "ipnetwork",
+ "itertools 0.14.0",
+ "lazy_static",
+ "mac_address",
+ "names",
+ "nico-api-model",
+ "nico-health-report",
+ "nico-ipxe-renderer",
+ "nico-libmlx",
+ "nico-macros",
+ "nico-measured-boot",
+ "nico-network",
+ "nico-secrets",
+ "nico-sqlx-testing",
+ "nico-utils",
+ "nico-uuid",
+ "nico-version",
+ "octseq",
+ "regex",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "time",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "version-compare 0.2.1",
+]
+
+[[package]]
+name = "nico-api-integration-tests"
+version = "0.0.0"
+dependencies = [
+ "askama_escape",
+ "bmc-mock",
+ "ctor",
+ "eyre",
+ "futures",
+ "itertools 0.14.0",
+ "mac_address",
+ "nico-api-test-helper",
+ "nico-machine-a-tron",
+ "nico-secrets",
+ "nico-utils",
+ "opentelemetry",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "temp-dir",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "nico-api-model"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bmc-vendor",
+ "casbin",
+ "chrono",
+ "config-version",
+ "dns-record",
+ "duration-str",
+ "eyre",
+ "hex",
+ "ipnetwork",
+ "itertools 0.14.0",
+ "lazy_static",
+ "libnmxm",
+ "mac_address",
+ "nico-dpf",
+ "nico-health-report",
+ "nico-host-support",
+ "nico-ipxe-renderer",
+ "nico-libmlx",
+ "nico-network",
+ "nico-rpc",
+ "nico-secrets",
+ "nico-sqlx-testing",
+ "nico-utils",
+ "nico-uuid",
+ "nico-version",
+ "nras",
+ "once_cell",
+ "prost 0.14.1",
+ "rand 0.9.2",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_regex",
+ "sha2 0.10.9",
+ "sqlx",
+ "strum 0.26.3",
+ "strum_macros 0.26.4",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "tss-esapi",
+ "url",
+ "uuid",
+ "version-compare 0.2.1",
+]
+
+[[package]]
+name = "nico-api-test-helper"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "bmc-mock",
+ "chrono",
+ "ctor",
+ "eyre",
+ "futures",
+ "itertools 0.14.0",
+ "lazy_static",
+ "librms",
+ "metrics-endpoint",
+ "nico-api",
+ "nico-machine-a-tron",
+ "nico-rpc",
+ "nico-secrets",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "nico-version",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "temp-dir",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "nico-authn"
+version = "0.0.0"
+dependencies = [
+ "hyper",
+ "serde",
+ "thiserror 2.0.17",
+ "tonic 0.14.2",
+ "tower 0.5.2",
+ "tracing",
+ "x509-parser",
+]
+
+[[package]]
+name = "nico-bmc-proxy"
+version = "0.0.0"
+dependencies = [
+ "axum 0.8.6",
+ "axum-extra",
+ "bytes",
+ "casbin",
+ "clap",
+ "config-version",
+ "figment",
+ "futures",
+ "futures-util",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-timeout",
+ "hyper-util",
+ "lazy_static",
+ "logfmt",
+ "metrics-endpoint",
+ "nico-api-db",
+ "nico-authn",
+ "nico-secrets",
+ "nico-utils",
+ "nico-version",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-prometheus",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "reqwest",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-rustls 0.26.4",
+ "tokio-stream",
+ "tokio-util",
+ "tower 0.5.2",
+ "tower-http",
+ "tracing",
+ "tracing-log",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "url",
+ "urlencoding",
+ "uuid",
+ "x509-parser",
+]
+
+[[package]]
+name = "nico-certs"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+ "nico-host-support",
+ "nico-rpc",
+ "nico-tls",
+ "rand 0.9.2",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "nico-dhcp"
+version = "0.0.0"
+dependencies = [
+ "cbindgen",
+ "cc",
+ "chrono",
+ "derive_builder 0.12.0",
+ "dhcproto",
+ "eyre",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "ipnetwork",
+ "lazy_static",
+ "libc",
+ "log",
+ "lru 0.16.3",
+ "mac_address",
+ "metrics-endpoint",
+ "nico-rpc",
+ "nico-tls",
+ "once_cell",
+ "opentelemetry",
+ "prometheus",
+ "prost 0.14.1",
+ "serde_json",
+ "tempfile",
+ "test-cdylib",
+ "tokio",
+ "tokio-util",
+ "tonic 0.14.2",
+]
+
+[[package]]
+name = "nico-dhcp-server"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "dhcproto",
+ "futures",
+ "ipnetwork",
+ "logfmt",
+ "lru 0.16.3",
+ "nico-rpc",
+ "nico-rpc-utils",
+ "nico-tls",
+ "nico-uuid",
+ "prost 0.14.1",
+ "serde",
+ "serde_yaml",
+ "socket2 0.6.1",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "nico-dns"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "clap",
+ "dns-record",
+ "eyre",
+ "local-ip-address",
+ "metrics-endpoint",
+ "nico-rpc",
+ "nico-tls",
+ "nico-version",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "trust-dns-resolver",
+ "trust-dns-server",
+ "uuid",
+]
+
+[[package]]
+name = "nico-dpf"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "dashmap",
+ "eyre",
+ "futures",
+ "http",
+ "hyper",
+ "k8s-openapi",
+ "kopium",
+ "kube",
+ "libredfish",
+ "nico-uuid",
+ "once_cell",
+ "rand 0.9.2",
+ "rustls 0.23.34",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "strum_macros 0.26.4",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower-test",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "nico-dpu-agent-utils"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+ "nico-rpc",
+]
+
+[[package]]
+name = "nico-dpu-fmds-shared"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum 0.8.6",
+ "governor",
+ "http-body-util",
+ "nico-dpu-agent-utils",
+ "nico-rpc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "nico-dpu-otel-agent"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "ctor",
+ "eyre",
+ "humantime",
+ "nico-certs",
+ "nico-host-support",
+ "nico-rpc",
+ "nico-systemd",
+ "nico-tls",
+ "prost 0.14.1",
+ "rand 0.9.2",
+ "reqwest",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "typed-builder 0.20.1",
+]
+
+[[package]]
+name = "nico-dpu-remediation"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+ "nico-dpu-agent-utils",
+ "nico-rpc",
+ "nico-tls",
+ "nico-uuid",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nico-dsx-exchange-consumer"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "figment",
+ "humantime-serde",
+ "logfmt",
+ "metrics-endpoint",
+ "moka",
+ "mqttea",
+ "nico-health-report",
+ "nico-rpc",
+ "nico-secrets",
+ "nico-tls",
+ "nico-uuid",
+ "nico-version",
+ "opentelemetry",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "nico-firmware"
+version = "0.0.1"
+dependencies = [
+ "bmc-vendor",
+ "eyre",
+ "futures-util",
+ "md5",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-macros",
+ "nico-sqlx-testing",
+ "reqwest",
+ "serde",
+ "sqlx",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+]
+
+[[package]]
+name = "nico-fmds"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "axum 0.8.6",
+ "axum-server",
+ "clap",
+ "eyre",
+ "futures-util",
+ "governor",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "ipnetwork",
+ "logfmt",
+ "netlink-packet-route",
+ "nico-dpu-agent-utils",
+ "nico-dpu-fmds-shared",
+ "nico-rpc",
+ "nico-tls",
+ "nico-uuid",
+ "nico-version",
+ "nonzero_ext",
+ "prost 0.14.1",
+ "reqwest",
+ "rtnetlink",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "nico-health"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "criterion",
+ "dashmap",
+ "figment",
+ "futures",
+ "http",
+ "humantime",
+ "humantime-serde",
+ "hyper",
+ "hyper-util",
+ "logfmt",
+ "mac_address",
+ "nico-health-report",
+ "nico-rpc",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "nico-version",
+ "nv-redfish",
+ "prometheus",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "rand 0.9.2",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "nico-health-report"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "nico-host-support"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "csv",
+ "eyre",
+ "ipnetwork",
+ "libudev",
+ "logfmt",
+ "nico-dpu-agent-utils",
+ "nico-libmlx",
+ "nico-rpc",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "procfs",
+ "regex",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "smbios-lib",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "tryhard",
+ "uname",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "nico-http-connector"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "hickory-resolver",
+ "hyper",
+ "hyper-util",
+ "socket2 0.6.1",
+ "tokio",
+ "tokio-socks",
+ "tower-service",
+ "tracing",
+ "tryhard",
+]
+
+[[package]]
+name = "nico-ib-fabric"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "duration-str",
+ "eyre",
+ "figment",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-timeout",
+ "hyper-util",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-health-report",
+ "nico-rpc",
+ "nico-secrets",
+ "nico-utils",
+ "nico-uuid",
+ "opentelemetry",
+ "rand 0.9.2",
+ "rustls 0.23.34",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "nico-ipmi"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "eyre",
+ "nico-secrets",
+ "nico-utils",
+ "nico-uuid",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "nico-ipxe-renderer"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "nico-kms-provider"
+version = "0.0.1"
+dependencies = [
+ "aes-gcm",
+ "async-trait",
+ "base64 0.22.1",
+ "hex",
+ "rand 0.9.2",
+ "serde",
+ "serial_test",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "vaultrs",
+ "zeroize",
+]
+
+[[package]]
+name = "nico-libmlx"
+version = "0.0.1"
+dependencies = [
+ "async-ssh2-tokio",
+ "backon",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "hex",
+ "hostname 0.3.1",
+ "mac_address",
+ "nico-rpc",
+ "nico-uuid",
+ "once_cell",
+ "prettytable-rs",
+ "prost-types 0.14.1",
+ "quick-xml 0.31.0",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "wait-timeout",
+]
+
+[[package]]
+name = "nico-log-parser"
+version = "0.0.2"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "getopts",
+ "nico-health-report",
+ "nico-rpc",
+ "nico-tls",
+ "nico-uuid",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+]
+
+[[package]]
+name = "nico-machine-a-tron"
+version = "0.0.0"
+dependencies = [
+ "axum 0.8.6",
+ "base64 0.22.1",
+ "bmc-mock",
+ "chrono",
+ "clap",
+ "crossterm",
+ "duration-str",
+ "eyre",
+ "figment",
+ "futures",
+ "lazy_static",
+ "mac_address",
+ "nico-network",
+ "nico-rpc",
+ "nico-tls",
+ "nico-uuid",
+ "nico-version",
+ "ratatui",
+ "rcgen",
+ "reqwest",
+ "russh",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "nico-machine-validation"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "nico-rpc",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "nico-macros"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+ "proc-macro2",
+ "quote",
+ "sqlx",
+ "sqlx-macros-core",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "nico-measured-boot"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "eyre",
+ "nico-rpc",
+ "nico-uuid",
+ "prettytable-rs",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tonic 0.14.2",
+]
+
+[[package]]
+name = "nico-mockdpa"
+version = "0.0.1"
+dependencies = [
+ "chrono",
+ "clap",
+ "mqttea",
+ "nico-rpc",
+ "prost 0.14.1",
+ "prost-build 0.14.1",
+ "rumqttc",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "nico-network"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+ "ipnet",
+ "ipnetwork",
+ "mac_address",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "nico-nvlink-manager"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "config-version",
+ "duration-str",
+ "eyre",
+ "http",
+ "libnmxm",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-rpc",
+ "nico-secrets",
+ "nico-utils",
+ "nico-uuid",
+ "opentelemetry",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nico-preingestion-manager"
+version = "0.0.1"
+dependencies = [
+ "bmc-vendor",
+ "chrono",
+ "futures-util",
+ "libredfish",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-firmware",
+ "nico-redfish",
+ "nico-secrets",
+ "nico-ssh",
+ "nico-utils",
+ "opentelemetry",
+ "prometheus-text-parser",
+ "sqlx",
+ "thiserror 2.0.17",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "version-compare 0.2.1",
+]
+
+[[package]]
+name = "nico-prost-builder"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "nico-pxe"
+version = "0.0.1"
+dependencies = [
+ "axum 0.8.6",
+ "axum-client-ip",
+ "axum-template",
+ "base64 0.22.1",
+ "bytes",
+ "clap",
+ "http-body",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "mime",
+ "nico-host-support",
+ "nico-rpc",
+ "nico-tls",
+ "nico-uuid",
+ "nico-version",
+ "pin-project-lite",
+ "serde",
+ "tempfile",
+ "tera",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tower 0.5.2",
+ "tower-http",
+ "tower-layer",
+ "tower-service",
+ "uuid",
+]
+
+[[package]]
+name = "nico-redfish"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "bmc-vendor",
+ "chrono",
+ "http",
+ "libredfish",
+ "mac_address",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-secrets",
+ "nico-utils",
+ "nv-redfish",
+ "reqwest",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "nico-rpc"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "clap",
+ "csv",
+ "data-encoding",
+ "dns-record",
+ "eyre",
+ "hickory-resolver",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "ipnetwork",
+ "log",
+ "mac_address",
+ "nico-health-report",
+ "nico-http-connector",
+ "nico-network",
+ "nico-secrets",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "nonempty",
+ "prettytable-rs",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "resolv-conf",
+ "rustls 0.23.34",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.14.2",
+ "tonic-client-wrapper 0.1.0",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower 0.5.2",
+ "tracing",
+ "tryhard",
+ "uuid",
+ "x509-parser",
+]
+
+[[package]]
+name = "nico-rpc-utils"
+version = "0.0.0"
+dependencies = [
+ "byte-unit",
+ "chrono",
+ "config-version",
+ "eyre",
+ "ipnetwork",
+ "itertools 0.14.0",
+ "nico-health-report",
+ "nico-rpc",
+ "nico-uuid",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "nico-scout"
+version = "0.0.1"
+dependencies = [
+ "axum 0.8.6",
+ "chrono",
+ "clap",
+ "efivar",
+ "eyre",
+ "futures-util",
+ "http",
+ "lazy_static",
+ "nico-host-support",
+ "nico-libmlx",
+ "nico-machine-validation",
+ "nico-rpc",
+ "nico-tls",
+ "nico-utils",
+ "nico-uuid",
+ "nico-version",
+ "once_cell",
+ "pwhash",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "smbios-lib",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.14.2",
+ "tracing",
+ "tryhard",
+ "tss-esapi",
+ "uuid",
+ "x509-parser",
+]
+
+[[package]]
+name = "nico-secrets"
+version = "0.0.0"
+dependencies = [
+ "aes-gcm",
+ "arc-swap",
+ "async-trait",
+ "base64 0.22.1",
+ "bmc-vendor",
+ "eyre",
+ "figment",
+ "hex",
+ "mac_address",
+ "nico-uuid",
+ "notify",
+ "opentelemetry",
+ "p256",
+ "rand 0.9.2",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "vaultrs",
+]
+
+[[package]]
+name = "nico-site-explorer"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "bmc-explorer",
+ "chrono",
+ "config-version",
+ "duration-str",
+ "futures-util",
+ "http",
+ "itertools 0.14.0",
+ "libredfish",
+ "librms",
+ "mac_address",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-firmware",
+ "nico-health-report",
+ "nico-ipmi",
+ "nico-network",
+ "nico-redfish",
+ "nico-secrets",
+ "nico-utils",
+ "nico-uuid",
+ "opentelemetry",
+ "rand 0.9.2",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "version-compare 0.2.1",
+]
+
+[[package]]
+name = "nico-sqlx-testing"
+version = "0.0.0"
+dependencies = [
+ "nico-api-db",
+ "sqlx",
+ "sqlx-core",
+ "tokio",
+]
+
+[[package]]
+name = "nico-ssh"
+version = "0.0.0"
+dependencies = [
+ "async-ssh2-tokio",
+ "russh",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nico-ssh-console"
+version = "0.1.0"
+dependencies = [
+ "bmc-mock",
+ "bmc-vendor",
+ "chrono",
+ "clap",
+ "ctor",
+ "duration-str",
+ "eyre",
+ "futures",
+ "futures-util",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "indoc",
+ "lazy_static",
+ "libc",
+ "nico-api-test-helper",
+ "nico-machine-a-tron",
+ "nico-rpc",
+ "nico-ssh-console-mock-api-server",
+ "nico-tls",
+ "nico-uuid",
+ "nix 0.30.1",
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
+ "prometheus-text-parser",
+ "rand 0.9.2",
+ "ringbuf",
+ "russh",
+ "serde",
+ "size",
+ "strip-ansi-escapes",
+ "temp-dir",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "nico-ssh-console-fuzz"
+version = "0.0.1"
+dependencies = [
+ "libfuzzer-sys",
+ "nico-ssh-console",
+]
+
+[[package]]
+name = "nico-ssh-console-mock-api-server"
+version = "0.0.1"
+dependencies = [
+ "eyre",
+ "nico-api-test-helper",
+ "nico-rpc",
+ "nico-uuid",
+ "nico-version",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "rustls 0.23.34",
+ "rustls-pemfile",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nico-systemd"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nico-tls"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tonic 0.14.2",
+]
+
+[[package]]
+name = "nico-utils"
+version = "0.0.0"
+dependencies = [
+ "byte-unit",
+ "chrono",
+ "clap",
+ "ipnetwork",
+ "nico-network",
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
+name = "nico-uuid"
+version = "0.0.0"
+dependencies = [
+ "data-encoding",
+ "eyre",
+ "prost 0.14.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.17",
+ "uuid",
+]
+
+[[package]]
+name = "nico-version"
+version = "0.0.0"
+
+[[package]]
 name = "nix"
 version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9828,14 +9848,6 @@ name = "state-controller"
 version = "0.0.1"
 dependencies = [
  "async-trait",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-dpf",
- "carbide-macros",
- "carbide-redfish",
- "carbide-sqlx-testing",
- "carbide-utils",
- "carbide-uuid",
  "chrono",
  "config-version",
  "eyre",
@@ -9843,6 +9855,14 @@ dependencies = [
  "futures-util",
  "libredfish",
  "librms",
+ "nico-api-db",
+ "nico-api-model",
+ "nico-dpf",
+ "nico-macros",
+ "nico-redfish",
+ "nico-sqlx-testing",
+ "nico-utils",
+ "nico-uuid",
  "opentelemetry",
  "rand 0.9.2",
  "serde",

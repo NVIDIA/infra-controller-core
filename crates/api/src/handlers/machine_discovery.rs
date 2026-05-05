@@ -20,9 +20,9 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-pub use ::rpc::forge as rpc;
-use carbide_nvlink_manager::config::NvLinkConfig;
-use carbide_uuid::nvlink::NvLinkDomainId;
+pub use ::rpc::nico as rpc;
+use nico_nvlink_manager::config::NvLinkConfig;
+use nico_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
 use model::hardware_info::{GpuPlatformInfo, HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
@@ -33,7 +33,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, CarbideResult, attestation as attest};
+use crate::{NicoError, NicoResult, attestation as attest};
 
 pub(crate) async fn discover_machine(
     api: &Api,
@@ -48,7 +48,7 @@ pub(crate) async fn discover_machine(
             // we use to_canonical() to convert it to IPv4.
             request
                 .extensions()
-                .get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
+                .get::<Arc<nico_authn::middleware::ConnectionAttributes>>()
                 .map(|conn_attrs| conn_attrs.peer_address.ip().to_canonical())
         }
         Some(ip_str) => {
@@ -69,10 +69,10 @@ pub(crate) async fn discover_machine(
             rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
         })
         .ok_or_else(|| {
-            CarbideError::InvalidArgument("Discovery data is not populated".to_string())
+            NicoError::InvalidArgument("Discovery data is not populated".to_string())
         })?;
     let attest_key_info_opt = discovery_data.attest_key_info.clone();
-    let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
+    let hardware_info = HardwareInfo::try_from(discovery_data).map_err(NicoError::from)?;
 
     // this is an early check for certificate creation that happens later on in this method.
     // let's save us the hassle and return immediately if the below condition is not satisfied
@@ -81,13 +81,13 @@ pub(crate) async fn discover_machine(
         && attest_key_info_opt.is_none()
     {
         return Err(
-            CarbideError::InvalidArgument("AttestKeyInfo is not populated".to_string()).into(),
+            NicoError::InvalidArgument("AttestKeyInfo is not populated".to_string()).into(),
         );
     }
 
     // Generate a stable Machine ID based on the hardware information
     let stable_machine_id = from_hardware_info(&hardware_info).map_err(|e| {
-            CarbideError::InvalidArgument(
+            NicoError::InvalidArgument(
                 format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {interface_id:?}: {e}"),
             )
         })?;
@@ -125,7 +125,7 @@ pub(crate) async fn discover_machine(
         && hardware_info.tpm_ek_certificate.is_none()
         && api.runtime_config.tpm_required
     {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
                 "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {interface_id:?}"
             ))
             .into());
@@ -137,7 +137,7 @@ pub(crate) async fn discover_machine(
             hardware_info
                 .tpm_ek_certificate
                 .as_ref()
-                .ok_or(CarbideError::InvalidArgument(
+                .ok_or(NicoError::InvalidArgument(
                     "tpm_ek_cert is empty".to_string(),
                 ))?;
 
@@ -169,7 +169,7 @@ pub(crate) async fn discover_machine(
             )
             .await?
             .ok_or_else(|| {
-                CarbideError::InvalidArgument(format!(
+                NicoError::InvalidArgument(format!(
                     "Machine id {stable_machine_id} was not discovered by site-explorer."
                 ))
             })?;
@@ -204,7 +204,7 @@ pub(crate) async fn discover_machine(
             )
             .await?
             .ok_or_else(|| {
-                CarbideError::InvalidArgument(format!("Machine id {stable_machine_id} not found."))
+                NicoError::InvalidArgument(format!("Machine id {stable_machine_id} not found."))
             })?
         };
 
@@ -291,7 +291,7 @@ pub(crate) async fn discover_machine(
         if machine_interface.machine_id.is_none() {
             let predicted_machine_id =
                 host_id_from_dpu_hardware_info(&hardware_info).map_err(|e| {
-                    CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
+                    NicoError::InvalidArgument(format!("hardware info missing: {e}"))
                 })?;
             let mi_id = machine_interface.id;
             let proactive_machine = db::machine::get_or_create(
@@ -330,7 +330,7 @@ pub(crate) async fn discover_machine(
     let attest_key_challenge = if api.runtime_config.attestation_enabled && !hardware_info.is_dpu()
     {
         let Some(attest_key_info) = attest_key_info_opt else {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "Internal Error: This should have been handled above! AttestKeyInfo is not populated.".into(),
             )
             .into());
@@ -372,7 +372,7 @@ pub(crate) async fn discover_machine(
                 api.certificate_provider
                     .get_certificate(&stable_machine_id.to_string(), None, None)
                     .await
-                    .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
+                    .map_err(|err| NicoError::ClientCertificateError(err.to_string()))?
                     .into(),
             )
         }
@@ -442,17 +442,17 @@ async fn get_nvlink_info_from_nmx_m(
     api: &Api,
     nvlink_config: &NvLinkConfig,
     platform_info: &GpuPlatformInfo,
-) -> CarbideResult<MachineNvLinkInfo> {
+) -> NicoResult<MachineNvLinkInfo> {
     let nmx_m_client = api
         .nmxm_pool
         .create_client(&nvlink_config.nmx_m_endpoint, None)
         .await
-        .map_err(|e| CarbideError::internal(format!("Failed to create NMX-M client: {e}")))?;
+        .map_err(|e| NicoError::internal(format!("Failed to create NMX-M client: {e}")))?;
 
     let nmx_m_gpu_list = nmx_m_client
         .get_gpu(None)
         .await
-        .map_err(|e| CarbideError::internal(format!("Failed to get compute nodes: {e}")))?;
+        .map_err(|e| NicoError::internal(format!("Failed to get compute nodes: {e}")))?;
 
     // Get the list of GPUs which match the location info returned from scout.
     let matching_gpus = nmx_m_gpu_list
@@ -475,7 +475,7 @@ async fn get_nvlink_info_from_nmx_m(
         .first()
         .and_then(|gpu| gpu.domain_uuid)
         .ok_or_else(|| {
-            CarbideError::internal(format!(
+            NicoError::internal(format!(
                 "Failed to find domain UUID for GPUs: {matching_gpus:?}"
             ))
         })?;

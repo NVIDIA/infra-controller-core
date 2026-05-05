@@ -24,8 +24,8 @@ use std::io::Read;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use carbide_dpf::repository::{DpuRepository, K8sConfigRepository};
-use carbide_dpf::{
+use nico_dpf::repository::{DpuRepository, K8sConfigRepository};
+use nico_dpf::{
     DpfError, DpfSdk, DpfSdkBuilder, DpuDeviceInfo, DpuNodeInfo, InitDpfResourcesConfig,
     KubeRepository, NAMESPACE, ServiceDefinition, dpu_node_cr_name,
 };
@@ -382,7 +382,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("carbide_dpf=info".parse()?),
+                .add_directive("nico_dpf=info".parse()?),
         )
         .init();
 
@@ -778,7 +778,7 @@ async fn wait_for_dpu_created_after(
     created_after: SystemTime,
     timeout: Duration,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    use carbide_dpf::crds::dpus_generated::DPU;
+    use nico_dpf::crds::dpus_generated::DPU;
     let cutoff = created_after
         .checked_sub(CREATED_AFTER_TOLERANCE)
         .unwrap_or(UNIX_EPOCH);
@@ -913,7 +913,7 @@ async fn show_status(
     namespace: &str,
     host_bmc_ip: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use carbide_dpf::repository::{
+    use nico_dpf::repository::{
         BfbRepository, DpuDeploymentRepository, DpuDeviceRepository, DpuNodeRepository,
         DpuRepository, DpuServiceConfigurationRepository, DpuServiceTemplateRepository,
     };

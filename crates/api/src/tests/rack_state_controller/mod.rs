@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_uuid::rack::{RackId, RackProfileId};
+use nico_uuid::rack::{RackId, RackProfileId};
 use db::db_read::DbReader;
 use db::{self, ObjectColumnFilter, machine as db_machine, rack as db_rack};
 use model::expected_machine::ExpectedMachineData;
@@ -30,8 +30,8 @@ use model::rack::{
     ConfigureNmxClusterState, FirmwareUpgradeState, NvosUpdateState, Rack, RackConfig,
     RackMaintenanceState, RackState, RackValidationState,
 };
-use rpc::forge::StateHistoryRecord;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::StateHistoryRecord;
+use rpc::nico::nico_server::Nico;
 use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::config::IterationConfig;
@@ -406,7 +406,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
     // Verify the history RPC contains records for all transitions.
     let result = env
         .api
-        .find_rack_state_histories(tonic::Request::new(rpc::forge::RackStateHistoriesRequest {
+        .find_rack_state_histories(tonic::Request::new(rpc::nico::RackStateHistoriesRequest {
             rack_ids: vec![rack_id.clone()],
         }))
         .await?;
@@ -545,7 +545,7 @@ async fn test_rack_deletion_with_state_controller(
     // Verify that the DB object is gone
     let racks = env
         .api
-        .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+        .find_racks_by_ids(tonic::Request::new(rpc::nico::RacksByIdsRequest {
             rack_ids: vec![rack_id],
         }))
         .await?

@@ -19,17 +19,17 @@ use std::future::Future;
 use std::iter;
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
-use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
-use carbide_uuid::rack::{RackId, RackProfileId};
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::machine_validation::MachineValidationId;
+use nico_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use nico_uuid::rack::{RackId, RackProfileId};
+use nico_uuid::switch::SwitchId;
 use db::machine_interface::find_by_mac_address;
 use db::{
     DatabaseError, expected_machine as db_expected_machine, power_shelf as db_power_shelf,
     rack as db_rack, switch as db_switch,
 };
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
 use model::address_selection_strategy::AddressSelectionStrategy;
@@ -46,9 +46,9 @@ use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::rack::RackConfig;
 use model::site_explorer::EndpointExplorationReport;
 use model::switch::{NewSwitch, SwitchConfig};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self, HealthReportEntry, InsertMachineHealthReportRequest};
-use rpc::forge_agent_control_response::{Action, LegacyAction};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{self, HealthReportEntry, InsertMachineHealthReportRequest};
+use rpc::nico_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
 use sqlx::PgConnection;
@@ -66,7 +66,7 @@ use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
 };
 use crate::tests::common::api_fixtures::{
-    TestEnv, TestManagedHost, forge_agent_control, get_machine_validation_runs,
+    TestEnv, TestManagedHost, nico_agent_control, get_machine_validation_runs,
     machine_validation_completed, persist_machine_validation_result, reboot_completed,
     update_machine_validation_run,
 };
@@ -81,8 +81,8 @@ pub struct MockExploredHost<'a> {
     pub managed_host: ManagedHostConfig,
     pub host_bmc_ip: Option<IpAddr>,
     pub dpu_bmc_ips: HashMap<u8, IpAddr>,
-    pub host_dhcp_response: Option<forge::DhcpRecord>,
-    pub machine_discovery_response: Option<forge::MachineDiscoveryResult>,
+    pub host_dhcp_response: Option<nico::DhcpRecord>,
+    pub machine_discovery_response: Option<nico::MachineDiscoveryResult>,
     pub dpu_machine_ids: HashMap<u8, MachineId>,
 }
 
@@ -111,7 +111,7 @@ impl<'a> MockExploredHost<'a> {
     ///
     /// Yields the result to the passed closure.
     pub async fn discover_dhcp_host_bmc<
-        F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
+        F: FnOnce(tonic::Result<tonic::Response<nico::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
     >(
         mut self,
         f: F,
@@ -142,7 +142,7 @@ impl<'a> MockExploredHost<'a> {
     ///
     /// Yields the result to the passed closure.
     pub async fn discover_dhcp_dpu_bmc<
-        F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
+        F: FnOnce(tonic::Result<tonic::Response<nico::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
     >(
         mut self,
         dpu_index: u8,
@@ -204,7 +204,7 @@ impl<'a> MockExploredHost<'a> {
     ///
     /// Yields the DHCP result to the passed closure
     pub async fn discover_dhcp_host_primary_iface<
-        F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
+        F: FnOnce(tonic::Result<tonic::Response<nico::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
     >(
         mut self,
         f: F,
@@ -252,7 +252,7 @@ impl<'a> MockExploredHost<'a> {
 
     /// Run DHCP on the specified non-dpu host index ID, if available, from the given relay address.
     pub async fn discover_dhcp_host_secondary_iface<
-        F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
+        F: FnOnce(tonic::Result<tonic::Response<nico::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
     >(
         mut self,
         iface_index: u8,
@@ -281,7 +281,7 @@ impl<'a> MockExploredHost<'a> {
     /// Yields the discovery result to the passed closure.
     pub async fn discover_machine<
         F: FnOnce(
-            tonic::Result<tonic::Response<forge::MachineDiscoveryResult>>,
+            tonic::Result<tonic::Response<nico::MachineDiscoveryResult>>,
             &mut Self,
         ) -> eyre::Result<()>,
     >(
@@ -397,11 +397,11 @@ impl<'a> MockExploredHost<'a> {
         }
 
         for machine_id in self.dpu_machine_ids.values() {
-            let response = forge_agent_control(self.test_env, *machine_id).await;
+            let response = nico_agent_control(self.test_env, *machine_id).await;
             assert!(matches!(response.action, Some(Action::Discovery(_))));
             assert_eq!(
                 response.legacy_action,
-                rpc::forge_agent_control_response::LegacyAction::Discovery as i32
+                rpc::nico_agent_control_response::LegacyAction::Discovery as i32
             );
 
             discovery_completed(self.test_env, *machine_id).await;
@@ -487,11 +487,11 @@ impl<'a> MockExploredHost<'a> {
         }
 
         for machine_id in self.dpu_machine_ids.values() {
-            let response = forge_agent_control(self.test_env, *machine_id).await;
+            let response = nico_agent_control(self.test_env, *machine_id).await;
             assert!(matches!(response.action, Some(Action::Discovery(_)),));
             assert_eq!(
                 response.legacy_action,
-                rpc::forge_agent_control_response::LegacyAction::Discovery as i32
+                rpc::nico_agent_control_response::LegacyAction::Discovery as i32
             );
 
             discovery_completed(self.test_env, *machine_id).await;
@@ -710,7 +710,7 @@ impl<'a> MockExploredHost<'a> {
             return self;
         }
 
-        // We use forge_dpu_agent's health reporting as a signal that
+        // We use nico_dpu_agent's health reporting as a signal that
         // DPU has rebooted.
         super::network_configured(
             self.test_env,
@@ -829,11 +829,11 @@ impl<'a> MockExploredHost<'a> {
             return self;
         }
 
-        let response = forge_agent_control(self.test_env, host_machine_id).await;
+        let response = nico_agent_control(self.test_env, host_machine_id).await;
         assert!(matches!(response.action, Some(Action::Noop(_))));
         assert_eq!(
             response.legacy_action,
-            rpc::forge_agent_control_response::LegacyAction::Noop as i32
+            rpc::nico_agent_control_response::LegacyAction::Noop as i32
         );
 
         self.test_env
@@ -869,7 +869,7 @@ impl<'a> MockExploredHost<'a> {
 
     pub async fn host_state_controller_iterations_with_machine_validation(
         self,
-        machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
+        machine_validation_result_data: Option<rpc::nico::MachineValidationResult>,
         error: Option<String>,
     ) -> Self {
         let host_machine_id = self
@@ -923,7 +923,7 @@ impl<'a> MockExploredHost<'a> {
             )
             .await;
 
-        // We use forge_dpu_agent's health reporting as a signal that
+        // We use nico_dpu_agent's health reporting as a signal that
         // DPU has rebooted.
         super::network_configured(
             self.test_env,
@@ -949,7 +949,7 @@ impl<'a> MockExploredHost<'a> {
             )
             .await;
 
-        let response = forge_agent_control(self.test_env, host_machine_id).await;
+        let response = nico_agent_control(self.test_env, host_machine_id).await;
         if self.test_env.config.machine_validation_config.enabled {
             let uuid = &response.data.unwrap().pair[1].value;
             let validation_id: MachineValidationId = uuid.parse().unwrap();
@@ -1020,7 +1020,7 @@ impl<'a> MockExploredHost<'a> {
 
                 txn.commit().await.unwrap();
             } else if machine_validation_result.exit_code == 0 {
-                let _ = forge_agent_control(self.test_env, host_machine_id).await;
+                let _ = nico_agent_control(self.test_env, host_machine_id).await;
 
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
@@ -1034,7 +1034,7 @@ impl<'a> MockExploredHost<'a> {
                     )
                     .await;
 
-                let response = forge_agent_control(self.test_env, host_machine_id).await;
+                let response = nico_agent_control(self.test_env, host_machine_id).await;
                 assert!(matches!(response.action, Some(Action::Noop(_))));
                 assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
                 self.test_env
@@ -1076,7 +1076,7 @@ impl<'a> MockExploredHost<'a> {
                 )
                 .await;
 
-            // Note: no forge_agent_control/reboot_completed call happens here, since we're skipping
+            // Note: no nico_agent_control/reboot_completed call happens here, since we're skipping
             // machine validation and thus not doing an extra reboot.
 
             self.test_env
@@ -1214,8 +1214,8 @@ pub async fn register_expected_machine(
 
     env.api
         .create_expected_machines(tonic::Request::new(
-            rpc::forge::BatchExpectedMachineOperationRequest {
-                expected_machines: Some(rpc::forge::ExpectedMachineList {
+            rpc::nico::BatchExpectedMachineOperationRequest {
+                expected_machines: Some(rpc::nico::ExpectedMachineList {
                     expected_machines: vec![em.into()],
                 }),
                 accept_partial_results: false,
@@ -1339,7 +1339,7 @@ pub async fn new_host(
 pub async fn new_host_with_machine_validation(
     env: &TestEnv,
     dpu_count: u8,
-    machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
+    machine_validation_result_data: Option<rpc::nico::MachineValidationResult>,
     error: Option<String>,
 ) -> eyre::Result<ManagedHostStateSnapshot> {
     let managed_host =
@@ -1645,8 +1645,8 @@ pub async fn new_switch(
         &expected_switch.serial_number,
         "NVIDIA",
         "Switch",
-        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
-        carbide_uuid::switch::SwitchType::NvLink,
+        nico_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        nico_uuid::switch::SwitchType::NvLink,
     )
     .map_err(|e| eyre::eyre!("Failed to create switch ID: {:?}", e))
     .unwrap();

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use config_version::ConfigVersion;
 use model::nvl_logical_partition::{
     LogicalPartition, LogicalPartitionSnapshotPgJson, LogicalPartitionState, NewLogicalPartition,

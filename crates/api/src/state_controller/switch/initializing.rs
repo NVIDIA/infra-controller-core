@@ -17,8 +17,8 @@
 
 //! Handler for SwitchControllerState::Initializing.
 
-use carbide_uuid::switch::SwitchId;
-use forge_secrets::credentials::{CredentialKey, Credentials};
+use nico_uuid::switch::SwitchId;
+use nico_secrets::credentials::{CredentialKey, Credentials};
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::switch::{ConfiguringState, InitializingState, Switch, SwitchControllerState};
 
@@ -201,7 +201,7 @@ async fn handle_wait_for_os_machine_interface(
                 ..Default::default()
             };
             let (slot_number, tray_index) =
-                carbide_site_explorer::fetch_slot_and_tray(rms_client.as_ref(), request).await;
+                nico_site_explorer::fetch_slot_and_tray(rms_client.as_ref(), request).await;
             let mut update_txn = ctx.services.db_pool.begin().await?;
             if let Err(e) = db::switch::update_slot_and_tray(
                 &mut update_txn,

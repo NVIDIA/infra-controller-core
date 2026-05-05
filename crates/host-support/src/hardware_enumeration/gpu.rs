@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::machine_discovery::Gpu as RpcGpu;
-use carbide_utils::cmd::Cmd;
+use nico_utils::cmd::Cmd;
 
 use super::HardwareEnumerationResult;
 

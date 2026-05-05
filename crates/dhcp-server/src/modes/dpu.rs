@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_rpc_utils::dhcp::InterfaceInfo;
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_rpc_utils::dhcp::InterfaceInfo;
+use nico_uuid::machine::MachineInterfaceId;
 use lru::LruCache;
-use rpc::forge::{DhcpDiscovery, DhcpRecord};
+use rpc::nico::{DhcpDiscovery, DhcpRecord};
 use tonic::async_trait;
 
 use super::DhcpMode;

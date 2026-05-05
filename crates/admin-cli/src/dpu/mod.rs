@@ -35,7 +35,7 @@ use crate::cfg::dispatch::Dispatch;
 pub enum Cmd {
     #[clap(subcommand, about = "DPU Reprovisioning handling")]
     Reprovision(reprovision::Args),
-    #[clap(about = "Get or set forge-dpu-agent upgrade policy")]
+    #[clap(about = "Get or set nico-dpu-agent upgrade policy")]
     AgentUpgradePolicy(agent_upgrade_policy::Args),
     #[clap(about = "View DPU firmware status")]
     Versions(versions::Args),

@@ -20,8 +20,8 @@ use std::str::FromStr;
 
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
 use mac_address::MacAddress;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     AssignStaticAddressRequest, AssignStaticAddressStatus, FindInterfaceAddressesRequest,
     RemoveStaticAddressRequest, RemoveStaticAddressStatus,
 };

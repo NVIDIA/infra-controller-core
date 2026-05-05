@@ -17,7 +17,7 @@
 use model::dpu_remediation::{
     ApproveRemediation, EnableRemediation, NewRemediation, RemediationApplicationStatus, Reviewer,
 };
-use rpc::forge::CreateRemediationRequest;
+use rpc::nico::CreateRemediationRequest;
 
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 

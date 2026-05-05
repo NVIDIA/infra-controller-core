@@ -17,10 +17,10 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use mac_address::MacAddress;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
-use rpc::forge_server::Forge;
+use rpc::nico_server::Nico;
 
 use crate::tests::common::api_fixtures::create_test_env;
 

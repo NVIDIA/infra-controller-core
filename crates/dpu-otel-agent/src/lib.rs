@@ -17,11 +17,11 @@
 
 use std::sync::Arc;
 
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use carbide_host_support::agent_config::AgentConfig;
+use ::rpc::nico_tls_client::NicoClientConfig;
+use nico_host_support::agent_config::AgentConfig;
 pub use command_line::{AgentCommand, Options, RunOptions};
 use eyre::WrapErr;
-use forge_tls::client_config::ClientCert;
+use nico_tls::client_config::ClientCert;
 
 mod command_line;
 
@@ -42,12 +42,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     };
     tracing::info!("Using configuration from {path}: {agent:?}");
 
-    let forge_client_config = Arc::new(
-        ForgeClientConfig::new(
-            agent.forge_system.root_ca.clone(),
+    let nico_client_config = Arc::new(
+        NicoClientConfig::new(
+            agent.nico_system.root_ca.clone(),
             Some(ClientCert {
-                cert_path: agent.forge_system.client_cert.clone(),
-                key_path: agent.forge_system.client_key.clone(),
+                cert_path: agent.nico_system.client_cert.clone(),
+                key_path: agent.nico_system.client_key.clone(),
             }),
         )
         .use_mgmt_vrf()?,
@@ -55,11 +55,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
     match cmdline.cmd {
         None => {
-            tracing::error!("Missing cmd. Try `forge-dpu-otel-agent --help`");
+            tracing::error!("Missing cmd. Try `nico-dpu-otel-agent --help`");
         }
 
         Some(AgentCommand::Run(options)) => {
-            main_loop::setup_and_run(forge_client_config, agent, *options)
+            main_loop::setup_and_run(nico_client_config, agent, *options)
                 .await
                 .wrap_err("main_loop error exit")?;
             tracing::info!("Agent exit");

@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn clear_uefi_password(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn clear_uefi_password(data: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let response = api_client.0.clear_host_uefi_password(data).await?;
     println!(
         "successfully cleared UEFI password for host (jid: {:#?})",

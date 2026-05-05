@@ -17,8 +17,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use librms::protos::rack_manager as rms;
 use model::rack::FirmwareUpgradeDeviceInfo;

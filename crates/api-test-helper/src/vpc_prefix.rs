@@ -20,7 +20,7 @@ use std::net::SocketAddr;
 use super::grpcurl::grpcurl_id;
 
 pub async fn create(
-    carbide_api_addrs: &[SocketAddr],
+    nico_api_addrs: &[SocketAddr],
     vpc_id: &str,
     prefix: &str,
     name: &str,
@@ -37,7 +37,7 @@ pub async fn create(
             "description": format!("VPC prefix for {prefix}"),
         },
     });
-    let prefix_id = grpcurl_id(carbide_api_addrs, "CreateVpcPrefix", &data.to_string()).await?;
+    let prefix_id = grpcurl_id(nico_api_addrs, "CreateVpcPrefix", &data.to_string()).await?;
     tracing::info!("VPC prefix created with ID {prefix_id}");
     Ok(prefix_id)
 }

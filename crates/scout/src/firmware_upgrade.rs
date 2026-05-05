@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
-use rpc::forge_agent_control_response::ScoutFirmwareUpgradeTask as FirmwareUpgradeTask;
+use rpc::nico_agent_control_response::ScoutFirmwareUpgradeTask as FirmwareUpgradeTask;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -38,7 +38,7 @@ pub struct FirmwareUpgradeResult {
     pub error: String,
 }
 
-// handle_firmware_upgrade downloads file artifacts and a script from carbide-api,
+// handle_firmware_upgrade downloads file artifacts and a script from nico-api,
 // then executes the script on the host.
 pub async fn handle_firmware_upgrade(
     client: &reqwest::Client,
@@ -258,7 +258,7 @@ async fn sha256_file(path: &Path) -> Result<String, Box<dyn std::error::Error>> 
 mod tests {
     use axum::Router;
     use axum::routing::get;
-    use rpc::forge_agent_control_response::FileArtifact;
+    use rpc::nico_agent_control_response::FileArtifact;
     use tokio::net::TcpListener;
 
     use super::*;

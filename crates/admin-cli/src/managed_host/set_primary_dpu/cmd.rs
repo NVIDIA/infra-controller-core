@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn set_primary_dpu(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub async fn set_primary_dpu(api_client: &ApiClient, args: Args) -> NicoCliResult<()> {
     api_client.0.set_primary_dpu(args).await?;
     Ok(())
 }

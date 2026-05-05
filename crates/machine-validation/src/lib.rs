@@ -19,8 +19,8 @@ use std::cmp::min;
 use std::io::Write;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::machine_validation::MachineValidationId;
 use errors::MachineValidationError;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 mod errors;
 mod machine_validation;
 
-pub const MACHINE_VALIDATION_SERVER: &str = "carbide-pxe.forge";
+pub const MACHINE_VALIDATION_SERVER: &str = "nico-pxe.nico";
 pub const SCHME: &str = "http";
 
 pub const MACHINE_VALIDATION_IMAGE_PATH: &str = "/public/blobs/internal/machine-validation/images/";
@@ -57,8 +57,8 @@ pub struct MachineValidationFilter {
     pub contexts: Option<Vec<String>>,
 }
 
-impl From<rpc::forge_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
-    fn from(filter: rpc::forge_agent_control_response::MachineValidationFilter) -> Self {
+impl From<rpc::nico_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
+    fn from(filter: rpc::nico_agent_control_response::MachineValidationFilter) -> Self {
         Self {
             tags: filter.tags,
             allowed_tests: filter.allowed_tests,
@@ -127,7 +127,7 @@ impl MachineValidationManager {
 
         let tests = mc
             .clone()
-            .get_machine_validation_tests(rpc::forge::MachineValidationTestsGetRequest {
+            .get_machine_validation_tests(rpc::nico::MachineValidationTestsGetRequest {
                 supported_platforms: vec![platform_name],
                 contexts: if machine_validation_filter
                     .clone()
@@ -152,12 +152,12 @@ impl MachineValidationManager {
                     Some(true)
                 },
                 custom_tags: machine_validation_filter.clone().tags,
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..rpc::nico::MachineValidationTestsGetRequest::default()
             })
             .await?;
-        let mut run_request = rpc::forge::MachineValidationRunRequest {
+        let mut run_request = rpc::nico::MachineValidationRunRequest {
             validation_id: Some(validation_id),
-            ..rpc::forge::MachineValidationRunRequest::default()
+            ..rpc::nico::MachineValidationRunRequest::default()
         };
         let mut expected_time_duration = 0;
         for test in tests.clone() {

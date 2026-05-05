@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn autoupdate(cfg: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn autoupdate(cfg: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let _response = api_client.machine_set_auto_update(cfg).await?;
     Ok(())
 }

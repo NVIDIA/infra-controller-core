@@ -22,7 +22,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;

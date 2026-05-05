@@ -19,12 +19,12 @@ use std::fs;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
-use carbide_uuid::UuidConversionError;
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::UuidConversionError;
+use nico_uuid::machine::MachineInterfaceId;
 use ipnetwork::Ipv4Network;
 use rpc::InterfaceFunctionType;
 use rpc::errors::RpcDataConversionError;
-use rpc::forge::ManagedHostNetworkConfigResponse;
+use rpc::nico::ManagedHostNetworkConfigResponse;
 use serde::{Deserialize, Serialize};
 
 /// This structure is used in dhcp-server and dpu-agent. dpu-agent passes these information to
@@ -34,12 +34,12 @@ pub struct DhcpConfig {
     pub lease_time_secs: u32,
     pub renewal_time_secs: u32,
     pub rebinding_time_secs: u32,
-    pub carbide_nameservers: Vec<Ipv4Addr>,
+    pub nico_nameservers: Vec<Ipv4Addr>,
     // Mandatory for Controller mode.
-    pub carbide_api_url: Option<String>,
-    pub carbide_ntpservers: Vec<Ipv4Addr>,
-    pub carbide_provisioning_server_ipv4: Ipv4Addr,
-    pub carbide_dhcp_server: Ipv4Addr,
+    pub nico_api_url: Option<String>,
+    pub nico_ntpservers: Vec<Ipv4Addr>,
+    pub nico_provisioning_server_ipv4: Ipv4Addr,
+    pub nico_dhcp_server: Ipv4Addr,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -55,7 +55,7 @@ pub enum DhcpDataError {
     #[error("DhcpDataError: UuidConversionError: {0}")]
     UuidConversion(#[from] UuidConversionError),
     #[error("DhcpDataError: UuidParseError: {0}")]
-    UuidParseError(#[from] carbide_uuid::typed_uuids::UuidError),
+    UuidParseError(#[from] nico_uuid::typed_uuids::UuidError),
 }
 
 impl Default for DhcpConfig {
@@ -65,29 +65,29 @@ impl Default for DhcpConfig {
             lease_time_secs: 604800,
             renewal_time_secs: 3600,
             rebinding_time_secs: 432000,
-            carbide_nameservers: vec![],
-            carbide_api_url: None,
-            carbide_ntpservers: vec![],
+            nico_nameservers: vec![],
+            nico_api_url: None,
+            nico_ntpservers: vec![],
 
             // These two must be updated with valid values.
-            carbide_provisioning_server_ipv4: Ipv4Addr::from([127, 0, 0, 1]),
-            carbide_dhcp_server: Ipv4Addr::from([127, 0, 0, 1]),
+            nico_provisioning_server_ipv4: Ipv4Addr::from([127, 0, 0, 1]),
+            nico_dhcp_server: Ipv4Addr::from([127, 0, 0, 1]),
         }
     }
 }
 
 impl DhcpConfig {
-    pub fn from_forge_dhcp_config(
-        carbide_provisioning_server_ipv4: Ipv4Addr,
-        carbide_ntpservers: Vec<Ipv4Addr>,
-        carbide_nameservers: Vec<Ipv4Addr>,
+    pub fn from_nico_dhcp_config(
+        nico_provisioning_server_ipv4: Ipv4Addr,
+        nico_ntpservers: Vec<Ipv4Addr>,
+        nico_nameservers: Vec<Ipv4Addr>,
         loopback_ip: Ipv4Addr,
     ) -> Result<Self, DhcpDataError> {
         Ok(DhcpConfig {
-            carbide_nameservers,
-            carbide_ntpservers,
-            carbide_provisioning_server_ipv4,
-            carbide_dhcp_server: loopback_ip,
+            nico_nameservers,
+            nico_ntpservers,
+            nico_provisioning_server_ipv4,
+            nico_dhcp_server: loopback_ip,
             ..Default::default()
         })
     }
@@ -148,7 +148,7 @@ impl HostConfig {
 
         for interface in interface_configs {
             let interface_name = if (virtualization_type
-                == ::rpc::forge::VpcVirtualizationType::Fnn
+                == ::rpc::nico::VpcVirtualizationType::Fnn
                 && !interface.is_l2_segment)
                 || !is_dpu_os
             {
@@ -180,9 +180,9 @@ impl HostConfig {
     }
 }
 
-impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
+impl TryFrom<::rpc::nico::FlatInterfaceConfig> for InterfaceInfo {
     type Error = DhcpDataError;
-    fn try_from(value: ::rpc::forge::FlatInterfaceConfig) -> Result<Self, Self::Error> {
+    fn try_from(value: ::rpc::nico::FlatInterfaceConfig) -> Result<Self, Self::Error> {
         let gateway = Ipv4Network::from_str(&value.gateway)?.ip();
 
         Ok(InterfaceInfo {
@@ -196,10 +196,10 @@ impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
     }
 }
 
-const DHCP_TIMESTAMP_FILE_HBN: &str = "/var/support/forge-dhcp/logs/dhcp_timestamps.json";
-const DHCP_TIMESTAMP_FILE_HBN_TMP: &str = "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp";
+const DHCP_TIMESTAMP_FILE_HBN: &str = "/var/support/nico-dhcp/logs/dhcp_timestamps.json";
+const DHCP_TIMESTAMP_FILE_HBN_TMP: &str = "/var/support/nico-dhcp/logs/dhcp_timestamps.json.tmp";
 const DHCP_TIMESTAMP_FILE_DPU: &str =
-    "/var/lib/hbn/var/support/forge-dhcp/logs/dhcp_timestamps.json";
+    "/var/lib/hbn/var/support/nico-dhcp/logs/dhcp_timestamps.json";
 const DHCP_TIMESTAMP_FILE_TEST: &str = "/tmp/timestamps.json";
 #[derive(Serialize, Deserialize)]
 pub struct DhcpTimestamps {

@@ -14,70 +14,70 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-[tasks.build-bootstrap-forge-kube]
+[tasks.build-bootstrap-nico-kube]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
+env = { "NICO_BOOTSTRAP_KIND" = "kube" }
 run_task = { name = [
-  "build-bootstrap-forge-base",
-  "build-bootstrap-forge-dpu-discovery",
-  "build-bootstrap-forge-host-discovery",
+  "build-bootstrap-nico-base",
+  "build-bootstrap-nico-dpu-discovery",
+  "build-bootstrap-nico-host-discovery",
 ] }
 
-[tasks.build-bootstrap-forge-docker]
+[tasks.build-bootstrap-nico-docker]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
+env = { "NICO_BOOTSTRAP_KIND" = "docker" }
 run_task = { name = [
-  "build-bootstrap-forge-base",
-  "build-bootstrap-forge-mat",
+  "build-bootstrap-nico-base",
+  "build-bootstrap-nico-mat",
 ] }
 
-[tasks.build-bootstrap-forge-base-kube]
+[tasks.build-bootstrap-nico-base-kube]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
-run_task = "build-bootstrap-forge-base"
+env = { "NICO_BOOTSTRAP_KIND" = "kube" }
+run_task = "build-bootstrap-nico-base"
 
-[tasks.build-bootstrap-forge-base-docker]
+[tasks.build-bootstrap-nico-base-docker]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
-run_task = "build-bootstrap-forge-base"
+env = { "NICO_BOOTSTRAP_KIND" = "docker" }
+run_task = "build-bootstrap-nico-base"
 
-[tasks.build-bootstrap-forge-dpu-discovery-kube]
+[tasks.build-bootstrap-nico-dpu-discovery-kube]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
-run_task = "build-bootstrap-forge-dpu-discovery"
+env = { "NICO_BOOTSTRAP_KIND" = "kube" }
+run_task = "build-bootstrap-nico-dpu-discovery"
 
-[tasks.build-bootstrap-forge-dpu-discovery-docker]
+[tasks.build-bootstrap-nico-dpu-discovery-docker]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
-run_task = "build-bootstrap-forge-dpu-discovery"
+env = { "NICO_BOOTSTRAP_KIND" = "docker" }
+run_task = "build-bootstrap-nico-dpu-discovery"
 
-[tasks.build-bootstrap-forge-vmhost-init-kube]
+[tasks.build-bootstrap-nico-vmhost-init-kube]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
+env = { "NICO_BOOTSTRAP_KIND" = "kube" }
 run_task = { name = [
-  "build-bootstrap-forge-base",
-  "build-bootstrap-forge-dpu-discovery",
-  "build-bootstrap-forge-vmhost-init",
+  "build-bootstrap-nico-base",
+  "build-bootstrap-nico-dpu-discovery",
+  "build-bootstrap-nico-vmhost-init",
 ] }
 
-[tasks.build-bootstrap-forge-vmhost-init-docker]
+[tasks.build-bootstrap-nico-vmhost-init-docker]
 category = "Bootstrap"
 workspace = false
-env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
+env = { "NICO_BOOTSTRAP_KIND" = "docker" }
 run_task = { name = [
-  "build-bootstrap-forge-base",
-  "build-bootstrap-forge-dpu-discovery",
-  "build-bootstrap-forge-vmhost-init",
+  "build-bootstrap-nico-base",
+  "build-bootstrap-nico-dpu-discovery",
+  "build-bootstrap-nico-vmhost-init",
 ] }
 
-[tasks.build-bootstrap-forge-base]
+[tasks.build-bootstrap-nico-base]
 category = "Bootstrap"
 workspace = false
 script = '''
@@ -85,36 +85,36 @@ script = '''
 set -e
 
 echo "repo root: ${REPO_ROOT}"
-DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
+DATA_PATH=${REPO_ROOT}/dev/${NICO_BOOTSTRAP_KIND}-env
 echo using data path ${DATA_PATH}
 source ${DATA_PATH}/envrc
-CONTAINER_DATA_PATH=${CONTAINER_REPO_ROOT:-${REPO_ROOT}}/dev/${FORGE_BOOTSTRAP_KIND}-env
+CONTAINER_DATA_PATH=${CONTAINER_REPO_ROOT:-${REPO_ROOT}}/dev/${NICO_BOOTSTRAP_KIND}-env
 echo using container data path ${CONTAINER_DATA_PATH}
 
 '''
 
-[tasks.build-bootstrap-forge-mat]
+[tasks.build-bootstrap-nico-mat]
 category = "Bootstrap"
 workspace = false
 script = '''
 #!/usr/bin/env bash
 set -e
 
-DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
+DATA_PATH=${REPO_ROOT}/dev/${NICO_BOOTSTRAP_KIND}-env
 echo using data path ${DATA_PATH}
 
 ./run_docker_compose_test.sh
 '''
 cwd = "${REPO_ROOT}/dev/bin"
 
-[tasks.build-bootstrap-forge-dpu-discovery]
+[tasks.build-bootstrap-nico-dpu-discovery]
 category = "Bootstrap"
 workspace = false
 script = '''
 #!/usr/bin/env bash
 set -e
 
-DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
+DATA_PATH=${REPO_ROOT}/dev/${NICO_BOOTSTRAP_KIND}-env
 echo using data path ${DATA_PATH}
 source ${DATA_PATH}/envrc
 
@@ -132,14 +132,14 @@ fi
 '''
 cwd = "${REPO_ROOT}"
 
-[tasks.build-bootstrap-forge-vmhost-init]
+[tasks.build-bootstrap-nico-vmhost-init]
 category = "Bootstrap"
 workspace = false
 script = '''
 #!/usr/bin/env bash
 set -e
 
-DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
+DATA_PATH=${REPO_ROOT}/dev/${NICO_BOOTSTRAP_KIND}-env
 echo "using data path ${DATA_PATH}/envrc"
 source ${DATA_PATH}/envrc
 
@@ -147,21 +147,21 @@ ${REPO_ROOT}/dev/bin/discover_host.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_P
 '''
 cwd = "${REPO_ROOT}"
 
-[tasks.build-bootstrap-forge-host-discovery]
+[tasks.build-bootstrap-nico-host-discovery]
 category = "Bootstrap"
 workspace = false
 script = '''
 #!/usr/bin/env bash
 set -e
 
-DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
+DATA_PATH=${REPO_ROOT}/dev/${NICO_BOOTSTRAP_KIND}-env
 echo using data path ${DATA_PATH}
 source ${DATA_PATH}/envrc
 
 ${REPO_ROOT}/dev/bin/discover_host.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_PATH} full
 '''
 
-[tasks.test-dpu-reprov-forge-docker]
+[tasks.test-dpu-reprov-nico-docker]
 workspace = false
 script = '''
 #!/usr/bin/env bash
@@ -171,7 +171,7 @@ ${REPO_ROOT}/dev/bin/reprovision_dpu.sh ${API_SERVER_HOST} ${API_SERVER_PORT}
 '''
 cwd = "${REPO_ROOT}"
 
-[tasks.test-instance-forge-docker]
+[tasks.test-instance-nico-docker]
 workspace = false
 script = '''
 #!/usr/bin/env bash
@@ -182,7 +182,7 @@ ${REPO_ROOT}/dev/bin/instance_handling.sh test ${API_SERVER_HOST} ${API_SERVER_P
 '''
 cwd = "${REPO_ROOT}"
 
-[tasks.test-instance-forge-kube]
+[tasks.test-instance-nico-kube]
 workspace = false
 script = '''
 #!/usr/bin/env bash

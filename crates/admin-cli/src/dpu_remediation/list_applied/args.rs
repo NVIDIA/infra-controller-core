@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

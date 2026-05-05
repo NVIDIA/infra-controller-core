@@ -18,10 +18,10 @@ use std::collections::HashMap;
 use std::fmt;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::network_security_group::NetworkSecurityGroupId;
-use carbide_uuid::vpc::VpcId;
+use ::rpc::nico as rpc;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::network_security_group::NetworkSecurityGroupId;
+use nico_uuid::vpc::VpcId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use ipnetwork;
@@ -908,7 +908,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroup {
 mod tests {
     use std::collections::HashMap;
 
-    use ::rpc::forge as rpc;
+    use ::rpc::nico as rpc;
     use config_version::ConfigVersion;
 
     use super::*;

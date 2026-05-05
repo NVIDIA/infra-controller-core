@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::admin_cli::NicoCliError;
 use clap::{Parser, ValueEnum};
 
 pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
@@ -26,17 +26,17 @@ pub enum BmcCredentialType {
     SiteWideRoot,
     // BMC Specific Root Credentials
     BmcRoot,
-    // BMC Specific Forge-Admin Credentials
-    BmcForgeAdmin,
+    // BMC Specific Nico-Admin Credentials
+    BmcNicoAdmin,
 }
 
-impl From<BmcCredentialType> for rpc::forge::CredentialType {
+impl From<BmcCredentialType> for rpc::nico::CredentialType {
     fn from(c_type: BmcCredentialType) -> Self {
-        use rpc::forge::CredentialType::*;
+        use rpc::nico::CredentialType::*;
         match c_type {
             BmcCredentialType::SiteWideRoot => SiteWideBmcRoot,
             BmcCredentialType::BmcRoot => RootBmcByMacAddress,
-            BmcCredentialType::BmcForgeAdmin => BmcForgeAdminByMacAddress,
+            BmcCredentialType::BmcNicoAdmin => BmcNicoAdminByMacAddress,
         }
     }
 }
@@ -47,9 +47,9 @@ pub enum UefiCredentialType {
     Host,
 }
 
-impl From<UefiCredentialType> for rpc::forge::CredentialType {
+impl From<UefiCredentialType> for rpc::nico::CredentialType {
     fn from(c_type: UefiCredentialType) -> Self {
-        use rpc::forge::CredentialType::*;
+        use rpc::nico::CredentialType::*;
         match c_type {
             UefiCredentialType::Dpu => DpuUefi,
             UefiCredentialType::Host => HostUefi,
@@ -57,16 +57,16 @@ impl From<UefiCredentialType> for rpc::forge::CredentialType {
     }
 }
 
-pub fn url_validator(url: String) -> Result<String, CarbideCliError> {
+pub fn url_validator(url: String) -> Result<String, NicoCliError> {
     let addr = tonic::transport::Uri::try_from(&url)
-        .map_err(|_| CarbideCliError::GenericError("invalid url".to_string()))?;
+        .map_err(|_| NicoCliError::GenericError("invalid url".to_string()))?;
     Ok(addr.to_string())
 }
 
-pub fn password_validator(s: String) -> Result<String, CarbideCliError> {
+pub fn password_validator(s: String) -> Result<String, NicoCliError> {
     // TODO: check password according BMC pwd rule.
     if s.is_empty() {
-        return Err(CarbideCliError::GenericError("invalid input".to_string()));
+        return Err(NicoCliError::GenericError("invalid input".to_string()));
     }
     Ok(s)
 }

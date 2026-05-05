@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::admin_cli::{NicoCliError, NicoCliResult};
 
 #[derive(Parser, Debug)]
 pub struct DpfQuery {
@@ -26,17 +26,17 @@ pub struct DpfQuery {
 }
 
 impl TryFrom<&DpfQuery> for MachineId {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
 
-    fn try_from(query: &DpfQuery) -> CarbideCliResult<Self> {
+    fn try_from(query: &DpfQuery) -> NicoCliResult<Self> {
         let Some(host) = query.host else {
-            return Err(CarbideCliError::GenericError(
+            return Err(NicoCliError::GenericError(
                 "Host id is required!!".to_string(),
             ));
         };
 
-        if host.machine_type() == carbide_uuid::machine::MachineType::Dpu {
-            return Err(CarbideCliError::GenericError(
+        if host.machine_type() == nico_uuid::machine::MachineType::Dpu {
+            return Err(NicoCliError::GenericError(
                 "Only host id is expected!!".to_string(),
             ));
         }

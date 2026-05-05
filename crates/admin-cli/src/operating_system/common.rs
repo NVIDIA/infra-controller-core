@@ -15,26 +15,26 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::{
-    self as forgerpc, IpxeTemplateArtifact, IpxeTemplateParameter, OperatingSystem,
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::{
+    self as nicorpc, IpxeTemplateArtifact, IpxeTemplateParameter, OperatingSystem,
 };
 use serde::Serialize;
 
 pub fn str_to_os_id(
     id: &str,
-) -> CarbideCliResult<::carbide_uuid::operating_system::OperatingSystemId> {
+) -> NicoCliResult<::nico_uuid::operating_system::OperatingSystemId> {
     let id = uuid::Uuid::parse_str(id)
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
+        .map_err(|e| NicoCliError::GenericError(e.to_string()))?
         .into();
     Ok(id)
 }
 
 pub fn str_to_ipxe_template_id(
     id: &str,
-) -> CarbideCliResult<::carbide_uuid::ipxe_template::IpxeTemplateId> {
+) -> NicoCliResult<::nico_uuid::ipxe_template::IpxeTemplateId> {
     let id = uuid::Uuid::parse_str(id)
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
+        .map_err(|e| NicoCliError::GenericError(e.to_string()))?
         .into();
     Ok(id)
 }
@@ -100,7 +100,7 @@ impl From<IpxeTemplateParameter> for SerializableParam {
 
 impl From<IpxeTemplateArtifact> for SerializableArtifact {
     fn from(a: IpxeTemplateArtifact) -> Self {
-        use ::rpc::forge::IpxeTemplateArtifactCacheStrategy;
+        use ::rpc::nico::IpxeTemplateArtifactCacheStrategy;
         let cache_strategy = match IpxeTemplateArtifactCacheStrategy::try_from(a.cache_strategy) {
             Ok(IpxeTemplateArtifactCacheStrategy::CacheAsNeeded) => "cache_as_needed",
             Ok(IpxeTemplateArtifactCacheStrategy::LocalOnly) => "local_only",
@@ -126,10 +126,10 @@ impl From<OperatingSystem> for SerializableOs {
             name: os.name,
             description: os.description,
             org: os.tenant_organization_id,
-            os_type: forgerpc::OperatingSystemType::try_from(os.r#type)
+            os_type: nicorpc::OperatingSystemType::try_from(os.r#type)
                 .map(|t| t.as_str_name().to_string())
                 .unwrap_or_else(|_| os.r#type.to_string()),
-            status: forgerpc::TenantState::try_from(os.status)
+            status: nicorpc::TenantState::try_from(os.status)
                 .map(|s| s.as_str_name().to_string())
                 .unwrap_or_else(|_| os.status.to_string()),
             is_active: os.is_active,

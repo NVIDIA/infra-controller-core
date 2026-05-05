@@ -17,8 +17,8 @@
 
 //! Handler for SwitchControllerState::Configuring.
 
-use carbide_uuid::switch::SwitchId;
-use forge_secrets::credentials::{CredentialKey, Credentials};
+use nico_uuid::switch::SwitchId;
+use nico_secrets::credentials::{CredentialKey, Credentials};
 use model::switch::{ConfiguringState, Switch, SwitchControllerState, ValidatingState};
 
 use crate::state_controller::state_handler::{

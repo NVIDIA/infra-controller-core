@@ -18,8 +18,8 @@
 //use std::collections::HashSet;
 
 use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
-use rpc::forge as rpc;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
+use rpc::nico as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::ConfigValidationError;

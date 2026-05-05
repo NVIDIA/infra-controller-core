@@ -20,8 +20,8 @@ use std::error::Error;
 use std::time::Duration;
 
 use bmc_mock::{HostHardwareType, MockPowerState};
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use crossterm::ExecutableCommand;
 use crossterm::event::{self, Event, EventStream, KeyCode, KeyModifiers};
 use crossterm::terminal::{

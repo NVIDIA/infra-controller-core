@@ -16,12 +16,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM runtime-container-localdev:latest as carbide
-WORKDIR ./carbide
+FROM runtime-container-localdev:latest as nico
+WORKDIR ./nico
 
-RUN mkdir -p /opt/carbide/pxe/templates
-RUN mkdir -p /forge-boot-artifacts/blobs
+RUN mkdir -p /opt/nico/pxe/templates
+RUN mkdir -p /nico-boot-artifacts/blobs
 
-COPY .skaffold/target/carbide-pxe/debug/carbide /opt/carbide/
-COPY pxe/templates/* /opt/carbide/pxe/templates/
-COPY pxe/static/* /forge-boot-artifacts/blobs/
+COPY .skaffold/target/nico-pxe/debug/nico /opt/nico/
+COPY pxe/templates/* /opt/nico/pxe/templates/
+COPY pxe/static/* /nico-boot-artifacts/blobs/

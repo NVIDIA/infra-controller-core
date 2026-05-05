@@ -16,8 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::{self as forgerpc, CreateInstanceTypeRequest, InstanceTypeAttributes};
+use rpc::admin_cli::{NicoCliError, NicoCliResult};
+use rpc::nico::{self as nicorpc, CreateInstanceTypeRequest, InstanceTypeAttributes};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -50,16 +50,16 @@ pub struct Args {
 }
 
 impl TryFrom<Args> for CreateInstanceTypeRequest {
-    type Error = CarbideCliError;
+    type Error = NicoCliError;
 
-    fn try_from(args: Args) -> CarbideCliResult<Self> {
+    fn try_from(args: Args) -> NicoCliResult<Self> {
         let labels = if let Some(l) = args.labels {
             serde_json::from_str(&l)?
         } else {
             vec![]
         };
 
-        let metadata = forgerpc::Metadata {
+        let metadata = nicorpc::Metadata {
             name: args.name.unwrap_or_default(),
             description: args.description.unwrap_or_default(),
             labels,

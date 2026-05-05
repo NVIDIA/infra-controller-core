@@ -24,9 +24,9 @@ use fmds::grpc_server::FmdsGrpcServer;
 use fmds::nic_init;
 use fmds::rest_server::get_fmds_router;
 use fmds::state::FmdsState;
-use forge_tls::client_config::ClientCert;
+use nico_tls::client_config::ClientCert;
 use rpc::fmds::fmds_config_service_server::FmdsConfigServiceServer;
-use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::nico_tls_client::NicoClientConfig;
 use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 use tracing::metadata::LevelFilter;
@@ -63,23 +63,23 @@ async fn main() -> eyre::Result<()> {
     let options = Options::parse();
 
     if options.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
 
     tracing::info!(
-        version = carbide_version::version!(),
-        "Starting carbide-fmds"
+        version = nico_version::version!(),
+        "Starting nico-fmds"
     );
 
     let interface_cidr: ipnetwork::IpNetwork = options.interface_cidr.parse()?;
     nic_init::assign_address(&options.interface_name, interface_cidr).await?;
     nic_init::setup_metadata_routing(&options.interface_name, interface_cidr).await?;
 
-    // Build ForgeClientConfig for phone_home if cert paths are provided
-    let forge_client_config = match (&options.root_ca, &options.client_cert, &options.client_key) {
+    // Build NicoClientConfig for phone_home if cert paths are provided
+    let nico_client_config = match (&options.root_ca, &options.client_cert, &options.client_key) {
         (Some(root_ca), Some(client_cert), Some(client_key)) => {
-            Some(Arc::new(ForgeClientConfig::new(
+            Some(Arc::new(NicoClientConfig::new(
                 root_ca.clone(),
                 Some(ClientCert {
                     cert_path: client_cert.clone(),
@@ -89,14 +89,14 @@ async fn main() -> eyre::Result<()> {
         }
         _ => {
             tracing::warn!(
-                "No TLS credentials provided; phone_home to carbide-api will be unavailable"
+                "No TLS credentials provided; phone_home to nico-api will be unavailable"
             );
             None
         }
     };
 
     let state = Arc::new(
-        FmdsState::try_new(options.forge_api.clone(), forge_client_config)
+        FmdsState::try_new(options.nico_api.clone(), nico_client_config)
             .map_err(|e| eyre::eyre!("failed to initialize FMDS state: {e}"))?,
     );
 

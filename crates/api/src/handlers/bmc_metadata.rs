@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::TransactionVending;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use sqlx::PgPool;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::bmc_endpoint_explorer::validate_and_complete_bmc_endpoint_request;
 
@@ -46,7 +46,7 @@ pub(crate) async fn get_inner(
     request: rpc::BmcMetaDataGetRequest,
     pool: &PgPool,
     credential_reader: &dyn CredentialReader,
-) -> Result<rpc::BmcMetaDataGetResponse, CarbideError> {
+) -> Result<rpc::BmcMetaDataGetResponse, NicoError> {
     let mut txn = pool.txn_begin().await?;
     let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
         &mut txn,
@@ -58,7 +58,7 @@ pub(crate) async fn get_inner(
 
     let bmc_mac_address: mac_address::MacAddress = bmc_endpoint_request
         .mac_address
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "bmc_metadata",
             id: format!(
                 "MachineId: {}, IP: {}",
@@ -82,7 +82,7 @@ pub(crate) async fn get_inner(
                 bmc_endpoint_request.ip_address
             );
             tracing::error!(e);
-            CarbideError::internal(e)
+            NicoError::internal(e)
         })?;
 
     let credentials = credential_reader
@@ -90,11 +90,11 @@ pub(crate) async fn get_inner(
             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
         })
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?
-        .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?
+        .ok_or_else(|| NicoError::internal("missing credentials".to_string()))?;
 
     let ip_address = bmc_endpoint_request.ip_address.parse().map_err(|_| {
-        CarbideError::internal("Internal error: Stored IP address is invalid".to_string())
+        NicoError::internal("Internal error: Stored IP address is invalid".to_string())
     })?;
     let vendor = db::explored_endpoints::lookup_vendor_by_ip(ip_address, pool).await?;
 

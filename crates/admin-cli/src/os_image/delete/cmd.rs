@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::DeleteOsImageRequest;
+use ::rpc::admin_cli::NicoCliResult;
+use ::rpc::nico::DeleteOsImageRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let req: DeleteOsImageRequest = args.try_into()?;
     let id = req.id.clone().expect("id is always set by TryFrom<Args>");
     api_client.0.delete_os_image(req).await?;

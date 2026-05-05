@@ -16,8 +16,8 @@
  */
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::extension_service::ExtensionServiceId;
+use ::rpc::nico as rpc;
+use nico_uuid::extension_service::ExtensionServiceId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use once_cell::sync::Lazy;
@@ -417,8 +417,8 @@ impl TryFrom<rpc::DpuExtensionServiceObservabilityConfig> for ExtensionServiceOb
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::forge::dpu_extension_service_observability_config::Config;
-    use ::rpc::forge::{self as rpc};
+    use ::rpc::nico::dpu_extension_service_observability_config::Config;
+    use ::rpc::nico::{self as rpc};
 
     use super::*;
 

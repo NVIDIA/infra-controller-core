@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::infiniband::IBPartitionId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico as nicorpc;
+use nico_uuid::infiniband::IBPartitionId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -30,7 +30,7 @@ pub async fn show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if let Some(id) = args.id {
         show_ib_partition_details(id, is_json, api_client).await?;
@@ -53,7 +53,7 @@ async fn show_ib_partitions(
     page_size: usize,
     tenant_org_id: Option<String>,
     name: Option<String>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let all_ib_partitions = match api_client
         .get_all_ib_partitions(tenant_org_id, name, page_size)
         .await
@@ -73,14 +73,14 @@ async fn show_ib_partition_details(
     id: IBPartitionId,
     json: bool,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let ib_partitions = match api_client.get_one_ib_partition(id).await {
         Ok(instances) => instances,
         Err(e) => return Err(e),
     };
 
     let Some(ib_partition) = ib_partitions.ib_partitions.into_iter().next() else {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "Unknown InfiniBand Partition ID".to_string(),
         ));
     };
@@ -96,7 +96,7 @@ async fn show_ib_partition_details(
     Ok(())
 }
 
-fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList) -> Box<Table> {
+fn convert_ib_partitions_to_nice_table(ib_partitions: nicorpc::IbPartitionList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -124,7 +124,7 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
                 .as_ref()
                 .map(|c| c.tenant_organization_id.as_str())
                 .unwrap_or_default(),
-            forgerpc::TenantState::try_from(
+            nicorpc::TenantState::try_from(
                 ib_partition
                     .status
                     .as_ref()
@@ -150,8 +150,8 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
 }
 
 fn convert_ib_partition_to_nice_format(
-    ib_partition: forgerpc::IbPartition,
-) -> CarbideCliResult<String> {
+    ib_partition: nicorpc::IbPartition,
+) -> NicoCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
@@ -186,20 +186,20 @@ fn convert_ib_partition_to_nice_format(
         ("TENANT ORG", &tenant_organization_id),
         (
             "STATE",
-            forgerpc::TenantState::try_from(status.state)
+            nicorpc::TenantState::try_from(status.state)
                 .unwrap_or_default()
                 .as_str_name(),
         ),
         (
             "STATE MACHINE",
-            match forgerpc::ControllerStateOutcome::try_from(state_reason.outcome)
+            match nicorpc::ControllerStateOutcome::try_from(state_reason.outcome)
                 .unwrap_or_default()
             {
-                forgerpc::ControllerStateOutcome::Transition
-                | forgerpc::ControllerStateOutcome::DoNothing
-                | forgerpc::ControllerStateOutcome::Todo => "OK",
-                forgerpc::ControllerStateOutcome::Wait
-                | forgerpc::ControllerStateOutcome::Error => {
+                nicorpc::ControllerStateOutcome::Transition
+                | nicorpc::ControllerStateOutcome::DoNothing
+                | nicorpc::ControllerStateOutcome::Todo => "OK",
+                nicorpc::ControllerStateOutcome::Wait
+                | nicorpc::ControllerStateOutcome::Error => {
                     state_reason.outcome_msg.as_deref().unwrap_or_default()
                 }
             },

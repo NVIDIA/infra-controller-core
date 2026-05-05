@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::ClearHostUefiPasswordRequest;
+use ::rpc::nico::ClearHostUefiPasswordRequest;
 use clap::Parser;
 
 use crate::machine::MachineQuery;

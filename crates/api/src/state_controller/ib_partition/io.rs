@@ -17,7 +17,7 @@
 
 //! State Controller IO implementation for Infiniband Partitions
 
-use carbide_uuid::infiniband::IBPartitionId;
+use nico_uuid::infiniband::IBPartitionId;
 use config_version::{ConfigVersion, Versioned};
 use db::{self, DatabaseError, ObjectColumnFilter};
 use model::StateSla;

@@ -18,8 +18,8 @@
 use std::borrow::Cow;
 
 use ::rpc::protos::mlx_device as mlx_device_pb;
-use carbide_host_support::dpa_cmds::{DpaCommand, DpaDeviceCommand, OpCode};
-use carbide_uuid::machine::MachineId;
+use nico_host_support::dpa_cmds::{DpaCommand, DpaDeviceCommand, OpCode};
+use nico_uuid::machine::MachineId;
 use db::dpa_interface;
 use eyre::eyre;
 use libmlx::device::report::MlxDeviceReport;
@@ -28,21 +28,21 @@ use model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
     DpaLockMode, NewDpaInterface,
 };
-use rpc::forge_agent_control_response as fac;
-use rpc::forge_agent_control_response::MlxDeviceAction;
+use rpc::nico_agent_control_response as fac;
+use rpc::nico_agent_control_response::MlxDeviceAction;
 use rpc::protos::mlx_device::MlxDeviceInfo;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 // This is called from the grpc interface and is mainly for debugging purposes.
 pub(crate) async fn create(
     api: &Api,
-    request: Request<::rpc::forge::DpaInterfaceCreationRequest>,
-) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    request: Request<::rpc::nico::DpaInterfaceCreationRequest>,
+) -> Result<Response<::rpc::nico::DpaInterface>, Status> {
     if !api.runtime_config.is_dpa_enabled() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "CreateDpaInterface cannot be done as dpa_enabled is false".to_string(),
         )
         .into());
@@ -55,7 +55,7 @@ pub(crate) async fn create(
         db::dpa_interface::persist(NewDpaInterface::try_from(request.into_inner())?, &mut txn)
             .await?;
 
-    let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
+    let dpa_out: rpc::nico::DpaInterface = new_dpa.into();
 
     txn.commit().await?;
 
@@ -66,10 +66,10 @@ pub(crate) async fn create(
 /// (machine_id, mac_address), or returns the existing one. Idempotent.
 pub(crate) async fn ensure(
     api: &Api,
-    request: Request<::rpc::forge::DpaInterfaceCreationRequest>,
-) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    request: Request<::rpc::nico::DpaInterfaceCreationRequest>,
+) -> Result<Response<::rpc::nico::DpaInterface>, Status> {
     if !api.runtime_config.is_dpa_enabled() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "EnsureDpaInterface cannot be done as dpa_enabled is false".to_string(),
         )
         .into());
@@ -78,7 +78,7 @@ pub(crate) async fn ensure(
 
     let new_interface = NewDpaInterface::try_from(request.into_inner())?;
     let interface = ensure_interface(api, new_interface).await?;
-    let response: rpc::forge::DpaInterface = interface.into();
+    let response: rpc::nico::DpaInterface = interface.into();
     Ok(Response::new(response))
 }
 
@@ -87,7 +87,7 @@ pub(crate) async fn ensure(
 async fn ensure_interface(
     api: &Api,
     new_interface: NewDpaInterface,
-) -> CarbideResult<DpaInterface> {
+) -> NicoResult<DpaInterface> {
     let mut txn = api.txn_begin().await?;
     let interface = db::dpa_interface::ensure(new_interface, &mut txn).await?;
     txn.commit().await?;
@@ -96,10 +96,10 @@ async fn ensure_interface(
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<::rpc::forge::DpaInterfaceDeletionRequest>,
-) -> Result<Response<::rpc::forge::DpaInterfaceDeletionResult>, Status> {
+    request: Request<::rpc::nico::DpaInterfaceDeletionRequest>,
+) -> Result<Response<::rpc::nico::DpaInterfaceDeletionResult>, Status> {
     if !api.runtime_config.is_dpa_enabled() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "DeleteDpaInterface cannot be done as dpa_enabled is false".to_string(),
         )
         .into());
@@ -108,7 +108,7 @@ pub(crate) async fn delete(
 
     let req = request.into_inner();
 
-    let id = req.id.ok_or(CarbideError::InvalidArgument(
+    let id = req.id.ok_or(NicoError::InvalidArgument(
         "at least one ID must be provided to delete dpa interface".to_string(),
     ))?;
 
@@ -120,7 +120,7 @@ pub(crate) async fn delete(
     let dpa_if_int = match dpa_ifs_int.len() {
         1 => dpa_ifs_int[0].clone(),
         _ => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "ID could not be used to locate interface".to_string(),
             )
             .into());
@@ -131,38 +131,38 @@ pub(crate) async fn delete(
 
     txn.commit().await?;
 
-    Ok(Response::new(::rpc::forge::DpaInterfaceDeletionResult {}))
+    Ok(Response::new(::rpc::nico::DpaInterfaceDeletionResult {}))
 }
 
 pub(crate) async fn get_all_ids(
     api: &Api,
     request: Request<()>,
-) -> Result<Response<::rpc::forge::DpaInterfaceIdList>, Status> {
+) -> Result<Response<::rpc::nico::DpaInterfaceIdList>, Status> {
     log_request_data(&request);
 
     let ids = db::dpa_interface::find_ids(&api.database_connection).await?;
 
-    Ok(Response::new(::rpc::forge::DpaInterfaceIdList { ids }))
+    Ok(Response::new(::rpc::nico::DpaInterfaceIdList { ids }))
 }
 
 pub(crate) async fn find_dpa_interfaces_by_ids(
     api: &Api,
-    request: Request<::rpc::forge::DpaInterfacesByIdsRequest>,
-) -> Result<Response<::rpc::forge::DpaInterfaceList>, Status> {
+    request: Request<::rpc::nico::DpaInterfacesByIdsRequest>,
+) -> Result<Response<::rpc::nico::DpaInterfaceList>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if req.ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be submitted to find_dpa_interfaces_by_ids"
         ))
         .into());
     }
 
     if req.ids.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "at least one ID must be provided to find_dpa_interfaces_by_ids".to_string(),
         )
         .into());
@@ -175,9 +175,9 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
     let rpc_dpa_ifs = dpa_ifs_int
         .into_iter()
         .map(|i| i.into())
-        .collect::<Vec<rpc::forge::DpaInterface>>();
+        .collect::<Vec<rpc::nico::DpaInterface>>();
 
-    Ok(Response::new(rpc::forge::DpaInterfaceList {
+    Ok(Response::new(rpc::nico::DpaInterfaceList {
         interfaces: rpc_dpa_ifs,
     }))
 }
@@ -187,13 +187,13 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
 // XXX TODO XXX
 pub(crate) async fn set_dpa_network_observation_status(
     api: &Api,
-    request: Request<::rpc::forge::DpaNetworkObservationSetRequest>,
-) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    request: Request<::rpc::nico::DpaNetworkObservationSetRequest>,
+) -> Result<Response<::rpc::nico::DpaInterface>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
 
-    let id = req.id.ok_or(CarbideError::InvalidArgument(
+    let id = req.id.ok_or(NicoError::InvalidArgument(
         "at least one ID must be provided to find_dpa_interfaces_by_ids".to_string(),
     ))?;
 
@@ -203,7 +203,7 @@ pub(crate) async fn set_dpa_network_observation_status(
     let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
 
     if dpa_ifs_int.len() != 1 {
-        return Err(CarbideError::InvalidArgument(
+        return Err(NicoError::InvalidArgument(
             "ID could not be used to locate interface".to_string(),
         )
         .into());
@@ -229,7 +229,7 @@ pub(crate) async fn set_dpa_network_observation_status(
 pub(crate) async fn process_scout_req(
     api: &Api,
     machine_id: MachineId,
-) -> CarbideResult<fac::Action> {
+) -> NicoResult<fac::Action> {
     if !api.runtime_config.is_dpa_enabled() {
         return Ok(fac::Action::noop());
     }
@@ -291,7 +291,7 @@ async fn build_unlock_command(
     sn: &DpaInterface,
     machine_id: MachineId,
     pci_name: &str,
-) -> CarbideResult<DpaCommand<'static>> {
+) -> NicoResult<DpaCommand<'static>> {
     let key = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         sn.id,
@@ -299,7 +299,7 @@ async fn build_unlock_command(
     )
     .await
     .map_err(|e| {
-        CarbideError::GenericErrorFromReport(eyre!(
+        NicoError::GenericErrorFromReport(eyre!(
             "failed to build unlock key for DPA {pci_name}: {e}"
         ))
     })?;
@@ -395,7 +395,7 @@ fn build_apply_profile_command(
     interface: &DpaInterface,
     machine_id: MachineId,
     pci_name: &str,
-) -> CarbideResult<DpaCommand<'static>> {
+) -> NicoResult<DpaCommand<'static>> {
     let Some(profile_name) = &interface.mlxconfig_profile else {
         tracing::info!(
             %machine_id, %pci_name,
@@ -416,7 +416,7 @@ fn build_apply_profile_command(
                 %machine_id, %pci_name, %profile_name,
                 "mlxconfig_profile not found in config"
             );
-            CarbideError::NotFoundError {
+            NicoError::NotFoundError {
                 kind: "mlxconfig_profile",
                 id: profile_name.clone(),
             }
@@ -428,7 +428,7 @@ fn build_apply_profile_command(
             %e,
             "failed to serialize mlxconfig profile"
         );
-        CarbideError::Internal {
+        NicoError::Internal {
             message: format!("failed to serialize mlxconfig_profile '{profile_name}': {e}"),
         }
     })?;
@@ -447,7 +447,7 @@ async fn build_lock_command(
     sn: &DpaInterface,
     machine_id: MachineId,
     pci_name: &str,
-) -> CarbideResult<DpaCommand<'static>> {
+) -> NicoResult<DpaCommand<'static>> {
     let key = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         sn.id,
@@ -455,7 +455,7 @@ async fn build_lock_command(
     )
     .await
     .map_err(|e| {
-        CarbideError::GenericErrorFromReport(eyre!(
+        NicoError::GenericErrorFromReport(eyre!(
             "failed to build lock key for DPA {pci_name}: {e}"
         ))
     })?;
@@ -470,10 +470,10 @@ async fn build_lock_command(
 // which matches the mac address in the device device info
 // Just do a linear search for matching mac address given that
 // the Vec<DpaInterface> is not expected to be less than a dozen entries.
-fn get_dpa_by_mac(devinfo: &MlxDeviceInfo, dpas: Vec<DpaInterface>) -> CarbideResult<DpaInterface> {
+fn get_dpa_by_mac(devinfo: &MlxDeviceInfo, dpas: Vec<DpaInterface>) -> NicoResult<DpaInterface> {
     dpas.into_iter()
         .find(|dpa| dpa.mac_address.to_string() == devinfo.base_mac)
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "mac_addr",
             id: devinfo.base_mac.to_string(),
         })
@@ -487,7 +487,7 @@ fn get_dpa_by_mac(devinfo: &MlxDeviceInfo, dpas: Vec<DpaInterface>) -> CarbideRe
 async fn process_mlx_observation(
     api: &Api,
     request: tonic::Request<mlx_device_pb::PublishMlxObservationReportRequest>,
-) -> CarbideResult<()> {
+) -> NicoResult<()> {
     // Prepare our txn to grab the dpa interfaces from the DB
     let mut txn = api.txn_begin().await?;
 
@@ -495,7 +495,7 @@ async fn process_mlx_observation(
 
     let Some(rep) = req.report else {
         tracing::error!("process_mlx_observation without report req: {:#?}", req);
-        return Err(CarbideError::GenericErrorFromReport(eyre!(
+        return Err(NicoError::GenericErrorFromReport(eyre!(
             "process_mlx_observation without report req: {:#?}",
             req
         )));
@@ -506,7 +506,7 @@ async fn process_mlx_observation(
             "process_mlx_observation without machine_id report: {:#?}",
             rep
         );
-        return Err(CarbideError::GenericErrorFromReport(eyre!(
+        return Err(NicoError::GenericErrorFromReport(eyre!(
             "process_mlx_observation without machine_id report: {:#?}",
             rep
         )));
@@ -519,7 +519,7 @@ async fn process_mlx_observation(
             "process_mlx_observation no dpa snapshots for machine: {:#?}",
             machine_id
         );
-        return Err(CarbideError::GenericErrorFromReport(eyre!(
+        return Err(NicoError::GenericErrorFromReport(eyre!(
             "process_mlx_observation no dpa snapshots for machine: {:#?}",
             machine_id
         )));
@@ -598,7 +598,7 @@ async fn process_mlx_observation(
     Ok(())
 }
 
-// Scout is telling Carbide the mlx device configuration in its machine
+// Scout is telling Nico the mlx device configuration in its machine
 pub(crate) async fn publish_mlx_device_report(
     api: &Api,
     request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
@@ -615,7 +615,7 @@ pub(crate) async fn publish_mlx_device_report(
     if let Some(report_pb) = req.report {
         let report: MlxDeviceReport = report_pb
             .try_into()
-            .map_err(|e: String| CarbideError::Internal { message: e })?;
+            .map_err(|e: String| NicoError::Internal { message: e })?;
         tracing::info!(
             "received MlxDeviceReport hostname={} device_count={}",
             report.hostname,
@@ -739,7 +739,7 @@ pub(crate) async fn publish_mlx_device_report(
     ))
 }
 
-// Scout is telling carbide the observed status (locking status, card mode) of the
+// Scout is telling nico the observed status (locking status, card mode) of the
 // mlx devices in its host
 pub(crate) async fn publish_mlx_observation_report(
     api: &Api,

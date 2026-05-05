@@ -20,7 +20,7 @@ use std::net::SocketAddr;
 use super::grpcurl::grpcurl;
 
 pub async fn create(
-    carbide_api_addrs: &[SocketAddr],
+    nico_api_addrs: &[SocketAddr],
     organization_id: &str,
     name: &str,
 ) -> eyre::Result<()> {
@@ -33,7 +33,7 @@ pub async fn create(
             "name": name,
         }
     });
-    grpcurl(carbide_api_addrs, "CreateTenant", Some(&data.to_string())).await?;
+    grpcurl(nico_api_addrs, "CreateTenant", Some(&data.to_string())).await?;
     tracing::info!("Tenant created with name {name}");
     Ok(())
 }
@@ -44,7 +44,7 @@ pub mod keyset {
     use super::*;
 
     pub async fn create(
-        carbide_api_addrs: &[SocketAddr],
+        nico_api_addrs: &[SocketAddr],
         organization_id: &str,
         id: Uuid,
         public_keys: &[&str],
@@ -64,7 +64,7 @@ pub mod keyset {
             "version": "V1",
         });
         grpcurl(
-            carbide_api_addrs,
+            nico_api_addrs,
             "CreateTenantKeyset",
             Some(&data.to_string()),
         )

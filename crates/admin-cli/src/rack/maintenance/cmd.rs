@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as rpc;
+use ::rpc::admin_cli::NicoCliResult;
+use ::rpc::nico as rpc;
 
 use super::args::MaintenanceOptions;
 use crate::rpc::ApiClient;
@@ -24,7 +24,7 @@ use crate::rpc::ApiClient;
 pub async fn on_demand_rack_maintenance(
     api_client: &ApiClient,
     args: MaintenanceOptions,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     use rpc::maintenance_activity_config::Activity as ProtoActivity;
 
     let firmware_version = args.firmware_version.unwrap_or_default();

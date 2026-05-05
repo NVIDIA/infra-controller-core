@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use opentelemetry::metrics::{Counter, Meter, ObservableGauge, UpDownCounter};
-use rpc::forge_api_client::ForgeApiClient;
+use rpc::nico_api_client::NicoApiClient;
 use russh::server::{Server as RusshServer, run_stream};
 use russh::{MethodKind, MethodSet};
 use tokio::net::TcpListener;
@@ -36,7 +36,7 @@ use crate::shutdown_handle::ShutdownHandle;
 
 pub async fn spawn(
     config: Arc<Config>,
-    forge_api_client: ForgeApiClient,
+    nico_api_client: NicoApiClient,
     bmc_connection_store: BmcConnectionStore,
     meter: &Meter,
 ) -> Result<Handle, SpawnError> {
@@ -63,7 +63,7 @@ pub async fn spawn(
 
     let server = SshServer {
         config,
-        forge_api_client,
+        nico_api_client,
         bmc_connection_store,
         russh_config,
         metrics,
@@ -114,7 +114,7 @@ impl ShutdownHandle<()> for Handle {
 struct SshServer {
     config: Arc<Config>,
     russh_config: Arc<russh::server::Config>,
-    forge_api_client: ForgeApiClient,
+    nico_api_client: NicoApiClient,
     bmc_connection_store: BmcConnectionStore,
     metrics: Arc<ServerMetrics>,
 }
@@ -255,7 +255,7 @@ impl russh::server::Server for SshServer {
         Self::Handler::new(
             self.bmc_connection_store.clone(),
             self.config.clone(),
-            self.forge_api_client.clone(),
+            self.nico_api_client.clone(),
             self.metrics.clone(),
             addr,
         )

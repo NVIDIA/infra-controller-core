@@ -17,11 +17,11 @@
 
 use std::ffi::CStr;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use ::rpc::nico as rpc;
+use ::rpc::nico_tls_client::{self, ApiConfig, NicoClientConfig};
 use libc::c_char;
 
-use crate::{CONFIG, CarbideDhcpContext, tls};
+use crate::{CONFIG, NicoDhcpContext, tls};
 
 /// Result codes for the lease expiration FFI call.
 #[repr(C)]
@@ -33,13 +33,13 @@ pub enum LeaseExpirationResult {
 }
 
 /// Called from the C++ lease4_expire / lease6_expire callouts to release
-/// an IP allocation from the carbide database when Kea expires a lease.
+/// an IP allocation from the nico database when Kea expires a lease.
 ///
 /// # Safety
 ///
 /// `ip_address` must be a valid, null-terminated C string.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_expire_lease(ip_address: *const c_char) -> LeaseExpirationResult {
+pub unsafe extern "C" fn nico_expire_lease(ip_address: *const c_char) -> LeaseExpirationResult {
     let ip_str = unsafe {
         match CStr::from_ptr(ip_address).to_str() {
             Ok(s) => s,
@@ -48,22 +48,22 @@ pub unsafe extern "C" fn carbide_expire_lease(ip_address: *const c_char) -> Leas
     };
 
     let url = &CONFIG.read().unwrap().api_endpoint;
-    let forge_client_config = tls::build_forge_client_config();
-    expire_lease_at(ip_str, url, &forge_client_config)
+    let nico_client_config = tls::build_nico_client_config();
+    expire_lease_at(ip_str, url, &nico_client_config)
 }
 
 fn expire_lease_at(
     ip_str: &str,
     url: &str,
-    client_config: &ForgeClientConfig,
+    client_config: &NicoClientConfig,
 ) -> LeaseExpirationResult {
-    let runtime = CarbideDhcpContext::get_tokio_runtime();
+    let runtime = NicoDhcpContext::get_tokio_runtime();
 
     let result = runtime.block_on(async {
         let api_config = ApiConfig::new(url, client_config);
-        let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
+        let mut client = nico_tls_client::NicoTlsClient::retry_build(&api_config)
             .await
-            .map_err(|e| format!("unable to connect to Carbide API: {e:?}"))?;
+            .map_err(|e| format!("unable to connect to Nico API: {e:?}"))?;
         client
             .expire_dhcp_lease(tonic::Request::new(rpc::ExpireDhcpLeaseRequest {
                 ip_address: ip_str.to_string(),
@@ -101,9 +101,9 @@ mod tests {
 
     #[test]
     fn test_expire_lease_success() {
-        let rt = CarbideDhcpContext::get_tokio_runtime();
+        let rt = NicoDhcpContext::get_tokio_runtime();
         let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
-        let client_config = tls::build_forge_client_config();
+        let client_config = tls::build_nico_client_config();
 
         let result = expire_lease_at("10.0.0.1", api_server.local_http_addr(), &client_config);
 
@@ -116,9 +116,9 @@ mod tests {
 
     #[test]
     fn test_expire_lease_idempotent() {
-        let rt = CarbideDhcpContext::get_tokio_runtime();
+        let rt = NicoDhcpContext::get_tokio_runtime();
         let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
-        let client_config = tls::build_forge_client_config();
+        let client_config = tls::build_nico_client_config();
 
         let result1 = expire_lease_at("10.0.0.1", api_server.local_http_addr(), &client_config);
         let result2 = expire_lease_at("10.0.0.1", api_server.local_http_addr(), &client_config);
@@ -133,9 +133,9 @@ mod tests {
 
     #[test]
     fn test_expire_lease_ipv6() {
-        let rt = CarbideDhcpContext::get_tokio_runtime();
+        let rt = NicoDhcpContext::get_tokio_runtime();
         let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
-        let client_config = tls::build_forge_client_config();
+        let client_config = tls::build_nico_client_config();
 
         let result = expire_lease_at("fd00::42", api_server.local_http_addr(), &client_config);
 

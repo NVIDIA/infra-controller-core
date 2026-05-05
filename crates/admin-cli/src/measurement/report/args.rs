@@ -37,8 +37,8 @@ use ::rpc::protos::measured_boot::{
     ShowMeasurementReportForIdRequest, ShowMeasurementReportsForMachineRequest,
     list_measurement_report_request,
 };
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementReportId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementReportId;
 use clap::Parser;
 use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 

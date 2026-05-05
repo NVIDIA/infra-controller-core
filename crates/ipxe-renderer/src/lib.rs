@@ -64,7 +64,7 @@ pub struct IpxeTemplateArtifact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum IpxeTemplateScope {
-    /// Carbide-core usage only.
+    /// Nico-core usage only.
     #[default]
     Internal,
     /// Usable by tenant.
@@ -135,7 +135,7 @@ pub trait IpxeScriptRenderer {
     /// Render generates the final iPXE script from an IpxeScript object.
     /// Artifact URLs are replaced by local cached URLs when available (cached_url).
     /// `reserved_params` must contain exactly the reserved parameters defined
-    /// in the template (provided by carbide-core).
+    /// in the template (provided by nico-core).
     fn render(
         &self,
         ipxeos: &IpxeScript,
@@ -1044,7 +1044,7 @@ mod tests {
         assert!(templates.contains(&"exit-instructions".to_string()));
         assert!(templates.contains(&"unknown-host".to_string()));
         assert!(templates.contains(&"whoami".to_string()));
-        assert!(templates.contains(&"carbide-menu-static-ipxe".to_string()));
+        assert!(templates.contains(&"nico-menu-static-ipxe".to_string()));
         // Only assert minimum count (templates referenced in tests); new entries in templates.yaml are allowed
         assert!(templates.len() >= 11);
     }

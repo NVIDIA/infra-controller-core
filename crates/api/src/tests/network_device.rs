@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use rpc::forge::NetworkDeviceIdList;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::NetworkDeviceIdList;
+use rpc::nico::nico_server::Nico;
 
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 

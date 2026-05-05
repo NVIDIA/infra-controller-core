@@ -17,7 +17,7 @@
 use std::error;
 use std::path::{Path, PathBuf};
 
-use carbide_authn::middleware::Principal;
+use nico_authn::middleware::Principal;
 use casbin::{CoreApi, DefaultModel, Enforcer, FileAdapter};
 
 use crate::auth::{Authorization, AuthorizationError, PolicyEngine, Predicate};
@@ -68,9 +68,9 @@ impl PolicyEngine for CasbinEngine {
                 // that what we're passing in here matches the order that the
                 // model and policy use.
                 let enforce_result = match &predicate {
-                    Predicate::ForgeCall(method) => {
-                        let forge_call = format!("forge/{method}");
-                        enforcer.enforce((cas_subject, forge_call))
+                    Predicate::NicoCall(method) => {
+                        let nico_call = format!("nico/{method}");
+                        enforcer.enforce((cas_subject, nico_call))
                     }
                 };
                 match enforce_result {

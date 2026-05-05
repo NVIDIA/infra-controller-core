@@ -21,13 +21,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_network::deserialize_input_mac_to_address;
-use carbide_redfish::libredfish::conv::{IntoModel, bmc_vendor};
-use carbide_redfish::libredfish::{
+use nico_network::deserialize_input_mac_to_address;
+use nico_redfish::libredfish::conv::{IntoModel, bmc_vendor};
+use nico_redfish::libredfish::{
     RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password,
 };
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
-use forge_secrets::credentials::Credentials;
+use nico_redfish::nv_redfish::NvRedfishClientPool;
+use nico_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Redfish, RedfishError};
@@ -43,7 +43,7 @@ use regex::Regex;
 const NOT_FOUND: u16 = 404;
 
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
-// TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
+// TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in nico can utilize this functionality.
 // Eventually, this file should only have code related to generating the site exploration report.
 pub struct RedfishClient {
     redfish_client_pool: Arc<dyn RedfishClientPool>,
@@ -311,7 +311,7 @@ impl RedfishClient {
         let secure_boot_status = fetch_secure_boot_status(client.as_ref())
             .await
             .inspect_err(
-                |error| tracing::warn!(%error, "Failed to fetch forge secure boot status."),
+                |error| tracing::warn!(%error, "Failed to fetch nico secure boot status."),
             )
             .ok();
 
@@ -1297,9 +1297,9 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
 }
 
 fn nv_error_classifier(
-    err: &carbide_redfish::nv_redfish::BmcError,
+    err: &nico_redfish::nv_redfish::BmcError,
 ) -> Option<bmc_explorer::ErrorClass> {
-    type BmcError = carbide_redfish::nv_redfish::BmcError;
+    type BmcError = nico_redfish::nv_redfish::BmcError;
     match err {
         BmcError::InvalidResponse { status, .. } => match *status {
             http::StatusCode::NOT_FOUND => Some(bmc_explorer::ErrorClass::NotFound),
@@ -1314,7 +1314,7 @@ fn nv_error_classifier(
 
 fn nv_bmc_explore_config(
     boot_interface_mac: Option<MacAddress>,
-) -> bmc_explorer::Config<'static, carbide_redfish::nv_redfish::RedfishBmc> {
+) -> bmc_explorer::Config<'static, nico_redfish::nv_redfish::RedfishBmc> {
     bmc_explorer::Config {
         boot_interface_mac,
         error_classifier: &nv_error_classifier,
@@ -1326,10 +1326,10 @@ fn nv_bmc_explore_config(
 }
 
 fn map_nv_redfish_explore_error(
-    err: bmc_explorer::Error<carbide_redfish::nv_redfish::RedfishBmc>,
+    err: bmc_explorer::Error<nico_redfish::nv_redfish::RedfishBmc>,
 ) -> EndpointExplorationError {
-    type BmcError = carbide_redfish::nv_redfish::BmcError;
-    use carbide_redfish::nv_redfish::Error;
+    type BmcError = nico_redfish::nv_redfish::BmcError;
+    use nico_redfish::nv_redfish::Error;
     match err {
         bmc_explorer::Error::NvRedfish { context, err } => match err {
             Error::Bmc(err) => match err {
@@ -1413,9 +1413,9 @@ mod tests {
     use std::sync::Arc;
 
     use arc_swap::ArcSwap;
-    use carbide_redfish::libredfish::test_support::RedfishSim;
-    use carbide_redfish::nv_redfish::NvRedfishClientPool;
-    use forge_secrets::credentials::Credentials;
+    use nico_redfish::libredfish::test_support::RedfishSim;
+    use nico_redfish::nv_redfish::NvRedfishClientPool;
+    use nico_secrets::credentials::Credentials;
     use libredfish::model::service_root::RedfishVendor;
 
     use super::RedfishClient;

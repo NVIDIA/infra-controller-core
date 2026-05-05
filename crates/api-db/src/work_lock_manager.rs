@@ -67,7 +67,7 @@ impl Default for KeepaliveConfig {
     }
 }
 
-/// Start a work manager in the background. This should only be done once per carbide instance.
+/// Start a work manager in the background. This should only be done once per nico instance.
 ///
 /// To actually interact with the global work manager, use [`WorkLockManagerHandle`] (returned by this
 /// function.)

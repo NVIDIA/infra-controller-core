@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::operating_system::OperatingSystemId;
+use nico_uuid::operating_system::OperatingSystemId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ fn validate_template_requirements(
     params: &[rpc::IpxeTemplateParameter],
     artifacts: &[rpc::IpxeTemplateArtifact],
 ) -> Result<String, Status> {
-    use carbide_ipxe_renderer::IpxeScriptRenderer;
+    use nico_ipxe_renderer::IpxeScriptRenderer;
 
     for (i, p) in params.iter().enumerate() {
         if p.name.trim().is_empty() {
@@ -50,7 +50,7 @@ fn validate_template_requirements(
         }
     }
 
-    let renderer = carbide_ipxe_renderer::DefaultIpxeScriptRenderer::new();
+    let renderer = nico_ipxe_renderer::DefaultIpxeScriptRenderer::new();
 
     let ipxeos = rpc_to_ipxe_script(template_id, params, artifacts);
     let hash = renderer.hash(&ipxeos);
@@ -68,10 +68,10 @@ fn rpc_to_ipxe_script(
     template_id: &str,
     params: &[rpc::IpxeTemplateParameter],
     artifacts: &[rpc::IpxeTemplateArtifact],
-) -> carbide_ipxe_renderer::IpxeScript {
+) -> nico_ipxe_renderer::IpxeScript {
     let parameters = params
         .iter()
-        .map(|p| carbide_ipxe_renderer::IpxeTemplateParameter {
+        .map(|p| nico_ipxe_renderer::IpxeTemplateParameter {
             name: p.name.clone(),
             value: p.value.clone(),
         })
@@ -82,17 +82,17 @@ fn rpc_to_ipxe_script(
         .map(|a| {
             let cache_strategy = match a.cache_strategy {
                 x if x == rpc::IpxeTemplateArtifactCacheStrategy::LocalOnly as i32 => {
-                    carbide_ipxe_renderer::IpxeTemplateArtifactCacheStrategy::LocalOnly
+                    nico_ipxe_renderer::IpxeTemplateArtifactCacheStrategy::LocalOnly
                 }
                 x if x == rpc::IpxeTemplateArtifactCacheStrategy::CachedOnly as i32 => {
-                    carbide_ipxe_renderer::IpxeTemplateArtifactCacheStrategy::CachedOnly
+                    nico_ipxe_renderer::IpxeTemplateArtifactCacheStrategy::CachedOnly
                 }
                 x if x == rpc::IpxeTemplateArtifactCacheStrategy::RemoteOnly as i32 => {
-                    carbide_ipxe_renderer::IpxeTemplateArtifactCacheStrategy::RemoteOnly
+                    nico_ipxe_renderer::IpxeTemplateArtifactCacheStrategy::RemoteOnly
                 }
-                _ => carbide_ipxe_renderer::IpxeTemplateArtifactCacheStrategy::CacheAsNeeded,
+                _ => nico_ipxe_renderer::IpxeTemplateArtifactCacheStrategy::CacheAsNeeded,
             };
-            carbide_ipxe_renderer::IpxeTemplateArtifact {
+            nico_ipxe_renderer::IpxeTemplateArtifact {
                 name: a.name.clone(),
                 url: a.url.clone(),
                 sha: a.sha.clone(),
@@ -104,7 +104,7 @@ fn rpc_to_ipxe_script(
         })
         .collect();
 
-    carbide_ipxe_renderer::IpxeScript {
+    nico_ipxe_renderer::IpxeScript {
         name: String::new(),
         description: None,
         hash: String::new(),

@@ -36,9 +36,9 @@ impl BmcPasswordProvider for String {
 
 /// Service name constants for use across crates
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
-pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
-pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
-pub const OTEL_SERVICE_NAME: &str = "carbide-otel";
+pub const DHCP_SERVER_SERVICE_NAME: &str = "nico-dhcp-server";
+pub const FMDS_SERVICE_NAME: &str = "nico-fmds";
+pub const OTEL_SERVICE_NAME: &str = "nico-otel";
 
 /// Configuration for creating DPF operator resources (BFB, DPUFlavor,
 /// DPUDeployment, service templates, etc.) during initialization.

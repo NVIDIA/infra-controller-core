@@ -20,17 +20,17 @@ use std::process::Command;
 use tss_esapi::handles::AuthHandle;
 use tss_esapi::interface_types::session_handles::AuthSession;
 
-use crate::{CarbideClientError, attestation as attest};
+use crate::{NicoClientError, attestation as attest};
 
 // From https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode
-pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
+pub(crate) fn set_tpm_max_auth_fail() -> Result<(), NicoClientError> {
     let output = Command::new("tpm2_dictionarylockout")
         .arg("--setup-parameters")
         .arg("--max-tries=256")
         .arg("--clear-lockout")
         .output()
         .map_err(|e| {
-            CarbideClientError::TpmError(format!("tpm2_dictionarylockout call failed: {e}"))
+            NicoClientError::TpmError(format!("tpm2_dictionarylockout call failed: {e}"))
         })?;
     tracing::info!(
         "Tried setting TPM_PT_MAX_AUTH_FAIL to 256. Return code is: {0}",
@@ -59,11 +59,11 @@ pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
 
 /// Clears the TPM storage hierarchies via TPM2_Clear (lockout authorization), after dictionary
 /// lockout setup.
-pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
+pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), NicoClientError> {
     set_tpm_max_auth_fail()?;
 
     let mut ctx = attest::create_context_from_path(tpm_path).map_err(|e| {
-        CarbideClientError::TpmError(format!("Could not create TPM context for clear: {e}"))
+        NicoClientError::TpmError(format!("Could not create TPM context for clear: {e}"))
     })?;
 
     // TPM2_Clear must be authorized. In tss-esapi, `Context::clear` calls `required_session_1()`:
@@ -75,7 +75,7 @@ pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
     ctx.set_sessions((Some(AuthSession::Password), None, None));
 
     ctx.clear(AuthHandle::Lockout)
-        .map_err(|e| CarbideClientError::TpmError(format!("TPM2_Clear (lockout) failed: {e}")))?;
+        .map_err(|e| NicoClientError::TpmError(format!("TPM2_Clear (lockout) failed: {e}")))?;
 
     ctx.clear_sessions();
     tracing::info!("TPM lockout hierarchy clear completed");

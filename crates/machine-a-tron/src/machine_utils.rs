@@ -17,12 +17,12 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::machine_validation::MachineValidationId;
 use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
-use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
+use rpc::nico::{NicoAgentControlResponse, MachineArchitecture};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -42,7 +42,7 @@ lazy_static! {
 pub enum PxeResponse {
     Exit,
     Scout,    // PXE script is booting scout.efi
-    DpuAgent, // PXE script is booting carbide.efi
+    DpuAgent, // PXE script is booting nico.efi
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -55,13 +55,13 @@ pub enum PxeError {
     Reqwest(#[from] reqwest::Error),
 }
 
-pub async fn forge_agent_control(
+pub async fn nico_agent_control(
     app_context: &MachineATronContext,
     machine_id: MachineId,
-) -> Option<ForgeAgentControlResponse> {
+) -> Option<NicoAgentControlResponse> {
     match app_context
-        .forge_api_client
-        .forge_agent_control(machine_id)
+        .nico_api_client
+        .nico_agent_control(machine_id)
         .await
     {
         Ok(response) => Some(response),
@@ -70,13 +70,13 @@ pub async fn forge_agent_control(
                 return None;
             }
             tracing::warn!("Error getting control action: {e}");
-            Some(ForgeAgentControlResponse::noop())
+            Some(NicoAgentControlResponse::noop())
         }
     }
 }
 
-pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<MachineValidationId> {
-    if let Some(rpc::forge::forge_agent_control_response::Action::MachineValidation(
+pub fn get_validation_id(response: &NicoAgentControlResponse) -> Option<MachineValidationId> {
+    if let Some(rpc::nico::nico_agent_control_response::Action::MachineValidation(
         machine_validation,
     )) = &response.action
     {
@@ -140,7 +140,7 @@ pub async fn send_pxe_boot_request(
         .find(|l| l.starts_with("kernel"))
         .and_then(|l| l.split(" ").nth(1))
     {
-        if kernel_url.ends_with("/carbide.efi") {
+        if kernel_url.ends_with("/nico.efi") {
             PxeResponse::DpuAgent
         } else if kernel_url.ends_with("/scout.efi") {
             PxeResponse::Scout

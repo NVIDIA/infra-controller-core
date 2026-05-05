@@ -16,16 +16,16 @@
  */
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use carbide_network::ip::IdentifyAddressFamily;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use nico_network::ip::IdentifyAddressFamily;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{AllocationStrategy, NewNetworkSegment};
 use sqlx::PgConnection;
 
-use crate::{CarbideError, CarbideResult};
+use crate::{NicoError, NicoResult};
 
 /// ip_to_u128 converts an IP address to its u128 representation.
 /// IPv4 addresses are zero-extended (u32 → u128), and IPv6 are native u128.
@@ -125,15 +125,15 @@ impl PrefixAllocator {
         vpc_prefix: IpNetwork,
         last_used_prefix: Option<IpNetwork>,
         prefix: u8,
-    ) -> CarbideResult<PrefixAllocator> {
+    ) -> NicoResult<PrefixAllocator> {
         let max_bits = vpc_prefix.address_family().interface_prefix_len();
         if prefix > max_bits {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "prefix length {prefix} exceeds maximum for address family ({max_bits})"
             )));
         }
         if prefix <= vpc_prefix.prefix() {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "prefix length {prefix} must be greater than VPC prefix length {}",
                 vpc_prefix.prefix()
             )));
@@ -153,7 +153,7 @@ impl PrefixAllocator {
         txn: &mut PgConnection,
         vpc_id: VpcId,
         requested_prefix: Option<IpNetwork>,
-    ) -> CarbideResult<(NetworkSegmentId, IpNetwork)> {
+    ) -> NicoResult<(NetworkSegmentId, IpNetwork)> {
         let prefix = if let Some(requested_prefix) = requested_prefix {
             self.validate_desired_prefix(txn, requested_prefix).await?;
             requested_prefix
@@ -219,7 +219,7 @@ impl PrefixAllocator {
         txn: &mut PgConnection,
         segment_id: NetworkSegmentId,
         requested_prefix: Option<IpNetwork>,
-    ) -> CarbideResult<IpNetwork> {
+    ) -> NicoResult<IpNetwork> {
         let prefix = if let Some(requested_prefix) = requested_prefix {
             self.validate_desired_prefix(txn, requested_prefix).await?;
             requested_prefix
@@ -253,7 +253,7 @@ impl PrefixAllocator {
         Ok(prefix)
     }
 
-    pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<IpNetwork> {
+    pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> NicoResult<IpNetwork> {
         let vpc_str = self.vpc_prefix.to_string();
         let used_prefixes = db::network_prefix::containing_prefix(txn, vpc_str.as_str())
             .await?
@@ -268,7 +268,7 @@ impl PrefixAllocator {
 
         loop {
             let Some(next_address) = allocator_itr.next() else {
-                return Err(CarbideError::internal("Prefix exhausted.".to_string()));
+                return Err(NicoError::internal("Prefix exhausted.".to_string()));
             };
 
             if !used_prefixes
@@ -279,7 +279,7 @@ impl PrefixAllocator {
             }
 
             if current_iteration > total_network_possible {
-                return Err(CarbideError::internal(format!(
+                return Err(NicoError::internal(format!(
                     "IP address exhausted: {}",
                     self.vpc_prefix
                 )));
@@ -292,14 +292,14 @@ impl PrefixAllocator {
         &self,
         txn: &mut PgConnection,
         prefix: IpNetwork,
-    ) -> CarbideResult<()> {
+    ) -> NicoResult<()> {
         let vpc_str = self.vpc_prefix.to_string();
 
         // Reject if what's being asked for is bigger than the prefix
         // expected to contain it or simply not contained within it at all.
         // (i.e. an IP from a totally different prefix)
         if !self.vpc_prefix.contains(prefix.network()) {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "{prefix} is not contained within {}",
                 self.vpc_prefix
             )));
@@ -311,7 +311,7 @@ impl PrefixAllocator {
             .iter()
             .any(|x| networks_overlap(x.prefix, prefix))
         {
-            return Err(CarbideError::AlreadyFoundError {
+            return Err(NicoError::AlreadyFoundError {
                 kind: "prefix",
                 id: prefix.to_string(),
             });

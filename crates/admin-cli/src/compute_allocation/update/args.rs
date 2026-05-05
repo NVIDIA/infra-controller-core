@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::compute_allocation::ComputeAllocationId;
+use nico_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]

@@ -1,0 +1,23 @@
+
+[Unit]
+Description=Scout Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=-/opt/nico/nico-scout.env
+ExecStartPre=/opt/nico/nico-scout-pre.sh 
+User=root
+Group=root
+RestartSec=5
+WorkingDirectory=/opt/nico/
+ExecStart=/opt/nico/nico-scout --api=${server_uri} --machine-interface-id=${machine_id}
+OOMScoreAdjust=-1000
+Restart=on-failure
+RestartPreventExitStatus=255
+StandardOutput=journal+console
+StandardError=journal+console
+LogLevel=info
+
+[Install]
+WantedBy=multi-user.target

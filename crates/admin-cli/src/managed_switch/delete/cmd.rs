@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use rpc::forge::SwitchDeletionRequest;
+use rpc::nico::SwitchDeletionRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

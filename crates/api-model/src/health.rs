@@ -67,9 +67,9 @@ impl HealthReportSources {
     }
 }
 
-impl From<HealthHistoryRecord> for rpc::forge::HealthHistoryRecord {
-    fn from(record: HealthHistoryRecord) -> rpc::forge::HealthHistoryRecord {
-        rpc::forge::HealthHistoryRecord {
+impl From<HealthHistoryRecord> for rpc::nico::HealthHistoryRecord {
+    fn from(record: HealthHistoryRecord) -> rpc::nico::HealthHistoryRecord {
+        rpc::nico::HealthHistoryRecord {
             health: Some(record.health.into()),
             time: Some(record.time.into()),
         }

@@ -19,11 +19,11 @@ use std::ops::Add;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_host_support::registration;
+use ::rpc::nico as rpc;
+use ::rpc::nico_tls_client::{self, ApiConfig, NicoClientConfig};
+use nico_host_support::registration;
 use eyre::Context;
-use forge_tls::client_config::ClientCert;
+use nico_tls::client_config::ClientCert;
 use rand::Rng;
 
 /// Certificates are renewed between in these 2 time intervals
@@ -35,19 +35,19 @@ const MAX_CERT_RENEWAL_FAILURE_TIME_SECS: u64 = 5 * 60; // 5min
 
 pub struct ClientCertRenewer {
     cert_renewal_time: std::time::Instant,
-    forge_api_server: String,
-    client_config: Arc<ForgeClientConfig>,
+    nico_api_server: String,
+    client_config: Arc<NicoClientConfig>,
 }
 
 impl ClientCertRenewer {
-    pub fn new(forge_api_server: String, client_config: Arc<ForgeClientConfig>) -> Self {
+    pub fn new(nico_api_server: String, client_config: Arc<NicoClientConfig>) -> Self {
         let cert_renewal_period =
             rand::rng().random_range(MIN_CERT_RENEWAL_TIME_SECS..MAX_CERT_RENEWAL_TIME_SECS);
         let cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));
 
         Self {
             cert_renewal_time,
-            forge_api_server,
+            nico_api_server,
             client_config,
         }
     }
@@ -89,12 +89,12 @@ impl ClientCertRenewer {
         override_client_cert: Option<&ClientCert>,
     ) -> Result<(), eyre::Report> {
         tracing::info!("Trying to renew TLS client certificates");
-        let mut client = forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
-            &self.forge_api_server,
+        let mut client = nico_tls_client::NicoTlsClient::retry_build(&ApiConfig::new(
+            &self.nico_api_server,
             &self.client_config,
         ))
         .await
-        .wrap_err("renew_certificates: Failed to build Forge API server client")?;
+        .wrap_err("renew_certificates: Failed to build Nico API server client")?;
 
         let request = tonic::Request::new(rpc::MachineCertificateRenewRequest {});
         let machine_certificate_result = client

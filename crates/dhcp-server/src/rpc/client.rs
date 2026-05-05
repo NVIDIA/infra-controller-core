@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use forge_tls::client_config::ClientCert;
-use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
-use rpc::forge::{DhcpDiscovery, DhcpRecord};
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
+use nico_tls::client_config::ClientCert;
+use nico_tls::default::{default_client_cert, default_client_key, default_root_ca};
+use rpc::nico::{DhcpDiscovery, DhcpRecord};
+use rpc::nico_tls_client::{ApiConfig, NicoClientConfig, NicoTlsClient};
 
 use crate::Config;
 use crate::errors::DhcpError;
@@ -26,13 +26,13 @@ pub async fn discover_dhcp(
     discovery_request: DhcpDiscovery,
     config: &Config,
 ) -> Result<DhcpRecord, DhcpError> {
-    let Some(carbide_api_url) = &config.dhcp_config.carbide_api_url else {
+    let Some(nico_api_url) = &config.dhcp_config.nico_api_url else {
         return Err(DhcpError::MissingArgument(
-            "carbide_api_url in DhcpConfig".to_string(),
+            "nico_api_url in DhcpConfig".to_string(),
         ));
     };
 
-    let client_config = ForgeClientConfig::new(
+    let client_config = NicoClientConfig::new(
         default_root_ca().to_string(),
         Some(ClientCert {
             cert_path: default_client_cert().to_string(),
@@ -40,9 +40,9 @@ pub async fn discover_dhcp(
         }),
     );
 
-    let api_config = ApiConfig::new(carbide_api_url, &client_config);
+    let api_config = ApiConfig::new(nico_api_url, &client_config);
 
-    let mut client = ForgeTlsClient::retry_build(&api_config)
+    let mut client = NicoTlsClient::retry_build(&api_config)
         .await
         .map_err(|x| DhcpError::GenericError(x.to_string()))?;
 

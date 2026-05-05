@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 use rpc::errors::RpcDataConversionError;
-use rpc::forge as rpc_forge;
+use rpc::nico as rpc_nico;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -173,12 +173,12 @@ pub async fn validate() -> eyre::Result<bool> {
     Ok(true)
 }
 
-impl TryFrom<rpc_forge::DpuExtensionServiceObservabilityConfig>
+impl TryFrom<rpc_nico::DpuExtensionServiceObservabilityConfig>
     for DpuExtensionServiceObservabilityConfig
 {
     type Error = RpcDataConversionError;
 
-    fn try_from(c: rpc_forge::DpuExtensionServiceObservabilityConfig) -> Result<Self, Self::Error> {
+    fn try_from(c: rpc_nico::DpuExtensionServiceObservabilityConfig) -> Result<Self, Self::Error> {
         let Some(config) = c.config else {
             return Err(RpcDataConversionError::MissingArgument(
                 "DpuExtensionServiceObservability.config",
@@ -188,7 +188,7 @@ impl TryFrom<rpc_forge::DpuExtensionServiceObservabilityConfig>
         Ok(Self {
             name: c.name,
             config: match config {
-                rpc_forge::dpu_extension_service_observability_config::Config::Prometheus(c) => {
+                rpc_nico::dpu_extension_service_observability_config::Config::Prometheus(c) => {
                     DpuExtensionServiceObservabilityConfigType::Prometheus(
                         DpuExtensionServiceObservabilityConfigTypePrometheus {
                             scrape_interval_seconds: c.scrape_interval_seconds,
@@ -196,7 +196,7 @@ impl TryFrom<rpc_forge::DpuExtensionServiceObservabilityConfig>
                         },
                     )
                 }
-                rpc_forge::dpu_extension_service_observability_config::Config::Logging(c) => {
+                rpc_nico::dpu_extension_service_observability_config::Config::Logging(c) => {
                     DpuExtensionServiceObservabilityConfigType::Logging(
                         DpuExtensionServiceObservabilityConfigTypeLogging { path: c.path },
                     )
@@ -206,10 +206,10 @@ impl TryFrom<rpc_forge::DpuExtensionServiceObservabilityConfig>
     }
 }
 
-impl TryFrom<rpc_forge::DpuExtensionServiceObservability> for DpuExtensionServiceObservability {
+impl TryFrom<rpc_nico::DpuExtensionServiceObservability> for DpuExtensionServiceObservability {
     type Error = RpcDataConversionError;
 
-    fn try_from(o: rpc_forge::DpuExtensionServiceObservability) -> Result<Self, Self::Error> {
+    fn try_from(o: rpc_nico::DpuExtensionServiceObservability) -> Result<Self, Self::Error> {
         Ok(Self {
             configs: o
                 .configs

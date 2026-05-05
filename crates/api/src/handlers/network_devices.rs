@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::ObjectFilter;
 use db::network_devices::NetworkDeviceSearchConfig;
 use itertools::Itertools;

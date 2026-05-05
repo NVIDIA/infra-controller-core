@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use crate::cfg::runtime::RuntimeContext;
 
@@ -26,16 +26,16 @@ pub(crate) trait Dispatch {
     fn dispatch(
         self,
         ctx: RuntimeContext,
-    ) -> impl std::future::Future<Output = CarbideCliResult<()>>;
+    ) -> impl std::future::Future<Output = NicoCliResult<()>>;
 }
 
 // Re-export the derive macro so modules can import both the
 // trait and derive with: use crate::cfg::dispatch::Dispatch;
-pub(crate) use carbide_macros::Dispatch;
+pub(crate) use nico_macros::Dispatch;
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::admin_cli::CarbideCliResult;
+    use ::rpc::admin_cli::NicoCliResult;
 
     use super::Dispatch;
     use crate::cfg::run::Run;
@@ -46,7 +46,7 @@ mod tests {
     struct StubRunArgs;
 
     impl Run for StubRunArgs {
-        async fn run(self, _ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        async fn run(self, _ctx: &mut RuntimeContext) -> NicoCliResult<()> {
             Ok(())
         }
     }
@@ -56,7 +56,7 @@ mod tests {
     struct StubNestedCmd;
 
     impl Dispatch for StubNestedCmd {
-        async fn dispatch(self, _ctx: RuntimeContext) -> CarbideCliResult<()> {
+        async fn dispatch(self, _ctx: RuntimeContext) -> NicoCliResult<()> {
             Ok(())
         }
     }

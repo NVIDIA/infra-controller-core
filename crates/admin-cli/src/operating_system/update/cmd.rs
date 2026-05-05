@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::{IpxeTemplateParameters, UpdateOperatingSystemRequest};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use ::rpc::nico::{IpxeTemplateParameters, UpdateOperatingSystemRequest};
 
 use super::args::Args;
 use crate::operating_system::common::{str_to_ipxe_template_id, str_to_os_id};
 use crate::rpc::ApiClient;
 
-pub async fn update(opts: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn update(opts: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let id = str_to_os_id(&opts.id)?;
     let ipxe_template_id = opts
         .ipxe_template_id
@@ -49,7 +49,7 @@ pub async fn update(opts: Args, api_client: &ApiClient) -> CarbideCliResult<()> 
             ipxe_template_definition_hash: None,
         })
         .await
-        .map_err(CarbideCliError::from)?;
+        .map_err(NicoCliError::from)?;
 
     println!(
         "Operating system updated: {} (id={})",

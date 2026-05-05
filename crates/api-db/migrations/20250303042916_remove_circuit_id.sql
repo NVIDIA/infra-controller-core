@@ -18,7 +18,7 @@ ALTER TABLE instance_addresses
     ALTER COLUMN segment_id SET NOT NULL;
 ;
 
--- Finally drop last use of circuit_id field from carbide.
+-- Finally drop last use of circuit_id field from nico.
 ALTER TABLE network_prefixes
     DROP COLUMN circuit_id
 ;

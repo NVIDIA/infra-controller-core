@@ -28,17 +28,17 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineIdParseError};
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::{MachineId, MachineIdParseError};
 pub use output::{Destination, OutputFormat};
 use serde::Serialize;
 #[cfg(feature = "sqlx")]
 use sqlx::{Pool, Postgres};
 
 use crate::errors;
-use crate::forge::MachineType;
-use crate::forge_tls_client::ForgeTlsClientError;
+use crate::nico::MachineType;
+use crate::nico_tls_client::NicoTlsClientError;
 
 /// SUMMARY is a global variable that is being used by a few structs which
 /// implement serde::Serialize with skip_serialization_if.
@@ -84,11 +84,11 @@ pub async fn connect(db_url: &str) -> eyre::Result<Pool<Postgres>> {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum CarbideCliError {
-    #[error("Unable to connect to carbide API: {0}")]
-    ApiConnectFailed(#[from] ForgeTlsClientError),
+pub enum NicoCliError {
+    #[error("Unable to connect to nico API: {0}")]
+    ApiConnectFailed(#[from] NicoTlsClientError),
 
-    #[error("The API call to the Forge API server returned {0}")]
+    #[error("The API call to the Nico API server returned {0}")]
     ApiInvocationError(#[from] tonic::Status),
 
     #[error("Error while writing into string: {0}")]
@@ -169,16 +169,16 @@ pub enum CarbideCliError {
     EyreReport(eyre::Report),
 }
 
-impl From<eyre::Report> for CarbideCliError {
+impl From<eyre::Report> for NicoCliError {
     // For commands that are [still] returning an eyre::Report,
-    // and not a CarbideCliError, preserve the full report and
+    // and not a NicoCliError, preserve the full report and
     // error chain for complete context.
     fn from(err: eyre::Report) -> Self {
-        CarbideCliError::EyreReport(err)
+        NicoCliError::EyreReport(err)
     }
 }
 
-pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
+pub type NicoCliResult<T> = Result<T, NicoCliError>;
 
 /// ToTable is a trait which is used alongside the cli_output command
 /// and being able to prettytable print results.
@@ -198,15 +198,15 @@ pub fn cli_output<T: Serialize + ToTable>(
     input: T,
     format: &OutputFormat,
     destination: Destination,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let output = match format {
         OutputFormat::Json => serde_json::to_string_pretty(&input)?,
         OutputFormat::Yaml => serde_yaml::to_string(&input)?,
         OutputFormat::AsciiTable => input
             .into_table()
-            .map_err(|e| CarbideCliError::GenericError(e.to_string()))?,
+            .map_err(|e| NicoCliError::GenericError(e.to_string()))?,
         OutputFormat::Csv => {
-            return Err(CarbideCliError::GenericError(String::from(
+            return Err(NicoCliError::GenericError(String::from(
                 "CSV not supported for measurement commands (yet)",
             )));
         }

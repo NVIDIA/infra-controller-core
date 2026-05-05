@@ -19,7 +19,7 @@ use std::fmt::Write;
 
 use prettytable::{Row, Table};
 use rpc::Metadata;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 
 use crate::{async_write, async_writeln};
 
@@ -30,7 +30,7 @@ pub(crate) async fn display_metadata(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     metadata: &Metadata,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match output_format {
         OutputFormat::AsciiTable => {
             async_writeln!(output_file, "Name        : {}", metadata.name)?;
@@ -43,7 +43,7 @@ pub(crate) async fn display_metadata(
             async_write!(output_file, "{}", table)?;
         }
         OutputFormat::Csv => {
-            return Err(CarbideCliError::NotImplemented(
+            return Err(NicoCliError::NotImplemented(
                 "CSV formatted output".to_string(),
             ));
         }
@@ -51,7 +51,7 @@ pub(crate) async fn display_metadata(
             async_writeln!(output_file, "{}", serde_json::to_string_pretty(&metadata)?)?
         }
         OutputFormat::Yaml => {
-            return Err(CarbideCliError::NotImplemented(
+            return Err(NicoCliError::NotImplemented(
                 "YAML formatted output".to_string(),
             ));
         }
@@ -103,9 +103,9 @@ pub(crate) fn apply_set(
     metadata: Option<Metadata>,
     name: Option<String>,
     description: Option<String>,
-) -> CarbideCliResult<Metadata> {
+) -> NicoCliResult<Metadata> {
     let mut metadata = metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Entity does not carry Metadata that can be patched".into())
+        NicoCliError::GenericError("Entity does not carry Metadata that can be patched".into())
     })?;
     if let Some(name) = name {
         metadata.name = name;
@@ -123,12 +123,12 @@ pub(crate) fn apply_add_label(
     metadata: Option<Metadata>,
     key: String,
     value: Option<String>,
-) -> CarbideCliResult<Metadata> {
+) -> NicoCliResult<Metadata> {
     let mut metadata = metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Entity does not carry Metadata that can be patched".into())
+        NicoCliError::GenericError("Entity does not carry Metadata that can be patched".into())
     })?;
     metadata.labels.retain_mut(|l| l.key != key);
-    metadata.labels.push(rpc::forge::Label { key, value });
+    metadata.labels.push(rpc::nico::Label { key, value });
     Ok(metadata)
 }
 
@@ -138,9 +138,9 @@ pub(crate) fn apply_add_label(
 pub(crate) fn apply_remove_labels(
     metadata: Option<Metadata>,
     keys: Vec<String>,
-) -> CarbideCliResult<Metadata> {
+) -> NicoCliResult<Metadata> {
     let mut metadata = metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Entity does not carry Metadata that can be patched".into())
+        NicoCliError::GenericError("Entity does not carry Metadata that can be patched".into())
     })?;
     let removed: HashSet<String> = keys.into_iter().collect();
     metadata.labels.retain(|l| !removed.contains(&l.key));
@@ -170,15 +170,15 @@ pub(crate) fn fmt_labels_as_kv_pairs(metadata: Option<&Metadata>) -> Vec<String>
 /// format) into RPC Label structs. A label without
 /// a `:` separator is treated as a key-only label
 /// with no value.
-pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<rpc::forge::Label> {
+pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<rpc::nico::Label> {
     labels
         .into_iter()
         .map(|label| match label.split_once(':') {
-            Some((k, v)) => rpc::forge::Label {
+            Some((k, v)) => rpc::nico::Label {
                 key: k.trim().to_string(),
                 value: Some(v.trim().to_string()),
             },
-            None => rpc::forge::Label {
+            None => rpc::nico::Label {
                 key: if label.contains(char::is_whitespace) {
                     label.trim().to_string()
                 } else {
@@ -195,14 +195,14 @@ pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<rpc::forge::Label> {
 mod tests {
     use super::*;
 
-    fn label(key: &str, value: Option<&str>) -> rpc::forge::Label {
-        rpc::forge::Label {
+    fn label(key: &str, value: Option<&str>) -> rpc::nico::Label {
+        rpc::nico::Label {
             key: key.to_string(),
             value: value.map(str::to_string),
         }
     }
 
-    fn metadata_with(name: &str, desc: &str, labels: Vec<rpc::forge::Label>) -> Metadata {
+    fn metadata_with(name: &str, desc: &str, labels: Vec<rpc::nico::Label>) -> Metadata {
         Metadata {
             name: name.to_string(),
             description: desc.to_string(),

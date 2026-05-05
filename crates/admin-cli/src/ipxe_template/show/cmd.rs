@@ -15,16 +15,16 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, OutputFormat};
 use prettytable::{Cell, Row, Table};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 fn scope_display(scope: i32) -> &'static str {
-    match rpc::forge::IpxeTemplateScope::try_from(scope) {
-        Ok(rpc::forge::IpxeTemplateScope::Internal) => "internal",
-        Ok(rpc::forge::IpxeTemplateScope::Public) => "public",
+    match rpc::nico::IpxeTemplateScope::try_from(scope) {
+        Ok(rpc::nico::IpxeTemplateScope::Internal) => "internal",
+        Ok(rpc::nico::IpxeTemplateScope::Public) => "public",
         _ => "unknown",
     }
 }
@@ -33,7 +33,7 @@ pub async fn handle_show(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> Result<(), NicoCliError> {
     if opts.id.as_deref().unwrap_or("").is_empty() {
         list_all(format, api_client).await
     } else {
@@ -41,7 +41,7 @@ pub async fn handle_show(
     }
 }
 
-async fn list_all(format: OutputFormat, api_client: &ApiClient) -> Result<(), CarbideCliError> {
+async fn list_all(format: OutputFormat, api_client: &ApiClient) -> Result<(), NicoCliError> {
     let result = api_client.0.list_ipxe_templates().await?;
 
     if format == OutputFormat::Json {
@@ -85,24 +85,24 @@ async fn show_one(
     id_str: &str,
     format: OutputFormat,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
-    let id: carbide_uuid::ipxe_template::IpxeTemplateId = id_str
+) -> Result<(), NicoCliError> {
+    let id: nico_uuid::ipxe_template::IpxeTemplateId = id_str
         .parse()
-        .map_err(|_| CarbideCliError::GenericError(format!("invalid template ID: {}", id_str)))?;
+        .map_err(|_| NicoCliError::GenericError(format!("invalid template ID: {}", id_str)))?;
 
     let result = match api_client
         .0
-        .get_ipxe_template(rpc::forge::GetIpxeTemplateRequest { id: Some(id) })
+        .get_ipxe_template(rpc::nico::GetIpxeTemplateRequest { id: Some(id) })
         .await
     {
         Ok(tmpl) => tmpl,
         Err(status) if status.code() == tonic::Code::NotFound => {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "iPXE template not found: {}",
                 id_str
             )));
         }
-        Err(err) => return Err(CarbideCliError::from(err)),
+        Err(err) => return Err(NicoCliError::from(err)),
     };
 
     if format == OutputFormat::Json {

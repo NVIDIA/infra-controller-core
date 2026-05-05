@@ -24,8 +24,8 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -46,8 +46,8 @@ struct InterfaceRowDisplay {
     domain_name: String,
 }
 
-impl From<forgerpc::MachineInterface> for InterfaceRowDisplay {
-    fn from(mi: forgerpc::MachineInterface) -> Self {
+impl From<nicorpc::MachineInterface> for InterfaceRowDisplay {
+    fn from(mi: nicorpc::MachineInterface) -> Self {
         Self {
             id: mi.id.unwrap_or_default().to_string(),
             mac_address: mi.mac_address,
@@ -130,8 +130,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 
 async fn fetch_machine_interfaces(
     api: Arc<Api>,
-) -> Result<Vec<forgerpc::MachineInterface>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::InterfaceSearchQuery { id: None, ip: None });
+) -> Result<Vec<nicorpc::MachineInterface>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::InterfaceSearchQuery { id: None, ip: None });
     let mut out = api
         .find_interfaces(request)
         .await
@@ -148,7 +148,7 @@ async fn fetch_machine_interfaces(
 /// unlinked interfaces for display purposes only. No DB writes.
 async fn enrich_bmc_machine_ids(
     pool: &sqlx::PgPool,
-    interfaces: &mut [forgerpc::MachineInterface],
+    interfaces: &mut [nicorpc::MachineInterface],
 ) {
     let candidate_ips: Vec<String> = interfaces
         .iter()
@@ -204,8 +204,8 @@ struct InterfaceDetail {
     is_bmc: bool,
 }
 
-impl From<forgerpc::MachineInterface> for InterfaceDetail {
-    fn from(mi: forgerpc::MachineInterface) -> Self {
+impl From<nicorpc::MachineInterface> for InterfaceDetail {
+    fn from(mi: nicorpc::MachineInterface) -> Self {
         let created: DateTime<Utc> = mi
             .created
             .expect("machine_interfaces.created is NOT NULL in DB, should exist")
@@ -267,7 +267,7 @@ pub async fn detail(
         }
     };
 
-    let request = tonic::Request::new(forgerpc::InterfaceSearchQuery {
+    let request = tonic::Request::new(nicorpc::InterfaceSearchQuery {
         id: Some(interface_id),
         ip: None,
     });

@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use rpc::forge::SkuIdList;
+use ::rpc::admin_cli::NicoCliResult;
+use rpc::nico::SkuIdList;
 
 use crate::rpc::ApiClient;
 
-pub async fn delete(sku_id: String, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(sku_id: String, api_client: &ApiClient) -> NicoCliResult<()> {
     api_client
         .0
         .delete_sku(SkuIdList { ids: vec![sku_id] })

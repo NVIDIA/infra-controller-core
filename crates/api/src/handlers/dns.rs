@@ -20,7 +20,7 @@ use dns_record::constants::*;
 use dns_record::{DnsResourceRecordReply, DnsResourceRecordType};
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 
 #[derive(Clone, Debug)]
@@ -43,8 +43,8 @@ async fn lookup_soa_record(
     tracing::debug!("Looking up SOA record for {}", query_name);
     let record = resource_record::get_soa_record(db, query_name)
         .await
-        .map_err(CarbideError::from)?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .map_err(NicoError::from)?
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "soa_record",
             id: query_name.to_string(),
         })?;
@@ -75,7 +75,7 @@ async fn lookup_records_by_qname(
 
     let result = resource_record::find_record(txn, &qname_with_dot)
         .await
-        .map_err(CarbideError::from)?
+        .map_err(NicoError::from)?
         .into_iter()
         .map(|db_record| {
             let model_record: model::dns::ResourceRecord = db_record.into();
@@ -241,7 +241,7 @@ pub async fn get_all_domain_metadata(
     )
     .await?;
 
-    let domain = domains.first().ok_or_else(|| CarbideError::NotFoundError {
+    let domain = domains.first().ok_or_else(|| NicoError::NotFoundError {
         kind: "domain",
         id: metadata_request.domain.clone(),
     })?;
@@ -272,12 +272,12 @@ pub async fn lookup_record(
     );
 
     let rrtype = DnsResourceRecordType::try_from(lookup_request.qtype)
-        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid qtype supplied: {}", e)))?;
+        .map_err(|e| NicoError::InvalidArgument(format!("Invalid qtype supplied: {}", e)))?;
 
     let qname = lookup_request.qname;
 
     if qname.is_empty() {
-        return Err(CarbideError::InvalidArgument("qname cannot be empty".to_string()).into());
+        return Err(NicoError::InvalidArgument("qname cannot be empty".to_string()).into());
     }
 
     let resource_record: Vec<DnsResourceRecordReply> = match rrtype {
@@ -311,8 +311,8 @@ pub async fn lookup_record(
 // TODO: Remove this handler after all clients have migrated
 // ============================================================================
 
-use ::rpc::forge::dns_message::dns_response::Dnsrr;
-use ::rpc::forge::dns_message::{DnsQuestion, DnsResponse};
+use ::rpc::nico::dns_message::dns_response::Dnsrr;
+use ::rpc::nico::dns_message::{DnsQuestion, DnsResponse};
 use db::db_read::DbReader;
 
 /// Compatibility adapter for legacy lookup_record RPC
@@ -352,7 +352,7 @@ pub async fn lookup_record_legacy_compat(
     // Check for empty qname early
     if qname.is_empty() {
         tracing::warn!("Received legacy DNS request with empty qname");
-        return Err(CarbideError::InvalidArgument("qname cannot be empty".to_string()).into());
+        return Err(NicoError::InvalidArgument("qname cannot be empty".to_string()).into());
     }
 
     // Convert numeric q_type to string using constants
@@ -368,7 +368,7 @@ pub async fn lookup_record_legacy_compat(
         DNS_QTYPE_SRV => DNS_TYPE_SRV,
         DNS_QTYPE_ANY => DNS_TYPE_ANY,
         _ => {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "Unsupported DNS record type: {}",
                 q_type
             ))
@@ -397,7 +397,7 @@ pub async fn lookup_record_legacy_compat(
         .iter()
         .filter(|d| domain_name.ends_with(&d.name))
         .max_by_key(|d| d.name.len())
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| NicoError::NotFoundError {
             kind: "domain",
             id: format!("No domain found for qname: {}", qname),
         })?;

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::carbide_utils::metrics::SharedMetricsHolder;
+use ::nico_utils::metrics::SharedMetricsHolder;
 use model::machine_validation::MachineValidationTest;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
@@ -42,7 +42,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics.clone();
         meter
-            .u64_observable_gauge("carbide_machine_validation_completed")
+            .u64_observable_gauge("nico_machine_validation_completed")
             .with_description("Count of machine validation that have completed successfully")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
@@ -55,7 +55,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics.clone();
         meter
-            .u64_observable_gauge("carbide_machine_validation_failed")
+            .u64_observable_gauge("nico_machine_validation_failed")
             .with_description("Count of machine validation that have failed")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
@@ -68,7 +68,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics.clone();
         meter
-            .u64_observable_gauge("carbide_machine_validation_in_progress")
+            .u64_observable_gauge("nico_machine_validation_in_progress")
             .with_description("Count of machine validation that are in progress")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
@@ -80,7 +80,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics;
         meter
-            .u64_observable_gauge("carbide_machine_validation_tests")
+            .u64_observable_gauge("nico_machine_validation_tests")
             .with_description("The details of machine validation tests")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
@@ -127,7 +127,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use carbide_utils::test_support::test_meter::TestMeter;
+    use nico_utils::test_support::test_meter::TestMeter;
     use chrono::Utc;
     use config_version::ConfigVersion;
     use prometheus_text_parser::ParsedPrometheusMetrics;
@@ -142,7 +142,7 @@ mod tests {
         metrics.failed_validation = 15;
         metrics.in_progress_validation = 20;
         metrics.tests = vec![MachineValidationTest {
-            test_id: "forge_Test1".to_string(),
+            test_id: "nico_Test1".to_string(),
             name: "test1".to_string(),
             description: Some("description".to_string()),
             contexts: vec!["OnDemand".to_string(), "Discovery".to_string()],

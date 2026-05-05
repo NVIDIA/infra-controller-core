@@ -15,19 +15,19 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use forge_ssh::ssh::read_obmc_console_log;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
+use nico_ssh::ssh::read_obmc_console_log;
 
 use super::super::common::SshArgs;
 
-pub async fn show_obmc_log(args: SshArgs) -> CarbideCliResult<()> {
+pub async fn show_obmc_log(args: SshArgs) -> NicoCliResult<()> {
     let log = read_obmc_console_log(
         args.credentials.bmc_ip_address,
         args.credentials.bmc_username,
         args.credentials.bmc_password,
     )
     .await
-    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+    .map_err(|e| NicoCliError::GenericError(e.to_string()))?;
 
     println!("OBMC Console Log:\n{log}");
     Ok(())

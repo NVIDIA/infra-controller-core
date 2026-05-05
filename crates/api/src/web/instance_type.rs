@@ -25,8 +25,8 @@ use axum::Json;
 use axum::extract::{OriginalUri, Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{self as nicorpc};
 use serde::{Deserialize, Deserializer, de};
 
 use super::{Base, filters};
@@ -70,8 +70,8 @@ impl Ord for InstanceTypeRowDisplay {
     }
 }
 
-impl From<forgerpc::InstanceType> for InstanceTypeRowDisplay {
-    fn from(itype: forgerpc::InstanceType) -> Self {
+impl From<nicorpc::InstanceType> for InstanceTypeRowDisplay {
+    fn from(itype: nicorpc::InstanceType) -> Self {
         let created = itype.created_at().to_string();
         let metadata = itype.metadata.unwrap_or_default();
 
@@ -108,17 +108,17 @@ struct InstanceTypeDetailDisplay {
     description: String,
     version: String,
     created: String,
-    labels: Vec<forgerpc::Label>,
+    labels: Vec<nicorpc::Label>,
     capabilities: Vec<InstanceTypeCapabilitiesRowDisplay>,
     associated_machines: Vec<String>,
 }
 
-impl From<forgerpc::InstanceTypeMachineCapabilityFilterAttributes>
+impl From<nicorpc::InstanceTypeMachineCapabilityFilterAttributes>
     for InstanceTypeCapabilitiesRowDisplay
 {
-    fn from(c: forgerpc::InstanceTypeMachineCapabilityFilterAttributes) -> Self {
+    fn from(c: nicorpc::InstanceTypeMachineCapabilityFilterAttributes) -> Self {
         Self {
-            cap_type: forgerpc::MachineCapabilityType::to_string_from_enum_i32(c.capability_type)
+            cap_type: nicorpc::MachineCapabilityType::to_string_from_enum_i32(c.capability_type)
                 .unwrap_or_else(|_| "INVALID".to_string()),
             name: c
                 .name
@@ -234,8 +234,8 @@ async fn fetch_instance_types(
     current_page: usize,
     limit: usize,
 ) -> Result<(usize, Vec<InstanceTypeRowDisplay>), tonic::Status> {
-    let request: tonic::Request<forgerpc::FindInstanceTypeIdsRequest> =
-        tonic::Request::new(forgerpc::FindInstanceTypeIdsRequest {});
+    let request: tonic::Request<nicorpc::FindInstanceTypeIdsRequest> =
+        tonic::Request::new(nicorpc::FindInstanceTypeIdsRequest {});
 
     let all_ids = api
         .find_instance_type_ids(request)
@@ -273,7 +273,7 @@ async fn fetch_instance_types(
 
     let itypes = api
         .find_instance_types_by_ids(tonic::Request::new(
-            forgerpc::FindInstanceTypesByIdsRequest {
+            nicorpc::FindInstanceTypesByIdsRequest {
                 tenant_organization_id: None,
                 instance_type_ids: ids_for_page,
                 include_allocation_stats: true,
@@ -299,7 +299,7 @@ pub async fn show_detail(
     // Grab the basic details for the instance type
     let Some(itype) = match api
         .find_instance_types_by_ids(tonic::Request::new(
-            forgerpc::FindInstanceTypesByIdsRequest {
+            nicorpc::FindInstanceTypesByIdsRequest {
                 instance_type_ids: vec![instance_type_id.clone()],
                 tenant_organization_id: None,
                 include_allocation_stats: true,
@@ -332,7 +332,7 @@ pub async fn show_detail(
     let metadata = itype.metadata.unwrap_or_default();
 
     let associated_machine_ids = match api
-        .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(nicorpc::MachineSearchConfig {
             instance_type_id: Some(instance_type_id.clone()),
             ..Default::default()
         }))

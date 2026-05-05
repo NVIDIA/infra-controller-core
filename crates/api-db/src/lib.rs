@@ -21,7 +21,7 @@
 
 pub mod attestation;
 pub mod bmc_metadata;
-pub mod carbide_version;
+pub mod nico_version;
 pub mod compute_allocation;
 pub mod db_read;
 pub mod desired_firmware;
@@ -99,7 +99,7 @@ use std::panic::Location;
 use std::pin::Pin;
 
 #[cfg(test)]
-pub(crate) use carbide_macros::sqlx_test;
+pub(crate) use nico_macros::sqlx_test;
 use mac_address::MacAddress;
 use model::ConfigValidationError;
 use model::hardware_info::HardwareInfoError;
@@ -342,7 +342,7 @@ pub enum DatabaseError {
     #[error("Uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
     #[error("RPC Uuid type conversion error: {0}")]
-    RpcUuidConversionError(#[from] carbide_uuid::UuidConversionError),
+    RpcUuidConversionError(#[from] nico_uuid::UuidConversionError),
     #[error(
         "An object of type {0} was intended to be modified did not have the expected version {1}"
     )]
@@ -508,7 +508,7 @@ impl From<DatabaseError> for tonic::Status {
             let f = b_str
                 .lines()
                 .skip(1)
-                .skip_while(|l| !l.contains("carbide"))
+                .skip_while(|l| !l.contains("nico"))
                 .take(2)
                 .collect::<Vec<&str>>();
             if f.len() == 2 {
@@ -775,7 +775,7 @@ fn setup_test_logging() {
                 .add_directive("hyper=warn".parse().unwrap())
                 .add_directive("h2=warn".parse().unwrap())
                 // Silence permissive mode related messages
-                .add_directive("carbide::auth=error".parse().unwrap()),
+                .add_directive("nico::auth=error".parse().unwrap()),
         )
         .try_init()
     {

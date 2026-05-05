@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::RemoveSwitchHealthReportRequest;
+use ::rpc::admin_cli::NicoCliResult;
+use ::rpc::nico::RemoveSwitchHealthReportRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn remove(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub async fn remove(api_client: &ApiClient, args: Args) -> NicoCliResult<()> {
     api_client
         .0
         .remove_switch_health_report(RemoveSwitchHealthReportRequest {

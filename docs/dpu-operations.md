@@ -35,7 +35,7 @@ Download the latest BFB from the NVIDIA DOCA download portal (requires NVIDIA de
 In order to upgrade the OS you will need to `scp` the BFB file to a specific directory on the DPU.
 `scp DOCA_1.3.0_BSP_3.9.0_Ubuntu_20.04-3.20220315.bfb root@bmc_ip:/dev/rshim0/boot` once the file is copied the DPU reboots and completes the install of the new BFB.
 
-Note you will need to request access to the ` forge-dev-ssh-access` ssh group
+Note you will need to request access to the ` nico-dev-ssh-access` ssh group
 in order to login to a jump host.
 
 

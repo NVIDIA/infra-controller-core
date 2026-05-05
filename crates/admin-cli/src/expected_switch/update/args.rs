@@ -17,8 +17,8 @@
 
 use std::net::IpAddr;
 
-use ::rpc::admin_cli::CarbideCliError;
-use carbide_uuid::rack::RackId;
+use ::rpc::admin_cli::NicoCliError;
+use nico_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -121,16 +121,16 @@ pub struct Args {
     pub bmc_retain_credentials: Option<bool>,
 }
 
-impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
-    type Error = CarbideCliError;
+impl TryFrom<Args> for rpc::nico::ExpectedSwitch {
+    type Error = NicoCliError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
         match (&args.bmc_mac_address, &args.id) {
             (Some(_), Some(_)) => {
-                return Err(CarbideCliError::ChooseOneError("--bmc-mac-address", "--id"));
+                return Err(NicoCliError::ChooseOneError("--bmc-mac-address", "--id"));
             }
             (None, None) => {
-                return Err(CarbideCliError::RequireOneError(
+                return Err(NicoCliError::RequireOneError(
                     "--bmc-mac-address",
                     "--id",
                 ));
@@ -143,11 +143,11 @@ impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
             && args.nvos_username.is_none()
             && args.nvos_password.is_none()
         {
-            return Err(CarbideCliError::GenericError(
+            return Err(NicoCliError::GenericError(
                 "One of the following options must be specified: bmc-user-name and bmc-password or switch-serial-number or nvos-username and nvos-password".to_string(),
             ));
         }
-        Ok(rpc::forge::ExpectedSwitch {
+        Ok(rpc::nico::ExpectedSwitch {
             expected_switch_id: args.id.map(|id| ::rpc::common::Uuid {
                 value: id.to_string(),
             }),
@@ -160,7 +160,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
             switch_serial_number: args.switch_serial_number.unwrap_or_default(),
             nvos_username: args.nvos_username,
             nvos_password: args.nvos_password,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: args.meta_name.unwrap_or_default(),
                 description: args.meta_description.unwrap_or_default(),
                 labels: crate::metadata::parse_rpc_labels(args.labels.unwrap_or_default()),

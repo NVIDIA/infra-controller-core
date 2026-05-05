@@ -24,7 +24,7 @@ use model::resource_pool::common::VPC_VNI;
 use model::resource_pool::{
     OwnerType, ResourcePool, ResourcePoolError, ResourcePoolStats as St, ValueType,
 };
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use sqlx::migrate::MigrateDatabase;
 
 use crate::tests;
@@ -40,7 +40,7 @@ async fn test_define_range(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 type = "ipv4"
 ranges = [{ start = "172.0.1.0", end = "172.0.1.255" }]
 "#;
-    let rp_req = rpc::forge::GrowResourcePoolRequest {
+    let rp_req = rpc::nico::GrowResourcePoolRequest {
         text: toml.to_string(),
     };
     env.api
@@ -76,7 +76,7 @@ async fn test_define_prefix(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 type = "ipv4"
 prefix = "172.0.1.0/24"
 "#;
-    let rp_req = rpc::forge::GrowResourcePoolRequest {
+    let rp_req = rpc::nico::GrowResourcePoolRequest {
         text: toml.to_string(),
     };
     env.api
@@ -388,7 +388,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // CreateVpc rpc call
     let vpc_req = VpcCreationRequest::builder("test_vpc_assign_after_delete_1", "test")
-        .network_virtualization_type(rpc::forge::VpcVirtualizationType::EthernetVirtualizer)
+        .network_virtualization_type(rpc::nico::VpcVirtualizationType::EthernetVirtualizer)
         .tonic_request();
     let vpc1 = env.api.create_vpc(vpc_req).await.unwrap().into_inner();
 
@@ -408,7 +408,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     txn.commit().await?;
 
     // DeleteVpc rpc call
-    let del_req = rpc::forge::VpcDeletionRequest { id: vpc1.id };
+    let del_req = rpc::nico::VpcDeletionRequest { id: vpc1.id };
     env.api
         .delete_vpc(tonic::Request::new(del_req))
         .await
@@ -431,7 +431,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // CreateVpc
     let vpc_req = VpcCreationRequest::builder("test_vpc_assign_after_delete_2", "test")
-        .network_virtualization_type(rpc::forge::VpcVirtualizationType::EthernetVirtualizer)
+        .network_virtualization_type(rpc::nico::VpcVirtualizationType::EthernetVirtualizer)
         .tonic_request();
     let vpc2 = env.api.create_vpc(vpc_req).await.unwrap().into_inner();
 
@@ -450,7 +450,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     );
     txn.commit().await?;
 
-    let del_req = rpc::forge::VpcDeletionRequest { id: vpc2.id };
+    let del_req = rpc::nico::VpcDeletionRequest { id: vpc2.id };
     env.api
         .delete_vpc(tonic::Request::new(del_req.clone()))
         .await

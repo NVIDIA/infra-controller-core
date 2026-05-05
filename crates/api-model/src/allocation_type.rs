@@ -22,8 +22,8 @@ use crate::address_selection_strategy::AddressSelectionStrategy;
 /// Distinguishes how an IP address was allocated to a machine interface,
 /// and are generally derived from the AddressSelectionStrategy used.
 ///
-/// - `Dhcp`: These addresses allocated and managed by carbide-dhcp,
-///   or a DHCP service that integrates directly with carbide-api.
+/// - `Dhcp`: These addresses allocated and managed by nico-dhcp,
+///   or a DHCP service that integrates directly with nico-api.
 /// - `Static`: These addresses are assigned and managed explicitly by
 ///   an operator or operator-provided configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
@@ -49,19 +49,19 @@ pub enum AssignStaticResult {
     /// basically a no-op.
     ///
     /// If you replace a DHCP allocation with a static address that
-    /// is within a Carbide-managed network, then the next time the
-    /// machine renews its lease, carbide-dhcp -> carbide-api will
-    /// flow, and carbide-api will see the new IP and naturally
+    /// is within a Nico-managed network, then the next time the
+    /// machine renews its lease, nico-dhcp -> nico-api will
+    /// flow, and nico-api will see the new IP and naturally
     /// return it. MOST DHCP clients will accept this new IP and
     /// reconfigure. SOME DHCP clients will see this is NOT their
     /// original offer, and re-DHCPDISCOVER, at which point the
-    /// carbide-dhcp -> carbide-api flow will naturally return
+    /// nico-dhcp -> nico-api flow will naturally return
     /// the static reservation anyway. It will be a small hiccup
     /// in a sense, but the client will never lose it's address,
     /// and will just re-discover to the same address.
     ///
     /// If you replace a DHCP allocation with a static address that
-    /// is OUTSIDE a Carbide-managed network, then we will now assume
+    /// is OUTSIDE a Nico-managed network, then we will now assume
     /// that device is where you say it is. But it's important to
     /// understand a bit of a nuance, as soon as that previous DHCP
     /// allocation is deleted, it is eligible for re-assignment,
@@ -75,14 +75,14 @@ pub enum AssignStaticResult {
     ReplacedDhcp,
 }
 
-impl From<AssignStaticResult> for rpc::forge::AssignStaticAddressStatus {
+impl From<AssignStaticResult> for rpc::nico::AssignStaticAddressStatus {
     fn from(result: AssignStaticResult) -> Self {
         match result {
-            AssignStaticResult::Assigned => rpc::forge::AssignStaticAddressStatus::Assigned,
+            AssignStaticResult::Assigned => rpc::nico::AssignStaticAddressStatus::Assigned,
             AssignStaticResult::ReplacedStatic => {
-                rpc::forge::AssignStaticAddressStatus::ReplacedStatic
+                rpc::nico::AssignStaticAddressStatus::ReplacedStatic
             }
-            AssignStaticResult::ReplacedDhcp => rpc::forge::AssignStaticAddressStatus::ReplacedDhcp,
+            AssignStaticResult::ReplacedDhcp => rpc::nico::AssignStaticAddressStatus::ReplacedDhcp,
         }
     }
 }

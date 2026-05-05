@@ -19,12 +19,12 @@
 
 use std::time::Duration;
 
-use ::rpc::forge::MachineIdentityResponse;
+use ::rpc::nico::MachineIdentityResponse;
 use base64::Engine;
 use serde::Deserialize;
 use tonic::Status;
 
-use crate::CarbideError;
+use crate::NicoError;
 
 const OAUTH_GRANT_TYPE_TOKEN_EXCHANGE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
 const OAUTH_TOKEN_TYPE_JWT: &str = "urn:ietf:params:oauth:token-type:jwt";
@@ -51,7 +51,7 @@ pub(crate) fn token_exchange_http_client(
         .redirect(reqwest::redirect::Policy::none());
     if let Some(proxy_url) = token_endpoint_http_proxy.filter(|s| !s.is_empty()) {
         let proxy = reqwest::Proxy::all(proxy_url).map_err(|e| {
-            CarbideError::InvalidArgument(format!(
+            NicoError::InvalidArgument(format!(
                 "invalid machine_identity.token_endpoint_http_proxy: {e}"
             ))
         })?;
@@ -59,7 +59,7 @@ pub(crate) fn token_exchange_http_client(
     }
     builder
         .build()
-        .map_err(|e| CarbideError::internal(format!("token exchange HTTP client: {e}")).into())
+        .map_err(|e| NicoError::internal(format!("token exchange HTTP client: {e}")).into())
 }
 
 pub(crate) fn rfc8693_token_exchange_form(
@@ -108,13 +108,13 @@ pub(crate) async fn token_exchange_request(
             token_endpoint = %token_endpoint,
             "token exchange HTTP request failed"
         );
-        CarbideError::internal(format!("token exchange request failed: {e}"))
+        NicoError::internal(format!("token exchange request failed: {e}"))
     })?;
 
     let status = resp.status();
     let bytes = resp.bytes().await.map_err(|e| {
         tracing::error!(error = %e, "token exchange response body read failed");
-        CarbideError::internal(format!("token exchange response failed: {e}"))
+        NicoError::internal(format!("token exchange response failed: {e}"))
     })?;
 
     if !status.is_success() {
@@ -124,7 +124,7 @@ pub(crate) async fn token_exchange_request(
             body_prefix = %snippet,
             "token exchange endpoint returned error"
         );
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "token exchange endpoint returned HTTP {status}"
         ))
         .into());
@@ -132,7 +132,7 @@ pub(crate) async fn token_exchange_request(
 
     let parsed: TokenExchangeHttpResponseBody = serde_json::from_slice(&bytes).map_err(|e| {
         tracing::warn!(error = %e, body = %String::from_utf8_lossy(&bytes[..bytes.len().min(256)]), "token exchange JSON parse failed");
-        CarbideError::internal("token exchange response was not valid JSON".to_string())
+        NicoError::internal("token exchange response was not valid JSON".to_string())
     })?;
 
     let issued = parsed

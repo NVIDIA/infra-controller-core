@@ -16,7 +16,7 @@
  */
 
 /// Path to the legacy ETV ACL rules file (used by cleanup_old_acls)
-pub const PATH: &str = "etc/cumulus/acl/policy.d/60-forge.rules";
+pub const PATH: &str = "etc/cumulus/acl/policy.d/60-nico.rules";
 
 /// Command to reload ACL rules
 pub const RELOAD_CMD: &str = "cl-acltool -i";

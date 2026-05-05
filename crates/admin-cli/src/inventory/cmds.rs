@@ -18,11 +18,11 @@ use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
 use std::fs;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 use ::rpc::site_explorer::ExploredManagedHost;
 use ::rpc::{InstanceList, MachineList};
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::args::Cmd;
@@ -218,10 +218,10 @@ pub async fn print_inventory(
     api_client: &ApiClient,
     action: Cmd,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let all_machines = api_client
         .get_all_machines(
-            rpc::forge::MachineSearchConfig {
+            rpc::nico::MachineSearchConfig {
                 include_predicted_host: true,
                 include_dpus: true,
                 ..Default::default()
@@ -306,10 +306,10 @@ pub async fn print_inventory(
             get_dpu_machine_info(&all_dpus),
         )])),
     );
-    let output = serde_yaml::to_string(&final_group).map_err(CarbideCliError::YamlError)?;
+    let output = serde_yaml::to_string(&final_group).map_err(NicoCliError::YamlError)?;
     if let Some(filename) = action.filename {
         fs::write(filename, output)
-            .map_err(|e| CarbideCliError::GenericError(format!("File write error: {e}")))?;
+            .map_err(|e| NicoCliError::GenericError(format!("File write error: {e}")))?;
     } else {
         println!("{output}");
     }
@@ -333,7 +333,7 @@ type CreateInventoryReturnType<'a> = (
 fn create_inventory_for_instances<'a>(
     instances: &'a InstanceList,
     machines: &'a MachineList,
-) -> CarbideCliResult<CreateInventoryReturnType<'a>> {
+) -> NicoCliResult<CreateInventoryReturnType<'a>> {
     let mut tenant_map: HashMap<&'a str, Vec<InstanceDetails>> = HashMap::new();
     let mut used_machines = vec![];
 
@@ -359,7 +359,7 @@ fn create_inventory_for_instances<'a>(
             .iter()
             .find(|x| x.id == instance.machine_id)
             .ok_or_else(|| {
-                CarbideCliError::GenericError(format!(
+                NicoCliError::GenericError(format!(
                     "No such machine {:?} found in db, instance {:?}",
                     instance.machine_id, instance.id,
                 ))

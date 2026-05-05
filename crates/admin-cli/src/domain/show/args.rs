@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::domain::DomainId;
+use nico_uuid::domain::DomainId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

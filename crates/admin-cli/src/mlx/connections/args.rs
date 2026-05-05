@@ -18,9 +18,9 @@
 // connections/args.rs
 // Command-line argument definitions for mlx connections commands.
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::protos::forge as forge_pb;
+use rpc::protos::nico as nico_pb;
 
 // ConnectionsCommand are the connections subcommands.
 #[derive(Parser, Debug)]
@@ -41,7 +41,7 @@ pub struct ConnectionsDisconnectCommand {
     pub machine_id: MachineId,
 }
 
-impl From<ConnectionsDisconnectCommand> for forge_pb::ScoutStreamDisconnectRequest {
+impl From<ConnectionsDisconnectCommand> for nico_pb::ScoutStreamDisconnectRequest {
     fn from(cmd: ConnectionsDisconnectCommand) -> Self {
         Self {
             machine_id: cmd.machine_id.into(),

@@ -17,8 +17,8 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::expected_machine::{
@@ -89,7 +89,7 @@ pub async fn find_many_by_bmc_mac_address(
 }
 
 // the expected machines table needs host mac addresses to control dhcp vending of ip's
-// since the carbide dhcp server in some cases is not authoritative on a large network.
+// since the nico dhcp server in some cases is not authoritative on a large network.
 // search in the host_nics field before vending an ip.
 pub async fn find_by_host_mac_address(
     txn: &mut PgConnection,

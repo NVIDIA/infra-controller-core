@@ -1,6 +1,6 @@
 -- The cleanup_machine_by_id set `machine_id` and `attached_dpu_machine_id` to `null`
 -- only for entries where the `machine_id` was defined. If a Host DHCPs but does not
--- run `forge-scout` it will however have `attached_dpu_machine_id` set but not
+-- run `nico-scout` it will however have `attached_dpu_machine_id` set but not
 -- `machine_id`. Therefore we need to delete this field separately.
 
 

@@ -22,12 +22,12 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
-use forgerpc::NetworkSegment;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
+use nicorpc::NetworkSegment;
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -44,7 +44,7 @@ struct InstanceDisplay {
     tenant_org: String,
     tenant_state: String,
     configs_synced: String,
-    metadata: rpc::forge::Metadata,
+    metadata: rpc::nico::Metadata,
     ip_addresses: String,
     num_eth_ifs: usize,
     num_ib_ifs: usize,
@@ -52,8 +52,8 @@ struct InstanceDisplay {
     num_nvlink_gpus: usize,
 }
 
-impl From<forgerpc::Instance> for InstanceDisplay {
-    fn from(instance: forgerpc::Instance) -> Self {
+impl From<nicorpc::Instance> for InstanceDisplay {
+    fn from(instance: nicorpc::Instance) -> Self {
         let tenant_org = instance
             .config
             .as_ref()
@@ -65,14 +65,14 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .status
             .as_ref()
             .and_then(|status| status.tenant.as_ref())
-            .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
+            .and_then(|tenant| nicorpc::TenantState::try_from(tenant.state).ok())
             .map(|state| format!("{state:?}"))
             .unwrap_or_default();
 
         let configs_synced = instance
             .status
             .as_ref()
-            .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+            .and_then(|status| nicorpc::SyncState::try_from(status.configs_synced).ok())
             .map(|state| format!("{state:?}"))
             .unwrap_or_default();
 
@@ -103,7 +103,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .config
             .as_ref()
             .and_then(|config| config.tenant.as_ref())
-            .map(|tenant: &rpc::forge::TenantConfig| tenant.tenant_keyset_ids.len())
+            .map(|tenant: &rpc::nico::TenantConfig| tenant.tenant_keyset_ids.len())
             .unwrap_or_default();
         let num_nvlink_gpus = instance
             .config
@@ -157,8 +157,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(out)).into_response()
 }
 
-async fn fetch_instances(api: Arc<Api>) -> Result<forgerpc::InstanceList, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::InstanceSearchFilter::default());
+async fn fetch_instances(api: Arc<Api>) -> Result<nicorpc::InstanceList, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::InstanceSearchFilter::default());
 
     let instance_ids = api
         .find_instance_ids(request)
@@ -172,7 +172,7 @@ async fn fetch_instances(api: Arc<Api>) -> Result<forgerpc::InstanceList, tonic:
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(instance_ids.len() - offset);
         let next_ids = &instance_ids[offset..offset + page_size];
-        let request = tonic::Request::new(forgerpc::InstancesByIdsRequest {
+        let request = tonic::Request::new(nicorpc::InstancesByIdsRequest {
             instance_ids: next_ids.to_vec(),
         });
         let next_instances = api.find_instances_by_ids(request).await?.into_inner();
@@ -204,7 +204,7 @@ async fn fetch_instances(api: Arc<Api>) -> Result<forgerpc::InstanceList, tonic:
             .cmp(&i2.id.as_ref().map(|id| id.to_string()))
     });
 
-    Ok(forgerpc::InstanceList { instances })
+    Ok(nicorpc::InstanceList { instances })
 }
 
 #[derive(Template)]
@@ -228,7 +228,7 @@ struct InstanceDetail {
     nvlink_gpus: Vec<InstanceNvLinkGpu>,
     nvlink_config_synced: String,
     nvlink_config_version: String,
-    metadata: rpc::forge::Metadata,
+    metadata: rpc::nico::Metadata,
 }
 
 #[derive(Default)]
@@ -270,8 +270,8 @@ struct InstanceNvLinkGpu {
     logical_partition_id: String,
 }
 
-impl From<forgerpc::Instance> for InstanceDetail {
-    fn from(instance: forgerpc::Instance) -> Self {
+impl From<nicorpc::Instance> for InstanceDetail {
+    fn from(instance: nicorpc::Instance) -> Self {
         let interfaces = Vec::new();
 
         let mut ib_interfaces = Vec::new();
@@ -294,7 +294,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                     device: config.device.clone(),
                     vendor: config.vendor.clone().unwrap_or_default(),
                     device_instance: config.device_instance,
-                    function_type: forgerpc::InterfaceFunctionType::try_from(config.function_type)
+                    function_type: nicorpc::InterfaceFunctionType::try_from(config.function_type)
                         .ok()
                         .map(|ty| format!("{ty:?}"))
                         .unwrap_or_else(|| "INVALID".to_string()),
@@ -348,7 +348,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
             .and_then(|config| config.os.as_ref())
             .map(|os| match &os.variant {
                 Some(os_variant) => match os_variant {
-                    forgerpc::instance_operating_system_config::Variant::Ipxe(ipxe) => InstanceOs {
+                    nicorpc::instance_operating_system_config::Variant::Ipxe(ipxe) => InstanceOs {
                         ipxe_script: ipxe.ipxe_script.clone(),
                         userdata: os
                             .user_data
@@ -359,7 +359,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                         phone_home_enabled: os.phone_home_enabled,
                         ..Default::default()
                     },
-                    forgerpc::instance_operating_system_config::Variant::OsImageId(_id) => {
+                    nicorpc::instance_operating_system_config::Variant::OsImageId(_id) => {
                         InstanceOs {
                             userdata: os.user_data.clone().unwrap_or_default(),
                             run_provisioning_instructions_on_every_boot: os
@@ -368,7 +368,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                             ..Default::default()
                         }
                     }
-                    forgerpc::instance_operating_system_config::Variant::OperatingSystemId(id) => {
+                    nicorpc::instance_operating_system_config::Variant::OperatingSystemId(id) => {
                         InstanceOs {
                             os_id: id.to_string(),
                             userdata: os.user_data.clone().unwrap_or_default(),
@@ -406,7 +406,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .status
                 .as_ref()
                 .and_then(|status| status.tenant.as_ref())
-                .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
+                .and_then(|tenant| nicorpc::TenantState::try_from(tenant.state).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             tenant_state_details: instance
@@ -418,21 +418,21 @@ impl From<forgerpc::Instance> for InstanceDetail {
             configs_synced: instance
                 .status
                 .as_ref()
-                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .and_then(|status| nicorpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             network_config_synced: instance
                 .status
                 .as_ref()
                 .and_then(|status| status.network.as_ref())
-                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .and_then(|status| nicorpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             ib_config_synced: instance
                 .status
                 .as_ref()
                 .and_then(|status| status.infiniband.as_ref())
-                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .and_then(|status| nicorpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             metadata: instance.metadata.unwrap_or_default(),
@@ -448,7 +448,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .status
                 .as_ref()
                 .and_then(|status| status.nvlink.as_ref())
-                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .and_then(|status| nicorpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             nvlink_config_version: instance.nvlink_config_version,
@@ -458,14 +458,14 @@ impl From<forgerpc::Instance> for InstanceDetail {
 
 async fn get_network_segments_map_for_instance(
     state: Arc<Api>,
-    if_configs: &[forgerpc::InstanceInterfaceConfig],
+    if_configs: &[nicorpc::InstanceInterfaceConfig],
 ) -> Result<HashMap<NetworkSegmentId, NetworkSegment>, tonic::Status> {
     let network_segment_ids: Vec<NetworkSegmentId> = if_configs
         .iter()
         .filter_map(|iface| iface.network_segment_id)
         .collect();
 
-    let ns_req = tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
+    let ns_req = tonic::Request::new(nicorpc::NetworkSegmentsByIdsRequest {
         network_segments_ids: network_segment_ids,
         include_history: false,
         include_num_free_ips: false,
@@ -488,17 +488,17 @@ async fn get_network_segments_map_for_instance(
 async fn get_vpc_map_for_instance(
     state: Arc<Api>,
     network_segments_map: &HashMap<NetworkSegmentId, NetworkSegment>,
-) -> Result<HashMap<VpcId, forgerpc::Vpc>, tonic::Status> {
+) -> Result<HashMap<VpcId, nicorpc::Vpc>, tonic::Status> {
     let vpc_ids: Vec<VpcId> = network_segments_map
         .values()
         .filter_map(|ns| ns.vpc_id)
         .collect();
 
-    let vpc_req = tonic::Request::new(forgerpc::VpcsByIdsRequest { vpc_ids });
+    let vpc_req = tonic::Request::new(nicorpc::VpcsByIdsRequest { vpc_ids });
 
     let vpcs = state.find_vpcs_by_ids(vpc_req).await?.into_inner().vpcs;
 
-    let vpc_map: HashMap<VpcId, forgerpc::Vpc> = vpcs
+    let vpc_map: HashMap<VpcId, nicorpc::Vpc> = vpcs
         .into_iter()
         .filter_map(|vpc| vpc.id.map(|id| (id, vpc)))
         .collect();
@@ -508,7 +508,7 @@ async fn get_vpc_map_for_instance(
 
 async fn get_interfaces_for_instance_detail(
     state: Arc<Api>,
-    instance: &forgerpc::Instance,
+    instance: &nicorpc::Instance,
 ) -> Result<Vec<InstanceInterface>, tonic::Status> {
     let mut interfaces = Vec::new();
     let if_configs = instance
@@ -552,7 +552,7 @@ async fn get_interfaces_for_instance_detail(
             .clone()
             .unwrap_or("<unknown>".to_string());
         interfaces.push(InstanceInterface {
-            function_type: forgerpc::InterfaceFunctionType::try_from(interface.function_type)
+            function_type: nicorpc::InterfaceFunctionType::try_from(interface.function_type)
                 .ok()
                 .map(|ty| format!("{ty:?}"))
                 .unwrap_or_else(|| "INVALID".to_string()),
@@ -592,7 +592,7 @@ pub async fn detail(
         }
     };
 
-    let request = tonic::Request::new(forgerpc::InstancesByIdsRequest {
+    let request = tonic::Request::new(nicorpc::InstancesByIdsRequest {
         instance_ids: vec![instance_id],
     });
     let instance = match state

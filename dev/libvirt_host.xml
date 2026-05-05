@@ -50,8 +50,8 @@
 		</controller>
 		<interface type='bridge'>
 			<mac address='00:11:22:33:44:66'/>
-			<source bridge='carbide0'/>
-			<target dev='carbidevm'/>
+			<source bridge='nico0'/>
+			<target dev='nicovm'/>
 		</interface>
 		<tpm model='tpm-tis'>
 			<backend type='emulator' version='2.0'>

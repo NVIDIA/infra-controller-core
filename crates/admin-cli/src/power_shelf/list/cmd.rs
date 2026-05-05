@@ -16,7 +16,7 @@
  */
 
 use color_eyre::Result;
-use rpc::forge as rpc;
+use rpc::nico as rpc;
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeConfig;

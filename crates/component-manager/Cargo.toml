@@ -23,9 +23,9 @@ authors.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
-carbide-api-db = { path = "../api-db", default-features = false }
-carbide-api-model = { path = "../api-model" }
-carbide-uuid = { path = "../uuid" }
+nico-api-db = { path = "../api-db", default-features = false }
+nico-api-model = { path = "../api-model" }
+nico-uuid = { path = "../uuid" }
 chrono = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
@@ -40,9 +40,9 @@ serde = { workspace = true, features = ["derive"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
-carbide-api-test-helper = { path = "../api-test-helper" }
-carbide-macros = { path = "../macros" }
-carbide-sqlx-testing = { path = "../sqlx-testing" }
+nico-api-test-helper = { path = "../api-test-helper" }
+nico-macros = { path = "../macros" }
+nico-sqlx-testing = { path = "../sqlx-testing" }
 uuid = { workspace = true }
 
 [build-dependencies]

@@ -27,7 +27,7 @@ pub struct Args {
     pub filename: String,
 }
 
-impl TryFrom<Args> for ::rpc::forge::GrowResourcePoolRequest {
+impl TryFrom<Args> for ::rpc::nico::GrowResourcePoolRequest {
     type Error = std::io::Error;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {

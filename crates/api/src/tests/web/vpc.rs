@@ -19,8 +19,8 @@ use axum::body::Body;
 use axum::response::Response;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
-use rpc::forge;
-use rpc::forge::forge_server::Forge;
+use rpc::nico;
+use rpc::nico::nico_server::Nico;
 use tower::ServiceExt;
 
 use crate::tests::common::api_fixtures::{create_test_env, get_vpc_fixture_id};
@@ -49,7 +49,7 @@ async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
     let vpc_id = get_vpc_fixture_id(&env).await;
     let mut vpcs = env
         .api
-        .find_vpcs_by_ids(tonic::Request::new(forge::VpcsByIdsRequest {
+        .find_vpcs_by_ids(tonic::Request::new(nico::VpcsByIdsRequest {
             vpc_ids: vec![vpc_id],
         }))
         .await
@@ -70,15 +70,15 @@ async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
     // Add a VPC prefix so the IPAM prefix detail page can render parent VPC data.
     let vpc_prefix = env
         .api
-        .create_vpc_prefix(tonic::Request::new(forge::VpcPrefixCreationRequest {
+        .create_vpc_prefix(tonic::Request::new(nico::VpcPrefixCreationRequest {
             id: None,
             prefix: String::new(),
             name: String::new(),
             vpc_id: Some(vpc_id),
-            config: Some(forge::VpcPrefixConfig {
+            config: Some(nico::VpcPrefixConfig {
                 prefix: "192.0.2.0/25".to_string(),
             }),
-            metadata: Some(forge::Metadata {
+            metadata: Some(nico::Metadata {
                 name: "Test VPC prefix".to_string(),
                 description: String::new(),
                 labels: Vec::new(),

@@ -24,11 +24,11 @@ use askama::Template;
 //use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use carbide_uuid::machine::{MachineId, MachineType};
+use nico_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::IdentifySerialResponse;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::IdentifySerialResponse;
+use rpc::nico::nico_server::Nico;
 use uuid::Uuid;
 
 use super::Base;
@@ -98,7 +98,7 @@ fn find_machine_id(machine_id: MachineId) -> impl IntoResponse {
 }
 
 async fn find_by_uuid(state: Arc<Api>, u: uuid::Uuid) -> Response {
-    let req = forgerpc::IdentifyUuidRequest {
+    let req = nicorpc::IdentifyUuidRequest {
         uuid: Some(u.into()),
     };
     let request = tonic::Request::new(req);
@@ -116,11 +116,11 @@ async fn find_by_uuid(state: Arc<Api>, u: uuid::Uuid) -> Response {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    let Ok(object_type) = forgerpc::UuidType::try_from(out.object_type) else {
-        tracing::error!("Invalid UuidType from carbide api: {}", out.object_type);
+    let Ok(object_type) = nicorpc::UuidType::try_from(out.object_type) else {
+        tracing::error!("Invalid UuidType from nico api: {}", out.object_type);
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
-    use forgerpc::UuidType::*;
+    use nicorpc::UuidType::*;
     match object_type {
         NetworkSegment => Redirect::to(&format!("/admin/network-segment/{u}")).into_response(),
         Instance => Redirect::to(&format!("/admin/instance/{u}")).into_response(),
@@ -138,7 +138,7 @@ async fn find_by_uuid(state: Arc<Api>, u: uuid::Uuid) -> Response {
 }
 
 async fn find_by_mac(state: Arc<Api>, mac: mac_address::MacAddress) -> impl IntoResponse {
-    let req = forgerpc::IdentifyMacRequest {
+    let req = nicorpc::IdentifyMacRequest {
         mac_address: mac.to_string(),
     };
     let request = tonic::Request::new(req);
@@ -156,11 +156,11 @@ async fn find_by_mac(state: Arc<Api>, mac: mac_address::MacAddress) -> impl Into
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    let Ok(object_type) = forgerpc::MacOwner::try_from(out.object_type) else {
-        tracing::error!("Invalid MacOwner from carbide api: {}", out.object_type);
+    let Ok(object_type) = nicorpc::MacOwner::try_from(out.object_type) else {
+        tracing::error!("Invalid MacOwner from nico api: {}", out.object_type);
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
-    use forgerpc::MacOwner::*;
+    use nicorpc::MacOwner::*;
     match object_type {
         MachineInterface => {
             Redirect::to(&format!("/admin/interface/{}", out.primary_key)).into_response()
@@ -176,7 +176,7 @@ async fn find_by_mac(state: Arc<Api>, mac: mac_address::MacAddress) -> impl Into
 }
 
 async fn find_by_serial(state: Arc<Api>, serial_number: &str) -> Option<MachineId> {
-    let req = forgerpc::IdentifySerialRequest {
+    let req = nicorpc::IdentifySerialRequest {
         serial_number: serial_number.to_string(),
         exact: false,
     };
@@ -215,7 +215,7 @@ struct IpMatch {
 /// matches for operator-configured BMC addresses.
 async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
     let mut found = Vec::new();
-    let req = forgerpc::FindIpAddressRequest { ip: ip.to_string() };
+    let req = nicorpc::FindIpAddressRequest { ip: ip.to_string() };
     let request = tonic::Request::new(req);
     let out = match state
         .find_ip_address(request)
@@ -232,19 +232,19 @@ async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
         }
     };
     for m in out.matches {
-        let ip_type = match forgerpc::IpType::try_from(m.ip_type) {
+        let ip_type = match nicorpc::IpType::try_from(m.ip_type) {
             Ok(t) => t,
             Err(err) => {
                 tracing::error!(ip_type = m.ip_type, error = %err, "Invalid IpType");
                 continue;
             }
         };
-        use forgerpc::IpType::*;
+        use nicorpc::IpType::*;
         let owner = m.owner_id.unwrap_or_default();
         let (name, url) = match ip_type {
             StaticDataDhcpServer => ("DHCP Server", "".to_string()),
             StaticDataRouteServer => ("Route Server", "".to_string()),
-            RouteServerFromConfigFile => ("Route Server from Carbide Config", "".to_string()),
+            RouteServerFromConfigFile => ("Route Server from Nico Config", "".to_string()),
             RouteServerFromAdminApi => ("Route Server from Admin API", "".to_string()),
             ResourcePool => ("Resource Pool", "/admin/resource-pool".to_string()),
             InstanceAddress => ("Instance", format!("/admin/instance/{owner}")),

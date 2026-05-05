@@ -187,7 +187,7 @@ pub async fn start_dpa_handler(
     api_service: Arc<Api>,
     cancel_token: CancellationToken,
 ) -> Result<Arc<MqtteaClient>, eyre::Report> {
-    let client_id = "forge-client".to_string();
+    let client_id = "nico-client".to_string();
 
     let default_qos = QoS::AtMostOnce;
 
@@ -196,8 +196,8 @@ pub async fn start_dpa_handler(
         if let Some(ref dpa_config) = api_service.runtime_config.dpa_config
             && let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
                 &dpa_config.auth,
-                forge_secrets::credentials::CredentialKey::MqttAuth {
-                    credential_type: forge_secrets::credentials::MqttCredentialType::Dpa,
+                nico_secrets::credentials::CredentialKey::MqttAuth {
+                    credential_type: nico_secrets::credentials::MqttCredentialType::Dpa,
                 },
                 api_service.credential_manager.clone(),
             )

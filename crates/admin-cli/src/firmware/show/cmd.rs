@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -27,7 +27,7 @@ pub async fn show(
     format: OutputFormat,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let resp = api_client.0.list_host_firmware().await?;
     match format {
         OutputFormat::AsciiTable => {
@@ -53,7 +53,7 @@ pub async fn show(
             async_write!(output_file, "{}", table)?;
         }
         _ => {
-            return Err(CarbideCliError::NotImplemented(
+            return Err(NicoCliError::NotImplemented(
                 "Format option not implemented".to_string(),
             ));
         }

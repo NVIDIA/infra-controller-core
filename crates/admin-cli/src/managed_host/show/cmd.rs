@@ -19,8 +19,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use ::rpc::Machine;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use nico_uuid::machine::MachineId;
 use health_report::HealthProbeAlert;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
@@ -36,12 +36,12 @@ const UNKNOWN: &str = "Unknown";
 #[derive(Default, Serialize)]
 struct ManagedHostOutputWrapper {
     options: ManagedHostOutputOptions,
-    managed_host_output: carbide_rpc_utils::ManagedHostOutput,
+    managed_host_output: nico_rpc_utils::ManagedHostOutput,
 }
 
 #[derive(Serialize)]
 struct ManagedHostList<'a> {
-    managed_hosts: &'a [carbide_rpc_utils::ManagedHostOutput],
+    managed_hosts: &'a [nico_rpc_utils::ManagedHostOutput],
 }
 
 #[derive(Default, Clone, Copy, Serialize)]
@@ -155,7 +155,7 @@ impl From<ManagedHostOutputWrapper> for Row {
 }
 
 fn convert_managed_hosts_to_nice_output(
-    managed_hosts: Vec<carbide_rpc_utils::ManagedHostOutput>,
+    managed_hosts: Vec<nico_rpc_utils::ManagedHostOutput>,
     options: ManagedHostOutputOptions,
 ) -> Box<Table> {
     let managed_hosts_wrapper = managed_hosts
@@ -204,13 +204,13 @@ fn convert_managed_hosts_to_nice_output(
 }
 
 async fn show_managed_hosts(
-    managed_host_data: carbide_rpc_utils::ManagedHostMetadata,
+    managed_host_data: nico_rpc_utils::ManagedHostMetadata,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     output_options: ManagedHostOutputOptions,
     sort_by: SortField,
-) -> CarbideCliResult<()> {
-    let mut managed_hosts = carbide_rpc_utils::get_managed_host_output(managed_host_data);
+) -> NicoCliResult<()> {
+    let mut managed_hosts = nico_rpc_utils::get_managed_host_output(managed_host_data);
     match sort_by {
         SortField::PrimaryId => managed_hosts.sort_by(|m1, m2| m1.machine_id.cmp(&m2.machine_id)),
         SortField::State => managed_hosts.sort_by(|m1, m2| m1.state.cmp(&m2.state)),
@@ -222,7 +222,7 @@ async fn show_managed_hosts(
                 println!(
                     "{}",
                     serde_json::to_string_pretty(
-                        managed_hosts.first().ok_or(CarbideCliError::Empty)?
+                        managed_hosts.first().ok_or(NicoCliError::Empty)?
                     )?
                 )
             } else {
@@ -237,7 +237,7 @@ async fn show_managed_hosts(
             if output_options.single_host_detail_view {
                 println!(
                     "{}",
-                    serde_yaml::to_string(managed_hosts.first().ok_or(CarbideCliError::Empty)?)?
+                    serde_yaml::to_string(managed_hosts.first().ok_or(NicoCliError::Empty)?)?
                 )
             } else {
                 let wrapped = ManagedHostList {
@@ -256,7 +256,7 @@ async fn show_managed_hosts(
                     managed_hosts
                         .into_iter()
                         .next()
-                        .ok_or(CarbideCliError::Empty)?,
+                        .ok_or(NicoCliError::Empty)?,
                 )?;
             } else {
                 let result = convert_managed_hosts_to_nice_output(managed_hosts, output_options);
@@ -267,7 +267,7 @@ async fn show_managed_hosts(
     Ok(())
 }
 
-fn show_managed_host_details_view(m: carbide_rpc_utils::ManagedHostOutput) -> CarbideCliResult<()> {
+fn show_managed_host_details_view(m: nico_rpc_utils::ManagedHostOutput) -> NicoCliResult<()> {
     let width = 27;
     let mut lines = String::new();
 
@@ -471,7 +471,7 @@ pub async fn show(
     api_client: &ApiClient,
     page_size: usize,
     sort_by: SortField,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     // TODO(chet): Remove this ~March 2024.
     // Use tracing::warn for this so its both a little more
     // noticeable, and a little more annoying/naggy. If people
@@ -522,7 +522,7 @@ pub async fn show(
         // Get all machines: DPUs will arrive as part of this request
         api_client
             .get_all_machines(
-                rpc::forge::MachineSearchConfig {
+                rpc::nico::MachineSearchConfig {
                     include_dpus: true,
                     only_maintenance: args.fix,
                     only_quarantine: args.quarantine,
@@ -567,7 +567,7 @@ pub async fn show(
     };
 
     show_managed_hosts(
-        carbide_rpc_utils::ManagedHostMetadata {
+        nico_rpc_utils::ManagedHostMetadata {
             machines,
             connected_devices,
             network_devices,

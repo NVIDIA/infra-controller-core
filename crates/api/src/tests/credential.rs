@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use forge_secrets::credentials::{
+use nico_secrets::credentials::{
     BgpCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials,
 };
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     CredentialCreationRequest, CredentialDeletionRequest, CredentialType as RpcCredentialType,
 };
 use tonic::Code;

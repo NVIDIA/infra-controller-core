@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use itertools::Itertools;
 use model::attestation::spdm::{

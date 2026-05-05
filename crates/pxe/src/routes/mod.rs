@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_uuid::machine::MachineInterfaceId;
+use ::rpc::nico as rpc;
+use ::rpc::nico_tls_client::{self, ApiConfig, NicoClientConfig};
+use nico_uuid::machine::MachineInterfaceId;
 
 pub(crate) mod cloud_init;
 pub(crate) mod ipxe;
@@ -31,10 +31,10 @@ impl RpcContext {
         interface_id: MachineInterfaceId,
         product: Option<String>,
         url: &str,
-        client_config: &ForgeClientConfig,
+        client_config: &NicoClientConfig,
     ) -> Result<rpc::PxeInstructions, String> {
         let api_config = ApiConfig::new(url, client_config);
-        let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
+        let mut client = nico_tls_client::NicoTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| err.to_string())?;
         let request = tonic::Request::new(rpc::PxeInstructionRequest {

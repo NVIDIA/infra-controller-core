@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 
 use super::args::Args;
 use crate::instance::common::GlobalOptions;
@@ -25,9 +25,9 @@ pub async fn update_ib_config(
     api_client: &ApiClient,
     update_request: Args,
     opts: GlobalOptions<'_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     if opts.cloud_unsafe_op.is_none() {
-        return Err(CarbideCliError::GenericError(
+        return Err(NicoCliError::GenericError(
             "Operation not allowed due to potential inconsistencies with cloud database."
                 .to_owned(),
         ));

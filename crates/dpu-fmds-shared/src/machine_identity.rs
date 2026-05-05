@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-//! IMDS-style `GET …/meta-data/identity` (shared between carbide-agent and carbide-fmds).
+//! IMDS-style `GET …/meta-data/identity` (shared between nico-agent and nico-fmds).
 //!
-//! Defaults and numeric bounds are in [`forge_dpu_agent_utils::machine_identity`] (`defaults`, `limits`;
-//! the latter is also used by carbide-host-support validation).
+//! Defaults and numeric bounds are in [`nico_dpu_agent_utils::machine_identity`] (`defaults`, `limits`;
+//! the latter is also used by nico-host-support validation).
 
 use std::convert::TryFrom;
 use std::num::NonZeroU32;
@@ -29,10 +29,10 @@ use async_trait::async_trait;
 use axum::http::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use forge_dpu_agent_utils::machine_identity::defaults::{
+use nico_dpu_agent_utils::machine_identity::defaults::{
     BURST, REQUESTS_PER_SECOND, SIGN_TIMEOUT_SECS, WAIT_TIMEOUT_SECS,
 };
-use forge_dpu_agent_utils::machine_identity::limits::{
+use nico_dpu_agent_utils::machine_identity::limits::{
     BURST_MAX, BURST_MIN, REQUESTS_PER_SECOND_MAX, REQUESTS_PER_SECOND_MIN, SIGN_TIMEOUT_SECS_MAX,
     SIGN_TIMEOUT_SECS_MIN, WAIT_TIMEOUT_SECS_MAX, WAIT_TIMEOUT_SECS_MIN,
 };
@@ -40,7 +40,7 @@ use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
 use rpc::fmds::FmdsMachineIdentityConfig;
-use rpc::forge::MachineIdentityResponse;
+use rpc::nico::MachineIdentityResponse;
 
 /// `meta-data` leaf name for machine identity (`…/meta-data/identity`).
 pub const META_DATA_IDENTITY_CATEGORY: &str = "identity";
@@ -58,7 +58,7 @@ pub const SIGN_PROXY_UPSTREAM_IMDS_PREFIX: &str = "latest/meta-data/identity";
 /// - [`MachineIdentityParams::try_from_limits`] and [`TryFrom`] from [`FmdsMachineIdentityConfig`]:
 ///   numeric ranges, trim/empty normalization for proxy URL and TLS root CA path, and the rule that a CA
 ///   path requires a proxy URL.
-/// - **Agent `MachineIdentityConfig::validate()`** (carbide-host-support): the above bounds **plus** HTTP(S)
+/// - **Agent `MachineIdentityConfig::validate()`** (nico-host-support): the above bounds **plus** HTTP(S)
 ///   scheme checks for `sign-proxy-url`, PEM file readability/parsing for `sign-proxy-tls-root-ca`, etc.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineIdentityParams {
@@ -71,7 +71,7 @@ pub struct MachineIdentityParams {
 }
 
 impl Default for MachineIdentityParams {
-    /// Matches [`forge_dpu_agent_utils::machine_identity::defaults`] (agent `MachineIdentityConfig`
+    /// Matches [`nico_dpu_agent_utils::machine_identity::defaults`] (agent `MachineIdentityConfig`
     /// serde and this crate).
     fn default() -> Self {
         Self {
@@ -196,7 +196,7 @@ impl TryFrom<&FmdsMachineIdentityConfig> for MachineIdentityParams {
 pub struct MachineIdentityServing {
     pub governor: Arc<IdentityRateLimiter>,
     pub wait_timeout: Duration,
-    pub forge_call_timeout: Duration,
+    pub nico_call_timeout: Duration,
     pub sign_proxy_base: Option<String>,
     pub sign_proxy_http_client: Option<reqwest::Client>,
 }
@@ -233,14 +233,14 @@ impl MachineIdentityServing {
         Ok(Self {
             governor: Arc::new(RateLimiter::direct(identity_quota)),
             wait_timeout: Duration::from_secs(u64::from(params.wait_timeout_secs)),
-            forge_call_timeout: call_timeout,
+            nico_call_timeout: call_timeout,
             sign_proxy_base,
             sign_proxy_http_client,
         })
     }
 }
 
-/// `governor::RateLimiter` used for `GET …/meta-data/identity` (carbide-agent + carbide-fmds).
+/// `governor::RateLimiter` used for `GET …/meta-data/identity` (nico-agent + nico-fmds).
 pub type IdentityRateLimiter =
     RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>;
 
@@ -256,19 +256,19 @@ pub async fn wait_identity_rate_limit_permit(
     Ok(())
 }
 
-/// Call Carbide `SignMachineIdentity` using [`forge_dpu_agent_utils::utils::create_forge_client`] and
+/// Call Nico `SignMachineIdentity` using [`nico_dpu_agent_utils::utils::create_nico_client`] and
 /// `machine_identity.sign_timeout_secs` as the overall deadline.
-pub async fn sign_machine_identity_with_forge(
-    forge_api: &str,
-    forge_client_config: &rpc::forge_tls_client::ForgeClientConfig,
+pub async fn sign_machine_identity_with_nico(
+    nico_api: &str,
+    nico_client_config: &rpc::nico_tls_client::NicoClientConfig,
     call_timeout: Duration,
     audiences: Vec<String>,
 ) -> Result<MachineIdentityResponse, tonic::Status> {
-    use rpc::forge::MachineIdentityRequest;
+    use rpc::nico::MachineIdentityRequest;
 
     tokio::time::timeout(call_timeout, async {
         let mut client =
-            forge_dpu_agent_utils::utils::create_forge_client(forge_api, forge_client_config)
+            nico_dpu_agent_utils::utils::create_nico_client(nico_api, nico_client_config)
                 .await
                 .map_err(|e| tonic::Status::internal(e.to_string()))?;
         client
@@ -281,19 +281,19 @@ pub async fn sign_machine_identity_with_forge(
     .await
     .map_err(|_| {
         tonic::Status::deadline_exceeded(
-            "timed out calling Forge for machine identity (machine-identity.sign-timeout-secs)",
+            "timed out calling Nico for machine identity (machine-identity.sign-timeout-secs)",
         )
     })?
 }
 
 /// Result of [`MetaDataIdentitySigner::machine_identity_response`] and
 /// [`MetaDataIdentitySigner::rate_limited_identity_request`]: HTTP sign-proxy response, or
-/// Forge payload to build the JSON/text identity body.
+/// Nico payload to build the JSON/text identity body.
 pub enum MetaDataIdentityOutcome {
     /// Response from the HTTP sign-proxy (`sign-proxy-url`).
     HttpProxy(Response),
     /// Successful `SignMachineIdentity` result to encode for the client.
-    Forge(MachineIdentityResponse),
+    Nico(MachineIdentityResponse),
 }
 
 #[async_trait]
@@ -301,9 +301,9 @@ pub trait MetaDataIdentitySigner: Send + Sync {
     /// Acquire a rate-limit permit before [`Self::machine_identity_response`].
     async fn wait_identity_permit(&self) -> Result<(), tonic::Status>;
 
-    /// HTTP sign-proxy (if configured), otherwise Carbide `SignMachineIdentity` with `audiences`.
+    /// HTTP sign-proxy (if configured), otherwise Nico `SignMachineIdentity` with `audiences`.
     ///
-    /// Implementations should try the sign-proxy first when enabled, then fall back to Forge.
+    /// Implementations should try the sign-proxy first when enabled, then fall back to Nico.
     /// Hold any `Arc`/lock guard across `.await` so sign-proxy config borrows stay valid (see
     /// [`forward_sign_proxy_if_ready`] / [`forward_sign_proxy_http`]).
     async fn machine_identity_response(
@@ -316,7 +316,7 @@ pub trait MetaDataIdentitySigner: Send + Sync {
     /// Waits for rate-limit capacity, then runs [`Self::machine_identity_response`].
     ///
     /// Default implementation encodes the required ordering; override only if you preserve the same
-    /// policy (permit before proxy or Carbide).
+    /// policy (permit before proxy or Nico).
     async fn rate_limited_identity_request(
         &self,
         uri: &Uri,
@@ -357,9 +357,9 @@ pub fn accept_text_plain(headers: &HeaderMap) -> bool {
         })
 }
 
-/// HTTP status for failed machine-identity signing (Carbide / implementation errors on the IMDS path).
+/// HTTP status for failed machine-identity signing (Nico / implementation errors on the IMDS path).
 ///
-/// gRPC status codes from Carbide are all map to **503 Service Unavailable**
+/// gRPC status codes from Nico are all map to **503 Service Unavailable**
 /// The exception is **429 Too Many Requests** for [`tonic::Code::ResourceExhausted`],
 /// used for identity rate-limit wait timeouts in this crate.
 ///
@@ -480,7 +480,7 @@ pub async fn forward_sign_proxy_http(
 }
 
 /// When `sign-proxy-url` is configured (`sign_proxy_base` is [`Some`]), forward the identity request
-/// to the HTTP sign proxy. Returns [`None`] when sign-proxy is not in use (caller should use Forge).
+/// to the HTTP sign proxy. Returns [`None`] when sign-proxy is not in use (caller should use Nico).
 ///
 /// If the base URL is set but `sign_proxy_http_client` is missing, returns [`Some`] with HTTP 500
 /// (misconfiguration).
@@ -526,7 +526,7 @@ pub async fn serve_meta_data_identity<S: MetaDataIdentitySigner + ?Sized>(
 
     match signer.rate_limited_identity_request(&uri, &headers).await {
         Ok(MetaDataIdentityOutcome::HttpProxy(resp)) => resp,
-        Ok(MetaDataIdentityOutcome::Forge(resp)) => {
+        Ok(MetaDataIdentityOutcome::Nico(resp)) => {
             let body = IdentityTokenJsonBody {
                 access_token: resp.access_token,
                 issued_token_type: resp.issued_token_type,

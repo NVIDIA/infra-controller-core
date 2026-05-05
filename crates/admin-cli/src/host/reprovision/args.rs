@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::host_reprovisioning_request::Mode;
-use ::rpc::forge::{HostReprovisioningRequest, UpdateInitiator};
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico::host_reprovisioning_request::Mode;
+use ::rpc::nico::{HostReprovisioningRequest, UpdateInitiator};
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]

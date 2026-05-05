@@ -16,8 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::{CredentialType, forge as forgerpc};
+use rpc::admin_cli::{NicoCliError, NicoCliResult};
+use rpc::{CredentialType, nico as nicorpc};
 
 use crate::credential::common::url_validator;
 
@@ -27,9 +27,9 @@ pub struct Args {
     pub url: String,
 }
 
-impl TryFrom<Args> for forgerpc::CredentialDeletionRequest {
-    type Error = CarbideCliError;
-    fn try_from(args: Args) -> CarbideCliResult<Self> {
+impl TryFrom<Args> for nicorpc::CredentialDeletionRequest {
+    type Error = NicoCliError;
+    fn try_from(args: Args) -> NicoCliResult<Self> {
         let username = url_validator(args.url)?;
         Ok(Self {
             credential_type: CredentialType::Ufm.into(),

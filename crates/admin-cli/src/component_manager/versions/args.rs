@@ -25,33 +25,33 @@ pub struct Args {
     pub target: DeviceTargetArgs,
 }
 
-impl From<Args> for rpc::forge::ListComponentFirmwareVersionsRequest {
+impl From<Args> for rpc::nico::ListComponentFirmwareVersionsRequest {
     fn from(args: Args) -> Self {
         match args.target {
             DeviceTargetArgs::Switch(target) => Self {
                 target: Some(
-                    rpc::forge::list_component_firmware_versions_request::Target::SwitchIds(
+                    rpc::nico::list_component_firmware_versions_request::Target::SwitchIds(
                         target.into(),
                     ),
                 ),
             },
             DeviceTargetArgs::PowerShelf(target) => Self {
                 target: Some(
-                    rpc::forge::list_component_firmware_versions_request::Target::PowerShelfIds(
+                    rpc::nico::list_component_firmware_versions_request::Target::PowerShelfIds(
                         target.into(),
                     ),
                 ),
             },
             DeviceTargetArgs::ComputeTray(target) => Self {
                 target: Some(
-                    rpc::forge::list_component_firmware_versions_request::Target::MachineIds(
+                    rpc::nico::list_component_firmware_versions_request::Target::MachineIds(
                         target.into(),
                     ),
                 ),
             },
             DeviceTargetArgs::Rack(target) => Self {
                 target: Some(
-                    rpc::forge::list_component_firmware_versions_request::Target::RackIds(
+                    rpc::nico::list_component_firmware_versions_request::Target::RackIds(
                         target.into(),
                     ),
                 ),

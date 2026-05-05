@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 /// Delete a network security group.
-pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let id = args.id.clone();
     api_client.0.delete_network_security_group(args).await?;
     println!("Deleted network security group {} successfully.", id);

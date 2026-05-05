@@ -21,7 +21,7 @@
 use libmlx::profile::serialization::SerializableProfile;
 use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{
@@ -37,7 +37,7 @@ use crate::mlx::{
 pub async fn dispatch(
     command: ProfileCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match command {
         ProfileCommand::Compare(cmd) => handle_compare(cmd, ctxt).await,
         ProfileCommand::List(cmd) => handle_list(cmd, ctxt).await,
@@ -50,12 +50,12 @@ pub async fn dispatch(
 async fn handle_compare(
     cmd: ProfileCompareCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminProfileCompareRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_profile_compare(request).await?;
 
     let comparison_result_pb = response.comparison_result.ok_or_else(|| {
-        CarbideCliError::GenericError("no comparison result returned".to_string())
+        NicoCliError::GenericError("no comparison result returned".to_string())
     })?;
 
     let comparison_result: ComparisonResult = comparison_result_pb.try_into()?;
@@ -79,11 +79,11 @@ async fn handle_compare(
     Ok(())
 }
 
-// handle_list lists all profiles configured in carbide-api.
+// handle_list lists all profiles configured in nico-api.
 async fn handle_list(
     _cmd: ProfileListCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let response = ctxt.grpc_conn.0.mlx_admin_profile_list().await?;
 
     let mut profiles = response.profiles;
@@ -127,21 +127,21 @@ async fn handle_list(
     Ok(())
 }
 
-// handle_show shows a profile configured in carbide-api.
+// handle_show shows a profile configured in nico-api.
 async fn handle_show(
     cmd: ProfileShowCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminProfileShowRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_profile_show(request).await?;
 
     let serializable_profile_pb = response
         .serializable_profile
-        .ok_or_else(|| CarbideCliError::GenericError("no profile returned".to_string()))?;
+        .ok_or_else(|| NicoCliError::GenericError("no profile returned".to_string()))?;
 
     let serializable_profile: SerializableProfile =
         serializable_profile_pb.try_into().map_err(|e| {
-            CarbideCliError::GenericError(format!(
+            NicoCliError::GenericError(format!(
                 "could not translate serializable profile from pb: {e}"
             ))
         })?;
@@ -164,17 +164,17 @@ async fn handle_show(
     Ok(())
 }
 
-// handle_sync syncs a profile from carbide-api to a device.
+// handle_sync syncs a profile from nico-api to a device.
 async fn handle_sync(
     cmd: ProfileSyncCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminProfileSyncRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_profile_sync(request).await?;
 
     let sync_result_pb = response
         .sync_result
-        .ok_or_else(|| CarbideCliError::GenericError("no sync result returned".to_string()))?;
+        .ok_or_else(|| NicoCliError::GenericError("no sync result returned".to_string()))?;
 
     let sync_result: SyncResult = sync_result_pb.try_into()?;
 

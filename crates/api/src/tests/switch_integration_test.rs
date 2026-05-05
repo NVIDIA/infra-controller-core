@@ -20,7 +20,7 @@ use crate::tests::common::api_fixtures::create_test_env;
 #[tokio::test]
 async fn test_switch_controller_integration() {
     // Create a test environment
-    let pool = sqlx_test::new_pool("postgresql://localhost/carbide_test").await;
+    let pool = sqlx_test::new_pool("postgresql://localhost/nico_test").await;
     let env = create_test_env(pool).await;
 
     // Verify that the switch controller is available

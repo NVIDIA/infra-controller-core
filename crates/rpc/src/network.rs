@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_network::virtualization::VpcVirtualizationType;
+use nico_network::virtualization::VpcVirtualizationType;
 
-use crate::{RpcDataConversionError, forge as rpc};
+use crate::{RpcDataConversionError, nico as rpc};
 
 impl From<rpc::VpcVirtualizationType> for VpcVirtualizationType {
     fn from(v: rpc::VpcVirtualizationType) -> Self {
@@ -66,7 +66,7 @@ pub fn vpc_virtualization_type_try_from_rpc(
 
 #[cfg(test)]
 mod test {
-    use carbide_network::virtualization::VpcVirtualizationType;
+    use nico_network::virtualization::VpcVirtualizationType;
 
     use super::*;
 

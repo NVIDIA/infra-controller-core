@@ -38,7 +38,7 @@ use crate::machine::Machine;
 const MACHINE_CACHE_TIMEOUT: Duration = Duration::from_secs(60);
 // For negative caching, the TTL should be longer
 const MACHINE_DISC_FAILED_CACHE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-// Max allowed discovery failures before an error is returned to the machine without calling carbide-api. Public so unit tests can access it.
+// Max allowed discovery failures before an error is returned to the machine without calling nico-api. Public so unit tests can access it.
 pub const MAX_DISCOVERY_FAILS: u32 = 5;
 /// How many entries to keep. After that we evict the entry used the longest ago.
 const MACHINE_CACHE_SIZE: usize = 1000;

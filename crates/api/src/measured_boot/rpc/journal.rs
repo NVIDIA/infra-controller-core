@@ -21,7 +21,7 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use db::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
@@ -35,7 +35,7 @@ use rpc::protos::measured_boot::{
 use tonic::Status;
 
 use crate::api::Api;
-use crate::errors::CarbideError;
+use crate::errors::NicoError;
 
 /// handle_delete_measurement_journal handles the DeleteMeasurementJournal
 /// API endpoint.
@@ -47,13 +47,13 @@ pub async fn handle_delete_measurement_journal(
     let journal = db::measured_boot::journal::delete_where_id(
         &mut txn,
         req.journal_id
-            .ok_or(CarbideError::MissingArgument("journal_id"))?,
+            .ok_or(NicoError::MissingArgument("journal_id"))?,
     )
     .await
-    .map_err(|e| CarbideError::Internal {
+    .map_err(|e| NicoError::Internal {
         message: format!("failed to delete journal: {e}"),
     })?
-    .ok_or(CarbideError::NotFoundError {
+    .ok_or(NicoError::NotFoundError {
         kind: "journal",
         id: "unknown".into(),
     })?;
@@ -76,7 +76,7 @@ pub async fn handle_show_measurement_journal(
             show_measurement_journal_request::Selector::JournalId(journal_id) => {
                 db::measured_boot::journal::from_id(&mut txn, journal_id)
                     .await
-                    .map_err(|e| CarbideError::Internal {
+                    .map_err(|e| NicoError::Internal {
                         message: format!("{e}"),
                     })?
             }
@@ -84,11 +84,11 @@ pub async fn handle_show_measurement_journal(
                 match db::measured_boot::journal::get_latest_journal_for_id(
                     &mut txn,
                     MachineId::from_str(&machine_id).map_err(|e| {
-                        CarbideError::InvalidArgument(format!("Could not parse MachineId: {e}"))
+                        NicoError::InvalidArgument(format!("Could not parse MachineId: {e}"))
                     })?,
                 )
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("{e}"),
                 })? {
                     Some(journal) => journal,
@@ -100,7 +100,7 @@ pub async fn handle_show_measurement_journal(
         },
         None => {
             return Err(
-                CarbideError::InvalidArgument("selector must be provided".to_string()).into(),
+                NicoError::InvalidArgument("selector must be provided".to_string()).into(),
             );
         }
     };
@@ -121,7 +121,7 @@ pub async fn handle_show_measurement_journals(
     Ok(ShowMeasurementJournalsResponse {
         journals: db::measured_boot::journal::get_all(&api.database_connection)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("failed to fetch journals: {e}"),
             })?
             .drain(..)
@@ -141,13 +141,13 @@ pub async fn handle_list_measurement_journal(
     let journals: Vec<MeasurementJournalRecordPb> = match &req.selector {
         Some(list_measurement_journal_request::Selector::MachineId(machine_id)) => {
             let machine_id =
-                MachineId::from_str(machine_id).map_err(|e| CarbideError::Internal {
+                MachineId::from_str(machine_id).map_err(|e| NicoError::Internal {
                     message: format!("failed to fetch journals for machine: {e}"),
                 })?;
 
             get_measurement_journal_records_for_machine_id(&mut txn, machine_id)
                 .await
-                .map_err(|e| CarbideError::Internal {
+                .map_err(|e| NicoError::Internal {
                     message: format!("failed to fetch journals for machine: {e}"),
                 })?
                 .drain(..)
@@ -156,7 +156,7 @@ pub async fn handle_list_measurement_journal(
         }
         None => get_measurement_journal_records(&mut txn)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("failed to fetch journals: {e}"),
             })?
             .drain(..)

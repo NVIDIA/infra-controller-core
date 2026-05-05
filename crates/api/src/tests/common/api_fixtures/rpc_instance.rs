@@ -15,17 +15,17 @@
  * limitations under the License.
  */
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 
 // Represents Instance returned via RPC call.
 // Adds some widely used helpers.
 #[derive(Debug, PartialEq)]
-pub struct RpcInstance(rpc::forge::Instance);
+pub struct RpcInstance(rpc::nico::Instance);
 
 impl RpcInstance {
-    pub fn new(v: rpc::forge::Instance) -> Self {
+    pub fn new(v: rpc::nico::Instance) -> Self {
         Self(v)
     }
 
@@ -41,11 +41,11 @@ impl RpcInstance {
         self.0.id
     }
 
-    pub fn inner(&self) -> &rpc::forge::Instance {
+    pub fn inner(&self) -> &rpc::nico::Instance {
         &self.0
     }
 
-    pub fn into_inner(self) -> rpc::forge::Instance {
+    pub fn into_inner(self) -> rpc::nico::Instance {
         self.0
     }
 
@@ -80,23 +80,23 @@ impl RpcInstance {
 pub struct RpcInstanceStatus<'a>(&'a rpc::InstanceStatus);
 
 impl<'a> RpcInstanceStatus<'a> {
-    pub fn new(v: &'a rpc::forge::InstanceStatus) -> Self {
+    pub fn new(v: &'a rpc::nico::InstanceStatus) -> Self {
         Self(v)
     }
 
-    pub fn inner(&self) -> &rpc::forge::InstanceStatus {
+    pub fn inner(&self) -> &rpc::nico::InstanceStatus {
         self.0
     }
 
-    pub fn tenant(&self) -> rpc::forge::TenantState {
+    pub fn tenant(&self) -> rpc::nico::TenantState {
         self.0.tenant.as_ref().unwrap().state()
     }
 
-    pub fn network(&self) -> &'a rpc::forge::InstanceNetworkStatus {
+    pub fn network(&self) -> &'a rpc::nico::InstanceNetworkStatus {
         self.0.network.as_ref().unwrap()
     }
 
-    pub fn infiniband(&self) -> &'a rpc::forge::InstanceInfinibandStatus {
+    pub fn infiniband(&self) -> &'a rpc::nico::InstanceInfinibandStatus {
         self.0.infiniband.as_ref().unwrap()
     }
 
@@ -108,27 +108,27 @@ impl<'a> RpcInstanceStatus<'a> {
 pub struct RpcInstanceConfig<'a>(&'a rpc::InstanceConfig);
 
 impl<'a> RpcInstanceConfig<'a> {
-    pub fn new(v: &'a rpc::forge::InstanceConfig) -> Self {
+    pub fn new(v: &'a rpc::nico::InstanceConfig) -> Self {
         Self(v)
     }
 
-    pub fn inner(&self) -> &'a rpc::forge::InstanceConfig {
+    pub fn inner(&self) -> &'a rpc::nico::InstanceConfig {
         self.0
     }
 
-    pub fn tenant(&self) -> &'a rpc::forge::TenantConfig {
+    pub fn tenant(&self) -> &'a rpc::nico::TenantConfig {
         self.0.tenant.as_ref().unwrap()
     }
 
-    pub fn os(&self) -> &'a rpc::forge::InstanceOperatingSystemConfig {
+    pub fn os(&self) -> &'a rpc::nico::InstanceOperatingSystemConfig {
         self.0.os.as_ref().unwrap()
     }
 
-    pub fn network(&self) -> &'a rpc::forge::InstanceNetworkConfig {
+    pub fn network(&self) -> &'a rpc::nico::InstanceNetworkConfig {
         self.0.network.as_ref().unwrap()
     }
 
-    pub fn infiniband(&self) -> &'a rpc::forge::InstanceInfinibandConfig {
+    pub fn infiniband(&self) -> &'a rpc::nico::InstanceInfinibandConfig {
         self.0.infiniband.as_ref().unwrap()
     }
 }

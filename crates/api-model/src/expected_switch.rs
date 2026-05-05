@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use mac_address::MacAddress;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
@@ -82,9 +82,9 @@ impl<'r> FromRow<'r, PgRow> for ExpectedSwitch {
     }
 }
 
-impl From<ExpectedSwitch> for rpc::forge::ExpectedSwitch {
+impl From<ExpectedSwitch> for rpc::nico::ExpectedSwitch {
     fn from(expected_switch: ExpectedSwitch) -> Self {
-        rpc::forge::ExpectedSwitch {
+        rpc::nico::ExpectedSwitch {
             expected_switch_id: expected_switch
                 .expected_switch_id
                 .map(|u| ::rpc::common::Uuid {
@@ -112,10 +112,10 @@ impl From<ExpectedSwitch> for rpc::forge::ExpectedSwitch {
     }
 }
 
-impl TryFrom<rpc::forge::ExpectedSwitch> for ExpectedSwitch {
+impl TryFrom<rpc::nico::ExpectedSwitch> for ExpectedSwitch {
     type Error = RpcDataConversionError;
 
-    fn try_from(rpc: rpc::forge::ExpectedSwitch) -> Result<Self, Self::Error> {
+    fn try_from(rpc: rpc::nico::ExpectedSwitch) -> Result<Self, Self::Error> {
         let bmc_mac_address = MacAddress::try_from(rpc.bmc_mac_address.as_str())
             .map_err(|_| RpcDataConversionError::InvalidMacAddress(rpc.bmc_mac_address.clone()))?;
         let nvos_mac_addresses = rpc
@@ -174,10 +174,10 @@ pub struct ExpectedSwitchRequest {
     pub bmc_mac_address: Option<MacAddress>,
 }
 
-impl TryFrom<rpc::forge::ExpectedSwitchRequest> for ExpectedSwitchRequest {
+impl TryFrom<rpc::nico::ExpectedSwitchRequest> for ExpectedSwitchRequest {
     type Error = RpcDataConversionError;
 
-    fn try_from(rpc: rpc::forge::ExpectedSwitchRequest) -> Result<Self, Self::Error> {
+    fn try_from(rpc: rpc::nico::ExpectedSwitchRequest) -> Result<Self, Self::Error> {
         let expected_switch_id = rpc
             .expected_switch_id
             .map(|u| {
@@ -201,9 +201,9 @@ impl TryFrom<rpc::forge::ExpectedSwitchRequest> for ExpectedSwitchRequest {
     }
 }
 
-impl From<LinkedExpectedSwitch> for rpc::forge::LinkedExpectedSwitch {
-    fn from(l: LinkedExpectedSwitch) -> rpc::forge::LinkedExpectedSwitch {
-        rpc::forge::LinkedExpectedSwitch {
+impl From<LinkedExpectedSwitch> for rpc::nico::LinkedExpectedSwitch {
+    fn from(l: LinkedExpectedSwitch) -> rpc::nico::LinkedExpectedSwitch {
+        rpc::nico::LinkedExpectedSwitch {
             switch_serial_number: l.serial_number,
             bmc_mac_address: l.bmc_mac_address.to_string(),
             switch_id: l.switch_id,

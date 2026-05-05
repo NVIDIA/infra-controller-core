@@ -18,7 +18,7 @@
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::Rack;
+use rpc::nico::Rack;
 use serde::Serialize;
 
 use super::args::Args;

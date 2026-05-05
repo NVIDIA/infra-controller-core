@@ -45,7 +45,7 @@ pub enum LogLevel {
 
 #[derive(Parser)]
 #[command(name = "mlxconfig-embedded")]
-#[command(about = "CLI reference example for Forge mlxconfig management crates")]
+#[command(about = "CLI reference example for Nico mlxconfig management crates")]
 #[command(version = "0.0.1")]
 pub struct Cli {
     // --log-level controls the tracing output level (default: info).

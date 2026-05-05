@@ -56,7 +56,7 @@ impl InstrumentationSingleton {
         let resource_attributes = opentelemetry_sdk::Resource::builder()
             .with_attributes([
                 KeyValue::new(SERVICE_NAME, "dpu-agent"),
-                KeyValue::new(SERVICE_NAMESPACE, "forge-system"),
+                KeyValue::new(SERVICE_NAMESPACE, "nico-system"),
             ])
             .build();
 
@@ -72,7 +72,7 @@ impl InstrumentationSingleton {
             .with_view(create_network_loss_view().context("Couldn't create network loss View")?)
             .build();
 
-        let dpu_agent_meter = meter_provider.meter("forge-dpu-agent");
+        let dpu_agent_meter = meter_provider.meter("nico-dpu-agent");
 
         // We expect our internal users to use the interfaces inside this module,
         // but if there are other OpenTelemetry users in our dependencies, let's

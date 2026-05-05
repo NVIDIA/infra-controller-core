@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use db::{self, DatabaseError};
 use model::firmware::FirmwareComponentType;
 use model::site_explorer::{

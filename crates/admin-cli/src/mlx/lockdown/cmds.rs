@@ -19,7 +19,7 @@
 // Command handlers for lockdown operations.
 
 use libmlx::lockdown::lockdown::StatusReport;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{
@@ -31,7 +31,7 @@ use crate::mlx::CliContext;
 pub async fn dispatch(
     command: LockdownCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match command {
         LockdownCommand::Lock(cmd) => handle_lock(cmd, ctxt).await,
         LockdownCommand::Unlock(cmd) => handle_unlock(cmd, ctxt).await,
@@ -43,13 +43,13 @@ pub async fn dispatch(
 async fn handle_lock(
     cmd: LockdownLockCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminLockdownLockRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_lockdown_lock(request).await?;
 
     let status_report_pb = response
         .status_report
-        .ok_or_else(|| CarbideCliError::GenericError("no status report returned".to_string()))?;
+        .ok_or_else(|| NicoCliError::GenericError("no status report returned".to_string()))?;
 
     print_lockdown_response(status_report_pb.into(), ctxt.format)?;
     Ok(())
@@ -59,13 +59,13 @@ async fn handle_lock(
 async fn handle_unlock(
     cmd: LockdownUnlockCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminLockdownUnlockRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_lockdown_unlock(request).await?;
 
     let status_report_pb = response
         .status_report
-        .ok_or_else(|| CarbideCliError::GenericError("no status report returned".to_string()))?;
+        .ok_or_else(|| NicoCliError::GenericError("no status report returned".to_string()))?;
 
     print_lockdown_response(status_report_pb.into(), ctxt.format)?;
     Ok(())
@@ -75,13 +75,13 @@ async fn handle_unlock(
 async fn handle_status(
     cmd: LockdownStatusCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminLockdownStatusRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_lockdown_status(request).await?;
 
     let status_report_pb = response
         .status_report
-        .ok_or_else(|| CarbideCliError::GenericError("no status report returned".to_string()))?;
+        .ok_or_else(|| NicoCliError::GenericError("no status report returned".to_string()))?;
 
     print_lockdown_response(status_report_pb.into(), ctxt.format)?;
     Ok(())
@@ -91,7 +91,7 @@ async fn handle_status(
 fn print_lockdown_response(
     status_report: StatusReport,
     format: &OutputFormat,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&status_report)?);

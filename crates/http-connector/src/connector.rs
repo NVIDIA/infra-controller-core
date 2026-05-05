@@ -39,13 +39,13 @@ use tracing::{info, trace, warn};
 use tryhard::RetryFutureConfig;
 
 use crate::resolver;
-use crate::resolver::ForgeResolver;
+use crate::resolver::NicoResolver;
 
 type ConnectResult = Result<TokioIo<TcpStream>, ConnectError>;
 
 /// ConnectorMetrics is intended as an ever-evolving metrics
 /// container of sorts, to allow a caller to collect connection
-/// level metrics for a ForgeClient. Since the underlying data
+/// level metrics for a NicoClient. Since the underlying data
 /// gets passed all over the place (and gets buried deep inside
 /// of a hyper client), there were some considerations made here
 /// in the underlying "inner" data being wrapped in Arcs, with
@@ -610,11 +610,11 @@ impl StdError for ConnectError {
 }
 
 #[derive(Clone)]
-pub struct ForgeHttpConnector {
+pub struct NicoHttpConnector {
     config: Arc<Config>,
-    resolver: ForgeResolver,
+    resolver: NicoResolver,
 
-    // Since the ForgeHttpConnector gets buried
+    // Since the NicoHttpConnector gets buried
     // deep inside a tower service connector inside
     // a hyper client inside a gRPC client, being
     // able to get at metrics data (and pass it
@@ -646,10 +646,10 @@ struct Config {
     connect_retries_interval: Option<Duration>,
 }
 
-impl ForgeHttpConnector {
+impl NicoHttpConnector {
     #[must_use]
-    pub fn new_with_resolver(resolver: ForgeResolver) -> Self {
-        ForgeHttpConnector {
+    pub fn new_with_resolver(resolver: NicoResolver) -> Self {
+        NicoHttpConnector {
             config: Arc::new(Config::default()),
             resolver,
             metrics: ConnectorMetrics::default(),
@@ -846,13 +846,13 @@ static INVALID_NOT_HTTP: &str = "invalid URL, scheme is not http";
 static INVALID_MISSING_SCHEME: &str = "invalid URL, scheme is missing";
 static INVALID_MISSING_HOST: &str = "invalid URL, host is missing";
 
-impl fmt::Debug for ForgeHttpConnector {
+impl fmt::Debug for NicoHttpConnector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HttpConnector").finish()
     }
 }
 
-impl tower_service::Service<Uri> for ForgeHttpConnector {
+impl tower_service::Service<Uri> for NicoHttpConnector {
     type Response = TokioIo<TcpStream>;
     //type Error = Box<dyn Error + Send + Sync>;
     type Error = ConnectError;
@@ -921,7 +921,7 @@ impl From<Vec<std::net::SocketAddr>> for resolver::SocketAddrs {
     }
 }
 
-impl ForgeHttpConnector {
+impl NicoHttpConnector {
     async fn call_async(&mut self, dst: Uri) -> Result<TcpStream, ConnectError> {
         let config = &self.config;
         let (host, port) = get_host_port(config, &dst)?;

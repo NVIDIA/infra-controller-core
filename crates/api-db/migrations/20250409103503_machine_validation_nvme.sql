@@ -18,7 +18,7 @@ INSERT INTO
     )
 VALUES
     (
-        'forge_NvmeCheck',
+        'nico_NvmeCheck',
         'NvmeCheck',
         'Check if all NVMe drives are writeable',
         '/opt/forge/check-nvme-drives.sh',

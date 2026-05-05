@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_check_bgp_success() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+        let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
         let mut health_data = BgpHealthData::default();
         verify_bgp_summary(
             &mut health_data,
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_check_bgp_no_route_server_failed_tor_peers() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+        let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
         let mut health_data = BgpHealthData::default();
         verify_bgp_summary(
             &mut health_data,
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_check_bgp_no_route_server_single_failed_tor_peer() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+        let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
         let mut health_data = BgpHealthData::default();
 
         verify_bgp_summary(
@@ -473,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_check_bgp_no_route_server_with_tenant_routes() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+        let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
         let mut health_data = BgpHealthData::default();
         verify_bgp_summary(
             &mut health_data,
@@ -490,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_check_bgp_no_route_server_unexpected_tenant_route() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+        let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
         let mut health_data = BgpHealthData::default();
         verify_bgp_summary(
             &mut health_data,
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_check_bgp_unexpected_route_server() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+        let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
         let mut health_data = BgpHealthData::default();
         verify_bgp_summary(
             &mut health_data,
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn test_check_bgp_with_route_server_and_tenant_routes() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+        let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
         let mut health_data = BgpHealthData::default();
         verify_bgp_summary(
             &mut health_data,
@@ -583,7 +583,7 @@ mod tests {
 
     #[test]
     fn test_check_bgp_with_route_server_failed_all_peers() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+        let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
         let mut health_data = BgpHealthData::default();
         verify_bgp_summary(
             &mut health_data,

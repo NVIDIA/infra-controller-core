@@ -9,8 +9,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
 use db::ObjectColumnFilter;
 use mac_address::MacAddress;
 use model::component_manager::{PowerAction, PowerShelfComponent};
@@ -317,7 +317,7 @@ mod tests {
         rack.config.maintenance_requested
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn power_control_writes_maintenance_scope(pool: PgPool) {
         let (rack_id, ps1, ps2, _, _) = seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());
@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(*direct.power_control_calls.lock().unwrap(), 0);
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn update_firmware_writes_maintenance_scope(pool: PgPool) {
         let (rack_id, ps1, _, _, _) = seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(*direct.update_firmware_calls.lock().unwrap(), 0);
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn update_firmware_empty_version_becomes_none(pool: PgPool) {
         let (rack_id, _, _, _, _) = seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());
@@ -399,7 +399,7 @@ mod tests {
         }
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn partial_unknown_mac_known_still_written(pool: PgPool) {
         let (rack_id, _, ps2, _, _) = seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());
@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(scope.power_shelf_ids, vec![ps2]);
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn all_unknown_macs_no_scope_written(pool: PgPool) {
         let (rack_id, _, _, _, _) = seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());
@@ -437,7 +437,7 @@ mod tests {
         assert!(load_maintenance_scope(&pool, &rack_id).await.is_none());
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn rack_not_ready_or_error_is_rejected(pool: PgPool) {
         let (rack_id, _, _, _, _) = seed_test_data(&pool).await;
         set_rack_state(
@@ -469,7 +469,7 @@ mod tests {
         assert!(load_maintenance_scope(&pool, &rack_id).await.is_none());
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn maintenance_already_pending_is_rejected(pool: PgPool) {
         let (rack_id, _, _, _, _) = seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());
@@ -502,7 +502,7 @@ mod tests {
         }
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn get_firmware_status_passes_through(pool: PgPool) {
         seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());
@@ -515,7 +515,7 @@ mod tests {
         assert_eq!(*direct.get_firmware_status_calls.lock().unwrap(), 1);
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn list_firmware_passes_through(pool: PgPool) {
         seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());
@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(*direct.list_firmware_calls.lock().unwrap(), 1);
     }
 
-    #[carbide_macros::sqlx_test]
+    #[nico_macros::sqlx_test]
     async fn direct_field_exposes_underlying_backend(pool: PgPool) {
         seed_test_data(&pool).await;
         let direct = Arc::new(RecordingDirect::default());

@@ -20,8 +20,8 @@ use std::borrow::Cow;
 use libmlx::firmware::config::FirmwareFlasherProfile;
 use libmlx::profile::error::MlxProfileError;
 use libmlx::profile::serialization::SerializableProfile;
-use rpc::forge_agent_control_response as fac;
-use rpc::forge_agent_control_response::mlx_device_action::{Command as DpaCommandPb, Command};
+use rpc::nico_agent_control_response as fac;
+use rpc::nico_agent_control_response::mlx_device_action::{Command as DpaCommandPb, Command};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]

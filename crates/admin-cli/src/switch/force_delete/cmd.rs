@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use rpc::forge::AdminForceDeleteSwitchRequest;
+use rpc::nico::AdminForceDeleteSwitchRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

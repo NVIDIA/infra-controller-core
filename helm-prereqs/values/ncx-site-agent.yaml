@@ -1,7 +1,7 @@
 # =============================================================================
 # NCX site-agent standalone chart values
 #
-# Used by setup.sh for: helm upgrade --install carbide-rest-site-agent
+# Used by setup.sh for: helm upgrade --install nico-rest-site-agent
 #   -f helm-prereqs/values/ncx-site-agent.yaml
 #
 # Dynamic values (image tags, site UUID) are passed via --set in setup.sh.
@@ -18,14 +18,14 @@ global:
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: image-pull-secret
-  # Cert issued by vault-forge-issuer so carbide-api (same Vault PKI CA) trusts
+  # Cert issued by vault-nico-issuer so nico-api (same Vault PKI CA) trusts
   # the site-agent's client cert for mTLS.  The ca.crt in the issued secret is
   # the Vault PKI CA which the site-agent also uses as ServerCAPath to verify
-  # carbide-api's server cert.
+  # nico-api's server cert.
   certificate:
     issuerRef:
       kind: ClusterIssuer
-      name: vault-forge-issuer
+      name: vault-nico-issuer
       group: cert-manager.io
 
 replicaCount: 3
@@ -34,15 +34,15 @@ bootstrap:
   enabled: true
   siteManager:
     # Port 8100 is required — the default omits the port and hits HTTPS 443
-    address: "carbide-rest-site-manager.carbide-rest:8100"
+    address: "nico-rest-site-manager.nico-rest:8100"
 
 certificate:
-  # Service identifier must resolve to "elektra-site-agent" for carbide-api's
+  # Service identifier must resolve to "elektra-site-agent" for nico-api's
   # SiteAgent RBAC role (InternalRBACRules, compiled-in static table).
-  # Path /forge-system/sa/ is one of carbide-api's spiffe_service_base_paths;
+  # Path /nico-system/sa/ is one of nico-api's spiffe_service_base_paths;
   # stripping it from the URI yields identifier "elektra-site-agent" -> SiteAgent role.
   uris:
-    - "spiffe://forge.local/forge-system/sa/elektra-site-agent"
+    - "spiffe://nico.local/nico-system/sa/elektra-site-agent"
 
 envConfig:
   ESA_PORT: "8080"
@@ -51,13 +51,13 @@ envConfig:
   ENABLE_DEBUG: "true"
   ENABLE_TLS: "true"
 
-  # mTLS to carbide-api on port 1079 (CARBIDE_SEC_OPT=2).
+  # mTLS to nico-api on port 1079 (NICO_SEC_OPT=2).
   # InsecuregRPC=0, ServerTLS=1, MutualTLS=2.
   # Using InsecuregRPC (0) against a TLS-only server causes a 5-second
   # DeadlineExceeded on the initial Version health-check RPC and leaves the
-  # CarbideClient nil, causing all inventory activity panics.
-  CARBIDE_ADDRESS: "carbide-api.forge-system.svc.cluster.local:1079"
-  CARBIDE_SEC_OPT: "2"
+  # NicoClient nil, causing all inventory activity panics.
+  NICO_ADDRESS: "nico-api.nico-system.svc.cluster.local:1079"
+  NICO_SEC_OPT: "2"
 
   # DB connection config — DEV ONLY, matches the dev postgres instance in setup.sh.
   # DB_USER and DB_PASSWORD are injected from the db-creds Secret (secrets.dbCreds).

@@ -17,8 +17,8 @@
 
 use std::net::SocketAddr;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico as rpc;
+use nico_uuid::machine::MachineId;
 use db::WithTransaction;
 use db::machine_interface::find_by_ip;
 use libredfish::RoleId;
@@ -31,7 +31,7 @@ use sqlx::PgConnection;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_machine_id, log_request_data};
 
 pub(crate) async fn admin_bmc_reset(
@@ -99,7 +99,7 @@ pub(crate) async fn disable_secure_boot(
     api.endpoint_explorer
         .disable_secure_boot(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
@@ -139,7 +139,7 @@ pub(crate) async fn lockdown(
     api.endpoint_explorer
         .lockdown(bmc_addr, &machine_interface, action)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
@@ -176,7 +176,7 @@ pub(crate) async fn lockdown_status(
         .endpoint_explorer
         .lockdown_status(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     Ok(Response::new(response.into()))
 }
@@ -209,7 +209,7 @@ pub(crate) async fn enable_infinite_boot(
     api.endpoint_explorer
         .enable_infinite_boot(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
@@ -249,7 +249,7 @@ pub(crate) async fn is_infinite_boot_enabled(
         .endpoint_explorer
         .is_infinite_boot_enabled(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     tracing::info!(
         "is_infinite_boot_enabled request succeeded to {}, result: {:?}",
@@ -298,7 +298,7 @@ pub(crate) async fn machine_setup(
             req.boot_interface_mac.as_deref(),
         )
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     tracing::info!("Machine Setup request succeeded to {}", endpoint_address);
 
@@ -339,7 +339,7 @@ pub(crate) async fn set_dpu_first_boot_order(
         .as_ref()
         .filter(|mac| !mac.trim().is_empty())
         .ok_or_else(|| {
-            CarbideError::InvalidArgument("boot_interface_mac is required".to_string())
+            NicoError::InvalidArgument("boot_interface_mac is required".to_string())
         })?;
 
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
@@ -348,7 +348,7 @@ pub(crate) async fn set_dpu_first_boot_order(
     api.endpoint_explorer
         .set_boot_order_dpu_first(bmc_addr, &machine_interface, boot_interface_mac)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     tracing::info!(
         "Set DPU first in boot order request succeeded to {}",
@@ -415,7 +415,7 @@ pub(crate) async fn admin_power_control(
                 },
             )
             .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| NicoError::NotFoundError {
                 kind: "machine",
                 id: machine_id.to_string(),
             })?;
@@ -428,7 +428,7 @@ pub(crate) async fn admin_power_control(
                 && action == libredfish::SystemPowerControl::ForceOff
             {
                 msg = Some(
-                        "!!WARNING!! Desired power state for the host is set as On while the requested action is Off. Carbide will attempt to bring the host online after some time.".to_string(),
+                        "!!WARNING!! Desired power state for the host is set as On while the requested action is Off. Nico will attempt to bring the host online after some time.".to_string(),
                     )
             }
         }
@@ -486,7 +486,7 @@ pub(crate) async fn explore(
             boot_interface_mac,
         )
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     Ok(tonic::Response::new(report.into()))
 }
@@ -501,7 +501,7 @@ async fn redfish_reset_bmc(
     api.endpoint_explorer
         .redfish_reset_bmc(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -516,7 +516,7 @@ async fn ipmitool_reset_bmc(
     api.endpoint_explorer
         .ipmitool_reset_bmc(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -532,7 +532,7 @@ async fn redfish_power_control(
     api.endpoint_explorer
         .redfish_power_control(bmc_addr, &machine_interface, action)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -566,30 +566,30 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     let ip_str = match &req.ssh_request {
         Some(ssh_req) => match &ssh_req.endpoint_request {
             Some(bmc_request) => bmc_request.ip_address.clone(),
-            None => return Err(CarbideError::MissingArgument("bmc_endpoint_request").into()),
+            None => return Err(NicoError::MissingArgument("bmc_endpoint_request").into()),
         },
-        None => return Err(CarbideError::MissingArgument("ssh_request").into()),
+        None => return Err(NicoError::MissingArgument("ssh_request").into()),
     };
 
     let dpu_ip: std::net::IpAddr = ip_str
         .parse()
-        .map_err(|_| CarbideError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
+        .map_err(|_| NicoError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
 
     if req.host_bmc_ip.is_empty() {
-        return Err(CarbideError::MissingArgument("host_bmc_ip").into());
+        return Err(NicoError::MissingArgument("host_bmc_ip").into());
     }
     let host_bmc_ip: std::net::IpAddr = req.host_bmc_ip.parse().map_err(|_| {
-        CarbideError::InvalidArgument(format!("Invalid host BMC IP: {}", req.host_bmc_ip))
+        NicoError::InvalidArgument(format!("Invalid host BMC IP: {}", req.host_bmc_ip))
     })?;
 
     let pre_copy_powercycle = req.pre_copy_powercycle;
 
     let dpu_in_managed_host =
-        carbide_site_explorer::is_endpoint_in_managed_host(dpu_ip, &api.database_connection)
+        nico_site_explorer::is_endpoint_in_managed_host(dpu_ip, &api.database_connection)
             .await
-            .map_err(|e| CarbideError::internal(e.to_string()))?;
+            .map_err(|e| NicoError::internal(e.to_string()))?;
     if dpu_in_managed_host {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Cannot trigger BFB recovery: DPU {dpu_ip} is already ingested. \
              Force-delete the managed host first.",
         ))
@@ -598,8 +598,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
 
     let dpu_endpoints = db::explored_endpoints::find_by_ips(&api.database_connection, vec![dpu_ip])
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-    let dpu_endpoint = dpu_endpoints.first().ok_or(CarbideError::NotFoundError {
+        .map_err(|e| NicoError::internal(e.to_string()))?;
+    let dpu_endpoint = dpu_endpoints.first().ok_or(NicoError::NotFoundError {
         kind: "explored_endpoint",
         id: dpu_ip.to_string(),
     })?;
@@ -609,7 +609,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         | PreingestionState::Complete
         | PreingestionState::Failed { .. } => {}
         other => {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(NicoError::InvalidArgument(format!(
                 "Cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
                  Wait for it to complete or fail first.",
             ))
@@ -621,15 +621,15 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         let host_endpoints =
             db::explored_endpoints::find_by_ips(&api.database_connection, vec![host_bmc_ip])
                 .await
-                .map_err(|e| CarbideError::internal(e.to_string()))?;
-        let host_ep = host_endpoints.first().ok_or(CarbideError::NotFoundError {
+                .map_err(|e| NicoError::internal(e.to_string()))?;
+        let host_ep = host_endpoints.first().ok_or(NicoError::NotFoundError {
             kind: "explored_endpoint",
             id: host_bmc_ip.to_string(),
         })?;
         match &host_ep.preingestion_state {
             PreingestionState::Complete | PreingestionState::Failed { .. } => {}
             other => {
-                return Err(CarbideError::InvalidArgument(format!(
+                return Err(NicoError::InvalidArgument(format!(
                     "Cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
                      Retry after host preingestion completes.",
                 ))
@@ -658,8 +658,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
             })
         })
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -676,7 +676,7 @@ async fn resolve_bmc_interface(
 
     let mut addrs = lookup_host(address).await?;
     let Some(bmc_addr) = addrs.next() else {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
             request.ip_address
         ))
@@ -685,13 +685,13 @@ async fn resolve_bmc_interface(
 
     let bmc_mac_address: MacAddress;
     if let Some(mac_str) = &request.mac_address {
-        bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
+        bmc_mac_address = mac_str.parse::<MacAddress>().map_err(NicoError::from)?;
     } else if let Some(bmc_machine_interface) =
         find_by_ip(&api.database_connection, bmc_addr.ip()).await?
     {
         bmc_mac_address = bmc_machine_interface.mac_address;
     } else {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "could not find a mac address for the specified IP: {request:#?}"
         ))
         .into());
@@ -816,7 +816,7 @@ async fn do_create_bmc_user(
             create_role_id,
         )
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -832,7 +832,7 @@ async fn do_delete_bmc_user(
     api.endpoint_explorer
         .delete_bmc_user(bmc_addr, &machine_interface, delete_user)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| NicoError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -846,18 +846,18 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<MachineId>,
-) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), CarbideError> {
+) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), NicoError> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
             let parsed_ip = bmc_endpoint_request.ip_address.parse().map_err(|e| {
-                CarbideError::InvalidArgument(format!(
+                NicoError::InvalidArgument(format!(
                     "invalid ip_address {:?}: {e}",
                     bmc_endpoint_request.ip_address
                 ))
             })?;
             let interface = db::machine_interface::find_by_ip(txn, parsed_ip)
                 .await?
-                .ok_or_else(|| CarbideError::NotFoundError {
+                .ok_or_else(|| NicoError::NotFoundError {
                     kind: "machine_interface",
                     id: bmc_endpoint_request.ip_address.clone(),
                 })?;
@@ -870,10 +870,10 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                 Some(request_mac) => {
                     let parsed_mac = request_mac
                         .parse::<MacAddress>()
-                        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+                        .map_err(|e| NicoError::InvalidArgument(e.to_string()))?;
 
                     if parsed_mac != interface.mac_address {
-                        return Err(CarbideError::BmcMacIpMismatch {
+                        return Err(NicoError::BmcMacIpMismatch {
                             requested_ip: bmc_endpoint_request.ip_address.clone(),
                             requested_mac: request_mac,
                             found_mac: interface.mac_address.to_string(),
@@ -902,19 +902,19 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             let topology =
                 topologies
                     .remove(&machine_id)
-                    .ok_or_else(|| CarbideError::NotFoundError {
+                    .ok_or_else(|| NicoError::NotFoundError {
                         kind: "machine",
                         id: machine_id.to_string(),
                     })?;
 
             let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
-                CarbideError::internal(format!(
+                NicoError::internal(format!(
                     "Machine found for {machine_id} but BMC IP is missing"
                 ))
             })?;
 
             let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
-                CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
+                NicoError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
             })?;
 
             Ok((
@@ -926,7 +926,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             ))
         }
 
-        _ => Err(CarbideError::InvalidArgument(
+        _ => Err(NicoError::InvalidArgument(
             "Provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
         )),
     }

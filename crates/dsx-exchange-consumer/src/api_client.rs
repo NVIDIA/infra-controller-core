@@ -15,20 +15,20 @@
  * limitations under the License.
  */
 
-//! Carbide API client for submitting rack health reports.
+//! Nico API client for submitting rack health reports.
 
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use carbide_uuid::rack::RackId;
-use forge_tls::client_config::ClientCert;
+use nico_uuid::rack::RackId;
+use nico_tls::client_config::ClientCert;
 use health_report::HealthReport;
-use rpc::forge::{
+use rpc::nico::{
     HealthReportApplyMode, HealthReportEntry, InsertRackHealthReportRequest,
     RemoveRackHealthReportRequest,
 };
-use rpc::forge_api_client::ForgeApiClient;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use rpc::nico_api_client::NicoApiClient;
+use rpc::nico_tls_client::{ApiConfig, NicoClientConfig};
 use url::Url;
 
 use crate::DsxConsumerError;
@@ -48,15 +48,15 @@ pub trait RackHealthReportSink: Send + Sync {
     async fn remove_rack_health_report(&self, rack_id: &str) -> Result<(), DsxConsumerError>;
 }
 
-/// API client wrapper for Carbide API communication.
+/// API client wrapper for Nico API communication.
 #[derive(Clone)]
 pub struct ApiClientWrapper {
-    client: ForgeApiClient,
+    client: NicoApiClient,
 }
 
 impl ApiClientWrapper {
     pub fn new(root_ca: String, client_cert: String, client_key: String, api_url: &Url) -> Self {
-        let client_config = ForgeClientConfig::new(
+        let client_config = NicoClientConfig::new(
             root_ca,
             Some(ClientCert {
                 cert_path: client_cert,
@@ -65,7 +65,7 @@ impl ApiClientWrapper {
         );
         let api_config = ApiConfig::new(api_url.as_str(), &client_config);
 
-        let client = ForgeApiClient::new(&api_config);
+        let client = NicoApiClient::new(&api_config);
 
         Self { client }
     }

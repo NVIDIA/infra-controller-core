@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::forge as forgerpc;
+use rpc::nico as nicorpc;
 
 /// Enable or disable maintenance mode on a managed host.
-/// To list machines in maintenance mode use `forge-admin-cli mh show --all --fix`
+/// To list machines in maintenance mode use `nico-admin-cli mh show --all --fix`
 #[derive(Parser, Debug)]
 pub enum Args {
     /// Put this machine into maintenance mode. Prevents an instance being assigned to it.
@@ -43,10 +43,10 @@ pub struct MaintenanceOn {
     pub reference: String,
 }
 
-impl From<MaintenanceOn> for forgerpc::MaintenanceRequest {
+impl From<MaintenanceOn> for nicorpc::MaintenanceRequest {
     fn from(args: MaintenanceOn) -> Self {
         Self {
-            operation: forgerpc::MaintenanceOperation::Enable.into(),
+            operation: nicorpc::MaintenanceOperation::Enable.into(),
             host_id: Some(args.host),
             reference: Some(args.reference),
         }
@@ -59,10 +59,10 @@ pub struct MaintenanceOff {
     pub host: MachineId,
 }
 
-impl From<MaintenanceOff> for forgerpc::MaintenanceRequest {
+impl From<MaintenanceOff> for nicorpc::MaintenanceRequest {
     fn from(args: MaintenanceOff) -> Self {
         Self {
-            operation: forgerpc::MaintenanceOperation::Disable.into(),
+            operation: nicorpc::MaintenanceOperation::Disable.into(),
             host_id: Some(args.host),
             reference: None,
         }

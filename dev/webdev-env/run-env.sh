@@ -16,7 +16,7 @@
 # limitations under the License.
 #
 #
-# Carbide UI development
+# Nico UI development
 #
 # Usage: ./run-env.sh /path/to/pg_dump.sql
 #
@@ -80,11 +80,11 @@ export DISABLE_TLS_ENFORCEMENT=1
 export VAULT_KV_MOUNT_LOCATION="secrets"
 export VAULT_PKI_MOUNT_LOCATION="certs"
 export VAULT_PKI_ROLE_NAME="role"
-export CARBIDE_WEB_AUTH_TYPE="none"
+export NICO_WEB_AUTH_TYPE="none"
 
 # Run SQL migrations
 echo "Running database migrations..."
-cargo run --package carbide-api --no-default-features -- migrate
+cargo run --package nico-api --no-default-features -- migrate
 
 menu() {
     clear
@@ -125,10 +125,10 @@ while true; do
         continue
     fi
     # Build Rust
-    if cargo build --package carbide-api --no-default-features; then
+    if cargo build --package nico-api --no-default-features; then
         echo -e "\n  ✓ Build successful! Starting server..."
-        cargo run --package carbide-api --no-default-features -- run \
-            --config-path "${SCRIPT_DIR}/carbide-api-config.toml" >/dev/null 2>&1 &
+        cargo run --package nico-api --no-default-features -- run \
+            --config-path "${SCRIPT_DIR}/nico-api-config.toml" >/dev/null 2>&1 &
         PID=$!
         sleep 6
         menu

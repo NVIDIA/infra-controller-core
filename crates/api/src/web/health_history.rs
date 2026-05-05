@@ -22,7 +22,7 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 
 use super::Base;

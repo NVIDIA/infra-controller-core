@@ -24,7 +24,7 @@ username = "admin"
 password = "secret"
 rack_id = "RACK_1"
 
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [processors.leak_detection]

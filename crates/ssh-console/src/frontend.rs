@@ -20,10 +20,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use lazy_static::lazy_static;
-use rpc::forge::ValidateTenantPublicKeyRequest;
-use rpc::forge_api_client::ForgeApiClient;
+use rpc::nico::ValidateTenantPublicKeyRequest;
+use rpc::nico_api_client::NicoApiClient;
 use russh::keys::ssh_key::AuthorizedKeys;
 use russh::keys::{Certificate, PublicKey, PublicKeyBase64};
 use russh::server::{Auth, Msg, Session};
@@ -46,7 +46,7 @@ static EXEC_TIMEOUT: Duration = Duration::from_secs(10);
 
 static BANNER_SSH_BMC: &str = "\
 +------------------------------------------------------------------------------+\r\n\
-|                NVIDIA Carbide SSH Serial Console (beta)                      |\r\n\
+|                NVIDIA Nico SSH Serial Console (beta)                      |\r\n\
 +------------------------------------------------------------------------------+\r\n\
 |             Use SSH escape sequences to manage this session.                 |\r\n\
 |      (Note that escapes are only recognized immediately after newline.)      |\r\n\
@@ -57,7 +57,7 @@ static BANNER_SSH_BMC: &str = "\
 
 static BANNER_IPMI_BMC: &str = "\
 +------------------------------------------------------------------------------+\r\n\
-|                NVIDIA Carbide SSH Serial Console (beta)                      |\r\n\
+|                NVIDIA Nico SSH Serial Console (beta)                      |\r\n\
 +------------------------------------------------------------------------------+\r\n\
 |             Use SSH escape sequences to manage this session.                 |\r\n\
 |      (Note that escapes are only recognized immediately after newline.)      |\r\n\
@@ -81,7 +81,7 @@ lazy_static! {
 
 pub struct Handler {
     config: Arc<Config>,
-    forge_api_client: ForgeApiClient,
+    nico_api_client: NicoApiClient,
     bmc_connection_store: BmcConnectionStore,
     /// The machine_id or instance_id the user is attempting to log into. Used as the username in the ssh command line (ie. ssh machine_id@ssh-console)
     authenticated_machine_string: Option<String>,
@@ -102,14 +102,14 @@ impl Handler {
     pub fn new(
         bmc_connection_store: BmcConnectionStore,
         config: Arc<Config>,
-        forge_api_client: ForgeApiClient,
+        nico_api_client: NicoApiClient,
         metrics: Arc<ServerMetrics>,
         peer_addr: Option<SocketAddr>,
     ) -> Self {
         tracing::debug!("spawning new frontend connection handler");
         Self {
             config,
-            forge_api_client,
+            nico_api_client,
             bmc_connection_store,
             authenticated_machine_string: None,
             per_client_state: HashMap::new(),
@@ -194,7 +194,7 @@ impl russh::server::Handler for Handler {
             .get_connection(
                 machine,
                 &self.config,
-                &self.forge_api_client,
+                &self.nico_api_client,
                 self.metrics.clone(),
             )
             .await
@@ -315,7 +315,7 @@ impl russh::server::Handler for Handler {
 
         // Authentication flow:
         // 1. If authorized_keys_path is set, check against file first
-        // 2. If not found in file, validate via carbide-api
+        // 2. If not found in file, validate via nico-api
         // 3. If insecure mode is enabled, accept all connections
 
         let success = if pubkey_auth_admin_authorized_keys(public_key, &self.config, machine_string)
@@ -326,7 +326,7 @@ impl russh::server::Handler for Handler {
             true
         } else if Uuid::from_str(machine_string).is_ok() {
             // Only try tenant auth if the user is a valid-looking UUID.
-            pubkey_auth_tenant(machine_string, public_key, &self.forge_api_client)
+            pubkey_auth_tenant(machine_string, public_key, &self.nico_api_client)
                 .await
                 .map_err(|error| PubkeyAuthTenant {
                     instance_id: machine_string.to_owned(),
@@ -640,7 +640,7 @@ pub enum HandlerError {
         machine_id: String,
         error: PubkeyAuthError,
     },
-    #[error("error validating pubkey with carbide-api for instance {instance_id}: {error}")]
+    #[error("error validating pubkey with nico-api for instance {instance_id}: {error}")]
     PubkeyAuthTenant {
         instance_id: String,
         error: PubkeyAuthError,
@@ -656,8 +656,8 @@ pub enum PubkeyAuthError {
         path: String,
         error: russh::keys::ssh_key::Error,
     },
-    #[error("Unexpected error calling carbide-api to validate pubkey for {user}: {tonic_status}")]
-    CarbideApi {
+    #[error("Unexpected error calling nico-api to validate pubkey for {user}: {tonic_status}")]
+    NicoApi {
         user: String,
         tonic_status: tonic::Status,
     },
@@ -729,20 +729,20 @@ fn pubkey_auth_admin_authorized_keys(
     }
 }
 
-/// Authenticate the given pubkey via carbide-api, assuming the username is an instance ID.
+/// Authenticate the given pubkey via nico-api, assuming the username is an instance ID.
 async fn pubkey_auth_tenant(
     user: &str,
     public_key: &PublicKey,
-    forge_api_client: &ForgeApiClient,
+    nico_api_client: &NicoApiClient,
 ) -> Result<bool, PubkeyAuthError> {
-    let authorized = match forge_api_client
+    let authorized = match nico_api_client
         .validate_tenant_public_key(ValidateTenantPublicKeyRequest {
             instance_id: user.to_string(),
             tenant_public_key: public_key.public_key_base64(),
         })
         .await
     {
-        // carbide-api has a weird way of just returning an internal error if the given pubkey is
+        // nico-api has a weird way of just returning an internal error if the given pubkey is
         // not allowed to authenticate to this machine, rather than returning a valid-but-negative
         // response. So if it didn't fail, it's allowed. If it failed with an internal server error,
         // that's a rejection. If it failed for another reason, bubble up an error here (it will
@@ -750,7 +750,7 @@ async fn pubkey_auth_tenant(
         Ok(_) => {
             tracing::info!(
                 user,
-                "accepting public key via carbide validate_tenant_public_key"
+                "accepting public key via nico validate_tenant_public_key"
             );
             true
         }
@@ -759,21 +759,21 @@ async fn pubkey_auth_tenant(
                 // Internal means the key doesn't match, NotFound means there's no instance like this
                 tracing::debug!(
                     user,
-                    "rejecting public key via carbide validate_tenant_public_key"
+                    "rejecting public key via nico validate_tenant_public_key"
                 );
                 false
             }
             Code::InvalidArgument => {
                 // InvalidArgument can happen if the user is not a valid instance ID.
                 tracing::warn!(
-                    "InvalidArgument when calling carbide-api to validate pubkey for {user}"
+                    "InvalidArgument when calling nico-api to validate pubkey for {user}"
                 );
                 false
             }
             _ => {
                 // Any other error, we should just reject, even if the config overrides it, to stop
                 // bugs.
-                return Err(PubkeyAuthError::CarbideApi {
+                return Err(PubkeyAuthError::NicoApi {
                     tonic_status,
                     user: user.to_owned(),
                 });

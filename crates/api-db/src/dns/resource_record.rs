@@ -16,7 +16,7 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::domain::DomainId;
+use nico_uuid::domain::DomainId;
 use dns_record::SoaRecord;
 use sqlx::postgres::PgRow;
 use sqlx::{Error, FromRow, Row};

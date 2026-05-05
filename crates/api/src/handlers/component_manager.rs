@@ -19,9 +19,9 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use ::rpc::common::SystemPowerControl;
-use ::rpc::forge::{self as rpc, BmcEndpointRequest};
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::switch::SwitchId;
+use ::rpc::nico::{self as rpc, BmcEndpointRequest};
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::switch::SwitchId;
 use component_manager::component_manager::ComponentManager;
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
@@ -619,7 +619,7 @@ pub(crate) async fn component_power_control(
 
 async fn compute_power_control(
     api: &Api,
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: nico_uuid::machine::MachineId,
     bmc_endpoint: BmcEndpointRequest,
     action: PowerAction,
 ) -> Result<(), Status> {
@@ -639,7 +639,7 @@ async fn compute_power_control(
 /// Returns `true` when the operation succeeded.
 async fn power_control_health_override(
     api: &Api,
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: nico_uuid::machine::MachineId,
     insert: bool,
 ) -> bool {
     let result = if insert {
@@ -724,7 +724,7 @@ In the case of partial failure, the power manager may have the desired power sta
 */
 async fn machine_power_control(
     api: &Api,
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: nico_uuid::machine::MachineId,
     bmc_endpoint: BmcEndpointRequest,
     action: PowerAction,
 ) -> Result<(), Status> {
@@ -907,7 +907,7 @@ pub(crate) async fn update_component_firmware(
 
     let mut rack_machine_ids: Vec<String> = Vec::new();
     let mut rack_switch_ids: Vec<String> = Vec::new();
-    let mut rack_id: Option<carbide_uuid::rack::RackId> = None;
+    let mut rack_id: Option<nico_uuid::rack::RackId> = None;
     let mut power_shelf_results: Option<Vec<rpc::ComponentResult>> = None;
     let mut rack_results: Option<Vec<rpc::ComponentResult>> = None;
     let mut component_names: Vec<String> = Vec::new();
@@ -1796,12 +1796,12 @@ mod tests {
     }
 
     fn test_switch_id() -> SwitchId {
-        use carbide_uuid::switch::{SwitchIdSource, SwitchType};
+        use nico_uuid::switch::{SwitchIdSource, SwitchType};
         SwitchId::new(SwitchIdSource::Tpm, [0u8; 32], SwitchType::NvLink)
     }
 
     fn test_power_shelf_id() -> PowerShelfId {
-        use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
+        use nico_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
         PowerShelfId::new(PowerShelfIdSource::Tpm, [0u8; 32], PowerShelfType::Rack)
     }
 

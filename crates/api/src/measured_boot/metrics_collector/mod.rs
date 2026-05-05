@@ -23,11 +23,11 @@ use measured_boot::records::MeasurementBundleState;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::CarbideResult;
+use crate::NicoResult;
 use crate::cfg::file::MeasuredBootMetricsCollectorConfig;
 
 pub(crate) mod metrics;
-use carbide_uuid::measured_boot::MeasurementBundleId;
+use nico_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;
 
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.
@@ -93,7 +93,7 @@ impl MeasuredBootMetricsCollector {
         }
     }
 
-    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+    pub async fn run_single_iteration(&self) -> NicoResult<()> {
         let mut metrics = MeasuredBootMetricsCollectorMetrics::new();
 
         let mut txn = db::Transaction::begin(&self.database_connection).await?;

@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-rpc"
+name = "nico-rpc"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -31,15 +31,15 @@ cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml", "dep:csv"]
 [dependencies]
 
 # [local-dependencies]
-carbide-http-connector = { path = "../http-connector" }
-carbide-tls = { path = "../tls" }
-carbide-health-report = { path = "../health-report" }
-carbide-secrets = { path = "../secrets" }
-carbide-network = { path = "../network" }
-carbide-utils = { path = "../utils" }
+nico-http-connector = { path = "../http-connector" }
+nico-tls = { path = "../tls" }
+nico-health-report = { path = "../health-report" }
+nico-secrets = { path = "../secrets" }
+nico-network = { path = "../network" }
+nico-utils = { path = "../utils" }
 tonic-client-wrapper = { path = "../tonic-client-wrapper", default-features = false }
 dns-record = { path = "../dns-record" }
-carbide-uuid = { path = "../uuid" }
+nico-uuid = { path = "../uuid" }
 
 chrono = { features = ["serde"], workspace = true }
 eyre = { workspace = true }

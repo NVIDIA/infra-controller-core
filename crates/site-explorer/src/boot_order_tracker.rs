@@ -20,7 +20,7 @@ use std::fmt;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use model::site_explorer::{
     BootOrder, ComputerSystem, EndpointExplorationReport, ExploredManagedHost,
 };

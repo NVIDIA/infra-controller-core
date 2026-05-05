@@ -35,7 +35,7 @@ pub struct Args {
     pub id: String,
 }
 
-impl From<Args> for ::rpc::forge::NetworkTopologyRequest {
+impl From<Args> for ::rpc::nico::NetworkTopologyRequest {
     fn from(args: Args) -> Self {
         let id = if args.all || args.id.is_empty() {
             None

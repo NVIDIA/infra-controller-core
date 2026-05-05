@@ -23,8 +23,8 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use carbide_uuid::UuidEmptyStringError;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::UuidEmptyStringError;
+use nico_uuid::machine::MachineId;
 use chrono::Utc;
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;

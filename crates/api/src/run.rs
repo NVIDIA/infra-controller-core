@@ -17,10 +17,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use carbide_utils::HostPortPair;
+use nico_utils::HostPortPair;
 use eyre::WrapErr;
-use forge_secrets::credentials::{CredentialReader, CredentialWriter};
-use forge_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
+use nico_secrets::credentials::{CredentialReader, CredentialWriter};
+use nico_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -30,7 +30,7 @@ use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoi
 use crate::logging::setup::{
     Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
-use crate::{CarbideError, dynamic_settings, setup};
+use crate::{NicoError, dynamic_settings, setup};
 
 pub async fn run(
     debug: u8,
@@ -41,12 +41,12 @@ pub async fn run(
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
-    let carbide_config = setup::parse_carbide_config(&config_str, site_config_str.as_deref())?;
+    let nico_config = setup::parse_nico_config(&config_str, site_config_str.as_deref())?;
 
-    // If `CarbideConfig.initial_objects_file` is set, load it into an
+    // If `NicoConfig.initial_objects_file` is set, load it into an
     // `InitialObjectsConfig` so that `start_api` can reconcile its contents
     // against the database on first startup.
-    let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
+    let initial_objects = if let Some(path) = nico_config.initial_objects_file.as_deref() {
         Some(setup::parse_initial_objects_config(path)?)
     } else {
         None
@@ -54,8 +54,8 @@ pub async fn run(
 
     // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes.
     // deny_prefixes are IPv4-only; only check against IPv4 site fabric prefixes.
-    for deny_prefix in carbide_config.deny_prefixes.iter() {
-        for site_fabric_prefix in carbide_config.site_fabric_prefixes.iter() {
+    for deny_prefix in nico_config.deny_prefixes.iter() {
+        for site_fabric_prefix in nico_config.site_fabric_prefixes.iter() {
             if let ipnetwork::IpNetwork::V4(site_v4) = site_fabric_prefix
                 && deny_prefix.overlaps(*site_v4)
             {
@@ -80,7 +80,7 @@ pub async fn run(
     };
 
     // Redact credentials before printing the config
-    let print_config = carbide_config.redacted();
+    let print_config = nico_config.redacted();
 
     tracing::info!("Using configuration: {:#?}", print_config);
     tracing::info!(
@@ -99,12 +99,12 @@ pub async fn run(
     let mut join_set = JoinSet::new();
 
     // Spin up the webserver which servers `/metrics` requests
-    if let Some(metrics_address) = carbide_config.metrics_endpoint {
-        // If a replacement prefix for "carbide_" is configured, also emit metrics under that
-        let additional_prefix = carbide_config
+    if let Some(metrics_address) = nico_config.metrics_endpoint {
+        // If a replacement prefix for "nico_" is configured, also emit metrics under that
+        let additional_prefix = nico_config
             .alt_metric_prefix
             .clone()
-            .map(|alt_prefix| ("carbide_".to_string(), alt_prefix));
+            .map(|alt_prefix| ("nico_".to_string(), alt_prefix));
         join_set.build_task().name("metrics_endpoint").spawn({
             let cancel_token = cancel_token.clone();
             async move {
@@ -126,9 +126,9 @@ pub async fn run(
 
     let dynamic_settings = crate::dynamic_settings::DynamicSettings {
         log_filter: tconf.filter.clone(),
-        site_explorer_enabled: carbide_config.site_explorer.enabled.clone(),
-        create_machines: carbide_config.site_explorer.create_machines.clone(),
-        bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
+        site_explorer_enabled: nico_config.site_explorer.enabled.clone(),
+        create_machines: nico_config.site_explorer.create_machines.clone(),
+        bmc_proxy: nico_config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: tconf.tracing_enabled,
     };
     dynamic_settings.start_reset_task(
@@ -138,11 +138,11 @@ pub async fn run(
     );
 
     tracing::info!(
-        address = carbide_config.listen.to_string(),
-        build_version = carbide_version::v!(build_version),
-        build_date = carbide_version::v!(build_date),
-        rust_version = carbide_version::v!(rust_version),
-        "Start carbide-api",
+        address = nico_config.listen.to_string(),
+        build_version = nico_version::v!(build_version),
+        build_date = nico_version::v!(build_date),
+        rust_version = nico_version::v!(rust_version),
+        "Start nico-api",
     );
 
     let certificate_provider =
@@ -159,7 +159,7 @@ pub async fn run(
     // that this comes first if configured.
     if credential_config.env.enabled() {
         readers.push(Box::new(
-            forge_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
+            nico_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
         ));
     }
 
@@ -168,7 +168,7 @@ pub async fn run(
     // EnvCredentials.
     if credential_config.file.enabled() {
         readers.push(Box::new(
-            forge_secrets::local_credentials::FileCredentialsWatcher::new(
+            nico_secrets::local_credentials::FileCredentialsWatcher::new(
                 credential_config.file.clone(),
             )
             .await?,
@@ -190,13 +190,13 @@ pub async fn run(
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
             .build()
-            .map_err(CarbideError::from)?;
+            .map_err(NicoError::from)?;
 
         // Support deprecated configuration for site_explorer.override_target_ip and override_target_port. Configuration should migrate to site_explorer.bmc_proxy.
         match (
-            &carbide_config.site_explorer.override_target_ip,
-            carbide_config.site_explorer.override_target_port,
-            carbide_config.site_explorer.bmc_proxy.load().as_ref(),
+            &nico_config.site_explorer.override_target_ip,
+            nico_config.site_explorer.override_target_port,
+            nico_config.site_explorer.bmc_proxy.load().as_ref(),
         ) {
             (Some(_), _, Some(_)) => {
                 tracing::warn!(
@@ -205,14 +205,14 @@ pub async fn run(
             }
             (Some(ip), maybe_target_port, None) => {
                 tracing::warn!(
-                    "Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
+                    "Deprecated site_explorer.override_target_ip in nico config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
                 );
                 if let Some(port) = maybe_target_port {
-                    carbide_config.site_explorer.bmc_proxy.store(Arc::new(Some(
+                    nico_config.site_explorer.bmc_proxy.store(Arc::new(Some(
                         HostPortPair::HostAndPort(ip.to_string(), port),
                     )));
                 } else {
-                    carbide_config
+                    nico_config
                         .site_explorer
                         .bmc_proxy
                         .store(Arc::new(Some(HostPortPair::HostOnly(ip.to_string()))));
@@ -220,9 +220,9 @@ pub async fn run(
             }
             (None, Some(port), None) => {
                 tracing::warn!(
-                    "Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
+                    "Deprecated site_explorer.override_target_port in nico config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
                 );
-                carbide_config
+                nico_config
                     .site_explorer
                     .bmc_proxy
                     .store(Arc::new(Some(HostPortPair::PortOnly(port))));
@@ -235,19 +235,19 @@ pub async fn run(
             (None, None, _) => {} // leave bmc_proxy untouched
         }
 
-        carbide_redfish::libredfish::new_pool(
+        nico_redfish::libredfish::new_pool(
             credential_manager.clone(),
             rf_pool,
-            carbide_config.site_explorer.bmc_proxy.clone(),
+            nico_config.site_explorer.bmc_proxy.clone(),
         )
     };
 
     let nv_redfish_pool =
-        carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
+        nico_redfish::nv_redfish::new_pool(nico_config.site_explorer.bmc_proxy.clone());
 
     setup::start_api(
         &mut join_set,
-        carbide_config,
+        nico_config,
         initial_objects,
         metrics.meter,
         dynamic_settings,

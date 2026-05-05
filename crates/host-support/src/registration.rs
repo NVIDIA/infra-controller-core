@@ -17,13 +17,13 @@
 
 use std::time::Duration;
 
-use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
-use ::rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT, ForgeTlsClient};
-use ::rpc::{MachineDiscoveryInfo, forge as rpc, machine_discovery as rpc_discovery};
-use carbide_uuid::machine::MachineId;
+use ::rpc::nico::{AttestQuoteRequest, MachineCertificate};
+use ::rpc::nico_tls_client::{NicoClientConfig, NicoClientT, NicoTlsClient};
+use ::rpc::{MachineDiscoveryInfo, nico as rpc, machine_discovery as rpc_discovery};
+use nico_uuid::machine::MachineId;
 use eyre::WrapErr;
-use forge_tls::client_config::ClientCert;
-use forge_tls::default as tls_default;
+use nico_tls::client_config::ClientCert;
+use nico_tls::default as tls_default;
 use tryhard::RetryFutureConfig;
 
 #[derive(thiserror::Error, Debug)]
@@ -42,10 +42,10 @@ pub enum RegistrationError {
     MissingCertificate,
 }
 
-/// Data that is retrieved from the Forge API server during registration
+/// Data that is retrieved from the Nico API server during registration
 #[derive(Debug, Clone)]
 pub struct RegistrationData {
-    /// The machine ID under which this machine is known in Forge
+    /// The machine ID under which this machine is known in Nico
     pub machine_id: MachineId,
 }
 
@@ -58,7 +58,7 @@ pub struct DiscoveryRetry {
 // doing async retries of machine discovery requests. Since
 // everything here is async, retrying futures gets interesting,
 // because values get moved into them (as in needing to clone or
-// recreate the underlying forge_tls_client, gRPC message, etc.
+// recreate the underlying nico_tls_client, gRPC message, etc.
 //
 // This could have also just gone inline with register_machine,
 // but breaking the code out like this does help to make
@@ -67,12 +67,12 @@ pub struct DiscoveryRetry {
 // but I sort of have high hopes for maybe eventually making
 // this so generic that we can use it for other things.
 struct RegistrationClient<'a, 'c> {
-    // api is the Forge API URL.
+    // api is the Nico API URL.
     api_url: &'a str,
 
     // config is, quite obviously, a reference
-    // to a ForgeClientConfig to use.
-    config: &'c ForgeClientConfig,
+    // to a NicoClientConfig to use.
+    config: &'c NicoClientConfig,
 
     retry: DiscoveryRetry,
 }
@@ -80,8 +80,8 @@ struct RegistrationClient<'a, 'c> {
 impl<'a, 'c> RegistrationClient<'a, 'c> {
     // new creates a new RegistrationClient, where the
     // only things needed here are references to the API
-    // URL and the corresponding ForgeClientConfig.
-    fn new(api_url: &'a str, config: &'c ForgeClientConfig, retry: DiscoveryRetry) -> Self {
+    // URL and the corresponding NicoClientConfig.
+    fn new(api_url: &'a str, config: &'c NicoClientConfig, retry: DiscoveryRetry) -> Self {
         Self {
             api_url,
             config,
@@ -89,20 +89,20 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         }
     }
 
-    // connect will create a new ForgeTlsClient and return an underlying
-    // ForgeClientT connection for callers to leverage, returning an error
+    // connect will create a new NicoTlsClient and return an underlying
+    // NicoClientT connection for callers to leverage, returning an error
     // if we were unable to create a client (e.g. if there was an issue
     // loading certificates), or establish a connection. All calls from
-    // devices -> carbide-api generally follow this pattern, so you merely
+    // devices -> nico-api generally follow this pattern, so you merely
     // need to just do something like:
     //
     // let request = tonic::Request::new(your_request);
     // let mut connection = self.connect("<what-youre-doing>").await?;
     // let response = connection.your_api_endpoint(request).await?;
     //
-    async fn connect(&self, purpose: &str) -> Result<ForgeClientT, RegistrationError> {
+    async fn connect(&self, purpose: &str) -> Result<NicoClientT, RegistrationError> {
         tracing::debug!("creating tls client connection for {purpose}");
-        let client = ForgeTlsClient::new(self.config);
+        let client = NicoTlsClient::new(self.config);
         match client.build(self.api_url.to_string()).await {
             Ok(connection) => {
                 tracing::debug!(
@@ -129,7 +129,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
     ) -> Result<rpc::MachineDiscoveryResult, RegistrationError> {
         tracing::info!("Attempting to discover_machine (attempt: {})", attempt);
 
-        // Create a new connection off of the ForgeTlsClient.
+        // Create a new connection off of the NicoTlsClient.
         let mut connection = self.connect("discover_machine_once").await?;
 
         // Create a new request with the provided MachineDiscoveryInfo.
@@ -151,7 +151,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
     }
 
     // discover_machine is a retrying wrapper around making
-    // discover_machine gRPC calls to the Carbide API.
+    // discover_machine gRPC calls to the Nico API.
     pub async fn discover_machine(
         &mut self,
         info: MachineDiscoveryInfo,
@@ -175,7 +175,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         &self,
         quote: &AttestQuoteRequest,
     ) -> Result<rpc::AttestQuoteResponse, RegistrationError> {
-        // Create a new connection off of the ForgeTlsClient.
+        // Create a new connection off of the NicoTlsClient.
         let mut connection = self.connect("attest_quote").await?;
 
         // Create a new request with the provided AttestQuoteRequest.
@@ -193,30 +193,30 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
     }
 }
 
-// create_client_config creates a new ForgeClientConfig. All
+// create_client_config creates a new NicoClientConfig. All
 // calls in here follow the same pattern, so this was moved out
 // into its own function to clean up tons of duplication.
 fn create_client_config(
     purpose: &str,
     use_mgmt_vrf: bool,
     root_ca: String,
-) -> Result<ForgeClientConfig, RegistrationError> {
-    let forge_client_config = match use_mgmt_vrf {
-        true => ForgeClientConfig::new(root_ca, None)
+) -> Result<NicoClientConfig, RegistrationError> {
+    let nico_client_config = match use_mgmt_vrf {
+        true => NicoClientConfig::new(root_ca, None)
             .use_mgmt_vrf()
             .map_err(|e| RegistrationError::TransportError(e.to_string()))?,
-        false => ForgeClientConfig::new(root_ca, None),
+        false => NicoClientConfig::new(root_ca, None),
     };
-    tracing::debug!("{purpose} client_config {:?}", forge_client_config);
-    Ok(forge_client_config)
+    tracing::debug!("{purpose} client_config {:?}", nico_client_config);
+    Ok(nico_client_config)
 }
 
-/// Registers a machine at the Forge API server for further interactions
+/// Registers a machine at the Nico API server for further interactions
 ///
 /// Returns information about the machine that is known by the API server
 #[allow(clippy::too_many_arguments)]
 pub async fn register_machine(
-    forge_api: &str,
+    nico_api: &str,
     root_ca: String,
     machine_interface_id: Option<uuid::Uuid>,
     hardware_info: rpc_discovery::DiscoveryInfo,
@@ -234,15 +234,15 @@ pub async fn register_machine(
 > {
     let info = rpc::MachineDiscoveryInfo {
         machine_interface_id: machine_interface_id.map(|mid| mid.into()),
-        discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
+        discovery_data: Some(::rpc::nico::machine_discovery_info::DiscoveryData::Info(
             hardware_info,
         )),
         create_machine,
     };
     tracing::info!("register_machine discovery_info {:?}", info);
 
-    let forge_client_config = create_client_config("register_machine", use_mgmt_vrf, root_ca)?;
-    let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
+    let nico_client_config = create_client_config("register_machine", use_mgmt_vrf, root_ca)?;
+    let response = RegistrationClient::new(nico_api, &nico_client_config, retry)
         .discover_machine(info)
         .await?;
 
@@ -270,7 +270,7 @@ pub async fn register_machine(
 }
 
 pub async fn attest_quote(
-    forge_api: &str,
+    nico_api: &str,
     root_ca: String,
     use_mgmt_vrf: bool,
     retry: DiscoveryRetry,
@@ -278,8 +278,8 @@ pub async fn attest_quote(
 ) -> Result<bool, RegistrationError> {
     tracing::info!("registration client sending attest_quote");
 
-    let forge_client_config = create_client_config("attest_quote", use_mgmt_vrf, root_ca)?;
-    let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
+    let nico_client_config = create_client_config("attest_quote", use_mgmt_vrf, root_ca)?;
+    let response = RegistrationClient::new(nico_api, &nico_client_config, retry)
         .attest_quote(quote)
         .await?;
 

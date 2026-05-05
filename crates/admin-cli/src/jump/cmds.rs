@@ -18,9 +18,9 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge as forgerpc;
-use carbide_uuid::machine::MachineId;
+use ::rpc::admin_cli::NicoCliError;
+use ::rpc::nico as nicorpc;
+use nico_uuid::machine::MachineId;
 use dpa::ShowDpa;
 use mac_address::MacAddress;
 
@@ -58,7 +58,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
 
     // Is it an IP? Uses FindIpAddress (machine / BMC / static BMC / instance / …).
     if IpAddr::from_str(&args.id).is_ok() {
-        let req = forgerpc::FindIpAddressRequest { ip: args.id };
+        let req = nicorpc::FindIpAddressRequest { ip: args.id };
 
         let resp = ctx.api_client.0.find_ip_address(req).await?;
 
@@ -67,7 +67,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
         // the object type of the owner.   E.g., if it's an IP
         // attached to an instance, get the details of the instance.
         for m in resp.matches {
-            let ip_type = match forgerpc::IpType::try_from(m.ip_type) {
+            let ip_type = match nicorpc::IpType::try_from(m.ip_type) {
                 Ok(t) => t,
                 Err(err) => {
                     tracing::error!(ip_type = m.ip_type, error = %err, "Invalid IpType");
@@ -77,16 +77,16 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
 
             let config_format = ctx.config.format;
 
-            use forgerpc::IpType::*;
+            use nicorpc::IpType::*;
             match ip_type {
                 StaticDataDhcpServer => tracing::info!("DHCP Server"),
                 StaticDataRouteServer => tracing::info!("Route Server"),
-                RouteServerFromConfigFile => tracing::info!("Route Server from Carbide config"),
+                RouteServerFromConfigFile => tracing::info!("Route Server from Nico config"),
                 RouteServerFromAdminApi => tracing::info!("Route Server from Admin API"),
                 InstanceAddress => {
                     instance::handle_show(
                         instance::ShowInstance {
-                            id: m.owner_id.ok_or(CarbideCliError::GenericError(
+                            id: m.owner_id.ok_or(NicoCliError::GenericError(
                                 "failed to unwrap owner_id after finding instance for IP"
                                     .to_string(),
                             ))?,
@@ -112,7 +112,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                             machine: Some(
                                 m.owner_id
                                     .and_then(|id| id.parse::<MachineId>().ok())
-                                    .ok_or(CarbideCliError::GenericError(
+                                    .ok_or(NicoCliError::GenericError(
                                         "failed to unwrap owner_id after finding machine for IP"
                                             .to_string(),
                                     ))?,
@@ -144,7 +144,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                                 address: if m.owner_id.is_some() {
                                     m.owner_id
                                 } else {
-                                    color_eyre::eyre::bail!(CarbideCliError::GenericError(
+                                    color_eyre::eyre::bail!(NicoCliError::GenericError(
                                         "IP type is explored-endpoint but returned owner_id is empty".to_string()
                                     ))
                                 },
@@ -163,7 +163,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                         network_segment::ShowNetworkSegment {
                             network: Some(
                                 m.owner_id
-                                    .ok_or(CarbideCliError::GenericError(
+                                    .ok_or(NicoCliError::GenericError(
                                         "failed to unwrap owner_id after finding network segment for IP".to_string(),
                                     ))?
                                     .parse()?,
@@ -181,7 +181,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                 DpaInterface =>  {
                     dpa::show(
                         &ShowDpa {
-                            id: Some(m.owner_id.ok_or(CarbideCliError::GenericError(
+                            id: Some(m.owner_id.ok_or(NicoCliError::GenericError(
                                 "failed to unwrap owner_id after dpa interface for IP".to_string(),
                             ))?.parse()?),
                         },
@@ -204,7 +204,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
     if let Ok(u) = args.id.parse::<uuid::Uuid>() {
         match ctx.api_client.identify_uuid(u).await {
             Ok(o) => match o {
-                forgerpc::UuidType::NetworkSegment => {
+                nicorpc::UuidType::NetworkSegment => {
                     network_segment::handle_show(
                         network_segment::ShowNetworkSegment {
                             network: Some(args.id.parse()?),
@@ -217,7 +217,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                forgerpc::UuidType::Instance => {
+                nicorpc::UuidType::Instance => {
                     instance::handle_show(
                         instance::ShowInstance {
                             id: args.id,
@@ -236,7 +236,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                forgerpc::UuidType::MachineInterface => {
+                nicorpc::UuidType::MachineInterface => {
                     machine_interfaces::handle_show(
                         machine_interfaces::ShowMachineInterfaces {
                             interface_id: Some(args.id.parse()?),
@@ -248,7 +248,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                forgerpc::UuidType::Vpc => {
+                nicorpc::UuidType::Vpc => {
                     vpc::show(
                         vpc::ShowVpc {
                             id: Some(args.id.parse()?),
@@ -263,7 +263,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                forgerpc::UuidType::Domain => {
+                nicorpc::UuidType::Domain => {
                     domain::handle_show(
                         &domain::ShowDomain {
                             domain: Some(args.id.parse()?),
@@ -274,7 +274,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                forgerpc::UuidType::DpaInterfaceId => {
+                nicorpc::UuidType::DpaInterfaceId => {
                     dpa::show(
                         &ShowDpa {
                             id: Some(args.id.parse()?),
@@ -285,7 +285,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                forgerpc::UuidType::ComputeAllocationId => {
+                nicorpc::UuidType::ComputeAllocationId => {
                     compute_allocation::show(
                         compute_allocation::ShowComputeAllocation {
                             id: Some(args.id.parse()?),
@@ -314,7 +314,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
     if let Ok(m) = MacAddress::from_str(&args.id) {
         match ctx.api_client.identify_mac(m).await {
             Ok((mac_owner, primary_key)) => match mac_owner {
-                forgerpc::MacOwner::MachineInterface => {
+                nicorpc::MacOwner::MachineInterface => {
                     machine_interfaces::handle_show(
                         machine_interfaces::ShowMachineInterfaces {
                             interface_id: Some(primary_key.parse()?),
@@ -326,17 +326,17 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                forgerpc::MacOwner::ExploredEndpoint => {
+                nicorpc::MacOwner::ExploredEndpoint => {
                     color_eyre::eyre::bail!(
                         "Searching explored-endpoints from MAC not yet implemented"
                     );
                 }
-                forgerpc::MacOwner::ExpectedMachine => {
+                nicorpc::MacOwner::ExpectedMachine => {
                     color_eyre::eyre::bail!(
                         "Searching expected-machines from MAC not yet implemented"
                     );
                 }
-                forgerpc::MacOwner::DpaInterface => {
+                nicorpc::MacOwner::DpaInterface => {
                     dpa::show(
                         &ShowDpa {
                             id: Some(primary_key.parse()?),

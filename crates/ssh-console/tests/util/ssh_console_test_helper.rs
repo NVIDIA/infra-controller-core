@@ -37,7 +37,7 @@ pub struct ConfigOverrides {
 }
 
 pub async fn spawn(
-    carbide_port: u16,
+    nico_port: u16,
     config_overrides: Option<ConfigOverrides>,
 ) -> eyre::Result<NewSshConsoleHandle> {
     let listen_address = {
@@ -62,7 +62,7 @@ pub async fn spawn(
     let config = ssh_console::config::Config {
         listen_address,
         metrics_address,
-        carbide_uri: format!("https://localhost:{carbide_port}")
+        nico_uri: format!("https://localhost:{nico_port}")
             .try_into()
             .expect("Invalid URI?"),
         authorized_keys_path: Some(AUTHORIZED_KEYS_PATH.clone()),
@@ -73,7 +73,7 @@ pub async fn spawn(
         override_bmc_ssh_port: Some(2222),
         override_ipmi_port: Some(1623),
         insecure_ipmi_ciphers: true,
-        forge_root_ca_path: API_CA_CERT.clone(),
+        nico_root_ca_path: API_CA_CERT.clone(),
         client_cert_path: API_CLIENT_CERT.clone(),
         client_key_path: API_CLIENT_KEY.clone(),
         openssh_certificate_ca_fingerprints: vec![],

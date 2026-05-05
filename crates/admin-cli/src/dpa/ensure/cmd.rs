@@ -17,8 +17,8 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc};
+use ::rpc::admin_cli::{NicoCliResult, OutputFormat};
+use ::rpc::nico::{self as nicorpc};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -26,7 +26,7 @@ use crate::rpc::ApiClient;
 // ensure, similar to persist, is an RPC endpoint meant for
 // debugging purposes only, and may eventually go away. The
 // arguments will be used to build a DpaInterfaceCreationRequest,
-// which is turned into a NewDpaInterface within carbide-api,
+// which is turned into a NewDpaInterface within nico-api,
 // and will then (in this case) be passed to ensure. Ensure
 // is different than persist in that persist fails if the
 // interface already exists, while ensure will create the
@@ -36,7 +36,7 @@ pub async fn ensure(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let interface = api_client.0.ensure_dpa_interface(args).await?;
 
     if output_format == OutputFormat::Json {
@@ -51,7 +51,7 @@ pub async fn ensure(
     Ok(())
 }
 
-fn convert_dpa_to_nice_format(dpa: &forgerpc::DpaInterface) -> CarbideCliResult<String> {
+fn convert_dpa_to_nice_format(dpa: &nicorpc::DpaInterface) -> NicoCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 

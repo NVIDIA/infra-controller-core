@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 
 use super::args::{AgentUpgradePolicyChoice, Args};
 use crate::rpc::ApiClient;
 
-pub async fn agent_upgrade_policy(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub async fn agent_upgrade_policy(api_client: &ApiClient, args: Args) -> NicoCliResult<()> {
     let is_set = args.set.is_some();
     let resp = api_client.0.dpu_agent_upgrade_policy_action(args).await?;
     let policy: AgentUpgradePolicyChoice = resp.active_policy.into();

@@ -20,10 +20,10 @@ use std::sync::Arc;
 use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::machine_validation::MachineValidationId;
+use nico_uuid::machine_validation::MachineValidationId;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc};
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{self as nicorpc};
 
 use super::Base;
 use super::machine::ValidationRun;
@@ -135,8 +135,8 @@ struct ValidationExternalConfigs {
     validation_configs: Vec<ValidationExternalConfig>,
 }
 
-impl From<forgerpc::MachineValidationTest> for ValidateTest {
-    fn from(test: forgerpc::MachineValidationTest) -> Self {
+impl From<nicorpc::MachineValidationTest> for ValidateTest {
+    fn from(test: nicorpc::MachineValidationTest) -> Self {
         ValidateTest {
             id: test.test_id,
             version: test.version,
@@ -153,8 +153,8 @@ impl From<forgerpc::MachineValidationTest> for ValidateTest {
     }
 }
 
-impl From<forgerpc::MachineValidationTest> for ValidateTestDetails {
-    fn from(test: forgerpc::MachineValidationTest) -> Self {
+impl From<nicorpc::MachineValidationTest> for ValidateTestDetails {
+    fn from(test: nicorpc::MachineValidationTest) -> Self {
         ValidateTestDetails {
             test_id: test.test_id,
             version: test.version,
@@ -179,8 +179,8 @@ impl From<forgerpc::MachineValidationTest> for ValidateTestDetails {
     }
 }
 
-impl From<forgerpc::MachineValidationExternalConfig> for ValidationExternalConfig {
-    fn from(test: forgerpc::MachineValidationExternalConfig) -> Self {
+impl From<nicorpc::MachineValidationExternalConfig> for ValidationExternalConfig {
+    fn from(test: nicorpc::MachineValidationExternalConfig) -> Self {
         ValidationExternalConfig {
             name: test.name,
             description: test.description.unwrap_or_default(),
@@ -203,7 +203,7 @@ pub async fn results(
                 .into_response();
         }
     };
-    let request = tonic::Request::new(forgerpc::MachineValidationGetRequest {
+    let request = tonic::Request::new(nicorpc::MachineValidationGetRequest {
         validation_id: Some(validation_id),
         include_history: false,
         machine_id: None,
@@ -218,7 +218,7 @@ pub async fn results(
         Ok(results) => results
             .results
             .into_iter()
-            .map(|r: forgerpc::MachineValidationResult| ValidationResult {
+            .map(|r: nicorpc::MachineValidationResult| ValidationResult {
                 validation_id: r.validation_id.unwrap_or_default().to_string(),
                 name: r.name,
                 test_id: r.test_id.unwrap_or_default(),
@@ -261,7 +261,7 @@ pub async fn result_details(
                 .into_response();
         }
     };
-    let request = tonic::Request::new(forgerpc::MachineValidationGetRequest {
+    let request = tonic::Request::new(nicorpc::MachineValidationGetRequest {
         validation_id: Some(validation_id),
         include_history: false,
         machine_id: None,
@@ -277,7 +277,7 @@ pub async fn result_details(
             .into_iter()
             .filter(|r| r.test_id.as_ref() == Some(&test_id))
             .map(
-                |r: forgerpc::MachineValidationResult| ValidationResultDetail {
+                |r: nicorpc::MachineValidationResult| ValidationResultDetail {
                     validation_id: r.validation_id.unwrap_or_default().to_string(),
                     name: r.name,
                     context: r.context,
@@ -358,13 +358,13 @@ pub async fn show_tests_details_html(
 async fn fetch_validation_tests(
     api: Arc<Api>,
     test_id: Option<String>,
-) -> Result<Vec<forgerpc::MachineValidationTest>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::MachineValidationTestsGetRequest {
+) -> Result<Vec<nicorpc::MachineValidationTest>, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::MachineValidationTestsGetRequest {
         supported_platforms: Vec::new(),
         contexts: Vec::new(),
         test_id,
         verified: Some(true),
-        ..forgerpc::MachineValidationTestsGetRequest::default()
+        ..nicorpc::MachineValidationTestsGetRequest::default()
     });
     api.get_machine_validation_tests(request)
         .await
@@ -373,7 +373,7 @@ async fn fetch_validation_tests(
 
 pub async fn runs(AxumState(state): AxumState<Arc<Api>>) -> Response {
     // Get validation results
-    let validation_request = tonic::Request::new(rpc::forge::MachineValidationRunListGetRequest {
+    let validation_request = tonic::Request::new(rpc::nico::MachineValidationRunListGetRequest {
         machine_id: None,
         include_history: false,
     });
@@ -390,8 +390,8 @@ pub async fn runs(AxumState(state): AxumState<Arc<Api>>) -> Response {
             .map(|vr| ValidationRun {
                 machine_id: vr.machine_id.map(|id| id.to_string()).unwrap_or_default(),
                 status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
-                    rpc::forge::machine_validation_status::MachineValidationState::Completed(
-                        rpc::forge::machine_validation_status::MachineValidationCompleted::Success.into(),
+                    rpc::nico::machine_validation_status::MachineValidationState::Completed(
+                        rpc::nico::machine_validation_status::MachineValidationCompleted::Success.into(),
                     ),
                 )),
                 context: vr.context.unwrap_or_default(),
@@ -413,7 +413,7 @@ pub async fn runs(AxumState(state): AxumState<Arc<Api>>) -> Response {
 
 pub async fn external_configs(AxumState(state): AxumState<Arc<Api>>) -> Response {
     // Get validation results
-    let request = tonic::Request::new(rpc::forge::GetMachineValidationExternalConfigsRequest {
+    let request = tonic::Request::new(rpc::nico::GetMachineValidationExternalConfigsRequest {
         names: Vec::new(),
     });
 

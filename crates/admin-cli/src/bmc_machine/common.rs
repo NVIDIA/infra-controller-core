@@ -27,26 +27,26 @@ pub enum AdminPowerControlAction {
     ACPowercycle,
 }
 
-impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::SystemPowerControl {
+impl From<AdminPowerControlAction> for rpc::nico::admin_power_control_request::SystemPowerControl {
     fn from(c_type: AdminPowerControlAction) -> Self {
         match c_type {
             AdminPowerControlAction::On => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::On
+                rpc::nico::admin_power_control_request::SystemPowerControl::On
             }
             AdminPowerControlAction::GracefulShutdown => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::GracefulShutdown
+                rpc::nico::admin_power_control_request::SystemPowerControl::GracefulShutdown
             }
             AdminPowerControlAction::ForceOff => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff
+                rpc::nico::admin_power_control_request::SystemPowerControl::ForceOff
             }
             AdminPowerControlAction::GracefulRestart => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::GracefulRestart
+                rpc::nico::admin_power_control_request::SystemPowerControl::GracefulRestart
             }
             AdminPowerControlAction::ForceRestart => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart
+                rpc::nico::admin_power_control_request::SystemPowerControl::ForceRestart
             }
             AdminPowerControlAction::ACPowercycle => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::AcPowercycle
+                rpc::nico::admin_power_control_request::SystemPowerControl::AcPowercycle
             }
         }
     }

@@ -22,7 +22,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 pub use args::Args;
 use serde::{Deserialize, Serialize};
 
@@ -31,7 +31,7 @@ use crate::cfg::runtime::RuntimeContext;
 use crate::expected_switch::common::ExpectedSwitchJson;
 
 impl Run for Args {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         let json_file_path = Path::new(&self.filename);
         let reader = BufReader::new(File::open(json_file_path)?);
 
@@ -47,7 +47,7 @@ impl Run for Args {
             .expected_switches_count
             .is_some_and(|count| count != expected_switch_list.expected_switches.len())
         {
-            return Err(CarbideCliError::GenericError(format!(
+            return Err(NicoCliError::GenericError(format!(
                 "Json File specified an invalid count: {:#?}; actual count: {}",
                 expected_switch_list
                     .expected_switches_count

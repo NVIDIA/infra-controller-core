@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use carbide_utils::test_support::test_meter::TestMeter;
+use nico_utils::test_support::test_meter::TestMeter;
 use model::resource_pool::ResourcePoolStats;
 use prometheus_text_parser::ParsedPrometheusMetrics;
 use sqlx::PgPool;

@@ -22,7 +22,7 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use db::measured_boot::interface::machine::get_candidate_machine_records;
 use measured_boot::pcr::PcrRegisterValue;
 use rpc::protos::measured_boot::{
@@ -32,7 +32,7 @@ use rpc::protos::measured_boot::{
 };
 use tonic::Status;
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::Api;
 
 /// handle_attest_candidate_machine handles the AttestCandidateMachine API endpoint.
@@ -44,12 +44,12 @@ pub async fn handle_attest_candidate_machine(
     let report = db::measured_boot::report::new(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
-            CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
+            NicoError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
         })?,
         &PcrRegisterValue::from_pb_vec(req.pcr_values),
     )
     .await
-    .map_err(|e| CarbideError::Internal {
+    .map_err(|e| NicoError::Internal {
         message: format!("failed saving measurements: {e}"),
     })?;
 
@@ -71,16 +71,16 @@ pub async fn handle_show_candidate_machine(
             db::measured_boot::machine::from_id(
                 &mut txn,
                 MachineId::from_str(&machine_uuid).map_err(|_| {
-                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_uuid))
+                    NicoError::from(RpcDataConversionError::InvalidMachineId(machine_uuid))
                 })?,
             )
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?
         }
         // Show all system profiles.
-        None => return Err(CarbideError::InvalidArgument("selector required".to_string()).into()),
+        None => return Err(NicoError::InvalidArgument("selector required".to_string()).into()),
     };
 
     txn.commit().await?;
@@ -98,7 +98,7 @@ pub async fn handle_show_candidate_machines(
     Ok(ShowCandidateMachinesResponse {
         machines: db::measured_boot::machine::get_all(&mut api.db_reader())
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("{e}"),
             })?
             .into_iter()
@@ -115,7 +115,7 @@ pub async fn handle_list_candidate_machines(
     Ok(ListCandidateMachinesResponse {
         machines: get_candidate_machine_records(&api.database_connection)
             .await
-            .map_err(|e| CarbideError::Internal {
+            .map_err(|e| NicoError::Internal {
                 message: format!("failed to read records: {e}"),
             })?
             .into_iter()

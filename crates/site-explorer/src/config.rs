@@ -20,8 +20,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use arc_swap::ArcSwap;
-use carbide_utils::HostPortPair;
-use carbide_utils::config::{
+use nico_utils::HostPortPair;
+use nico_utils::config::{
     as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
 };
 use chrono::Duration;

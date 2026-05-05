@@ -309,7 +309,7 @@ where
 }
 
 // serialize_option_profile_map is used in cases where the MlxConfigProfile
-// is part of an Option HashMap, like in the case of the Carbide config file.
+// is part of an Option HashMap, like in the case of the Nico config file.
 pub fn serialize_option_profile_map<S>(
     profiles: &Option<HashMap<String, MlxConfigProfile>>,
     serializer: S,
@@ -324,7 +324,7 @@ where
 }
 
 // deserialize_option_profile_map is used in cases where the MlxConfigProfile
-// is part of an Option HashMap, like in the case of the Carbide config file.
+// is part of an Option HashMap, like in the case of the Nico config file.
 pub fn deserialize_option_profile_map<'de, D>(
     deserializer: D,
 ) -> Result<Option<HashMap<String, MlxConfigProfile>>, D::Error>

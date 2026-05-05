@@ -18,16 +18,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use db::db_read::PgPoolReader;
 use model::machine::{
     InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
     ReprovisionState,
 };
-use rpc::forge::forge_agent_control_response::LegacyAction;
-use rpc::forge::forge_server::Forge;
-use rpc::forge_agent_control_response::Action;
+use rpc::nico::nico_agent_control_response::LegacyAction;
+use rpc::nico::nico_server::Nico;
+use rpc::nico_agent_control_response::Action;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
@@ -111,7 +111,7 @@ impl TestManagedHost {
     }
 
     pub async fn machine_validation_completed(&self) {
-        let response = self.host().forge_agent_control().await;
+        let response = self.host().nico_agent_control().await;
         let Some(Action::MachineValidation(machine_validation)) = response.action else {
             panic!("expected typed machine validation action");
         };
@@ -124,7 +124,7 @@ impl TestManagedHost {
             .expect("machine validation action missing validation_id");
         self.api
             .machine_validation_completed(Request::new(
-                rpc::forge::MachineValidationCompletedRequest {
+                rpc::nico::MachineValidationCompletedRequest {
                     machine_id: self.id.into(),
                     machine_validation_error: None,
                     validation_id: Some(validation_id),

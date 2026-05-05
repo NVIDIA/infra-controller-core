@@ -25,33 +25,33 @@ pub struct Args {
     pub target: DeviceTargetArgs,
 }
 
-impl From<Args> for rpc::forge::GetComponentFirmwareStatusRequest {
+impl From<Args> for rpc::nico::GetComponentFirmwareStatusRequest {
     fn from(args: Args) -> Self {
         match args.target {
             DeviceTargetArgs::Switch(target) => Self {
                 target: Some(
-                    rpc::forge::get_component_firmware_status_request::Target::SwitchIds(
+                    rpc::nico::get_component_firmware_status_request::Target::SwitchIds(
                         target.into(),
                     ),
                 ),
             },
             DeviceTargetArgs::PowerShelf(target) => Self {
                 target: Some(
-                    rpc::forge::get_component_firmware_status_request::Target::PowerShelfIds(
+                    rpc::nico::get_component_firmware_status_request::Target::PowerShelfIds(
                         target.into(),
                     ),
                 ),
             },
             DeviceTargetArgs::ComputeTray(target) => Self {
                 target: Some(
-                    rpc::forge::get_component_firmware_status_request::Target::MachineIds(
+                    rpc::nico::get_component_firmware_status_request::Target::MachineIds(
                         target.into(),
                     ),
                 ),
             },
             DeviceTargetArgs::Rack(target) => Self {
                 target: Some(
-                    rpc::forge::get_component_firmware_status_request::Target::RackIds(
+                    rpc::nico::get_component_firmware_status_request::Target::RackIds(
                         target.into(),
                     ),
                 ),

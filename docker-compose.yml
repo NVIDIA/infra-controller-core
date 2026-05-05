@@ -2,9 +2,9 @@
 # `docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions`
 
 networks:
-  carbide:
+  nico:
     driver_opts:
-      com.docker.network.bridge.name: carbide0
+      com.docker.network.bridge.name: nico0
     ipam:
       config:
         - subnet: "172.20.0.0/24"
@@ -17,14 +17,14 @@ networks:
 services:
   dhcp-relay:
     depends_on:
-      - carbide-dhcp
+      - nico-dhcp
     cap_add:
       - CAP_NET_ADMIN
     container_name: "dhcp-relay"
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.11
-    image: carbide-runtime:latest
+    image: nico-runtime:latest
     command:
       - sh
       - -c
@@ -40,27 +40,27 @@ services:
         echo { \"option82\": { }, \"server\": [ { \"address\": \"172.20.0.12\" }], \"group\": [ { \"giaddr\": \"172.20.0.11\" } ] } > /etc/dhcphelper.json
         /usr/local/bin/dhcp-helper
 
-  carbide-dhcp:
+  nico-dhcp:
     depends_on:
       - loki
     build: crates/dhcp
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.12
     ports:
       - "67:67/udp"
       - 1089:1089
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
-      - ./dev/certs:/opt/forge
+      - ./dev/certs:/opt/nico
       - .:/app/code
       - ca-certificate:/identity
-      - /var/run/carbide-dns.sock:/var/run/carbide-dns.sock
+      - /var/run/nico-dns.sock:/var/run/nico-dns.sock
     environment:
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
-      - FORGE_ROOT_CAFILE_PATH=/opt/forge/forge_root.pem
-    command: cargo watch -C crates/dhcp -x "build --target-dir /tmp/carbide-dhcp" -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
+      - NICO_ROOT_CAFILE_PATH=/opt/nico/nico_root.pem
+    command: cargo watch -C crates/dhcp -x "build --target-dir /tmp/nico-dhcp" -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-nico.conf"
     cap_add:
       - net_bind_service
     logging:
@@ -68,12 +68,12 @@ services:
       options:
         loki-url: "http://172.20.0.25:3100/loki/api/v1/push"
 
-  carbide-db-migrations:
+  nico-db-migrations:
     depends_on:
       - postgresql
     build: crates/api
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.13
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
@@ -81,53 +81,53 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C crates/api -x "run --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql'"
+    command: cargo watch -C crates/api -x "run --target-dir /tmp/nico-db-migrations -- migrate --datastore='postgres://nico_development:notforprod@postgresql'"
 
-  carbide-api:
+  nico-api:
     depends_on:
-      - carbide-db-migrations
+      - nico-db-migrations
       - postgresql
       - loki
     build: crates/api
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.14
       underlay:
         ipv4_address: 172.21.0.14
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
-      - ./dev/certs:/opt/forge
+      - ./dev/certs:/opt/nico
       - .:/app/code
       - ca-certificate:/identity
     # For trace/debug mode add '-dd':
-    #   command: cargo watch -C crates/api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
+    #   command: cargo watch -C crates/api -x "run --target-dir /tmp/nico-api -- -dd run [...]
     # Create BMC site wide credentials to avoid Vault warnings, in container:
-    #   cargo build -p admin --target-dir /opt/forge-admin-cli/
-    #   /opt/forge-admin-cli/debug/forge-admin-cli -c https://127.0.0.1:1079 --client-cert-path /opt/forge/server_identity.pem --client-key-path /opt/forge/server_identity.key credential add-bmc --kind=site-wide-root --password=password
+    #   cargo build -p admin --target-dir /opt/nico-admin-cli/
+    #   /opt/nico-admin-cli/debug/nico-admin-cli -c https://127.0.0.1:1079 --client-cert-path /opt/nico/server_identity.pem --client-key-path /opt/nico/server_identity.key credential add-bmc --kind=site-wide-root --password=password
     #
     # Update database extract:
     #  ssh to dev3/4
-    #  kubectl exec -i -t -n postgres forge-pg-cluster-2 -- /usr/bin/pg_dump --no-owner --rows-per-insert=100 --on-conflict-do-nothing --clean --if-exists -U postgres forge_system_carbide | tee ~grahamk/dev.sql
+    #  kubectl exec -i -t -n postgres nico-pg-cluster-2 -- /usr/bin/pg_dump --no-owner --rows-per-insert=100 --on-conflict-do-nothing --clean --if-exists -U postgres nico_system_nico | tee ~grahamk/dev.sql
     #  scp that dev.sql file back to your local
     #  compress with `xz -9`
     #  name it correctly, commit it, and edit the xzcat line below
-    #  xzcat /app/code/dev/dev_db_20240813.sql.xz | /usr/bin/psql -h postgresql -U carbide_development
+    #  xzcat /app/code/dev/dev_db_20240813.sql.xz | /usr/bin/psql -h postgresql -U nico_development
     #
     # Manual (auto-load was removed):
     # - Same DB export as before
-    # - Delete the carbide-migrations service/container definition above
+    # - Delete the nico-migrations service/container definition above
     # - docker-compose up
     # - Once `postgresql` is up:
-    #   `PGPASSWORD=notforprod psql -h 172.20.0.16 -U carbide_development < db.sql`
+    #   `PGPASSWORD=notforprod psql -h 172.20.0.16 -U nico_development < db.sql`
     #
     command:
       - sh
       - -c
       - >
-        cargo build -p admin --target-dir /opt/forge-admin-cli/
+        cargo build -p admin --target-dir /opt/nico-admin-cli/
 
-        cargo watch -C crates/api -x "run --target-dir /tmp/carbide-api --
-        run --config-path=/app/code/dev/docker-env/carbide-api-config.toml"
+        cargo watch -C crates/api -x "run --target-dir /tmp/nico-api --
+        run --config-path=/app/code/dev/docker-env/nico-api-config.toml"
     ports:
       - 1079:1079
       - 1080:1080
@@ -136,7 +136,7 @@ services:
       - PGPASSWORD=notforprod
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
-      - CARBIDE_API_DATABASE_URL=postgres://carbide_development:notforprod@postgresql
+      - NICO_API_DATABASE_URL=postgres://nico_development:notforprod@postgresql
       - VAULT_KV_MOUNT_LOCATION=secret
       - VAULT_PKI_MOUNT_LOCATION=unsupported
       - VAULT_PKI_ROLE_NAME=unsupported
@@ -153,30 +153,30 @@ services:
       options:
         loki-url: "http://172.20.0.25:3100/loki/api/v1/push"
 
-  carbide-pxe:
+  nico-pxe:
     depends_on:
       - loki
     build: pxe
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.15
     ports:
       - 1083:1080
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
-      - ./dev/certs:/opt/forge
+      - ./dev/certs:/opt/nico
       - .:/app/code
       - ca-certificate:/identity
     environment:
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
       - ROCKET_port=1080
-      - FORGE_ROOT_CAFILE_PATH=/opt/forge/forge_root.pem
-      - FORGE_CLIENT_CERT_PATH=/opt/forge/server_identity.pem
-      - FORGE_CLIENT_KEY_PATH=/opt/forge/server_identity.key
+      - NICO_ROOT_CAFILE_PATH=/opt/nico/nico_root.pem
+      - NICO_CLIENT_CERT_PATH=/opt/nico/server_identity.pem
+      - NICO_CLIENT_KEY_PATH=/opt/nico/server_identity.key
       - ARTIFACT_AUTHORIZATION_USER=$ARTIFACT_AUTHORIZATION_USER
       - ARTIFACT_AUTHORIZATION_TOKEN=$ARTIFACT_AUTHORIZATION_TOKEN
-    command: cargo watch -C crates/pxe -x "run --target-dir /tmp/carbide-pxe"
+    command: cargo watch -C crates/pxe -x "run --target-dir /tmp/nico-pxe"
     logging:
       driver: loki
       options:
@@ -187,14 +187,14 @@ services:
       - loki
     image: postgres:14.1-alpine
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.16
     volumes:
       - db-data:/var/lib/postgresql/data
       - ca-certificate:/identity
     environment:
-      - POSTGRES_USER=${DBUSER:-carbide_development}
-      - POSTGRES_DB=${DBNAME:-carbide_development}
+      - POSTGRES_USER=${DBUSER:-nico_development}
+      - POSTGRES_DB=${DBNAME:-nico_development}
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
     command: -c ssl=off -c max_connections=300 -c shared_buffers=256MB
     ports:
@@ -207,7 +207,7 @@ services:
   ntp:
     image: cturra/ntp
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.24
     ports:
       - "123:123/udp"
@@ -219,7 +219,7 @@ services:
       - loki
     image: hashicorp/vault:latest
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.19
     cap_add:
       - ipc_lock
@@ -246,13 +246,13 @@ services:
   #
   #powerdns:
   #  depends_on:
-  #    - carbide-dns
+  #    - nico-dns
   #    - postgresql
-  #    - carbide-api
+  #    - nico-api
   #  build:
   #    dockerfile: dev/docker/Dockerfile-powerdns
   #  networks:
-  #    carbide:
+  #    nico:
   #      ipv4_address: 172.20.0.53
   #  volumes:
   #    - dns_socket:/tmp
@@ -273,14 +273,14 @@ services:
   #  ports:
   #   - "1053:53/udp"
 
-  carbide-dns:
+  nico-dns:
     depends_on:
       - postgresql
-      - carbide-api
+      - nico-api
       - loki
     build: crates/dns
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.20
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
@@ -290,7 +290,7 @@ services:
       - RUST_LOG=debug
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C crates/dns -x "run --target-dir /tmp/carbide-dns -- --config-path=/app/code/dev/docker-env/carbide-dns-config.toml run"
+    command: cargo watch -C crates/dns -x "run --target-dir /tmp/nico-dns -- --config-path=/app/code/dev/docker-env/nico-dns-config.toml run"
     logging:
       driver: loki
       options:
@@ -315,7 +315,7 @@ services:
     ports:
       - "9090:9090"
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.22
     logging:
       driver: loki
@@ -329,14 +329,14 @@ services:
       - grafana-data:/var/lib/grafana
       - ./dev/grafana/provisioning:/etc/grafana/provisioning
     environment:
-      - GF_SECURITY_ADMIN_USER=forge
-      - GF_SECURITY_ADMIN_PASSWORD=forge
+      - GF_SECURITY_ADMIN_USER=nico
+      - GF_SECURITY_ADMIN_PASSWORD=nico
       - GF_USERS_ALLOW_SIGN_UP=false
     restart: unless-stopped
     ports:
       - "3000:3000"
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.23
 
   loki:
@@ -348,7 +348,7 @@ services:
       - "3100:3100"
     command: -config.file=/etc/loki/loki-config.yml
     networks:
-      carbide:
+      nico:
         ipv4_address: 172.20.0.25
 
 volumes:

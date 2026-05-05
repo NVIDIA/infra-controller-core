@@ -56,12 +56,12 @@ impl<'r> FromRow<'r, PgRow> for StateHistoryRecord {
     }
 }
 
-impl From<StateHistoryRecord> for ::rpc::forge::StateHistoryRecord {
-    fn from(value: StateHistoryRecord) -> ::rpc::forge::StateHistoryRecord {
+impl From<StateHistoryRecord> for ::rpc::nico::StateHistoryRecord {
+    fn from(value: StateHistoryRecord) -> ::rpc::nico::StateHistoryRecord {
         let time = value
             .time
             .unwrap_or_else(|| value.state_version.timestamp());
-        ::rpc::forge::StateHistoryRecord {
+        ::rpc::nico::StateHistoryRecord {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(time.into()),
@@ -69,12 +69,12 @@ impl From<StateHistoryRecord> for ::rpc::forge::StateHistoryRecord {
     }
 }
 
-impl From<StateHistoryRecord> for ::rpc::forge::MachineEvent {
-    fn from(value: StateHistoryRecord) -> ::rpc::forge::MachineEvent {
+impl From<StateHistoryRecord> for ::rpc::nico::MachineEvent {
+    fn from(value: StateHistoryRecord) -> ::rpc::nico::MachineEvent {
         let time = value
             .time
             .unwrap_or_else(|| value.state_version.timestamp());
-        ::rpc::forge::MachineEvent {
+        ::rpc::nico::MachineEvent {
             event: value.state,
             version: value.state_version.version_string(),
             time: Some(time.into()),
@@ -82,12 +82,12 @@ impl From<StateHistoryRecord> for ::rpc::forge::MachineEvent {
     }
 }
 
-impl From<StateHistoryRecord> for ::rpc::forge::NetworkSegmentStateHistory {
-    fn from(value: StateHistoryRecord) -> ::rpc::forge::NetworkSegmentStateHistory {
+impl From<StateHistoryRecord> for ::rpc::nico::NetworkSegmentStateHistory {
+    fn from(value: StateHistoryRecord) -> ::rpc::nico::NetworkSegmentStateHistory {
         let time = value
             .time
             .unwrap_or_else(|| value.state_version.timestamp());
-        ::rpc::forge::NetworkSegmentStateHistory {
+        ::rpc::nico::NetworkSegmentStateHistory {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(time.into()),

@@ -16,8 +16,8 @@
  */
 use std::time::SystemTime;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge::forge_server::Forge;
+use ::rpc::nico as rpc;
+use ::rpc::nico::nico_server::Nico;
 use chrono::{Duration, Utc};
 use common::api_fixtures::create_test_env;
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId};
@@ -49,7 +49,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     assert!(response.did_change, "Policy should have changed");
 
     // We'll need to know the current network config version in order to register our
-    // forge-dpu-agent version
+    // nico-dpu-agent version
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(
@@ -71,7 +71,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             // END
             observed_at: None,
             dpu_health: Some(::rpc::health::HealthReport {
-                source: "forge-dpu-agent".to_string(),
+                source: "nico-dpu-agent".to_string(),
                 triggered_by: None,
                 observed_at: None,
                 successes: vec![],
@@ -117,7 +117,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         resp.should_upgrade,
         "DPU reported old version so should be asked to upgrade"
     );
-    let current_version = carbide_version::v!(build_version);
+    let current_version = nico_version::v!(build_version);
     assert_eq!(
         resp.package_version,
         current_version[1..],
@@ -142,28 +142,28 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
 
     let stale_version = "stale_version";
     let recently_superseded_version = "recently_superseded_version";
-    let current_version = carbide_version::v!(build_version);
+    let current_version = nico_version::v!(build_version);
     let stale_time = Utc::now() - Duration::hours(25);
     let recently_superseded_time = Utc::now() - Duration::hours(23);
 
     {
         let mut txn = env.pool.begin().await?;
-        db::carbide_version::make_mock_observation(&mut txn, stale_version, Some(stale_time))
+        db::nico_version::make_mock_observation(&mut txn, stale_version, Some(stale_time))
             .await?;
-        db::carbide_version::make_mock_observation(
+        db::nico_version::make_mock_observation(
             &mut txn,
             recently_superseded_version,
             Some(recently_superseded_time),
         )
         .await?;
-        db::carbide_version::make_mock_observation(&mut txn, current_version, None).await?;
+        db::nico_version::make_mock_observation(&mut txn, current_version, None).await?;
         txn.commit().await?;
     }
 
     let mh = create_managed_host(&env).await;
 
     // We'll need to know the current network config version in order to register our
-    // forge-dpu-agent version
+    // nico-dpu-agent version
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(
@@ -253,7 +253,7 @@ impl TestManagedHost {
                 dpu_agent_version: agent_version.map(Into::into),
                 observed_at: None,
                 dpu_health: Some(::rpc::health::HealthReport {
-                    source: "forge-dpu-agent".to_string(),
+                    source: "nico-dpu-agent".to_string(),
                     triggered_by: None,
                     observed_at: None,
                     successes: vec![],

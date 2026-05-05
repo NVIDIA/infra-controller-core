@@ -20,8 +20,8 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_uuid::network::NetworkSegmentId;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_uuid::network::NetworkSegmentId;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
@@ -41,7 +41,7 @@ use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
 use model::vpc::UpdateVpcVirtualization;
 use prometheus_text_parser::ParsedPrometheusMetrics;
-use rpc::forge::forge_server::Forge;
+use rpc::nico::nico_server::Nico;
 use tonic::Request;
 
 use crate::db_init;
@@ -134,7 +134,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
         false,
         false,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        rpc::nico::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -162,7 +162,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 
     let delete_result = env
         .api
-        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+        .delete_network_segment(Request::new(rpc::nico::NetworkSegmentDeletionRequest {
             id: segment.id,
         }))
         .await;
@@ -187,17 +187,17 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
         false,
         false,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        rpc::nico::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
 
     // Now try to create another one with a prefix that is contained within the exising prefix
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = rpc::nico::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "TEST_SEGMENT_2".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![rpc::nico::NetworkPrefix {
             id: None,
             prefix: "192.0.2.12/30".to_string(), // is inside 192.0.2.0/24
             gateway: Some("192.0.2.13".to_string()),
@@ -207,7 +207,7 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
         }],
         subdomain_id: None,
         vpc_id: None,
-        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        segment_type: rpc::nico::NetworkSegmentType::Tenant as i32,
     };
     match env.api.create_network_segment(Request::new(request)).await {
         Ok(_) => Err(eyre::eyre!(
@@ -232,7 +232,7 @@ async fn test_network_segment_max_history_length(
         true,
         true,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        rpc::nico::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -243,33 +243,33 @@ async fn test_network_segment_max_history_length(
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
-        rpc::forge::TenantState::Ready
+        rpc::nico::TenantState::Ready
     );
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("carbide_available_ips_count")
+            .formatted_metric("nico_available_ips_count")
             .unwrap(),
         r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 253"#
     );
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("carbide_total_ips_count")
+            .formatted_metric("nico_total_ips_count")
             .unwrap(),
         r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 256"#
     );
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("carbide_reserved_ips_count")
+            .formatted_metric("nico_reserved_ips_count")
             .unwrap(),
         r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 1"#
     );
 
     let segment = get_segments(
         &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
+        rpc::nico::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_id],
             include_history: true,
             include_num_free_ips: false,
@@ -280,7 +280,7 @@ async fn test_network_segment_max_history_length(
 
     let segment = get_segments(
         &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
+        rpc::nico::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_id],
             include_history: false,
             include_num_free_ips: false,
@@ -291,7 +291,7 @@ async fn test_network_segment_max_history_length(
 
     let segment = get_segments(
         &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
+        rpc::nico::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_id],
             include_history: false,
             include_num_free_ips: false,
@@ -397,7 +397,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         false,
         true,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        rpc::nico::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -419,7 +419,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Delete the segment, releasing the VNI back to the pool
     env.api
-        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+        .delete_network_segment(Request::new(rpc::nico::NetworkSegmentDeletionRequest {
             id: segment.id,
         }))
         .await?;
@@ -455,7 +455,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         false,
         true,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        rpc::nico::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -559,7 +559,7 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         false,
         false,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        rpc::nico::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -595,7 +595,7 @@ async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::R
         false,
         false,
         Some(id),
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        rpc::nico::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -609,11 +609,11 @@ async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::R
 async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = rpc::nico::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "TEST_SEGMENT_1".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![rpc::nico::NetworkPrefix {
             id: None,
             prefix: "192.0.2.12/31".to_string(),
             gateway: Some("192.0.2.13".to_string()),
@@ -623,7 +623,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
         }],
         subdomain_id: None,
         vpc_id: None,
-        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        segment_type: rpc::nico::NetworkSegmentType::Tenant as i32,
     };
 
     for prefix in &[31, 32] {
@@ -702,7 +702,7 @@ async fn test_network_segment_metrics(
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
-        rpc::forge::TenantState::Ready
+        rpc::nico::TenantState::Ready
     );
 
     let avail_str = format!(
@@ -714,13 +714,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("carbide_available_ips_count")
+                .formatted_metric("nico_available_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("carbide_available_ips_count")
+                .formatted_metric("nico_available_ips_count")
                 .unwrap(),
             avail_str
         );
@@ -733,13 +733,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("carbide_total_ips_count")
+                .formatted_metric("nico_total_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("carbide_total_ips_count")
+                .formatted_metric("nico_total_ips_count")
                 .unwrap(),
             total_str
         );
@@ -752,13 +752,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("carbide_reserved_ips_count")
+                .formatted_metric("nico_reserved_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("carbide_reserved_ips_count")
+                .formatted_metric("nico_reserved_ips_count")
                 .unwrap(),
             reserved_str
         );
@@ -771,7 +771,7 @@ async fn test_network_segment_metrics(
 
     // Delete the segment, releasing the VNI back to the pool
     env.api
-        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+        .delete_network_segment(Request::new(rpc::nico::NetworkSegmentDeletionRequest {
             id: segment.id,
         }))
         .await?;
@@ -790,13 +790,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("carbide_available_ips_count")
+                .formatted_metric("nico_available_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("carbide_available_ips_count")
+                .formatted_metric("nico_available_ips_count")
                 .unwrap(),
             avail_str
         );
@@ -809,13 +809,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("carbide_total_ips_count")
+                .formatted_metric("nico_total_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("carbide_total_ips_count")
+                .formatted_metric("nico_total_ips_count")
                 .unwrap(),
             total_str
         );
@@ -828,13 +828,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("carbide_reserved_ips_count")
+                .formatted_metric("nico_reserved_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("carbide_reserved_ips_count")
+                .formatted_metric("nico_reserved_ips_count")
                 .unwrap(),
             reserved_str
         );
@@ -946,7 +946,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let update_request = UpdateVpcVirtualization {
         id: vpc_id,
         if_version_match: None,
-        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: nico_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
@@ -1044,7 +1044,7 @@ async fn test_update_svi_ip_post_instance_allocation(
     .await?;
 
     // Let's make num_reserved 2 so that 3rd IP is assigned to instance.
-    // This will force carbide to pick next free IP as SVI IP.
+    // This will force nico to pick next free IP as SVI IP.
     sqlx::query(query)
         .bind(segments[0].prefixes[0].id)
         .execute(&mut *txn)
@@ -1085,7 +1085,7 @@ async fn test_update_svi_ip_post_instance_allocation(
     let update_request = UpdateVpcVirtualization {
         id: segment.vpc_id.unwrap(),
         if_version_match: None,
-        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: nico_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
@@ -1117,11 +1117,11 @@ async fn test_create_network_segment_with_ipv6_prefix(
 ) -> Result<(), eyre::Report> {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = rpc::nico::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "IPV6_SEGMENT".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![rpc::nico::NetworkPrefix {
             id: None,
             prefix: "2001:db8::/64".to_string(),
             gateway: None,
@@ -1131,7 +1131,7 @@ async fn test_create_network_segment_with_ipv6_prefix(
         }],
         subdomain_id: None,
         vpc_id: None,
-        segment_type: rpc::forge::NetworkSegmentType::Admin as i32,
+        segment_type: rpc::nico::NetworkSegmentType::Admin as i32,
     };
 
     let response = env
@@ -1170,18 +1170,18 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         .api
         .create_vpc(
             VpcCreationRequest::builder("dual-stack vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
-                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .network_virtualization_type(rpc::nico::VpcVirtualizationType::Fnn as i32)
                 .tonic_request(),
         )
         .await?
         .into_inner();
 
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = rpc::nico::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "DUAL_STACK_SEGMENT".to_string(),
         prefixes: vec![
-            rpc::forge::NetworkPrefix {
+            rpc::nico::NetworkPrefix {
                 id: None,
                 prefix: "192.0.2.0/24".to_string(),
                 gateway: Some("192.0.2.1".to_string()),
@@ -1189,7 +1189,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
                 free_ip_count: 0,
                 svi_ip: None,
             },
-            rpc::forge::NetworkPrefix {
+            rpc::nico::NetworkPrefix {
                 id: None,
                 prefix: "2001:db8::/64".to_string(),
                 gateway: None,
@@ -1200,7 +1200,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         ],
         subdomain_id: None,
         vpc_id: vpc.id,
-        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        segment_type: rpc::nico::NetworkSegmentType::Tenant as i32,
     };
 
     let response = env
@@ -1254,18 +1254,18 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
                 "uncontained-ipv6-vpc",
                 "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
             )
-            .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+            .network_virtualization_type(rpc::nico::VpcVirtualizationType::Fnn as i32)
             .tonic_request(),
         )
         .await?
         .into_inner();
 
     // fd00:abcd::/48 is NOT contained in our site fabric prefixes
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = rpc::nico::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "UNCONTAINED_V6_SEGMENT".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![rpc::nico::NetworkPrefix {
             id: None,
             prefix: "fd00:abcd::/48".to_string(),
             gateway: None,
@@ -1275,7 +1275,7 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
         }],
         subdomain_id: None,
         vpc_id: vpc.id,
-        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        segment_type: rpc::nico::NetworkSegmentType::Tenant as i32,
     };
 
     let result = env.api.create_network_segment(Request::new(request)).await;

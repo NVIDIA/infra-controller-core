@@ -74,29 +74,29 @@ struct RunCommand {
         help = "Address to listen on for prometheus metrics requests (HTTP), overriding configuration file"
     )]
     metrics_address: Option<String>,
-    #[clap(long, short = 'u', help = "Address of carbide-api (forge)")]
-    forge_url: Option<http::Uri>,
+    #[clap(long, short = 'u', help = "Address of nico-api (nico)")]
+    nico_url: Option<http::Uri>,
     #[clap(
         long,
-        env = "FORGE_ROOT_CA_PATH",
-        help = format!("Default to FORGE_ROOT_CA_PATH environment variable or {}", Defaults::root_ca_path().display())
+        env = "NICO_ROOT_CA_PATH",
+        help = format!("Default to NICO_ROOT_CA_PATH environment variable or {}", Defaults::root_ca_path().display())
     )]
-    forge_root_ca_path: Option<PathBuf>,
+    nico_root_ca_path: Option<PathBuf>,
     #[clap(
         long,
         env = "CLIENT_CERT_PATH",
-        help = format!("Client cert to use to talk to forge. Default to CLIENT_CERT_PATH environment variable or {}", Defaults::client_cert_path().display())
+        help = format!("Client cert to use to talk to nico. Default to CLIENT_CERT_PATH environment variable or {}", Defaults::client_cert_path().display())
     )]
     client_cert_path: Option<PathBuf>,
     #[clap(
         long,
         env = "CLIENT_KEY_PATH",
-        help = format!("Client cert to use to talk to forge. Default to CLIENT_CERT_PATH environment variable or {}", Defaults::client_key_path().display())
+        help = format!("Client cert to use to talk to nico. Default to CLIENT_CERT_PATH environment variable or {}", Defaults::client_key_path().display())
     )]
     client_key_path: Option<PathBuf>,
     #[clap(long, short = 'k', help = "Path to SSH host key")]
     host_key: Option<PathBuf>,
-    #[clap(long, help = "Path to SSH authorized_keys file (non forge-rpc mode)")]
+    #[clap(long, help = "Path to SSH authorized_keys file (non nico-rpc mode)")]
     authorized_keys: Option<PathBuf>,
     #[clap(long, short = 'g', action, help = "Include DPU consoles")]
     dpus: bool,
@@ -154,8 +154,8 @@ impl TryInto<Config> for RunCommand {
                         error,
                     })?;
         }
-        if let Some(carbide_url) = self.forge_url {
-            config.carbide_uri = carbide_url;
+        if let Some(nico_url) = self.nico_url {
+            config.nico_uri = nico_url;
         }
         if let Some(host_key) = self.host_key {
             config.host_key_path = host_key;
@@ -178,8 +178,8 @@ impl TryInto<Config> for RunCommand {
         if let Some(authorized_keys) = self.authorized_keys {
             config.authorized_keys_path = Some(authorized_keys);
         }
-        if let Some(forge_root_ca_path) = self.forge_root_ca_path {
-            config.forge_root_ca_path = forge_root_ca_path;
+        if let Some(nico_root_ca_path) = self.nico_root_ca_path {
+            config.nico_root_ca_path = nico_root_ca_path;
         }
         if let Some(client_cert_path) = self.client_cert_path {
             config.client_cert_path = client_cert_path;

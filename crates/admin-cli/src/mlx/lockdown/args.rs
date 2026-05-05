@@ -18,7 +18,7 @@
 // lockdown/args.rs
 // Command-line argument definitions for lockdown commands.
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 use rpc::protos::mlx_device as mlx_device_pb;
 
@@ -38,7 +38,7 @@ pub enum LockdownCommand {
 // LockdownLockCommand locks hardware access on a device.
 #[derive(Parser, Debug)]
 pub struct LockdownLockCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
@@ -48,7 +48,7 @@ pub struct LockdownLockCommand {
 // LockdownUnlockCommand unlocks hardware access on a device.
 #[derive(Parser, Debug)]
 pub struct LockdownUnlockCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
@@ -58,7 +58,7 @@ pub struct LockdownUnlockCommand {
 // LockdownStatusCommand gets the current lockdown status of a device.
 #[derive(Parser, Debug)]
 pub struct LockdownStatusCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]

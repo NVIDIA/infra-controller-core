@@ -17,7 +17,7 @@
 
 use std::str::FromStr;
 
-use carbide_network::deserialize_input_mac_to_address;
+use nico_network::deserialize_input_mac_to_address;
 use model::site_explorer::{
     EthernetInterface as ModelEthernetInterface, Manager as ModelManager, UefiDevicePath,
 };

@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use rpc::errors::RpcDataConversionError;
-use rpc::forge as rpc_forge;
+use rpc::nico as rpc_nico;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -32,8 +32,8 @@ pub struct NvLinkLogicalPartitionSearchFilter {
     pub name: Option<String>,
 }
 
-impl From<rpc_forge::NvLinkLogicalPartitionSearchFilter> for NvLinkLogicalPartitionSearchFilter {
-    fn from(filter: rpc_forge::NvLinkLogicalPartitionSearchFilter) -> Self {
+impl From<rpc_nico::NvLinkLogicalPartitionSearchFilter> for NvLinkLogicalPartitionSearchFilter {
+    fn from(filter: rpc_nico::NvLinkLogicalPartitionSearchFilter) -> Self {
         NvLinkLogicalPartitionSearchFilter { name: filter.name }
     }
 }
@@ -44,10 +44,10 @@ pub struct NewLogicalPartition {
     pub config: LogicalPartitionConfig,
 }
 
-impl TryFrom<rpc_forge::NvLinkLogicalPartitionCreationRequest> for NewLogicalPartition {
+impl TryFrom<rpc_nico::NvLinkLogicalPartitionCreationRequest> for NewLogicalPartition {
     type Error = RpcDataConversionError;
     fn try_from(
-        value: rpc_forge::NvLinkLogicalPartitionCreationRequest,
+        value: rpc_nico::NvLinkLogicalPartitionCreationRequest,
     ) -> Result<Self, Self::Error> {
         let id: NvLinkLogicalPartitionId = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
@@ -70,10 +70,10 @@ pub struct LogicalPartitionConfig {
     pub tenant_organization_id: TenantOrganizationId,
 }
 
-impl TryFrom<rpc_forge::NvLinkLogicalPartitionConfig> for LogicalPartitionConfig {
+impl TryFrom<rpc_nico::NvLinkLogicalPartitionConfig> for LogicalPartitionConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(conf: rpc_forge::NvLinkLogicalPartitionConfig) -> Result<Self, Self::Error> {
+    fn try_from(conf: rpc_nico::NvLinkLogicalPartitionConfig) -> Result<Self, Self::Error> {
         if conf.tenant_organization_id.is_empty() {
             return Err(RpcDataConversionError::InvalidArgument(
                 "NvLinkLogicalPartition organization_id is empty".to_string(),
@@ -92,10 +92,10 @@ impl TryFrom<rpc_forge::NvLinkLogicalPartitionConfig> for LogicalPartitionConfig
     }
 }
 
-impl TryFrom<LogicalPartitionConfig> for rpc_forge::NvLinkLogicalPartitionConfig {
+impl TryFrom<LogicalPartitionConfig> for rpc_nico::NvLinkLogicalPartitionConfig {
     type Error = RpcDataConversionError;
     fn try_from(src: LogicalPartitionConfig) -> Result<Self, Self::Error> {
-        Ok(rpc_forge::NvLinkLogicalPartitionConfig {
+        Ok(rpc_nico::NvLinkLogicalPartitionConfig {
             metadata: Some(src.metadata.into()),
             tenant_organization_id: src.tenant_organization_id.to_string(),
         })
@@ -137,25 +137,25 @@ pub fn is_marked_as_deleted(partition: &LogicalPartition) -> bool {
     partition.deleted.is_some()
 }
 
-impl TryFrom<LogicalPartition> for rpc_forge::NvLinkLogicalPartition {
+impl TryFrom<LogicalPartition> for rpc_nico::NvLinkLogicalPartition {
     type Error = RpcDataConversionError;
     fn try_from(src: LogicalPartition) -> Result<Self, Self::Error> {
         let mut state = match &src.partition_state {
-            LogicalPartitionState::Provisioning => rpc_forge::TenantState::Provisioning,
-            LogicalPartitionState::Ready => rpc_forge::TenantState::Ready,
-            LogicalPartitionState::Error => rpc_forge::TenantState::Failed,
-            LogicalPartitionState::Deleting => rpc_forge::TenantState::Terminating,
-            LogicalPartitionState::Updating => rpc_forge::TenantState::Updating,
+            LogicalPartitionState::Provisioning => rpc_nico::TenantState::Provisioning,
+            LogicalPartitionState::Ready => rpc_nico::TenantState::Ready,
+            LogicalPartitionState::Error => rpc_nico::TenantState::Failed,
+            LogicalPartitionState::Deleting => rpc_nico::TenantState::Terminating,
+            LogicalPartitionState::Updating => rpc_nico::TenantState::Updating,
         };
 
         if is_marked_as_deleted(&src) {
-            state = rpc_forge::TenantState::Terminating;
+            state = rpc_nico::TenantState::Terminating;
         }
-        let status = Some(rpc_forge::NvLinkLogicalPartitionStatus {
+        let status = Some(rpc_nico::NvLinkLogicalPartitionStatus {
             state: state as i32,
         });
 
-        let config = rpc_forge::NvLinkLogicalPartitionConfig {
+        let config = rpc_nico::NvLinkLogicalPartitionConfig {
             metadata: Some(rpc::Metadata {
                 name: src.name,
                 description: src.description,
@@ -164,7 +164,7 @@ impl TryFrom<LogicalPartition> for rpc_forge::NvLinkLogicalPartition {
             tenant_organization_id: src.tenant_organization_id.to_string(),
         };
 
-        Ok(rpc_forge::NvLinkLogicalPartition {
+        Ok(rpc_nico::NvLinkLogicalPartition {
             id: Some(src.id),
             config_version: src.config_version.version_string(),
             status,

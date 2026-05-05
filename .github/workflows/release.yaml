@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-name: Carbide Release new version
+name: Nico Release new version
 
 on:
   workflow_dispatch:
@@ -95,5 +95,5 @@ jobs:
           echo "Releasing new version $VERSION to NVIDIA Catalog"
           echo "## 🚀 Release Created" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Release carbide version: **$VERSION**" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release nico version: **$VERSION**" >> "$GITHUB_STEP_SUMMARY"
           echo "🔗 [View Release Notes]($RELEASE_URL)" >> "$GITHUB_STEP_SUMMARY"

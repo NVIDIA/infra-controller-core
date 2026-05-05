@@ -18,7 +18,7 @@
 // info/args.rs
 // Command-line argument definitions for info commands.
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use clap::Parser;
 use rpc::protos::mlx_device as mlx_device_pb;
 
@@ -35,7 +35,7 @@ pub enum InfoCommand {
 // InfoDeviceCommand shows device information.
 #[derive(Parser, Debug)]
 pub struct InfoDeviceCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
@@ -45,7 +45,7 @@ pub struct InfoDeviceCommand {
 // InfoMachineCommand shows machine information.
 #[derive(Parser, Debug)]
 pub struct InfoMachineCommand {
-    #[arg(help = "Carbide Machine ID")]
+    #[arg(help = "Nico Machine ID")]
     pub machine_id: MachineId,
 }
 

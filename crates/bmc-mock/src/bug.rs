@@ -115,7 +115,7 @@ impl InjectedBugs {
 pub struct AllDpuLostOnHost {}
 
 impl AllDpuLostOnHost {
-    // This is Network adapter as it was reproduced in FORGE-7578.
+    // This is Network adapter as it was reproduced in NICO-7578.
     pub fn network_adapter(&self, chassis_id: &str, network_adapter_id: &str) -> serde_json::Value {
         let resource = redfish::network_adapter::chassis_resource(chassis_id, network_adapter_id);
         redfish::network_adapter::builder(&resource)

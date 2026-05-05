@@ -17,7 +17,7 @@
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use itertools::Itertools;
 use model::tenant::{
     PublicKey, TenantKeyset, TenantKeysetIdentifier, TenantPublicKey,
@@ -25,7 +25,7 @@ use model::tenant::{
 };
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_request_data};
 
 pub(crate) async fn create(
@@ -37,7 +37,7 @@ pub(crate) async fn create(
     let keyset_request: TenantKeyset = request
         .into_inner()
         .try_into()
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -92,13 +92,13 @@ pub(crate) async fn find_by_ids(
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if keyset_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
     } else if keyset_ids.is_empty() {
         return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+            NicoError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
 
@@ -129,7 +129,7 @@ pub(crate) async fn update(
     let update_request: UpdateTenantKeyset = request
         .into_inner()
         .try_into()
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -161,14 +161,14 @@ pub(crate) async fn delete(
     let mut txn = api.txn_begin().await?;
 
     let Some(keyset_identifier) = keyset_identifier else {
-        return Err(CarbideError::MissingArgument("keyset_identifier").into());
+        return Err(NicoError::MissingArgument("keyset_identifier").into());
     };
 
     let keyset_identifier: TenantKeysetIdentifier =
-        keyset_identifier.try_into().map_err(CarbideError::from)?;
+        keyset_identifier.try_into().map_err(NicoError::from)?;
 
     if !db::tenant_keyset::delete(&keyset_identifier, &mut txn).await? {
-        return Err(CarbideError::NotFoundError {
+        return Err(NicoError::NotFoundError {
             kind: "keyset",
             id: format!("{keyset_identifier:?}"),
         }
@@ -190,7 +190,7 @@ pub(crate) async fn validate_public_key(
     request: Request<rpc::ValidateTenantPublicKeyRequest>,
 ) -> Result<Response<rpc::ValidateTenantPublicKeyResponse>, Status> {
     let request = TenantPublicKeyValidationRequest::try_from(request.into_inner())
-        .map_err(CarbideError::from)?;
+        .map_err(NicoError::from)?;
 
     let mut txn = api.txn_begin().await?;
 

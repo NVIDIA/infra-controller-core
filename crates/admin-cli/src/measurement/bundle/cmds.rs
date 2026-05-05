@@ -20,12 +20,12 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, ToTable, cli_output};
 use ::rpc::protos::measured_boot::{
     ListMeasurementBundleMachinesRequest, RenameMeasurementBundleRequest,
     ShowMeasurementBundleRequest, UpdateMeasurementBundleRequest,
 };
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::records::MeasurementBundleRecord;
 use serde::Serialize;
@@ -41,7 +41,7 @@ use crate::rpc::ApiClient;
 pub async fn dispatch(
     cmd: CmdBundle,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         CmdBundle::Create(local_args) => {
             cli_output(
@@ -121,65 +121,65 @@ pub async fn dispatch(
 pub async fn create_for_id(
     grpc_conn: &ApiClient,
     create: Create,
-) -> CarbideCliResult<MeasurementBundle> {
+) -> NicoCliResult<MeasurementBundle> {
     let response = grpc_conn.0.create_measurement_bundle(create).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// delete deletes a measurement bundle with the provided ID.
-pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementBundle> {
+pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> NicoCliResult<MeasurementBundle> {
     let response = grpc_conn.0.delete_measurement_bundle(delete).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// rename renames a measurement bundle with the provided name or ID.
-pub async fn rename(grpc_conn: &ApiClient, rename: Rename) -> CarbideCliResult<MeasurementBundle> {
+pub async fn rename(grpc_conn: &ApiClient, rename: Rename) -> NicoCliResult<MeasurementBundle> {
     let response = grpc_conn
         .0
         .rename_measurement_bundle(RenameMeasurementBundleRequest::try_from(rename)?)
         .await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// set_state updates the state of the bundle (e.g. active, obsolete, retired).
 pub async fn set_state(
     grpc_conn: &ApiClient,
     set_state: SetState,
-) -> CarbideCliResult<MeasurementBundle> {
+) -> NicoCliResult<MeasurementBundle> {
     let response = grpc_conn
         .0
         .update_measurement_bundle(UpdateMeasurementBundleRequest::try_from(set_state)?)
         .await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// show_by_id dumps all info about a bundle for the given ID or name.
 pub async fn show_by_id_or_name(
     grpc_conn: &ApiClient,
     show: Show,
-) -> CarbideCliResult<MeasurementBundle> {
+) -> NicoCliResult<MeasurementBundle> {
     let response = grpc_conn
         .0
         .show_measurement_bundle(ShowMeasurementBundleRequest::try_from(show)?)
         .await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// show_all dumps all info about all bundles.
 pub async fn show_all(
     grpc_conn: &ApiClient,
     _get_by_id: Show,
-) -> CarbideCliResult<MeasurementBundleList> {
+) -> NicoCliResult<MeasurementBundleList> {
     Ok(MeasurementBundleList(
         grpc_conn
             .0
@@ -189,14 +189,14 @@ pub async fn show_all(
             .into_iter()
             .map(|bundle| {
                 MeasurementBundle::try_from(bundle)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
+                    .map_err(|e| NicoCliError::GenericError(format!("conversion failed: {e}")))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementBundle>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementBundle>>>()?,
     ))
 }
 
 /// list lists all bundle ids.
-pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRecordList> {
+pub async fn list(grpc_conn: &ApiClient) -> NicoCliResult<MeasurementBundleRecordList> {
     Ok(MeasurementBundleRecordList(
         grpc_conn
             .0
@@ -206,9 +206,9 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRe
             .into_iter()
             .map(|rec| {
                 MeasurementBundleRecord::try_from(rec)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
+                    .map_err(|e| NicoCliError::GenericError(format!("conversion failed: {e}")))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementBundleRecord>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementBundleRecord>>>()?,
     ))
 }
 
@@ -217,7 +217,7 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRe
 pub async fn list_machines(
     grpc_conn: &ApiClient,
     list_machines: ListMachines,
-) -> CarbideCliResult<MachineIdList> {
+) -> NicoCliResult<MachineIdList> {
     Ok(MachineIdList(
         grpc_conn
             .0
@@ -229,16 +229,16 @@ pub async fn list_machines(
             .iter()
             .map(|rec| {
                 MachineId::from_str(rec)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
+                    .map_err(|e| NicoCliError::GenericError(format!("conversion failed: {e}")))
             })
-            .collect::<CarbideCliResult<Vec<MachineId>>>()?,
+            .collect::<NicoCliResult<Vec<MachineId>>>()?,
     ))
 }
 
 pub async fn find_closest_match(
     grpc_conn: &ApiClient,
     args: FindClosestMatch,
-) -> CarbideCliResult<Option<MeasurementBundle>> {
+) -> NicoCliResult<Option<MeasurementBundle>> {
     let response = grpc_conn.0.find_closest_bundle_match(args).await?;
 
     if response.bundle.is_none() {
@@ -247,7 +247,7 @@ pub async fn find_closest_match(
 
     Ok(Some(
         MeasurementBundle::from_grpc(response.bundle.as_ref())
-            .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?,
+            .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))?,
     ))
 }
 

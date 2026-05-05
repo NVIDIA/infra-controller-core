@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
 
 use super::args::Args;
 use crate::network_security_group::common::convert_nsgs_to_table;
@@ -28,7 +28,7 @@ pub async fn update(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
     let id = args.id;
@@ -77,7 +77,7 @@ pub async fn update(
     if is_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&nsg).map_err(CarbideCliError::JsonError)?
+            serde_json::to_string_pretty(&nsg).map_err(NicoCliError::JsonError)?
         );
     } else {
         convert_nsgs_to_table(&[nsg], true)?.printstd();

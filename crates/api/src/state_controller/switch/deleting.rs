@@ -17,7 +17,7 @@
 
 //! Handler for SwitchControllerState::Deleting.
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{Switch, SwitchControllerState};
 

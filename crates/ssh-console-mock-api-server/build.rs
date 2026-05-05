@@ -17,7 +17,7 @@
 use std::path::PathBuf;
 use std::{fs, io};
 
-// RPC methods mocked by ssh-console-mock-api-server. We don't implement all of forge.proto because
+// RPC methods mocked by ssh-console-mock-api-server. We don't implement all of nico.proto because
 // we would need an unreasonably large number of stub functions.
 static KEEP_RPCS: &[&str] = &[
     "Version",
@@ -30,7 +30,7 @@ static KEEP_RPCS: &[&str] = &[
 static RPC_CRATE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../rpc");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    carbide_version::build();
+    nico_version::build();
 
     // Copy protos from the rpc crate first
     copy_protos_from_rpc_crate()?;
@@ -39,12 +39,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Then codegen them.
     tonic_prost_build::configure()
         .build_server(true)
-        .build_client(false) // we're using ForgeApiClient from rpc crate
-        .extern_path(".common.MachineId", "::carbide_uuid::machine::MachineId")
-        .extern_path(".common.RackId", "::carbide_uuid::rack::RackId")
+        .build_client(false) // we're using NicoApiClient from rpc crate
+        .extern_path(".common.MachineId", "::nico_uuid::machine::MachineId")
+        .extern_path(".common.RackId", "::nico_uuid::rack::RackId")
         .extern_path(
             ".common.RackProfileId",
-            "::carbide_uuid::rack::RackProfileId",
+            "::nico_uuid::rack::RackProfileId",
         )
         .protoc_arg("--experimental_allow_proto3_optional")
         .out_dir("src/generated")
@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &[
                 "proto/common.proto",
                 "proto/dns.proto",
-                "proto/forge.proto",
+                "proto/nico.proto",
                 "proto/machine_discovery.proto",
                 "proto/site_explorer.proto",
             ],
@@ -71,13 +71,13 @@ fn copy_protos_from_rpc_crate() -> io::Result<()> {
     for source_proto in fs::read_dir(rpc_crate_path.join("proto"))? {
         let source_proto = source_proto?;
         let source = match source_proto.file_name().to_str() {
-            Some("forge.proto") => {
+            Some("nico.proto") => {
                 let mut in_rpc_section = false;
                 fs::read_to_string(source_proto.path())?
                     .lines()
                     .filter(|line| match in_rpc_section {
                         false => {
-                            if line.contains("service Forge {") {
+                            if line.contains("service Nico {") {
                                 in_rpc_section = true;
                             }
                             true

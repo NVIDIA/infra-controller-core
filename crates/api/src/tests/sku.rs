@@ -17,7 +17,7 @@
 pub mod tests {
     use std::time::Duration;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
     use db::sku::CURRENT_SKU_VERSION;
     use db::{self, DatabaseError, ObjectFilter, WithTransaction};
     use futures_util::FutureExt;
@@ -396,7 +396,7 @@ pub mod tests {
     #[crate::sqlx_test]
     pub async fn test_sku_create(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
-        let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let rpc_sku: rpc::nico::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let expected_sku: Sku = rpc_sku.into();
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
 
@@ -429,7 +429,7 @@ pub mod tests {
     #[crate::sqlx_test]
     pub async fn test_sku_delete(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
-        let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let rpc_sku: rpc::nico::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let expected_sku: Sku = rpc_sku.into();
 
         db::sku::create(&mut txn, &expected_sku).await?;
@@ -446,7 +446,7 @@ pub mod tests {
                     panic!("Found a SKU when querying for deleted SKU: {sku_name}")
                 }
             }
-            Err(carbide_error_type) => panic!("Unexpected error: {carbide_error_type}"),
+            Err(nico_error_type) => panic!("Unexpected error: {nico_error_type}"),
         }
 
         Ok(())
@@ -457,7 +457,7 @@ pub mod tests {
         let env = create_test_env(pool.clone()).await;
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
-        let expected_sku: Sku = serde_json::de::from_str::<rpc::forge::Sku>(SKU_DATA)?.into();
+        let expected_sku: Sku = serde_json::de::from_str::<rpc::nico::Sku>(SKU_DATA)?.into();
 
         let mut actual_sku = db::sku::generate_sku_from_machine(&pool, &machine_id).await?;
         // cheat the created timestamp and id
@@ -520,7 +520,7 @@ pub mod tests {
                     panic!("Found a SKU when querying for deleted SKU: {sku_name}")
                 }
             }
-            Err(carbide_error_type) => panic!("Unexpected error: {carbide_error_type}"),
+            Err(nico_error_type) => panic!("Unexpected error: {nico_error_type}"),
         }
 
         Ok(())
@@ -1333,7 +1333,7 @@ pub mod tests {
             },
         )
         .await;
-        mh.host().forge_agent_control().await;
+        mh.host().nico_agent_control().await;
 
         let mut state = get_machine_state(&pool, &mh).await;
         for _ in 0..3 {
@@ -1777,8 +1777,8 @@ pub mod tests {
 
     #[test]
     fn test_thread_differences() -> Result<(), eyre::Error> {
-        let rpc_sku1: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
-        let mut rpc_sku2: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let rpc_sku1: rpc::nico::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let mut rpc_sku2: rpc::nico::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
 
         let sku1 = rpc_sku1.into();
         let sku2 = rpc_sku2.clone().into();
@@ -1965,7 +1965,7 @@ pub mod tests {
         let original_sku_json = serde_json::ser::to_string_pretty(&original_sku)?;
         tracing::info!(original_sku_json, "original");
 
-        let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let rpc_sku: rpc::nico::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let replacement_sku: Sku = rpc_sku.into();
         let replacement_sku_json = serde_json::ser::to_string_pretty(&replacement_sku)?;
         tracing::info!(replacement_sku_json, "replacment");
@@ -1998,8 +1998,8 @@ pub mod tests {
     async fn test_delete_sku_in_use_reports_correct_machine_count(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use rpc::forge::SkuIdList;
-        use rpc::forge::forge_server::Forge;
+        use rpc::nico::SkuIdList;
+        use rpc::nico::nico_server::Nico;
 
         let env = create_test_env(pool.clone()).await;
         let (machine_id_1, _dpu1) = create_managed_host(&env).await.into();

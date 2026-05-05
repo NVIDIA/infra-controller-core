@@ -31,7 +31,7 @@ mod bgp;
 pub mod probe_ids;
 
 const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
-const DHCP_SERVER_FILE: &str = "etc/supervisor/conf.d/default-forge-dhcp-server.conf";
+const DHCP_SERVER_FILE: &str = "etc/supervisor/conf.d/default-nico-dhcp-server.conf";
 // const NVUE_FILE: &str = "etc/nvue.d/startup.yaml";
 
 const EXPECTED_FILES: [&str; 4] = [
@@ -42,7 +42,7 @@ const EXPECTED_FILES: [&str; 4] = [
 ];
 
 const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
-const DHCP_SERVER_SERVICE: &str = "forge-dhcp-server-default";
+const DHCP_SERVER_SERVICE: &str = "nico-dhcp-server-default";
 /// Maximum allowed disk utilization in % before the DpuDiskUtilizationCritical health alert will be sent
 const MAX_DISK_UTILIZATION: u32 = 85;
 
@@ -128,7 +128,7 @@ pub struct HealthCheckParams<'a> {
 
 /// Check the health of HBN
 pub async fn health_check(params: HealthCheckParams<'_>) -> health_report::HealthReport {
-    let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+    let mut hr = health_report::HealthReport::empty("nico-dpu-agent".to_string());
 
     // Check whether the disk is full
     check_disk_utilization(&mut hr).await;
@@ -701,7 +701,7 @@ enum SctlState {
 pub async fn nvue_api_health(nvue_client: &NvueClient) -> HealthReport {
     // All we can really do here is check that the API is alive. The HBN flavor of NVUE
     // doesn't seem to expose much of anything that we can look at for node health.
-    let mut report = HealthReport::empty("forge-dpu-agent".into());
+    let mut report = HealthReport::empty("nico-dpu-agent".into());
     match nvue_client.system_info().await {
         Ok(_) => passed(&mut report, probe_ids::NvueApiRunning.clone(), None),
         Err(e) => failed(

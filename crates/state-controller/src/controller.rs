@@ -85,10 +85,10 @@ impl<'r> FromRow<'r, PgRow> for QueuedObject {
 }
 
 /// The object static controller evaluates the current state of all objects of a
-/// certain type in a Forge site, and decides which actions the system should
+/// certain type in a Nico site, and decides which actions the system should
 /// undertake to bring the state inline with the state users requested.
 ///
-/// Each Forge API server is running a StateController instance for each object type.
+/// Each Nico API server is running a StateController instance for each object type.
 /// While all instances run in parallel, the StateController uses internal
 /// synchronization to make sure that inside a single site - only a single controller
 /// will decide the next step for a single object.

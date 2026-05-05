@@ -20,7 +20,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use carbide_utils::HostPortPair;
+use nico_utils::HostPortPair;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 

@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_uuid::machine::MachineType;
+use ::nico_utils::metrics::SharedMetricsHolder;
+use nico_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
@@ -264,7 +264,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_endpoint_explorations_count")
+                .u64_observable_gauge("nico_endpoint_explorations_count")
                 .with_description("The amount of endpoint explorations that have been attempted")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -277,7 +277,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_endpoint_exploration_success_count")
+                .u64_observable_gauge("nico_endpoint_exploration_success_count")
                 .with_description("The amount of endpoint explorations that have been successful")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -290,7 +290,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_endpoint_exploration_failures_count")
+                .u64_observable_gauge("nico_endpoint_exploration_failures_count")
                 .with_description("The amount of endpoint explorations that have failed by error")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -309,7 +309,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_endpoint_exploration_failures_overall_count")
+                .u64_observable_gauge("nico_endpoint_exploration_failures_overall_count")
                 .with_description(
                     "The total number of endpoint explorations that have failed by error",
                 )
@@ -331,7 +331,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_endpoint_exploration_preingestions_incomplete_overall_count")
+                .u64_observable_gauge("nico_endpoint_exploration_preingestions_incomplete_overall_count")
                 .with_description("The total number of machines in a preingestion state by expectation and machine type")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -359,7 +359,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_endpoint_exploration_expected_serial_number_mismatches_overall_count")
+                .u64_observable_gauge("nico_endpoint_exploration_expected_serial_number_mismatches_overall_count")
                 .with_description("The total number of found expected machines by machine type where the observed and expected serial numbers do not match")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -384,7 +384,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge(
-                    "carbide_endpoint_exploration_machines_explored_overall_count",
+                    "nico_endpoint_exploration_machines_explored_overall_count",
                 )
                 .with_description("The total number of machines explored by machine type")
                 .with_callback(move |observer| {
@@ -414,7 +414,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge(
-                    "carbide_endpoint_exploration_identified_managed_hosts_overall_count",
+                    "nico_endpoint_exploration_identified_managed_hosts_overall_count",
                 )
                 .with_description("The total number of managed hosts identified by expectation")
                 .with_callback(move |observer| {
@@ -438,7 +438,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge(
-                    "carbide_endpoint_exploration_expected_machines_missing_overall_count",
+                    "nico_endpoint_exploration_expected_machines_missing_overall_count",
                 )
                 .with_description(
                     "The total number of machines that were expected but not identified",
@@ -456,19 +456,19 @@ impl SiteExplorerInstruments {
         }
 
         let endpoint_exploration_duration = meter
-            .f64_histogram("carbide_endpoint_exploration_duration")
+            .f64_histogram("nico_endpoint_exploration_duration")
             .with_description("The time it took to explore an endpoint")
             .with_unit("ms")
             .build();
 
         let site_explorer_iteration_latency = meter
-            .f64_histogram("carbide_site_explorer_iteration_latency")
+            .f64_histogram("nico_site_explorer_iteration_latency")
             .with_description("The time it took to perform one site explorer iteration")
             .with_unit("ms")
             .build();
 
         let site_explorer_create_machines_latency = meter
-            .f64_histogram("carbide_site_explorer_create_machines_latency")
+            .f64_histogram("nico_site_explorer_create_machines_latency")
             .with_description("The time it took to perform create_machines inside site-explorer")
             .with_unit("ms")
             .build();
@@ -476,7 +476,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_site_exploration_identified_managed_hosts_count")
+                .u64_observable_gauge("nico_site_exploration_identified_managed_hosts_count")
                 .with_description("The amount of Host+DPU pairs that has been identified in the last SiteExplorer run")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -492,7 +492,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_site_explorer_created_machines_count")
+                .u64_observable_gauge("nico_site_explorer_created_machines_count")
                 .with_description("The amount of Machine pairs that had been created by Site Explorer after being identified")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -508,7 +508,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_site_explorer_bmc_reset_count")
+                .u64_observable_gauge("nico_site_explorer_bmc_reset_count")
                 .with_description("The amount of BMC resets initiated in the last SiteExplorer run")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -522,7 +522,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge(
-                    "carbide_endpoint_exploration_expected_power_shelves_missing_overall_count",
+                    "nico_endpoint_exploration_expected_power_shelves_missing_overall_count",
                 )
                 .with_description(
                     "The total number of power shelves that were expected but not identified",
@@ -543,7 +543,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_site_exploration_expected_machines_sku_count")
+                .u64_observable_gauge("nico_site_exploration_expected_machines_sku_count")
                 .with_description("The total count of expected machines by SKU ID and device type")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -570,7 +570,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_host_dpu_pairing_blockers_count")
+                .u64_observable_gauge("nico_host_dpu_pairing_blockers_count")
                 .with_description(
                     "Count of host+dpu pairing blockers by reason. These are issues that prevent \
                      a host from being paired with its dpu(s) and require manual intervention.",
@@ -592,7 +592,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge(
-                    "carbide_endpoint_exploration_expected_power_shelves_missing_overall_count",
+                    "nico_endpoint_exploration_expected_power_shelves_missing_overall_count",
                 )
                 .with_description(
                     "The total number of power shelves that were expected but not identified",
@@ -613,7 +613,7 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics;
             meter
-                .u64_observable_gauge("carbide_site_explorer_created_power_shelves_count")
+                .u64_observable_gauge("nico_site_explorer_created_power_shelves_count")
                 .with_description("The amount of Power Shelves that had been created by Site Explorer after being identified")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -641,7 +641,7 @@ impl SiteExplorerInstruments {
         {
             let enabled = config.enabled.clone();
             meter
-                .u64_observable_gauge("carbide_site_explorer_enabled")
+                .u64_observable_gauge("nico_site_explorer_enabled")
                 .with_description("Whether site-explorer is enabled (1) or paused (0)")
                 .with_callback(move |observer| {
                     let val = u64::from(enabled.load(std::sync::atomic::Ordering::Relaxed));
@@ -653,7 +653,7 @@ impl SiteExplorerInstruments {
         {
             let create_machines = config.create_machines.clone();
             meter
-                .u64_observable_gauge("carbide_site_explorer_create_machines")
+                .u64_observable_gauge("nico_site_explorer_create_machines")
                 .with_description(
                     "Whether site-explorer machine creation is enabled (1) or disabled (0)",
                 )

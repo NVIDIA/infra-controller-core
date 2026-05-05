@@ -17,10 +17,10 @@
 use std::fmt::Write;
 use std::str::FromStr as _;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::network::NetworkSegmentId;
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult, OutputFormat};
+use ::rpc::nico as nicorpc;
+use nico_uuid::domain::DomainId;
+use nico_uuid::network::NetworkSegmentId;
 use prettytable::{Table, row};
 use serde::Deserialize;
 
@@ -33,9 +33,9 @@ struct NetworkState {
 }
 
 async fn convert_network_to_nice_format(
-    segment: forgerpc::NetworkSegment,
+    segment: nicorpc::NetworkSegment,
     api_client: &ApiClient,
-) -> CarbideCliResult<String> {
+) -> NicoCliResult<String> {
     let width = 10;
     let mut lines = String::new();
 
@@ -58,7 +58,7 @@ async fn convert_network_to_nice_format(
             "STATE",
             format!(
                 "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                nicorpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
         ),
         ("VPC", segment.vpc_id.unwrap_or_default().to_string()),
@@ -74,7 +74,7 @@ async fn convert_network_to_nice_format(
             "TYPE",
             format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                nicorpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
             ),
         ),
     ];
@@ -156,7 +156,7 @@ async fn get_domain_name(domain_id: Option<DomainId>, api_client: &ApiClient) ->
     }
 }
 
-fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<Table> {
+fn convert_network_to_nice_table(segments: nicorpc::NetworkSegmentList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -174,7 +174,7 @@ fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<
             segment.created.unwrap_or_default(),
             format!(
                 "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                nicorpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
             segment.vpc_id.unwrap_or_default(),
             segment.mtu.unwrap_or(-1),
@@ -188,7 +188,7 @@ fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<
             segment.version,
             format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                nicorpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
             ),
         ]);
     }
@@ -202,7 +202,7 @@ async fn show_all_segments(
     tenant_org_id: Option<String>,
     name: Option<String>,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let all_segments = match api_client
         .get_all_segments(tenant_org_id, name, page_size)
         .await
@@ -222,14 +222,14 @@ async fn show_network_information(
     segment_id: NetworkSegmentId,
     json: bool,
     api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let segment = match api_client.get_one_segment(segment_id).await {
         Ok(instances) => instances,
         Err(e) => return Err(e),
     };
 
     let Some(segment) = segment.network_segments.into_iter().next() else {
-        return Err(CarbideCliError::SegmentNotFound);
+        return Err(NicoCliError::SegmentNotFound);
     };
 
     if json {
@@ -250,7 +250,7 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if let Some(network) = args.network {
         show_network_information(network, is_json, api_client).await?;

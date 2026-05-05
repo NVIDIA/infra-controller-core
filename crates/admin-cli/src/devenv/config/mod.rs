@@ -17,7 +17,7 @@
 
 mod apply;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 #[cfg(test)]
 pub use apply::args::NetworkChoice;
 use clap::Parser;
@@ -32,7 +32,7 @@ pub enum Cmd {
 }
 
 impl Run for Cmd {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         match self {
             Cmd::Apply(args) => args.run(ctx).await,
         }

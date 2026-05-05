@@ -18,7 +18,7 @@
 use ::rpc::admin_cli::OutputFormat;
 use libmlx::runner::result_types::{ComparisonResult, QueryResult, SyncResult};
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::admin_cli::{NicoCliError, NicoCliResult};
 use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::super::{
@@ -33,7 +33,7 @@ use super::args::{
 pub async fn dispatch(
     command: ConfigCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match command {
         ConfigCommand::Query(cmd) => handle_query(cmd, ctxt).await,
         ConfigCommand::Set(cmd) => handle_set(cmd, ctxt).await,
@@ -44,13 +44,13 @@ pub async fn dispatch(
 async fn handle_query(
     cmd: ConfigQueryCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminConfigQueryRequest = cmd.into();
     let response = ctxt.grpc_conn.0.mlx_admin_config_query(request).await?;
 
     let query_result_pb = response
         .query_result
-        .ok_or_else(|| CarbideCliError::GenericError("no query result returned".to_string()))?;
+        .ok_or_else(|| NicoCliError::GenericError("no query result returned".to_string()))?;
 
     let query_result: QueryResult = query_result_pb.try_into()?;
 
@@ -72,7 +72,7 @@ async fn handle_query(
     Ok(())
 }
 
-async fn handle_set(cmd: ConfigSetCommand, ctxt: &mut CliContext<'_, '_>) -> CarbideCliResult<()> {
+async fn handle_set(cmd: ConfigSetCommand, ctxt: &mut CliContext<'_, '_>) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminConfigSetRequest = cmd.try_into()?;
     let response = ctxt.grpc_conn.0.mlx_admin_config_set(request).await?;
 
@@ -86,13 +86,13 @@ async fn handle_set(cmd: ConfigSetCommand, ctxt: &mut CliContext<'_, '_>) -> Car
 async fn handle_sync(
     cmd: ConfigSyncCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminConfigSyncRequest = cmd.try_into()?;
     let response = ctxt.grpc_conn.0.mlx_admin_config_sync(request).await?;
 
     let sync_result_pb = response
         .sync_result
-        .ok_or_else(|| CarbideCliError::GenericError("no sync result returned".to_string()))?;
+        .ok_or_else(|| NicoCliError::GenericError("no sync result returned".to_string()))?;
 
     let sync_result: SyncResult = sync_result_pb.try_into()?;
 
@@ -117,12 +117,12 @@ async fn handle_sync(
 async fn handle_compare(
     cmd: ConfigCompareCommand,
     ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     let request: mlx_device_pb::MlxAdminConfigCompareRequest = cmd.try_into()?;
     let response = ctxt.grpc_conn.0.mlx_admin_config_compare(request).await?;
 
     let comparison_result_pb = response.comparison_result.ok_or_else(|| {
-        CarbideCliError::GenericError("no comparison result returned".to_string())
+        NicoCliError::GenericError("no comparison result returned".to_string())
     })?;
 
     let comparison_result: ComparisonResult = comparison_result_pb.try_into()?;

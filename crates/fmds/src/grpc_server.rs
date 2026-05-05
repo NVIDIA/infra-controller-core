@@ -101,7 +101,7 @@ impl FmdsConfigService for FmdsGrpcServer {
 
 #[cfg(test)]
 mod tests {
-    use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
+    use nico_dpu_fmds_shared::machine_identity::MachineIdentityParams;
     use rpc::fmds::{FmdsConfigUpdate, FmdsMachineIdentityConfig, IbDevice, IbInstance};
 
     use super::*;

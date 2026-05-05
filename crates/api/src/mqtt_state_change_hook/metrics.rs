@@ -44,7 +44,7 @@ impl MqttHookMetrics {
 
         // Register observable gauge for queue depth using sender's capacity
         meter
-            .u64_observable_gauge("carbide_dsx_event_bus_queue_depth")
+            .u64_observable_gauge("nico_dsx_event_bus_queue_depth")
             .with_description(
                 "Number of state change messages currently queued for MQTT publishing",
             )
@@ -58,7 +58,7 @@ impl MqttHookMetrics {
             .build();
 
         let publish_count = meter
-            .u64_counter("carbide_dsx_event_bus_publish_count")
+            .u64_counter("nico_dsx_event_bus_publish_count")
             .with_description("Total number of MQTT publish attempts")
             .build();
 

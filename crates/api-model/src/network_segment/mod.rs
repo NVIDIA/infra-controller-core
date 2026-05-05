@@ -17,9 +17,9 @@
 use std::fmt;
 use std::str::FromStr;
 
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use nico_uuid::domain::DomainId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use itertools::Itertools;
@@ -43,8 +43,8 @@ pub struct NetworkSegmentSearchFilter {
     pub tenant_org_id: Option<String>,
 }
 
-impl From<rpc::forge::NetworkSegmentSearchFilter> for NetworkSegmentSearchFilter {
-    fn from(filter: rpc::forge::NetworkSegmentSearchFilter) -> Self {
+impl From<rpc::nico::NetworkSegmentSearchFilter> for NetworkSegmentSearchFilter {
+    fn from(filter: rpc::nico::NetworkSegmentSearchFilter) -> Self {
         NetworkSegmentSearchFilter {
             name: filter.name,
             tenant_org_id: filter.tenant_org_id,
@@ -100,7 +100,7 @@ pub struct NetworkDefinition {
     /// reservations), or ONLY serves pre-configured static reservations.
     ///
     /// Defaults to dynamic if not specified, which is the traditional
-    /// behavior of Carbide + carbide-dhcp.
+    /// behavior of Nico + nico-dhcp.
     #[serde(default)]
     pub allocation_strategy: AllocationStrategy,
 }
@@ -177,10 +177,10 @@ mod tests {
     }
 
     fn make_test_creation_request(
-        prefixes: Vec<rpc::forge::NetworkPrefix>,
+        prefixes: Vec<rpc::nico::NetworkPrefix>,
         segment_type: NetworkSegmentType,
-    ) -> rpc::forge::NetworkSegmentCreationRequest {
-        rpc::forge::NetworkSegmentCreationRequest {
+    ) -> rpc::nico::NetworkSegmentCreationRequest {
+        rpc::nico::NetworkSegmentCreationRequest {
             id: None,
             mtu: Some(1500),
             name: "TEST_SEGMENT".to_string(),
@@ -188,16 +188,16 @@ mod tests {
             subdomain_id: None,
             vpc_id: None,
             segment_type: match segment_type {
-                NetworkSegmentType::Admin => rpc::forge::NetworkSegmentType::Admin as i32,
-                NetworkSegmentType::Tenant => rpc::forge::NetworkSegmentType::Tenant as i32,
-                NetworkSegmentType::Underlay => rpc::forge::NetworkSegmentType::Underlay as i32,
-                NetworkSegmentType::HostInband => rpc::forge::NetworkSegmentType::HostInband as i32,
+                NetworkSegmentType::Admin => rpc::nico::NetworkSegmentType::Admin as i32,
+                NetworkSegmentType::Tenant => rpc::nico::NetworkSegmentType::Tenant as i32,
+                NetworkSegmentType::Underlay => rpc::nico::NetworkSegmentType::Underlay as i32,
+                NetworkSegmentType::HostInband => rpc::nico::NetworkSegmentType::HostInband as i32,
             },
         }
     }
 
-    fn ipv4_prefix(prefix: &str, gateway: Option<&str>) -> rpc::forge::NetworkPrefix {
-        rpc::forge::NetworkPrefix {
+    fn ipv4_prefix(prefix: &str, gateway: Option<&str>) -> rpc::nico::NetworkPrefix {
+        rpc::nico::NetworkPrefix {
             id: None,
             prefix: prefix.to_string(),
             gateway: gateway.map(|g| g.to_string()),
@@ -207,8 +207,8 @@ mod tests {
         }
     }
 
-    fn ipv6_prefix(prefix: &str) -> rpc::forge::NetworkPrefix {
-        rpc::forge::NetworkPrefix {
+    fn ipv6_prefix(prefix: &str) -> rpc::nico::NetworkPrefix {
+        rpc::nico::NetworkPrefix {
             id: None,
             prefix: prefix.to_string(),
             gateway: None,
@@ -313,8 +313,8 @@ pub struct NetworkSegmentSearchConfig {
     pub include_num_free_ips: bool,
 }
 
-impl From<rpc::forge::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
-    fn from(value: rpc::forge::NetworkSegmentSearchConfig) -> Self {
+impl From<rpc::nico::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
+    fn from(value: rpc::nico::NetworkSegmentSearchConfig) -> Self {
         NetworkSegmentSearchConfig {
             include_history: value.include_history,
             include_num_free_ips: value.include_num_free_ips,
@@ -419,12 +419,12 @@ impl TryFrom<i32> for NetworkSegmentType {
     type Error = RpcDataConversionError;
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         Ok(match value {
-            x if x == rpc::forge::NetworkSegmentType::Tenant as i32 => NetworkSegmentType::Tenant,
-            x if x == rpc::forge::NetworkSegmentType::Admin as i32 => NetworkSegmentType::Admin,
-            x if x == rpc::forge::NetworkSegmentType::Underlay as i32 => {
+            x if x == rpc::nico::NetworkSegmentType::Tenant as i32 => NetworkSegmentType::Tenant,
+            x if x == rpc::nico::NetworkSegmentType::Admin as i32 => NetworkSegmentType::Admin,
+            x if x == rpc::nico::NetworkSegmentType::Underlay as i32 => {
                 NetworkSegmentType::Underlay
             }
-            x if x == rpc::forge::NetworkSegmentType::HostInband as i32 => {
+            x if x == rpc::nico::NetworkSegmentType::HostInband as i32 => {
                 NetworkSegmentType::HostInband
             }
             _ => {
@@ -514,10 +514,10 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
 /// subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
 /// Use try_from in order to return a Result where Result is an error if the conversion
 /// from String -> UUID fails
-impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
+impl TryFrom<rpc::nico::NetworkSegmentCreationRequest> for NewNetworkSegment {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::NetworkSegmentCreationRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::nico::NetworkSegmentCreationRequest) -> Result<Self, Self::Error> {
         if value.prefixes.is_empty() {
             return Err(RpcDataConversionError::InvalidArgument(
                 "Prefixes are empty.".to_string(),
@@ -598,7 +598,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
         }
 
         let flags: Vec<i32> = {
-            use rpc::forge::NetworkSegmentFlag::*;
+            use rpc::nico::NetworkSegmentFlag::*;
 
             let mut flags = vec![];
 
@@ -634,7 +634,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             prefixes: src
                 .prefixes
                 .into_iter()
-                .map(rpc::forge::NetworkPrefix::from)
+                .map(rpc::nico::NetworkPrefix::from)
                 .collect_vec(),
             vpc_id: src.vpc_id,
             state: state as i32,

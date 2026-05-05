@@ -18,7 +18,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_uuid::rack::RackId;
+use nico_uuid::rack::RackId;
 use mac_address::MacAddress;
 
 use crate::HealthError;

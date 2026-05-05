@@ -17,13 +17,13 @@
 
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use ::rpc::nico as rpc;
 use db::DatabaseError;
 use mac_address::MacAddress;
 use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
+use crate::NicoError;
 use crate::api::{Api, log_machine_id, log_request_data};
 
 pub(crate) async fn get_power_options(
@@ -59,10 +59,10 @@ pub(crate) async fn update_power_option(
 
     let machine_id = req
         .machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("Machine ID is missing".to_string()))?;
+        .ok_or_else(|| NicoError::InvalidArgument("Machine ID is missing".to_string()))?;
 
     if machine_id.machine_type().is_dpu() {
-        return Err(CarbideError::InvalidArgument("Only host id is expected!!".to_string()).into());
+        return Err(NicoError::InvalidArgument("Only host id is expected!!".to_string()).into());
     }
 
     log_machine_id(&machine_id);
@@ -73,7 +73,7 @@ pub(crate) async fn update_power_option(
 
     // This should never happen until machine is not forced-deleted or does not exist.
     let Some(current_power_options) = current_power_state.first() else {
-        return Err(CarbideError::InvalidArgument("Only host id is expected!!".to_string()).into());
+        return Err(NicoError::InvalidArgument("Only host id is expected!!".to_string()).into());
     };
 
     let desired_power_state = req.power_state();
@@ -90,7 +90,7 @@ pub(crate) async fn update_power_option(
             },
         )
         .await?
-        .ok_or(CarbideError::NotFoundError {
+        .ok_or(NicoError::NotFoundError {
             kind: "machine",
             id: machine_id.to_string(),
         })?;
@@ -106,7 +106,7 @@ pub(crate) async fn update_power_option(
                 .classifications
                 .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
         }) {
-            return Err(CarbideError::InvalidArgument(
+            return Err(NicoError::InvalidArgument(
                 "Machine must have a 'Maintenance' Health Alert with 'SupressExternalAlerting' classification.".into(),
             )
             .into());
@@ -116,7 +116,7 @@ pub(crate) async fn update_power_option(
     // To avoid unnecessary version increment.
     let desired_power_state = desired_power_state.into();
     if desired_power_state == current_power_options.desired_power_state {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(NicoError::InvalidArgument(format!(
             "Power State is already set as {desired_power_state:?}. No change is performed."
         ))
         .into());
@@ -158,12 +158,12 @@ pub(crate) async fn determine_machine_ingestion_state(
     //.   Nope -> WaitingForIngestion
 
     let mac_address = MacAddress::from_str(&request.mac_address.clone().ok_or(
-        CarbideError::InvalidArgument("No MAC address suplied".to_string()),
+        NicoError::InvalidArgument("No MAC address suplied".to_string()),
     )?)
-    .map_err(CarbideError::MacAddressParseError)?;
+    .map_err(NicoError::MacAddressParseError)?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
+        NicoError::from(DatabaseError::new(
             "begin determine_machine_ingestion_state",
             e,
         ))
@@ -177,7 +177,7 @@ pub(crate) async fn determine_machine_ingestion_state(
             }));
         }
         FindExploredEndpoint::MoreThanOneEndpoint => {
-            return Err(CarbideError::Internal {
+            return Err(NicoError::Internal {
                 message: format!(
                     "More than one explored enpoint found for MAC {}",
                     mac_address
@@ -195,7 +195,7 @@ pub(crate) async fn determine_machine_ingestion_state(
     if !explored_managed_hosts.is_empty() {
         let machine_created = db::machine::find_id_by_bmc_ip(&mut txn, &explored_endpoint.address)
             .await
-            .map_err(|e| CarbideError::internal(e.to_string()))?
+            .map_err(|e| NicoError::internal(e.to_string()))?
             .is_some();
         if machine_created {
             Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
@@ -220,23 +220,23 @@ pub(crate) async fn allow_ingestion_and_power_on(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     // flip a flag in explored_endpoints and allow a power on
     let mac_address = MacAddress::from_str(&request.mac_address.clone().ok_or(
-        CarbideError::InvalidArgument("No MAC address suplied".to_string()),
+        NicoError::InvalidArgument("No MAC address suplied".to_string()),
     )?)
-    .map_err(CarbideError::MacAddressParseError)?;
+    .map_err(NicoError::MacAddressParseError)?;
 
     let mut txn = api.txn_begin().await?;
 
     let explored_endpoint = match find_explored_endpoint(&mut txn, &mac_address).await? {
         FindExploredEndpoint::Found(explored_endpoint) => *explored_endpoint,
         FindExploredEndpoint::NotFound => {
-            return Err(CarbideError::NotFoundError {
+            return Err(NicoError::NotFoundError {
                 kind: "ExploredEndpoint",
                 id: mac_address.to_string(), //power_on_request.mac_address.clone(),
             }
             .into());
         }
         FindExploredEndpoint::MoreThanOneEndpoint => {
-            return Err(CarbideError::Internal {
+            return Err(NicoError::Internal {
                 message: format!(
                     "More than one explored enpoint found for MAC {}",
                     mac_address
@@ -268,7 +268,7 @@ enum FindExploredEndpoint {
 async fn find_explored_endpoint(
     txn: &mut sqlx::PgConnection,
     mac_address: &MacAddress,
-) -> Result<FindExploredEndpoint, CarbideError> {
+) -> Result<FindExploredEndpoint, NicoError> {
     let explored_endpoints = db::explored_endpoints::find_by_mac_address(txn, *mac_address).await?;
 
     let explored_endpoint = match explored_endpoints.len() {

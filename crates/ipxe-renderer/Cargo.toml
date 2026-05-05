@@ -1,5 +1,5 @@
 [package]
-name = "carbide-ipxe-renderer"
+name = "nico-ipxe-renderer"
 version = "0.0.1"
 edition.workspace = true
 description = "iPXE OS renderer for template-based iPXE script generation"
@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_ipxe_renderer"
+name = "nico_ipxe_renderer"
 
 [dependencies]
 sha2 = { workspace = true }

@@ -129,7 +129,7 @@ fn test_booturl_from_api() -> Result<(), eyre::Report> {
     let msg = v4::Message::decode(&mut Decoder::new(&recv_buf[..n])).unwrap();
 
     let wanted_location =
-        "https://api-specified-ipxe-url.forge/public/blobs/internal/x86_64/ipxe.efi"
+        "https://api-specified-ipxe-url.nico/public/blobs/internal/x86_64/ipxe.efi"
             .to_string()
             .into_bytes();
 

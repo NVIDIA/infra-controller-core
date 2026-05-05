@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use rpc::nico as nicorpc;
+use rpc::nico::nico_server::Nico;
 
 use super::{Base, filters};
 use crate::api::Api;
@@ -37,11 +37,11 @@ struct TenantShow {
 struct TenantDisplay {
     organization_id: String,
     routing_profile_type: String,
-    metadata: rpc::forge::Metadata,
+    metadata: rpc::nico::Metadata,
 }
 
-impl From<forgerpc::Tenant> for TenantDisplay {
-    fn from(tenant: forgerpc::Tenant) -> Self {
+impl From<nicorpc::Tenant> for TenantDisplay {
+    fn from(tenant: nicorpc::Tenant) -> Self {
         Self {
             routing_profile_type: tenant
                 .routing_profile_type
@@ -69,7 +69,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
-    let out: forgerpc::TenantList = match fetch_tenants(state).await {
+    let out: nicorpc::TenantList = match fetch_tenants(state).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "fetch_tenants");
@@ -79,8 +79,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(out)).into_response()
 }
 
-async fn fetch_tenants(api: Arc<Api>) -> Result<forgerpc::TenantList, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::TenantSearchFilter {
+async fn fetch_tenants(api: Arc<Api>) -> Result<nicorpc::TenantList, tonic::Status> {
+    let request = tonic::Request::new(nicorpc::TenantSearchFilter {
         tenant_organization_name: None,
     });
 
@@ -98,7 +98,7 @@ async fn fetch_tenants(api: Arc<Api>) -> Result<forgerpc::TenantList, tonic::Sta
         let next_ids = &tenant_ids[offset..offset + page_size];
         let next_vpcs = api
             .find_tenants_by_organization_ids(tonic::Request::new(
-                forgerpc::TenantByOrganizationIdsRequest {
+                nicorpc::TenantByOrganizationIdsRequest {
                     organization_ids: next_ids.to_vec(),
                 },
             ))
@@ -111,7 +111,7 @@ async fn fetch_tenants(api: Arc<Api>) -> Result<forgerpc::TenantList, tonic::Sta
 
     tenants.sort_by(|t1, t2| t1.organization_id.cmp(&t2.organization_id));
 
-    Ok(forgerpc::TenantList { tenants })
+    Ok(nicorpc::TenantList { tenants })
 }
 
 #[derive(Template)]
@@ -121,8 +121,8 @@ struct TenantDetail {
     metadata_detail: super::MetadataDetail,
 }
 
-impl From<forgerpc::Tenant> for TenantDetail {
-    fn from(tenant: forgerpc::Tenant) -> Self {
+impl From<nicorpc::Tenant> for TenantDetail {
+    fn from(tenant: nicorpc::Tenant) -> Self {
         let metadata_detail = super::MetadataDetail {
             metadata: tenant.metadata.clone().unwrap_or_default(),
             metadata_version: tenant.version.clone(),
@@ -144,7 +144,7 @@ pub async fn detail(
         None => (false, organization_id),
     };
 
-    let request = tonic::Request::new(forgerpc::TenantByOrganizationIdsRequest {
+    let request = tonic::Request::new(nicorpc::TenantByOrganizationIdsRequest {
         organization_ids: vec![organization_id.clone()],
     });
     let tenant = match state

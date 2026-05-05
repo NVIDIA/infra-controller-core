@@ -15,15 +15,15 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 
 use super::super::update_metadata;
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn bulk_update_metadata(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn bulk_update_metadata(args: Args, api_client: &ApiClient) -> NicoCliResult<()> {
     let mut rdr =
-        csv::Reader::from_path(&args.filename).map_err(|e| CarbideCliError::IOError(e.into()))?;
+        csv::Reader::from_path(&args.filename).map_err(|e| NicoCliError::IOError(e.into()))?;
 
     // disable reading the first row as a header
     rdr.set_headers(vec!["sku id", "device type"].into());

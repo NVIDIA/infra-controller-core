@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Consolidated RMS database migration file.
 --
--- This merges all RMS-Carbide migrations into a single migration
+-- This merges all RMS-Nico migrations into a single migration
 -- file, taking into consideration migrations that act on the same
 -- table.
 --
@@ -18,7 +18,7 @@
 -- 20250813120000_add_power_shelf_id_to_machine_interfaces.sql
 --
 -- This migration is an enhancement on 20250711040508_instance_interface_id.sql
--- and was created in response to https://jirasw.nvidia.com/browse/FORGE-6604.
+-- and was created in response to https://jirasw.nvidia.com/browse/NICO-6604.
 --
 -- The key enhancements here are:
 -- 1) It generates a unique UUID for each interface. While technically it only
@@ -238,7 +238,7 @@ BEFORE UPDATE ON switches
 FOR EACH ROW EXECUTE FUNCTION update_switches_updated();
 
 -- =============================================================================
--- Changes to Existing Carbide Machine Interfaces Table
+-- Changes to Existing Nico Machine Interfaces Table
 -- From: 20250813120000_add_power_shelf_id_to_machine_interfaces.sql
 --       20250910160300_add_switch_id_to_machine_interfaces.sql
 -- =============================================================================
@@ -256,7 +256,7 @@ CREATE INDEX idx_machine_interfaces_power_shelf_id ON machine_interfaces(power_s
 CREATE INDEX idx_machine_interfaces_switch_id ON machine_interfaces(switch_id);
 
 -- =============================================================================
--- Changes to Existing Carbide Expected Machines Table
+-- Changes to Existing Nico Expected Machines Table
 -- From: 20250822230000_expected_machines_add_host_mac.sql
 --       20250907120000_add_rack_id_expected.sql
 -- =============================================================================

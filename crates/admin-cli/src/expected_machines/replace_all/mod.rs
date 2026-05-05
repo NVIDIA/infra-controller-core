@@ -22,7 +22,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::NicoCliResult;
 pub use args::Args;
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +34,7 @@ use crate::expected_machines::common::ExpectedMachineJson;
 /// Each `ExpectedMachineJson` may include `bmc_ip_address`; the API runs the same pre-allocation
 /// path as `add_expected_machine` for each entry.
 impl Run for Args {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         let json_file_path = Path::new(&self.filename);
         let reader = BufReader::new(File::open(json_file_path)?);
         #[derive(Debug, Serialize, Deserialize)]

@@ -17,11 +17,11 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
-use carbide_rpc_utils::dhcp::{
+use nico_rpc_utils::dhcp::{
     DhcpConfig as ModelDhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath,
     HostConfig as ModelHostConfig, InterfaceInfo as ModelInterfaceInfo,
 };
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::machine::MachineInterfaceId;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
@@ -63,19 +63,19 @@ impl TryFrom<proto::DhcpConfig> for ModelDhcpConfig {
             lease_time_secs: c.lease_time_secs,
             renewal_time_secs: c.renewal_time_secs,
             rebinding_time_secs: c.rebinding_time_secs,
-            carbide_nameservers: c
-                .carbide_nameservers
+            nico_nameservers: c
+                .nico_nameservers
                 .iter()
                 .map(|s| s.parse())
                 .collect::<Result<Vec<_>, _>>()?,
-            carbide_api_url: c.carbide_api_url,
-            carbide_ntpservers: c
-                .carbide_ntpservers
+            nico_api_url: c.nico_api_url,
+            nico_ntpservers: c
+                .nico_ntpservers
                 .iter()
                 .map(|s| s.parse())
                 .collect::<Result<Vec<_>, _>>()?,
-            carbide_provisioning_server_ipv4: c.carbide_provisioning_server_ipv4.parse()?,
-            carbide_dhcp_server: c.carbide_dhcp_server.parse()?,
+            nico_provisioning_server_ipv4: c.nico_provisioning_server_ipv4.parse()?,
+            nico_dhcp_server: c.nico_dhcp_server.parse()?,
         })
     }
 }

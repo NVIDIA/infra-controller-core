@@ -21,11 +21,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineIdParseError;
+use nico_uuid::machine::MachineIdParseError;
 use duration_str::deserialize_duration;
-use forge_tls::client_config::ClientCert;
-use rpc::forge_api_client::ForgeApiClient;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_tls::client_config::ClientCert;
+use rpc::nico_api_client::NicoApiClient;
+use rpc::nico_tls_client::{ApiConfig, NicoClientConfig};
 use russh::keys::ssh_key::Fingerprint;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -41,12 +41,12 @@ pub struct Config {
     #[serde(default = "Defaults::metrics_address")]
     pub metrics_address: SocketAddr,
     #[serde(
-        rename = "carbide_url",
-        default = "Defaults::carbide_uri",
+        rename = "nico_url",
+        default = "Defaults::nico_uri",
         serialize_with = "serialize_uri",
         deserialize_with = "deserialize_uri"
     )]
-    pub carbide_uri: http::Uri,
+    pub nico_uri: http::Uri,
     #[serde(default)]
     pub authorized_keys_path: Option<PathBuf>,
     #[serde(default, rename = "bmcs")]
@@ -66,7 +66,7 @@ pub struct Config {
     #[serde(default)]
     pub insecure_ipmi_ciphers: bool,
     #[serde(default = "Defaults::root_ca_path")]
-    pub forge_root_ca_path: PathBuf,
+    pub nico_root_ca_path: PathBuf,
     #[serde(default = "Defaults::client_cert_path")]
     pub client_cert_path: PathBuf,
     #[serde(default = "Defaults::client_key_path")]
@@ -204,11 +204,11 @@ impl Config {
             dpus,
             hosts,
             insecure,
-            carbide_uri,
+            nico_uri,
             override_bmc_ssh_port: _,
             override_ipmi_port: _,
             insecure_ipmi_ciphers,
-            forge_root_ca_path,
+            nico_root_ca_path,
             client_cert_path,
             client_key_path,
             openssh_certificate_ca_fingerprints: _,
@@ -229,7 +229,7 @@ impl Config {
         let reconnect_interval_max = format!("{}s", reconnect_interval_max.as_secs());
         let successful_connection_minimum_duration =
             format!("{}s", successful_connection_minimum_duration.as_secs());
-        let carbide_uri = carbide_uri.to_string();
+        let nico_uri = nico_uri.to_string();
         let listen_address = listen_address.to_string();
         let metrics_address = metrics_address.to_string();
         let log_rotate_max_size = log_rotate_max_size
@@ -273,16 +273,16 @@ listen_address = {listen_address:?}
 ## Address to listen on for prometheus metrics requests (HTTP)
 metrics_address = {metrics_address:?}
 
-## Address for carbide-api
-carbide_url = {carbide_uri:?}
+## Address for nico-api
+nico_url = {nico_uri:?}
 
-## Path to root CA cert for carbide-api
-forge_root_ca_path = {forge_root_ca_path:?}
+## Path to root CA cert for nico-api
+nico_root_ca_path = {nico_root_ca_path:?}
 
-## Client cert path to communicate with carbide-api
+## Client cert path to communicate with nico-api
 client_cert_path = {client_cert_path:?}
 
-## Client key path to communicate with carbide-api
+## Client key path to communicate with nico-api
 client_key_path = {client_key_path:?}
 
 ## Path to the SSH host key path.
@@ -318,7 +318,7 @@ insecure_ipmi_ciphers = {insecure_ipmi_ciphers}
 ## for integration tests. For interactive use, consider using openssh certificates instead.
 # authorized_keys_path = <path>
 
-## How often to poll the carbide API server for what machines are available
+## How often to poll the nico API server for what machines are available
 api_poll_interval = {api_poll_interval:?}
 
 ## Whether to output the console data for each machine to a log file
@@ -382,11 +382,11 @@ role_separator = {cert_authorization_keyid_format_role_separator:?}
         )
     }
 
-    pub fn make_forge_api_client(&self) -> ForgeApiClient {
-        let carbide_uri_string = self.carbide_uri.to_string();
-        tracing::info!("carbide_uri_string: {}", carbide_uri_string);
+    pub fn make_nico_api_client(&self) -> NicoApiClient {
+        let nico_uri_string = self.nico_uri.to_string();
+        tracing::info!("nico_uri_string: {}", nico_uri_string);
 
-        // TODO: The API's for ClientCert/ForgeClientConfig/etc really ought to take PathBufs, not Strings.
+        // TODO: The API's for ClientCert/NicoClientConfig/etc really ought to take PathBufs, not Strings.
         let client_cert = ClientCert {
             cert_path: self
                 .client_cert_path
@@ -399,16 +399,16 @@ role_separator = {cert_authorization_keyid_format_role_separator:?}
                 .expect("Invalid utf-8 in client_key_path")
                 .to_string(),
         };
-        let client_config = ForgeClientConfig::new(
-            self.forge_root_ca_path
+        let client_config = NicoClientConfig::new(
+            self.nico_root_ca_path
                 .to_str()
-                .expect("Invalid utf-8 in forge_root_ca_path")
+                .expect("Invalid utf-8 in nico_root_ca_path")
                 .to_string(),
             Some(client_cert),
         );
 
-        let api_config = ApiConfig::new(&carbide_uri_string, &client_config);
-        ForgeApiClient::new(&api_config)
+        let api_config = ApiConfig::new(&nico_uri_string, &client_config);
+        NicoApiClient::new(&api_config)
     }
 }
 
@@ -446,8 +446,8 @@ impl Default for Config {
             listen_address: Defaults::listen_address(),
             metrics_address: Defaults::metrics_address(),
             host_key_path: Defaults::host_key_path(),
-            carbide_uri: Defaults::carbide_uri(),
-            forge_root_ca_path: Defaults::root_ca_path(),
+            nico_uri: Defaults::nico_uri(),
+            nico_root_ca_path: Defaults::root_ca_path(),
             client_cert_path: Defaults::client_cert_path(),
             client_key_path: Defaults::client_key_path(),
             api_poll_interval: Defaults::api_poll_interval(),
@@ -523,10 +523,10 @@ impl Defaults {
         true
     }
 
-    pub fn carbide_uri() -> http::Uri {
-        "https://carbide-api.forge-system.svc.cluster.local:1079"
+    pub fn nico_uri() -> http::Uri {
+        "https://nico-api.nico-system.svc.cluster.local:1079"
             .try_into()
-            .expect("BUG: default carbide URI is invalid")
+            .expect("BUG: default nico URI is invalid")
     }
 
     pub fn root_ca_path() -> PathBuf {

@@ -18,13 +18,13 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_rpc_utils::dhcp::{HostConfig, InterfaceInfo};
+use nico_rpc_utils::dhcp::{HostConfig, InterfaceInfo};
 use dhcproto::v4::relay::{RelayAgentInformation, RelayCode, RelayInfo};
 use dhcproto::v4::{Decodable, Decoder, DhcpOption, Message, MessageType, OptionCode};
 use dhcproto::{Encodable, Encoder};
 use ipnetwork::IpNetwork;
 use lru::LruCache;
-use rpc::forge::{DhcpDiscovery, DhcpRecord};
+use rpc::nico::{DhcpDiscovery, DhcpRecord};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
@@ -130,7 +130,7 @@ impl DecodedPacket {
 
     fn is_this_for_us(&self, config: &Config) -> Result<(), DhcpError> {
         if let Some(val) = self.get_option_val(OptionCode::ServerIdentifier, None)? {
-            if val == config.dhcp_config.carbide_dhcp_server {
+            if val == config.dhcp_config.nico_dhcp_server {
                 return Ok(());
             }
             return Err(DhcpError::NotMyPacket(val.to_string()));
@@ -281,19 +281,19 @@ pub async fn process_packet(
 fn create_dhcp_reply_packet(
     src: &DecodedPacket,
     circuit_id: &str,
-    forge_response: DhcpRecord,
+    nico_response: DhcpRecord,
     config: &Config,
     dhcp_msg_type: MessageType,
 ) -> Result<Message, DhcpError> {
-    let relay_address = forge_response
+    let relay_address = nico_response
         .gateway
         .clone()
         .map(|x| {
             x.parse::<Ipv4Addr>()
                 .unwrap_or_else(|_| Ipv4Addr::from([0, 0, 0, 0]))
         })
-        .unwrap_or(config.dhcp_config.carbide_dhcp_server);
-    let allocated_address = Ipv4Addr::from_str(&forge_response.address)?;
+        .unwrap_or(config.dhcp_config.nico_dhcp_server);
+    let allocated_address = Ipv4Addr::from_str(&nico_response.address)?;
     let reply_message_type = match dhcp_msg_type {
         MessageType::Discover => MessageType::Offer,
         // This can be 0 as per the rfc2131. If 0, send the allocated address.
@@ -307,8 +307,8 @@ fn create_dhcp_reply_packet(
         MessageType::Request => {
             return nak_packet(
                 src,
-                config.dhcp_config.carbide_provisioning_server_ipv4,
-                config.dhcp_config.carbide_dhcp_server,
+                config.dhcp_config.nico_provisioning_server_ipv4,
+                config.dhcp_config.nico_dhcp_server,
             );
         }
         MessageType::Decline => {
@@ -327,7 +327,7 @@ fn create_dhcp_reply_packet(
         }
     };
 
-    let parse = forge_response.prefix.parse::<IpNetwork>();
+    let parse = nico_response.prefix.parse::<IpNetwork>();
     let (prefix, broadcast) = match parse {
         Ok(prefix) => match prefix {
             IpNetwork::V4(prefix) => (prefix.mask(), prefix.broadcast()),
@@ -364,7 +364,7 @@ fn create_dhcp_reply_packet(
         .set_flags(src.packet.flags())
         .set_ciaddr(src.packet.ciaddr())
         .set_yiaddr(allocated_address)
-        .set_siaddr(config.dhcp_config.carbide_provisioning_server_ipv4)
+        .set_siaddr(config.dhcp_config.nico_provisioning_server_ipv4)
         .set_giaddr(src.packet.giaddr())
         .set_chaddr(src.packet.chaddr());
 
@@ -374,20 +374,20 @@ fn create_dhcp_reply_packet(
     msg.opts_mut()
         .insert(DhcpOption::Router(vec![relay_address]));
     msg.opts_mut().insert(DhcpOption::NameServer(
-        config.dhcp_config.carbide_nameservers.clone(),
+        config.dhcp_config.nico_nameservers.clone(),
     ));
     msg.opts_mut().insert(DhcpOption::DomainNameServer(
-        config.dhcp_config.carbide_nameservers.clone(),
+        config.dhcp_config.nico_nameservers.clone(),
     ));
     msg.opts_mut()
-        .insert(DhcpOption::DomainName(forge_response.fqdn.clone()));
+        .insert(DhcpOption::DomainName(nico_response.fqdn.clone()));
     msg.opts_mut()
-        .insert(DhcpOption::Hostname(forge_response.fqdn.clone()));
+        .insert(DhcpOption::Hostname(nico_response.fqdn.clone()));
 
     // // I guess we don't need Client_FQDN. Option12, Hostname seems sufficient.
     // let mut client_fqdn = ClientFQDN::new(
     //     FqdnFlags::new(0x0e),
-    //     Name::from_str(&forge_response.fqdn.clone())
+    //     Name::from_str(&nico_response.fqdn.clone())
     //         .map_err(|x| DhcpError::GenericError(x.to_string()))?,
     // );
     // client_fqdn.set_r1(0);
@@ -399,7 +399,7 @@ fn create_dhcp_reply_packet(
         config.dhcp_config.lease_time_secs,
     ));
     msg.opts_mut().insert(DhcpOption::ServerIdentifier(
-        config.dhcp_config.carbide_dhcp_server,
+        config.dhcp_config.nico_dhcp_server,
     ));
     msg.opts_mut()
         .insert(DhcpOption::Renewal(config.dhcp_config.renewal_time_secs));
@@ -422,7 +422,7 @@ fn create_dhcp_reply_packet(
         .insert(DhcpOption::ClientIdentifier(client_identifier));
 
     msg.opts_mut().insert(DhcpOption::NtpServers(
-        config.dhcp_config.carbide_ntpservers.clone(),
+        config.dhcp_config.nico_ntpservers.clone(),
     ));
 
     if let Some(vendor_class) = vendor_class {
@@ -433,7 +433,7 @@ fn create_dhcp_reply_packet(
         if vendor_class.is_netboot() {
             msg.opts_mut()
                 .insert(DhcpOption::BootfileName(util::machine_get_filename(
-                    &forge_response,
+                    &nico_response,
                     &vendor_class,
                     config,
                 )));
@@ -465,7 +465,7 @@ fn create_dhcp_reply_packet(
     }
 
     let mut vendor_option: Vec<u8> = vec![6, 4, 0, 0, 0, 8, 70];
-    let mut machine_id = forge_response
+    let mut machine_id = nico_response
         .machine_interface_id
         .map(|x| x.to_string())
         .unwrap_or_default()
@@ -483,8 +483,8 @@ fn create_dhcp_reply_packet(
 
 fn nak_packet(
     src: &DecodedPacket,
-    carbide_provisioning_server_ipv4: Ipv4Addr,
-    carbide_dhcp_server: Ipv4Addr,
+    nico_provisioning_server_ipv4: Ipv4Addr,
+    nico_dhcp_server: Ipv4Addr,
 ) -> Result<Message, DhcpError> {
     // https://www.ietf.org/rfc/rfc2131.txt
     let mut msg = Message::default();
@@ -496,7 +496,7 @@ fn nak_packet(
         .set_flags(src.packet.flags())
         .set_ciaddr(src.packet.ciaddr())
         .set_yiaddr(Ipv4Addr::from([0, 0, 0, 0]))
-        .set_siaddr(carbide_provisioning_server_ipv4)
+        .set_siaddr(nico_provisioning_server_ipv4)
         .set_giaddr(src.packet.giaddr())
         .set_chaddr(src.packet.chaddr());
 
@@ -512,7 +512,7 @@ fn nak_packet(
     msg.opts_mut()
         .insert(DhcpOption::ClientIdentifier(client_identifier));
     msg.opts_mut()
-        .insert(DhcpOption::ServerIdentifier(carbide_dhcp_server));
+        .insert(DhcpOption::ServerIdentifier(nico_dhcp_server));
 
     Ok(msg)
 }
@@ -574,10 +574,10 @@ mod test {
         tree.insert("interface_mtu_12000".to_string(), interface_mtu_12000);
         expected.insert("interface_mtu_12000".to_string(), 12000);
 
-        let host_config: carbide_rpc_utils::dhcp::HostConfig =
-            carbide_rpc_utils::dhcp::HostConfig {
+        let host_config: nico_rpc_utils::dhcp::HostConfig =
+            nico_rpc_utils::dhcp::HostConfig {
                 host_interface_id:
-                    <carbide_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
+                    <nico_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
                         "959888da-cdc8-4079-8d23-8a09832447ce",
                     )
                     .ok()

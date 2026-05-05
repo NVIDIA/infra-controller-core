@@ -16,8 +16,8 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::compute_allocation::ComputeAllocationId;
-use carbide_uuid::instance_type::InstanceTypeId;
+use nico_uuid::compute_allocation::ComputeAllocationId;
+use nico_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
 use model::compute_allocation::ComputeAllocation;
 use model::metadata::Metadata;

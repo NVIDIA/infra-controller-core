@@ -2,7 +2,7 @@
 #
 # Nonsense wrapper for handling breakage in `ipmitool` when there's anything out of the ordinary.
 #
-# This is intended to be called by `forge-scout` and if `lan print` are the
+# This is intended to be called by `nico-scout` and if `lan print` are the
 # arguments, then it will instead run `bmc-config` from the freeipmi tools
 # disribution included in Debian as well.
 #

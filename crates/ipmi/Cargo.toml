@@ -1,18 +1,18 @@
 [package]
-name = "carbide-ipmi"
+name = "nico-ipmi"
 version = "0.0.1"
 edition.workspace = true
-description = "Carbide IPMI"
+description = "Nico IPMI"
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_ipmi"
+name = "nico_ipmi"
 
 [dependencies]
-carbide-secrets = { path = "../secrets", default-features = false }
-carbide-utils = { path = "../utils", default-features = false }
-carbide-uuid = { path = "../uuid" }
+nico-secrets = { path = "../secrets", default-features = false }
+nico-utils = { path = "../utils", default-features = false }
+nico-uuid = { path = "../uuid" }
 
 #these are alphabetized
 arc-swap = { workspace = true }

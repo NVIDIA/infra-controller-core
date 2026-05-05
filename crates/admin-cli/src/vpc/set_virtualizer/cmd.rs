@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{NicoCliError, NicoCliResult};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -30,7 +30,7 @@ use crate::rpc::ApiClient;
 pub async fn set_network_virtualization_type(
     api_client: &ApiClient,
     args: Args,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     // TODO(chet): This should probably just be implied
     // and handled as part of set_vpc_network_virtualization_type,
     // and if it's not found, just return that. BUT, since if_version_match
@@ -40,7 +40,7 @@ pub async fn set_network_virtualization_type(
     let mut vpcs = api_client.0.find_vpcs_by_ids(&[args.id]).await?;
 
     if vpcs.vpcs.len() != 1 {
-        return Err(CarbideCliError::GenericError("Unknown VPC ID".to_string()));
+        return Err(NicoCliError::GenericError("Unknown VPC ID".to_string()));
     }
 
     api_client

@@ -21,18 +21,18 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use byte_unit::UnitType;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use rpc::common::MachineIdList;
-// use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+// use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     BmcInfo, ConnectedDevice, GetSiteExplorationRequest, MachineType, ManagedHostQuarantineState,
     NetworkDevice, NetworkDeviceIdList,
 };
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
-use rpc::{DmiData, DynForge, Machine, Timestamp};
+use rpc::{DmiData, DynNico, Machine, Timestamp};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -58,7 +58,7 @@ impl ManagedHostMetadata {
     /// via information from the API.
     pub async fn lookup_from_api(
         machines: Vec<Machine>,
-        api: Arc<DynForge>,
+        api: Arc<DynNico>,
     ) -> ManagedHostMetadata {
         let request = tonic::Request::new(GetSiteExplorationRequest {});
 

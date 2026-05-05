@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_uuid::vpc::VpcId;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_uuid::vpc::VpcId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

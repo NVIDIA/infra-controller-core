@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! Contains fixtures that use the Carbide API for setting up
+//! Contains fixtures that use the Nico API for setting up
 
 use std::collections::HashMap;
 use std::default::Default;
@@ -25,34 +25,34 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use carbide_ib_fabric::IbFabricMonitor;
-use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
-use carbide_ib_fabric::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
-use carbide_ipmi::IPMITool;
-use carbide_nvlink_manager::NvlPartitionMonitor;
-use carbide_nvlink_manager::config::NvLinkConfig;
-use carbide_nvlink_manager::nvlink::NmxmClientPool;
-use carbide_nvlink_manager::nvlink::test_support::NmxmSimClient;
-use carbide_redfish::libredfish::test_support::RedfishSim;
-use carbide_site_explorer::SiteExplorer;
-use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
-use carbide_utils::test_support::test_meter::TestMeter;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use nico_ib_fabric::IbFabricMonitor;
+use nico_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
+use nico_ib_fabric::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
+use nico_ipmi::IPMITool;
+use nico_nvlink_manager::NvlPartitionMonitor;
+use nico_nvlink_manager::config::NvLinkConfig;
+use nico_nvlink_manager::nvlink::NmxmClientPool;
+use nico_nvlink_manager::nvlink::test_support::NmxmSimClient;
+use nico_redfish::libredfish::test_support::RedfishSim;
+use nico_site_explorer::SiteExplorer;
+use nico_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use nico_utils::test_support::test_meter::TestMeter;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::machine_validation::MachineValidationId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
 use db::db_read::PgPoolReader;
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
 use dpu::DpuConfig;
-use forge_secrets::credentials::{
+use nico_secrets::credentials::{
     CompositeCredentialManager, CredentialManager, CredentialReader, TestCredentialManager,
 };
-use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
+use nico_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use futures::FutureExt as _;
 use health_report::{HealthReport, HealthReportApplyMode};
 use ipnetwork::IpNetwork;
@@ -78,8 +78,8 @@ use nras::{
 };
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     HealthReportEntry, InsertMachineHealthReportRequest, RemoveMachineHealthReportRequest,
     VpcVirtualizationType,
 };
@@ -96,7 +96,7 @@ use tracing_subscriber::EnvFilter;
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{
-    BomValidationConfig, CarbideConfig, ComputeAllocationEnforcement, DpaConfig,
+    BomValidationConfig, NicoConfig, ComputeAllocationEnforcement, DpaConfig,
     DpaInterfaceStateControllerConfig, DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig,
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
     MachineValidationConfig, MeasuredBootMetricsCollectorConfig, MqttAuthConfig,
@@ -243,7 +243,7 @@ lazy_static! {
 pub struct TestEnvOverrides {
     pub allow_zero_dpu_hosts: Option<bool>,
     pub site_prefixes: Option<Vec<IpNetwork>>,
-    pub config: Option<CarbideConfig>,
+    pub config: Option<NicoConfig>,
     pub create_network_segments: Option<bool>,
     pub dpu_agent_version_staleness_threshold: Option<chrono::Duration>,
     pub prevent_allocations_on_stale_dpu_agent_version: Option<bool>,
@@ -259,7 +259,7 @@ pub struct TestEnvOverrides {
 }
 
 impl TestEnvOverrides {
-    pub fn with_config(config: CarbideConfig) -> Self {
+    pub fn with_config(config: NicoConfig) -> Self {
         Self {
             config: Some(config),
             ..Default::default()
@@ -332,7 +332,7 @@ impl TestEnvOverrides {
 
 pub struct TestEnv {
     pub api: Arc<Api>,
-    pub config: Arc<CarbideConfig>,
+    pub config: Arc<NicoConfig>,
     pub common_pools: Arc<CommonPools>,
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
@@ -724,10 +724,10 @@ impl TestEnv {
     // Returns all machines using FindMachinesByIds call.
     pub async fn find_machine(
         &self,
-        id: carbide_uuid::machine::MachineId,
-    ) -> Vec<rpc::forge::Machine> {
+        id: nico_uuid::machine::MachineId,
+    ) -> Vec<rpc::nico::Machine> {
         self.api
-            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
                 machine_ids: vec![id],
                 include_history: true,
             }))
@@ -738,9 +738,9 @@ impl TestEnv {
     }
 
     // Returns all instances using FindInstancesByIds call.
-    pub async fn find_instances(&self, ids: Vec<InstanceId>) -> rpc::forge::InstanceList {
+    pub async fn find_instances(&self, ids: Vec<InstanceId>) -> rpc::nico::InstanceList {
         self.api
-            .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            .find_instances_by_ids(tonic::Request::new(rpc::nico::InstancesByIdsRequest {
                 instance_ids: ids,
             }))
             .await
@@ -751,7 +751,7 @@ impl TestEnv {
     pub async fn one_instance(&self, id: InstanceId) -> RpcInstance {
         let mut result = self
             .api
-            .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            .find_instances_by_ids(tonic::Request::new(rpc::nico::InstancesByIdsRequest {
                 instance_ids: vec![id],
             }))
             .await
@@ -763,7 +763,7 @@ impl TestEnv {
 
     pub async fn create_vpc_and_tenant_segment_with_vpc_details(
         &self,
-        vpc_details: rpc::forge::VpcCreationRequest,
+        vpc_details: rpc::nico::VpcCreationRequest,
     ) -> NetworkSegmentId {
         let vpc = self
             .api
@@ -790,7 +790,7 @@ impl TestEnv {
 
     pub async fn create_vpc_and_tenant_segments_with_vpc_details(
         &self,
-        vpc_details: rpc::forge::VpcCreationRequest,
+        vpc_details: rpc::nico::VpcCreationRequest,
         segment_count: usize,
     ) -> Vec<NetworkSegmentId> {
         let vpc = self
@@ -1053,8 +1053,8 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
     ])
 }
 
-pub fn get_config() -> CarbideConfig {
-    CarbideConfig {
+pub fn get_config() -> NicoConfig {
+    NicoConfig {
         default_tenant_routing_profile_type: "EXTERNAL".to_string(),
         web_ui_sidebar_tools: vec![],
         bgp_leaf_session_password: None,
@@ -1190,7 +1190,7 @@ pub fn get_config() -> CarbideConfig {
         nvlink_config: Some(NvLinkConfig::default()),
         dpa_config: Some(DpaConfig {
             enabled: true,
-            mqtt_endpoint: "mqtt.forge".to_string(),
+            mqtt_endpoint: "mqtt.nico".to_string(),
             mqtt_broker_port: 1884_u16,
             hb_interval: Duration::minutes(2),
             subnet_ip: Ipv4Addr::UNSPECIFIED,
@@ -1273,7 +1273,7 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
 /// Creates an environment for unit-testing
 ///
 /// This returns the `Api` object instance which can be used to simulate calls against
-/// the Forge site controller, as well as mocks for dependent services that
+/// the Nico site controller, as well as mocks for dependent services that
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     create_test_env_with_overrides(db_pool, Default::default()).await
@@ -1484,10 +1484,10 @@ pub async fn create_test_env_with_overrides(
     };
 
     let bmc_proxy = Arc::new(ArcSwap::new(None.into()));
-    let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
+    let bmc_explorer = nico_site_explorer::new_bmc_explorer(
         redfish_sim.clone(),
-        carbide_redfish::nv_redfish::new_pool(bmc_proxy),
-        carbide_ipmi::test_support(),
+        nico_redfish::nv_redfish::new_pool(bmc_proxy),
+        nico_ipmi::test_support(),
         composite_manager.clone(),
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
@@ -1531,7 +1531,7 @@ pub async fn create_test_env_with_overrides(
     });
 
     let attestation_enabled = config.attestation_enabled;
-    let ipmi_tool = carbide_ipmi::test_support();
+    let ipmi_tool = nico_ipmi::test_support();
     let mut power_options: PowerOptionConfig = config.power_manager_options.clone().into();
     if let Some(v) = overrides.power_manager_enabled {
         power_options.enabled = v;
@@ -1586,7 +1586,7 @@ pub async fn create_test_env_with_overrides(
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_machines", test_meter.meter())
+        .meter("nico_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(machine_swap.clone()))
@@ -1615,7 +1615,7 @@ pub async fn create_test_env_with_overrides(
 
     let ib_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_machines", test_meter.meter())
+        .meter("nico_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(ib_swap.clone()))
@@ -1634,7 +1634,7 @@ pub async fn create_test_env_with_overrides(
 
     let mut network_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_machines", test_meter.meter())
+        .meter("nico_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(network_swap.clone()))
@@ -1643,7 +1643,7 @@ pub async fn create_test_env_with_overrides(
 
     let power_shelf_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_power_shelves", test_meter.meter())
+        .meter("nico_power_shelves", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
@@ -1652,7 +1652,7 @@ pub async fn create_test_env_with_overrides(
 
     let switch_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("carbide_switches", test_meter.meter())
+        .meter("nico_switches", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(SwitchStateHandler::default()))
@@ -1735,7 +1735,7 @@ pub async fn create_test_env_with_overrides(
     txn.commit().await.unwrap();
 
     // Create domain
-    let domain: carbide_uuid::domain::DomainId = api
+    let domain: nico_uuid::domain::DomainId = api
         .create_domain(Request::new(rpc::protos::dns::CreateDomainRequest {
             name: "dwrt1.com".to_string(),
         }))
@@ -1743,7 +1743,7 @@ pub async fn create_test_env_with_overrides(
         .unwrap()
         .into_inner()
         .id
-        .map(::carbide_uuid::domain::DomainId::try_from)
+        .map(::nico_uuid::domain::DomainId::try_from)
         .unwrap()
         .unwrap();
 
@@ -1758,7 +1758,7 @@ pub async fn create_test_env_with_overrides(
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
 
-        // Synthetic segment for operator static IPs outside Carbide-managed prefixes (expected
+        // Synthetic segment for operator static IPs outside Nico-managed prefixes (expected
         // machine / switch / shelf BMC pre-allocation). Required for static-BMC integration tests.
         // Pass the domain to match production behavior (db_init passes Some(domain_id)).
         create_static_assignments_segment(&api, Some(domain)).await;
@@ -1808,7 +1808,7 @@ pub async fn get_instance_type_fixture_id(env: &TestEnv) -> String {
     let existing_instance_type_ids = env
         .api
         .find_instance_type_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypeIdsRequest {},
+            rpc::nico::FindInstanceTypeIdsRequest {},
         ))
         .await
         .unwrap()
@@ -1817,7 +1817,7 @@ pub async fn get_instance_type_fixture_id(env: &TestEnv) -> String {
 
     env.api
         .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
+            rpc::nico::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
                 include_allocation_stats: false,
                 tenant_organization_id: None,
@@ -1836,10 +1836,10 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
     // Create tenant orgs
     let default_tenant_org = "Tenant1";
     let _ = api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: default_tenant_org.to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: default_tenant_org.to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -1850,10 +1850,10 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
 
     let tenant_org2 = "Tenant2";
     let _ = api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(rpc::nico::CreateTenantRequest {
             organization_id: tenant_org2.to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(rpc::nico::Metadata {
                 name: tenant_org2.to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -1963,7 +1963,7 @@ fn test_static_credential_snapshot() -> CredentialSnapshot {
             username: "root".to_string(),
             password: "hostredfish_sitedefault".to_string(),
         }),
-        machine_identity: Some(forge_secrets::MachineIdentityConfig { encryption_keys }),
+        machine_identity: Some(nico_secrets::MachineIdentityConfig { encryption_keys }),
         ..Default::default()
     }
 }
@@ -2100,10 +2100,10 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
-pub async fn discovery_completed(env: &TestEnv, machine_id: carbide_uuid::machine::MachineId) {
+pub async fn discovery_completed(env: &TestEnv, machine_id: nico_uuid::machine::MachineId) {
     let _response = env
         .api
-        .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
+        .discovery_completed(Request::new(rpc::nico::MachineDiscoveryCompletedRequest {
             machine_id: Some(machine_id),
         }))
         .await
@@ -2111,14 +2111,14 @@ pub async fn discovery_completed(env: &TestEnv, machine_id: carbide_uuid::machin
         .into_inner();
 }
 
-/// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back
+/// Fake an iteration of nico-dpu-agent requesting network config, applying it, and reporting back
 pub async fn network_configured(env: &TestEnv, dpu_machine_ids: &Vec<MachineId>) {
     for dpu_machine_id in dpu_machine_ids {
         network_configured_with_health(env, dpu_machine_id, None).await
     }
 }
 
-/// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back.
+/// Fake an iteration of nico-dpu-agent requesting network config, applying it, and reporting back.
 /// When reporting back, the health reported by the DPU can be overrridden
 pub async fn network_configured_with_health(
     env: &TestEnv,
@@ -2128,18 +2128,18 @@ pub async fn network_configured_with_health(
     network_configured_with_health_and_ext_services(env, dpu_machine_id, dpu_health, None).await
 }
 
-/// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back.
+/// Fake an iteration of nico-dpu-agent requesting network config, applying it, and reporting back.
 /// When reporting back, the health and extension services statuses reported by the DPU can be overrridden
 pub async fn network_configured_with_health_and_ext_services(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
     dpu_health: Option<rpc::health::HealthReport>,
-    extension_services_state: Option<rpc::forge::DpuExtensionServiceDeploymentStatus>,
+    extension_services_state: Option<rpc::nico::DpuExtensionServiceDeploymentStatus>,
 ) {
     let network_config = env
         .api
         .get_managed_host_network_config(Request::new(
-            rpc::forge::ManagedHostNetworkConfigRequest {
+            rpc::nico::ManagedHostNetworkConfigRequest {
                 dpu_machine_id: Some(*dpu_machine_id),
             },
         ))
@@ -2181,7 +2181,7 @@ pub async fn network_configured_with_health_and_ext_services(
             .admin_interface
             .as_ref()
             .expect("use_admin_network true so admin_interface should be Some");
-        vec![rpc::forge::InstanceInterfaceStatusObservation {
+        vec![rpc::nico::InstanceInterfaceStatusObservation {
             function_type: iface.function_type,
             virtual_function_id: None,
             mac_address: None,
@@ -2194,7 +2194,7 @@ pub async fn network_configured_with_health_and_ext_services(
     } else {
         let mut interfaces = vec![];
         for iface in network_config.tenant_interfaces.iter() {
-            interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
+            interfaces.push(rpc::nico::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: None,
@@ -2209,25 +2209,25 @@ pub async fn network_configured_with_health_and_ext_services(
     };
 
     let dpu_health = dpu_health.unwrap_or_else(|| rpc::health::HealthReport {
-        source: "forge-dpu-agent".to_string(),
+        source: "nico-dpu-agent".to_string(),
         triggered_by: None,
         observed_at: None,
         successes: vec![],
         alerts: vec![],
     });
 
-    let dpu_extension_services: Vec<rpc::forge::DpuExtensionServiceStatusObservation> =
+    let dpu_extension_services: Vec<rpc::nico::DpuExtensionServiceStatusObservation> =
         network_config
             .dpu_extension_services
             .iter()
             .map(
-                |extension_service| rpc::forge::DpuExtensionServiceStatusObservation {
+                |extension_service| rpc::nico::DpuExtensionServiceStatusObservation {
                     service_id: extension_service.service_id.clone(),
                     service_type: extension_service.service_type,
                     service_name: "".to_string(),
                     version: extension_service.version.to_string(),
                     state: extension_services_state.unwrap_or(
-                        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning,
+                        rpc::nico::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning,
                     ) as i32,
                     components: vec![],
                     message: "".to_string(),
@@ -2236,7 +2236,7 @@ pub async fn network_configured_with_health_and_ext_services(
             )
             .collect();
 
-    let status = rpc::forge::DpuNetworkStatus {
+    let status = rpc::nico::DpuNetworkStatus {
         dpu_machine_id: Some(*dpu_machine_id),
         dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
         observed_at: None,
@@ -2274,8 +2274,8 @@ pub async fn simulate_hardware_health_report(
     host_machine_id: &MachineId,
     health_report: health_report::HealthReport,
 ) {
-    use rpc::forge::forge_server::Forge;
-    use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest};
+    use rpc::nico::nico_server::Nico;
+    use rpc::nico::{HealthReportEntry, InsertMachineHealthReportRequest};
     use tonic::Request;
 
     let _ = env
@@ -2297,7 +2297,7 @@ pub async fn send_health_report_entry(
     machine_id: &MachineId,
     entry: (HealthReport, HealthReportApplyMode),
 ) {
-    use rpc::forge::forge_server::Forge;
+    use rpc::nico::nico_server::Nico;
     use tonic::Request;
     let _ = env
         .api
@@ -2314,7 +2314,7 @@ pub async fn send_health_report_entry(
 
 /// Remove a health report entry
 pub async fn remove_health_report_entry(env: &TestEnv, machine_id: &MachineId, source: String) {
-    use rpc::forge::forge_server::Forge;
+    use rpc::nico::nico_server::Nico;
     use tonic::Request;
     let _ = env
         .api
@@ -2326,14 +2326,14 @@ pub async fn remove_health_report_entry(env: &TestEnv, machine_id: &MachineId, s
         .unwrap();
 }
 
-pub async fn forge_agent_control(
+pub async fn nico_agent_control(
     env: &TestEnv,
-    machine_id: carbide_uuid::machine::MachineId,
-) -> rpc::forge::ForgeAgentControlResponse {
+    machine_id: nico_uuid::machine::MachineId,
+) -> rpc::nico::NicoAgentControlResponse {
     let _ = reboot_completed(env, machine_id).await;
 
     env.api
-        .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
+        .nico_agent_control(Request::new(rpc::nico::NicoAgentControlRequest {
             machine_id: Some(machine_id),
         }))
         .await
@@ -2416,7 +2416,7 @@ pub async fn create_managed_host_with_config(
 
 pub async fn create_host_with_machine_validation(
     env: &TestEnv,
-    machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
+    machine_validation_result_data: Option<rpc::nico::MachineValidationResult>,
     error: Option<String>,
 ) -> TestManagedHost {
     let mh = new_host_with_machine_validation(env, 1, machine_validation_result_data, error)
@@ -2481,11 +2481,11 @@ pub async fn update_time_params(
 
 pub async fn reboot_completed(
     env: &TestEnv,
-    machine_id: carbide_uuid::machine::MachineId,
-) -> rpc::forge::MachineRebootCompletedResponse {
+    machine_id: nico_uuid::machine::MachineId,
+) -> rpc::nico::MachineRebootCompletedResponse {
     tracing::info!("Machine ={} rebooted", machine_id);
     env.api
-        .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
+        .reboot_completed(Request::new(rpc::nico::MachineRebootCompletedRequest {
             machine_id: Some(machine_id),
         }))
         .await
@@ -2499,14 +2499,14 @@ pub async fn machine_validation_completed(
     machine_id: &MachineId,
     machine_validation_error: Option<String>,
 ) {
-    let response = forge_agent_control(env, *machine_id).await;
+    let response = nico_agent_control(env, *machine_id).await;
     let uuid = &response.data.unwrap().pair[1].value;
     let validation_id: MachineValidationId = uuid.parse().unwrap();
 
     let _response = env
         .api
         .machine_validation_completed(Request::new(
-            rpc::forge::MachineValidationCompletedRequest {
+            rpc::nico::MachineValidationCompletedRequest {
                 machine_id: Some(*machine_id),
                 machine_validation_error,
                 validation_id: Some(validation_id),
@@ -2522,7 +2522,7 @@ pub async fn machine_validation_completed(
 /// if needed, as part of the auto-approval process.
 pub async fn inject_machine_measurements(
     env: &TestEnv,
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: nico_uuid::machine::MachineId,
 ) {
     let _response = env
         .api
@@ -2566,11 +2566,11 @@ pub async fn inject_machine_measurements(
 /// Emulates the `MachineValidationComplete` request of a Host
 pub async fn persist_machine_validation_result(
     env: &TestEnv,
-    machine_validation_result: rpc::forge::MachineValidationResult,
+    machine_validation_result: rpc::nico::MachineValidationResult,
 ) {
     env.api
         .persist_validation_result(Request::new(
-            rpc::forge::MachineValidationResultPostRequest {
+            rpc::nico::MachineValidationResultPostRequest {
                 result: Some(machine_validation_result),
             },
         ))
@@ -2585,9 +2585,9 @@ pub async fn get_machine_validation_results(
     machine_id: Option<&MachineId>,
     include_history: bool,
     validation_id: Option<MachineValidationId>,
-) -> rpc::forge::MachineValidationResultList {
+) -> rpc::nico::MachineValidationResultList {
     env.api
-        .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
+        .get_machine_validation_results(Request::new(rpc::nico::MachineValidationGetRequest {
             machine_id: machine_id.copied(),
             include_history,
             validation_id,
@@ -2602,10 +2602,10 @@ pub async fn get_machine_validation_runs(
     env: &TestEnv,
     machine_id: &MachineId,
     include_history: bool,
-) -> rpc::forge::MachineValidationRunList {
+) -> rpc::nico::MachineValidationRunList {
     env.api
         .get_machine_validation_runs(Request::new(
-            rpc::forge::MachineValidationRunListGetRequest {
+            rpc::nico::MachineValidationRunListGetRequest {
                 machine_id: Some(*machine_id),
                 include_history,
             },
@@ -2618,16 +2618,16 @@ pub async fn get_machine_validation_runs(
 // Emulates the `OnDemandMachineValidation` request of a Host
 pub async fn on_demand_machine_validation(
     env: &TestEnv,
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: nico_uuid::machine::MachineId,
     tags: Vec<String>,
     allowed_tests: Vec<String>,
     run_unverfied_tests: bool,
     contexts: Vec<String>,
-) -> rpc::forge::MachineValidationOnDemandResponse {
+) -> rpc::nico::MachineValidationOnDemandResponse {
     env.api
-        .on_demand_machine_validation(Request::new(rpc::forge::MachineValidationOnDemandRequest {
+        .on_demand_machine_validation(Request::new(rpc::nico::MachineValidationOnDemandRequest {
             machine_id: Some(machine_id),
-            action: rpc::forge::machine_validation_on_demand_request::Action::Start.into(),
+            action: rpc::nico::machine_validation_on_demand_request::Action::Start.into(),
             tags,
             allowed_tests,
             run_unverfied_tests,
@@ -2643,9 +2643,9 @@ pub async fn update_machine_validation_run(
     validation_id: Option<MachineValidationId>,
     duration_to_complete: Option<rpc::Duration>,
     total: u32,
-) -> rpc::forge::MachineValidationRunResponse {
+) -> rpc::nico::MachineValidationRunResponse {
     env.api
-        .update_machine_validation_run(Request::new(rpc::forge::MachineValidationRunRequest {
+        .update_machine_validation_run(Request::new(rpc::nico::MachineValidationRunRequest {
             validation_id,
             duration_to_complete,
             total,

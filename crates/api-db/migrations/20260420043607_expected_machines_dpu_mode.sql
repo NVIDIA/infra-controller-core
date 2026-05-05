@@ -1,6 +1,6 @@
 -- Per-host DPU operating mode (replaces the site-wide `force_dpu_nic_mode`
 -- config flag, which remains as a fallback for existing deployments). See
--- the `ExpectedMachine.dpu_mode` field and `DpuMode` enum in `forge.proto`.
+-- the `ExpectedMachine.dpu_mode` field and `DpuMode` enum in `nico.proto`.
 CREATE TYPE dpu_mode_t AS ENUM ('dpu_mode', 'nic_mode', 'no_dpu');
 
 ALTER TABLE expected_machines

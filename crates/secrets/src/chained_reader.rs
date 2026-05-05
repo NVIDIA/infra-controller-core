@@ -75,7 +75,7 @@ mod tests {
         let chain: ChainedCredentialReader = vec![
             Box::new(
                 EnvCredentials::new(EnvCredentialsConfig {
-                    prefix: Some("CARBIDE_TEST_FALLTHRU_".to_string()),
+                    prefix: Some("NICO_TEST_FALLTHRU_".to_string()),
                     ..Default::default()
                 })
                 .expect("create env provider"),
@@ -121,8 +121,8 @@ mod tests {
             credential_type: CredentialType::SiteDefault,
         };
 
-        let env_user = "CARBIDE_TEST_PREC__DPU_UEFI_SITE_DEFAULT__USERNAME";
-        let env_password = "CARBIDE_TEST_PREC__DPU_UEFI_SITE_DEFAULT__PASSWORD";
+        let env_user = "NICO_TEST_PREC__DPU_UEFI_SITE_DEFAULT__USERNAME";
+        let env_password = "NICO_TEST_PREC__DPU_UEFI_SITE_DEFAULT__PASSWORD";
         unsafe {
             std::env::set_var(env_user, "env-user");
             std::env::set_var(env_password, "env-password");
@@ -131,7 +131,7 @@ mod tests {
         let chain: ChainedCredentialReader = vec![
             Box::new(
                 EnvCredentials::new(EnvCredentialsConfig {
-                    prefix: Some("CARBIDE_TEST_PREC_".to_string()),
+                    prefix: Some("NICO_TEST_PREC_".to_string()),
                     ..Default::default()
                 })
                 .expect("create env provider"),

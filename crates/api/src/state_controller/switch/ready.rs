@@ -17,7 +17,7 @@
 
 //! Handler for SwitchControllerState::Ready.
 
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::switch::SwitchId;
 use model::switch::{ReProvisioningState, Switch, SwitchControllerState};
 
 use crate::state_controller::state_handler::{

@@ -43,11 +43,11 @@ message DhcpConfig {
     uint32 lease_time_secs = 1;
     uint32 renewal_time_secs = 2;
     uint32 rebinding_time_secs = 3;
-    repeated string carbide_nameservers = 4;
-    optional string carbide_api_url = 5;
-    repeated string carbide_ntpservers = 6;
-    string carbide_provisioning_server_ipv4 = 7;
-    string carbide_dhcp_server = 8;
+    repeated string nico_nameservers = 4;
+    optional string nico_api_url = 5;
+    repeated string nico_ntpservers = 6;
+    string nico_provisioning_server_ipv4 = 7;
+    string nico_dhcp_server = 8;
 }
 
 // Mirrors utils::models::dhcp::InterfaceInfo.

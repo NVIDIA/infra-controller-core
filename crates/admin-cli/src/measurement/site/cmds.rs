@@ -21,7 +21,7 @@
 use std::fs::File;
 use std::io::BufReader;
 
-use ::rpc::admin_cli::{CarbideCliResult, ToTable, cli_output, set_summary};
+use ::rpc::admin_cli::{NicoCliResult, ToTable, cli_output, set_summary};
 use ::rpc::protos::measured_boot::ImportSiteMeasurementsRequest;
 use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord};
 use measured_boot::site::{ImportResult, SiteModel};
@@ -40,7 +40,7 @@ use crate::rpc::ApiClient;
 pub async fn dispatch(
     cmd: CmdSite,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     match cmd {
         CmdSite::Import(local_args) => {
             cli_output(
@@ -129,7 +129,7 @@ pub async fn dispatch(
 }
 
 /// Import imports a serialized SiteModel back into the database.
-pub async fn import(grpc_conn: &ApiClient, import: Import) -> CarbideCliResult<ImportResult> {
+pub async fn import(grpc_conn: &ApiClient, import: Import) -> NicoCliResult<ImportResult> {
     // Prepare.
     let reader = BufReader::new(File::open(import.path)?);
     let site_model: SiteModel = serde_json::from_reader(reader)?;
@@ -138,7 +138,7 @@ pub async fn import(grpc_conn: &ApiClient, import: Import) -> CarbideCliResult<I
     let request = ImportSiteMeasurementsRequest {
         model: Some(
             SiteModel::to_pb(&site_model)
-                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?,
+                .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))?,
         ),
     };
 
@@ -150,7 +150,7 @@ pub async fn import(grpc_conn: &ApiClient, import: Import) -> CarbideCliResult<I
 
 /// Export grabs all of the data needed to build a SiteModel.
 /// Summary is explicitly set to false so all data is serialized.
-pub async fn export(grpc_conn: &ApiClient, _export: Export) -> CarbideCliResult<SiteModel> {
+pub async fn export(grpc_conn: &ApiClient, _export: Export) -> NicoCliResult<SiteModel> {
     // Prepare.
     // Force != summarized output, so all keys
     // accompany the serialized data.
@@ -159,18 +159,18 @@ pub async fn export(grpc_conn: &ApiClient, _export: Export) -> CarbideCliResult<
     let response = grpc_conn.0.export_site_measurements().await?;
 
     SiteModel::from_grpc(response.model.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// approve_machine is used to approve a trusted machine by machine ID.
 pub async fn approve_machine(
     grpc_conn: &ApiClient,
     approve: ApproveMachine,
-) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
+) -> NicoCliResult<MeasurementApprovedMachineRecord> {
     let response = grpc_conn.0.add_measurement_trusted_machine(approve).await?;
 
     MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// remove_machine_by_approval_id removes a trusted machine approval
@@ -178,14 +178,14 @@ pub async fn approve_machine(
 pub async fn remove_machine_by_approval_id(
     grpc_conn: &ApiClient,
     by_approval_id: RemoveMachineByApprovalId,
-) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
+) -> NicoCliResult<MeasurementApprovedMachineRecord> {
     let response = grpc_conn
         .0
         .remove_measurement_trusted_machine(by_approval_id)
         .await?;
 
     MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// remove_machine_by_machine_id removes a trusted machine approval
@@ -193,20 +193,20 @@ pub async fn remove_machine_by_approval_id(
 pub async fn remove_machine_by_machine_id(
     grpc_conn: &ApiClient,
     by_machine_id: RemoveMachineByMachineId,
-) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
+) -> NicoCliResult<MeasurementApprovedMachineRecord> {
     let response = grpc_conn
         .0
         .remove_measurement_trusted_machine(by_machine_id)
         .await?;
 
     MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// list_machines lists all trusted machine approvals.
 pub async fn list_machines(
     grpc_conn: &ApiClient,
-) -> CarbideCliResult<MeasurementApprovedMachineRecordList> {
+) -> NicoCliResult<MeasurementApprovedMachineRecordList> {
     Ok(MeasurementApprovedMachineRecordList(
         grpc_conn
             .0
@@ -216,9 +216,9 @@ pub async fn list_machines(
             .into_iter()
             .map(|record| {
                 MeasurementApprovedMachineRecord::try_from(record)
-                    .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+                    .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementApprovedMachineRecord>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementApprovedMachineRecord>>>()?,
     ))
 }
 
@@ -226,11 +226,11 @@ pub async fn list_machines(
 pub async fn approve_profile(
     grpc_conn: &ApiClient,
     approve: ApproveProfile,
-) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
+) -> NicoCliResult<MeasurementApprovedProfileRecord> {
     let response = grpc_conn.0.add_measurement_trusted_profile(approve).await?;
 
     MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// remove_profile_by_approval_id removes a trusted profile approval
@@ -238,14 +238,14 @@ pub async fn approve_profile(
 pub async fn remove_profile_by_approval_id(
     grpc_conn: &ApiClient,
     by_approval_id: RemoveProfileByApprovalId,
-) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
+) -> NicoCliResult<MeasurementApprovedProfileRecord> {
     let response = grpc_conn
         .0
         .remove_measurement_trusted_profile(by_approval_id)
         .await?;
 
     MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// remove_profile_by_machine_id removes a trusted machine approval
@@ -253,20 +253,20 @@ pub async fn remove_profile_by_approval_id(
 pub async fn remove_profile_by_profile_id(
     grpc_conn: &ApiClient,
     by_profile_id: RemoveProfileByProfileId,
-) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
+) -> NicoCliResult<MeasurementApprovedProfileRecord> {
     let response = grpc_conn
         .0
         .remove_measurement_trusted_profile(by_profile_id)
         .await?;
 
     MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
-        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+        .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
 }
 
 /// list_profiles lists all trusted profile approvals.
 pub async fn list_profiles(
     grpc_conn: &ApiClient,
-) -> CarbideCliResult<MeasurementApprovedProfileRecordList> {
+) -> NicoCliResult<MeasurementApprovedProfileRecordList> {
     Ok(MeasurementApprovedProfileRecordList(
         grpc_conn
             .0
@@ -276,9 +276,9 @@ pub async fn list_profiles(
             .into_iter()
             .map(|record| {
                 MeasurementApprovedProfileRecord::try_from(record)
-                    .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+                    .map_err(|e| crate::NicoCliError::GenericError(e.to_string()))
             })
-            .collect::<CarbideCliResult<Vec<MeasurementApprovedProfileRecord>>>()?,
+            .collect::<NicoCliResult<Vec<MeasurementApprovedProfileRecord>>>()?,
     ))
 }
 

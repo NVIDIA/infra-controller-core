@@ -21,14 +21,14 @@ use std::sync::Arc;
 use askama::Template;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use health_report::HealthReport;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use rpc::nico::nico_server::Nico;
+use rpc::nico::{
     HealthReportApplyMode, InsertMachineHealthReportRequest, InsertPowerShelfHealthReportRequest,
     InsertRackHealthReportRequest, InsertSwitchHealthReportRequest,
     ListPowerShelfHealthReportsRequest, ListRackHealthReportsRequest,
@@ -68,7 +68,7 @@ pub(super) struct HealthHistoryRecord {
 }
 
 impl HealthHistoryRecord {
-    pub fn from_rpc_convert_invalid(record: ::rpc::forge::HealthHistoryRecord) -> Self {
+    pub fn from_rpc_convert_invalid(record: ::rpc::nico::HealthHistoryRecord) -> Self {
         HealthHistoryRecord {
             timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
             health: record
@@ -141,7 +141,7 @@ impl HealthObject {
 }
 
 struct HealthPageData {
-    entries: Vec<::rpc::forge::HealthReportEntry>,
+    entries: Vec<::rpc::nico::HealthReportEntry>,
     aggregate_health: Option<HealthReport>,
     health_contributors: Vec<LabeledHealthReport>,
     history: HealthHistoryTable,
@@ -409,7 +409,7 @@ async fn fetch_dpu_health_contributors(
 async fn list_machine_health_report_entries(
     api: &Api,
     machine_id: &MachineId,
-) -> Result<Vec<::rpc::forge::HealthReportEntry>, tonic::Status> {
+) -> Result<Vec<::rpc::nico::HealthReportEntry>, tonic::Status> {
     Ok(api
         .list_machine_health_reports(tonic::Request::new(*machine_id))
         .await?
@@ -420,7 +420,7 @@ async fn list_machine_health_report_entries(
 async fn list_rack_health_report_entries(
     api: &Api,
     rack_id: &RackId,
-) -> Result<Vec<::rpc::forge::HealthReportEntry>, tonic::Status> {
+) -> Result<Vec<::rpc::nico::HealthReportEntry>, tonic::Status> {
     Ok(api
         .list_rack_health_reports(tonic::Request::new(ListRackHealthReportsRequest {
             rack_id: Some(rack_id.clone()),
@@ -433,7 +433,7 @@ async fn list_rack_health_report_entries(
 async fn list_power_shelf_health_report_entries(
     api: &Api,
     power_shelf_id: &PowerShelfId,
-) -> Result<Vec<::rpc::forge::HealthReportEntry>, tonic::Status> {
+) -> Result<Vec<::rpc::nico::HealthReportEntry>, tonic::Status> {
     Ok(api
         .list_power_shelf_health_reports(tonic::Request::new(ListPowerShelfHealthReportsRequest {
             power_shelf_id: Some(*power_shelf_id),
@@ -446,7 +446,7 @@ async fn list_power_shelf_health_report_entries(
 async fn list_switch_health_report_entries(
     api: &Api,
     switch_id: &SwitchId,
-) -> Result<Vec<::rpc::forge::HealthReportEntry>, tonic::Status> {
+) -> Result<Vec<::rpc::nico::HealthReportEntry>, tonic::Status> {
     Ok(api
         .list_switch_health_reports(tonic::Request::new(ListSwitchHealthReportsRequest {
             switch_id: Some(*switch_id),
@@ -461,7 +461,7 @@ async fn fetch_machine_health_snapshot(
     machine_id: &MachineId,
 ) -> Result<MachineHealthSnapshot, Response> {
     let machine = match api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(rpc::nico::MachinesByIdsRequest {
             machine_ids: vec![*machine_id],
             include_history: false,
         }))
@@ -613,7 +613,7 @@ pub struct HealthReportEntry {
 }
 
 impl HealthReportEntry {
-    fn from_rpc_convert_invalid(o: ::rpc::forge::HealthReportEntry) -> Self {
+    fn from_rpc_convert_invalid(o: ::rpc::nico::HealthReportEntry) -> Self {
         let mode = match o.mode() {
             HealthReportApplyMode::Merge => "Merge",
             HealthReportApplyMode::Replace => "Replace",
@@ -632,7 +632,7 @@ impl HealthReportEntry {
     }
 }
 
-impl TryFrom<HealthReportEntry> for ::rpc::forge::HealthReportEntry {
+impl TryFrom<HealthReportEntry> for ::rpc::nico::HealthReportEntry {
     type Error = String;
 
     fn try_from(value: HealthReportEntry) -> Result<Self, Self::Error> {
@@ -646,7 +646,7 @@ impl TryFrom<HealthReportEntry> for ::rpc::forge::HealthReportEntry {
             }
         };
 
-        Ok(::rpc::forge::HealthReportEntry {
+        Ok(::rpc::nico::HealthReportEntry {
             mode: mode as i32,
             report: Some(::rpc::health::HealthReport::from(value.health_report)),
         })
@@ -738,7 +738,7 @@ async fn add_health_report_for(
     auth_context: Option<axum::Extension<AuthContext>>,
     payload: HealthReportEntry,
 ) -> Response {
-    let entry = match ::rpc::forge::HealthReportEntry::try_from(payload) {
+    let entry = match ::rpc::nico::HealthReportEntry::try_from(payload) {
         Ok(entry) => entry,
         Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
     };
@@ -929,7 +929,7 @@ pub(super) async fn fetch_health_history(
 ) -> Result<Vec<HealthHistoryRecord>, tonic::Status> {
     let records = api
         .find_machine_health_histories(tonic::Request::new(
-            ::rpc::forge::MachineHealthHistoriesRequest {
+            ::rpc::nico::MachineHealthHistoriesRequest {
                 machine_ids: vec![*machine_id],
                 start_time: None,
                 end_time: None,

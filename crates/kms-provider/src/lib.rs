@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! carbide_kms_provider provides a KmsBackend trait
+//! nico_kms_provider provides a KmsBackend trait
 //! for envelope encryption key management. Two
 //! implementations are included:
 //! - IntegratedKmsProvider: local key material.
