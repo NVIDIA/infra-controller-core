@@ -194,7 +194,7 @@ reqwest = { default-features = false, version = "0.12.23" }
 resolv-conf = "0.7.0"
 ringbuf = "0.4.8"
 rsa = "0.9.9"
-rtnetlink = "0.14"
+rtnetlink = "0.21"
 rumqttc = "0.24"
 russh = "0.54.6"
 rustc-hash = "2.1.1"
