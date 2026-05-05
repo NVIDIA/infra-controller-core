@@ -23,11 +23,11 @@ use std::time::Duration;
 use std::vec;
 
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-use hickory_resolver::error::ResolveError;
-use hickory_resolver::name_server::{ConnectionProvider, GenericConnector, RuntimeProvider};
-use hickory_resolver::proto::TokioTime;
-use hickory_resolver::proto::iocompat::AsyncIoTokioAsStd;
-use hickory_resolver::{AsyncResolver, Name, TokioHandle};
+use hickory_resolver::net::NetError;
+use hickory_resolver::net::runtime::iocompat::AsyncIoTokioAsStd;
+use hickory_resolver::net::runtime::{RuntimeProvider, TokioHandle, TokioTime};
+use hickory_resolver::proto::rr::Name;
+use hickory_resolver::{ConnectionProvider, Resolver};
 use hyper::service::Service;
 use socket2::SockAddr;
 use tokio::net::{TcpSocket, TcpStream as TokioTcpStream, UdpSocket as TokioUdpSocket};
@@ -36,8 +36,7 @@ use tracing::trace;
 #[cfg(target_os = "linux")]
 const MGMT_VRF_NAME: &[u8] = "mgmt".as_bytes();
 
-type HickoryResolverFuture =
-    Pin<Box<dyn Future<Output = Result<SocketAddrs, ResolveError>> + Send>>;
+type HickoryResolverFuture = Pin<Box<dyn Future<Output = Result<SocketAddrs, NetError>> + Send>>;
 
 #[derive(Clone, Default)]
 pub struct ForgeRuntimeProvider {
@@ -100,6 +99,8 @@ impl RuntimeProvider for ForgeRuntimeProvider {
     fn connect_tcp(
         &self,
         server_addr: SocketAddr,
+        _bind_addr: Option<SocketAddr>,
+        _timeout: Option<Duration>,
     ) -> Pin<Box<dyn Send + Future<Output = std::io::Result<Self::Tcp>>>> {
         if self.use_mgmt_vrf {
             let socket = match ForgeRuntimeProvider::create_ipv4_tcp_socket(true) {
@@ -169,11 +170,7 @@ impl RuntimeProvider for ForgeRuntimeProvider {
 }
 
 /// A hyper resolver using `hickory`'s [`TokioAsyncResolver`].
-pub type ForgeResolver = HickoryResolver<ForgeTokioConnectionProvider>;
-
-/// A [`hickory_resolver::name_server::ConnectionProvider`] for Tokio.
-/// This allows us to set socket options on the sockets we create for DNS resolution.
-pub type ForgeTokioConnectionProvider = GenericConnector<ForgeRuntimeProvider>;
+pub type ForgeResolver = HickoryResolver<ForgeRuntimeProvider>;
 
 #[derive(Clone, Debug, Default)]
 pub struct ForgeResolverOpts {
@@ -183,7 +180,7 @@ pub struct ForgeResolverOpts {
 
 #[derive(Clone)]
 pub struct HickoryResolver<C: ConnectionProvider> {
-    resolver: Arc<AsyncResolver<C>>,
+    resolver: Arc<Resolver<C>>,
 }
 
 /// Iterator over DNS lookup results.
@@ -244,13 +241,19 @@ impl ForgeResolver {
     pub fn with_config_and_options(config: ResolverConfig, options: ForgeResolverOpts) -> Self {
         if options.use_mgmt_vrf {
             let rt = ForgeRuntimeProvider::new().use_mgmt_vrf(options.use_mgmt_vrf);
-            let cp = ForgeTokioConnectionProvider::new(rt);
-            let resolver = AsyncResolver::new(config, options.inner, cp);
+            let resolver = Resolver::builder_with_config(config, rt)
+                .with_options(options.inner)
+                .build()
+                // From looking at the source, this should only happen if TlsConfig::new() fails (ie. if there's no working tls provider)
+                .expect("BUG: Error building hickory-dns resolver, cannot handle");
             Self::from_async_resolver(resolver)
         } else {
             let rt = ForgeRuntimeProvider::new();
-            let cp = ForgeTokioConnectionProvider::new(rt);
-            let resolver = AsyncResolver::new(config, options.inner, cp);
+            let resolver = Resolver::builder_with_config(config, rt)
+                .with_options(options.inner)
+                .build()
+                // From looking at the source, this should only happen if TlsConfig::new() fails (ie. if there's no working tls provider)
+                .expect("BUG: Error building hickory-dns resolver, cannot handle");
             Self::from_async_resolver(resolver)
         }
     }
@@ -265,7 +268,7 @@ impl Default for ForgeResolver {
 impl<C: ConnectionProvider> HickoryResolver<C> {
     /// Create a [`HickoryResolver`] from the given [`AsyncResolver`]
     #[must_use]
-    pub fn from_async_resolver(async_resolver: AsyncResolver<C>) -> Self {
+    pub fn from_async_resolver(async_resolver: Resolver<C>) -> Self {
         let resolver = Arc::new(async_resolver);
 
         Self { resolver }
@@ -274,7 +277,7 @@ impl<C: ConnectionProvider> HickoryResolver<C> {
 
 impl<C: ConnectionProvider> Service<Name> for HickoryResolver<C> {
     type Response = SocketAddrs;
-    type Error = ResolveError;
+    type Error = NetError;
     type Future = HickoryResolverFuture;
 
     fn call(&self, name: Name) -> Self::Future {
@@ -283,7 +286,7 @@ impl<C: ConnectionProvider> Service<Name> for HickoryResolver<C> {
         Box::pin(async move {
             let response = resolver.lookup_ip(name.to_string()).await?;
             trace!("response from DNS Server{:?}", response);
-            let addresses = response.into_iter();
+            let addresses = response.iter();
 
             Ok(SocketAddrs {
                 iter: addresses
