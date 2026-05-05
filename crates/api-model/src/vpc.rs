@@ -199,7 +199,7 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
     fn try_from(value: rpc::forge::VpcCreationRequest) -> Result<Self, Self::Error> {
         let virt_type = match value.network_virtualization_type {
             None => DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
-            Some(v) => v.try_into()?,
+            Some(v) => rpc::network::vpc_virtualization_type_try_from_rpc(v)?,
         };
         let id = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
@@ -311,7 +311,7 @@ impl TryFrom<rpc::forge::VpcUpdateVirtualizationRequest> for UpdateVpcVirtualiza
             };
 
         let network_virtualization_type = match value.network_virtualization_type {
-            Some(v) => v.try_into()?,
+            Some(v) => rpc::network::vpc_virtualization_type_try_from_rpc(v)?,
             None => {
                 return Err(RpcDataConversionError::MissingArgument(
                     "network_virtualization_type",

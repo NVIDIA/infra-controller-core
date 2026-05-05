@@ -34,6 +34,8 @@ cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml", "dep:csv"]
 carbide-http-connector = { path = "../http-connector" }
 carbide-tls = { path = "../tls" }
 carbide-health-report = { path = "../health-report" }
+carbide-secrets = { path = "../secrets" }
+carbide-network = { path = "../network" }
 tonic-client-wrapper = { path = "../tonic-client-wrapper", default-features = false }
 dns-record = { path = "../dns-record" }
 carbide-uuid = { path = "../uuid" }

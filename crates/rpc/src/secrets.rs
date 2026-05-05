@@ -14,23 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use async_trait::async_trait;
 
-use crate::SecretsError;
+use forge_secrets::certificates::Certificate;
 
-#[derive(Debug, Clone, Default)]
-pub struct Certificate {
-    pub issuing_ca: Vec<u8>,
-    pub private_key: Vec<u8>,
-    pub public_key: Vec<u8>,
-}
+use crate::protos::forge::MachineCertificate;
 
-#[async_trait]
-pub trait CertificateProvider: Send + Sync {
-    async fn get_certificate(
-        &self,
-        unique_identifier: &str,
-        alt_names: Option<String>,
-        ttl: Option<String>,
-    ) -> Result<Certificate, SecretsError>;
+impl From<Certificate> for MachineCertificate {
+    fn from(value: Certificate) -> Self {
+        MachineCertificate {
+            issuing_ca: value.issuing_ca,
+            private_key: value.private_key,
+            public_key: value.public_key,
+        }
+    }
 }

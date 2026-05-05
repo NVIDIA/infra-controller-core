@@ -1449,7 +1449,6 @@ dependencies = [
  "base64 0.22.1",
  "carbide-api-model",
  "carbide-health-report",
- "carbide-host-support",
  "carbide-ipxe-renderer",
  "carbide-libmlx",
  "carbide-macros",
@@ -1645,7 +1644,6 @@ dependencies = [
  "hyper-timeout",
  "hyper-util",
  "lazy_static",
- "libredfish",
  "logfmt",
  "metrics-endpoint",
  "opentelemetry",
@@ -2309,7 +2307,6 @@ dependencies = [
 name = "carbide-network"
 version = "0.0.0"
 dependencies = [
- "carbide-rpc",
  "eyre",
  "ipnet",
  "ipnetwork",
@@ -2449,6 +2446,8 @@ dependencies = [
  "async-trait",
  "carbide-health-report",
  "carbide-http-connector",
+ "carbide-network",
+ "carbide-secrets",
  "carbide-tls",
  "carbide-uuid",
  "chrono",
@@ -2539,7 +2538,6 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bmc-vendor",
- "carbide-rpc",
  "carbide-uuid",
  "eyre",
  "figment",
