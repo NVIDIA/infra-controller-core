@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_network::deserialize_input_mac_to_address;
+use carbide_redfish::libredfish::conv::{IntoModel, bmc_vendor};
 use carbide_redfish::libredfish::{
     RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password,
 };
@@ -271,7 +272,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
-        let vendor = service_root.vendor().map(|v| v.into());
+        let vendor = service_root.vendor().map(bmc_vendor);
 
         let manager = fetch_manager(client.as_ref())
             .await
@@ -770,12 +771,12 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
         model: system.model,
         serial_number: system.serial_number,
         attributes: ComputerSystemAttributes {
-            nic_mode,
+            nic_mode: nic_mode.map(IntoModel::into_model),
             is_infinite_boot_enabled,
         },
         pcie_devices,
         base_mac,
-        power_state: system.power_state.into(),
+        power_state: system.power_state.into_model(),
         sku: system.sku,
         boot_order,
     })
@@ -842,7 +843,8 @@ async fn fetch_ethernet_interfaces(
         }?;
 
         let uefi_device_path = if let Some(uefi_device_path) = iface.uefi_device_path {
-            let path_as_version_string = UefiDevicePath::from_str(&uefi_device_path)?;
+            let path_as_version_string = UefiDevicePath::from_str(&uefi_device_path)
+                .map_err(|error| RedfishError::GenericError { error })?;
             Some(path_as_version_string)
         } else {
             None
@@ -1062,7 +1064,7 @@ async fn fetch_boot_order(
                 .iter()
                 .find(|opt| opt.boot_option_reference == *ref_id)
                 .cloned()
-                .map(Into::into)
+                .map(IntoModel::into_model)
         })
         .collect();
 
@@ -1083,7 +1085,7 @@ async fn fetch_pcie_devices(client: &dyn Redfish) -> Result<Vec<PCIeDevice>, Red
             name: pci_device.name,
             part_number: pci_device.part_number,
             serial_number: pci_device.serial_number,
-            status: pci_device.status.map(|s| s.into()),
+            status: pci_device.status.map(IntoModel::into_model),
         });
     }
     Ok(pci_devices)

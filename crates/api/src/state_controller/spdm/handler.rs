@@ -20,6 +20,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use carbide_uuid::machine::MachineId;
+use config_version::ConfigVersion;
 use itertools::Itertools;
 use libredfish::Redfish;
 use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
@@ -29,7 +31,6 @@ use model::attestation::spdm::{
     EvidenceResultAppraisalPolicyDeviceStates, FetchDataDeviceStates, SpdmAttestationStatus,
     SpdmHandlerError, SpdmMachineDeviceAttestation, SpdmMachineDeviceMetadata, SpdmMachineSnapshot,
     SpdmMachineStateSnapshot, SpdmObjectId, VerificationDeviceStates, Verifier,
-    from_component_integrity,
 };
 use model::bmc_info::BmcInfo;
 use nras::{DeviceAttestationInfo, EvidenceCertificate, RawAttestationOutcome, VerifierClient};
@@ -306,7 +307,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                 // Remove existing device list and over-write with this list.
                 let devices = components
                     .into_iter()
-                    .map(|x| from_component_integrity(x.clone(), machine_id))
+                    .map(|x| spdm_attestation_from_component_integrity(x.clone(), machine_id))
                     .collect_vec();
 
                 db::attestation::spdm::insert_devices(&mut txn, &machine_id, devices)
@@ -831,4 +832,36 @@ fn attestation_complete(
         controller_state,
         AttestationDeviceState::AttestationCompleted { status },
     )
+}
+
+pub fn spdm_attestation_from_component_integrity(
+    integrity: libredfish::model::component_integrity::ComponentIntegrity,
+    machine_id: MachineId,
+) -> SpdmMachineDeviceAttestation {
+    let ca_certificate_link = integrity
+        .spdm
+        .map(|x| x.identity_authentication)
+        .map(|x| x.component_certificate)
+        .map(|x| x.odata_id);
+
+    let evidence_target =
+        if let Some(Some(data)) = integrity.actions.map(|x| x.get_signed_measurements) {
+            Some(data.target)
+        } else {
+            None
+        };
+
+    SpdmMachineDeviceAttestation {
+        machine_id,
+        device_id: integrity.id,
+        nonce: uuid::Uuid::new_v4(),
+        state: AttestationDeviceState::FetchData(FetchDataDeviceStates::FetchMetadata),
+        state_version: ConfigVersion::initial(),
+        state_outcome: None,
+        metadata: None,
+        ca_certificate_link,
+        ca_certificate: None,
+        evidence_target,
+        evidence: None,
+    }
 }

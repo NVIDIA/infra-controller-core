@@ -1042,7 +1042,6 @@ name = "bmc-vendor"
 version = "0.1.0"
 dependencies = [
  "clap",
- "libredfish",
  "serde",
 ]
 
@@ -1548,7 +1547,6 @@ dependencies = [
  "itertools 0.14.0",
  "lazy_static",
  "libnmxm",
- "libredfish",
  "mac_address",
  "nras",
  "once_cell",
@@ -2426,6 +2424,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "bmc-vendor",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-secrets",
