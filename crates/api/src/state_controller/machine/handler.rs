@@ -75,10 +75,10 @@ use model::machine::{
     MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
     MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
     NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
-    PowerState, ReprovisionState, RetryInfo,
-    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
-    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
-    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
+    PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState,
+    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
+    UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
+    dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::resource_pool::common::CommonPools;
@@ -1677,7 +1677,7 @@ impl MachineStateHandler {
                         instance_state: InstanceState::WaitingForDpaToBeReady,
                     };
                 }
-                return Ok(StateHandlerOutcome::transition(next_state).with_txn(txn));
+                Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
             }
             ManagedHostState::BomValidating {
                 bom_validating_state,
