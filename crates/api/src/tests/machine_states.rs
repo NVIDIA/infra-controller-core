@@ -171,6 +171,63 @@ async fn test_managed_host_network_config_group_sync(pool: sqlx::PgPool) {
     );
 }
 
+// Per-DPU network-config sync is rooted in the host-level
+// `network_config.version`, not the DPU's own row version.
+// carbide-api serves `host.version` to carbide-dpu-agent as
+// `managed_host_config_version`, and the agent echoes it back
+// as its observation; this just makes sure the host-level
+// verison is looked at, and the DPU-level version is ignored.
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_sync_host_version(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // Do a baseline check that the initial ingestion
+    // `network_configured` brought DPU observations up
+    // to host.version, meaning things shold be in sync.
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should be true after ingestion"
+    );
+
+    // Now, bump just the DPU row's `network_config_version` via
+    // a direct raw UPDATE (and bypassing `try_update_network_config`).
+    // The idea is this shouldn't matter, since we're looking at the
+    // host-level version.
+    let dpu_before = mh.dpu().db_machine(&mut txn).await;
+    let host_before = mh.host().db_machine(&mut txn).await;
+    let drifted_dpu_version = dpu_before.network_config.version.increment();
+    sqlx::query("UPDATE machines SET network_config_version = $1 WHERE id = $2")
+        .bind(drifted_dpu_version)
+        .bind(dpu_before.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let host_after = mh.host().db_machine(&mut txn).await;
+    let dpu_after = mh.dpu().db_machine(&mut txn).await;
+    assert_eq!(
+        host_after.network_config.version, host_before.network_config.version,
+        "raw DPU update should leave host.version untouched"
+    );
+    assert_ne!(
+        dpu_after.network_config.version, host_after.network_config.version,
+        "dpu.row.version is now ahead of host.version"
+    );
+
+    // The observation version should still equal the host.version,
+    // so things should still be in sync!
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should be true because observation == host.version, even though dpu.row.version is ahead"
+    );
+}
+
 // A freshly-created host defaults to admin (`use_admin_network` = true);
 // flipping the host-level `network_config.use_admin_network` to false
 // must be reflected by `ManagedHostStateSnapshot::use_admin_network()`.
