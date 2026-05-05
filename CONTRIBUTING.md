@@ -180,61 +180,10 @@ Use descriptive branch names like:
 - Be responsive to feedback and code review comments.
 - Ensure all CI checks pass before requesting review.
 
-## Updating Pinned Dependencies
+## Build Guide
 
-### Git submodules
-
-Two git submodules are pinned to known-good versions:
-
-| Submodule | Path | Pinned version |
-|-----------|------|----------------|
-| mkosi | `pxe/mkosi` | `v25` |
-| iPXE (secboot fork) | `pxe/ipxe/upstream` | `secboot-ioactive-20221109-302-gd7e58c5a8` |
-
-To update a submodule to a newer version:
-
-```bash
-cd pxe/mkosi          # or pxe/ipxe/upstream
-git fetch
-git checkout <new-tag-or-commit>
-cd ../..
-git add pxe/mkosi     # or pxe/ipxe/upstream
-git commit -s -m "chore: bump mkosi to <new-version>"
-```
-
-After bumping, validate with a full PXE artifact build:
-
-```bash
-cargo make build-pxe-build-container   # rebuild if Dockerfile changed
-cargo make pxe-docker-x86
-```
-
-### Rust toolchain
-
-The Rust compiler version is pinned in `rust-toolchain.toml`. To update, change the version there and update the `RUST_VERSION` ARG in `dev/docker/Dockerfile.pxe-build-container` to match.
-
-## Basic Testing the NICo Image
-
-After building the `nico` release image, run a quick sanity check to confirm all binaries are
-present and start without crashing:
-
-```bash
-for bin in carbide carbide-admin-cli carbide-api carbide-dns carbide-dsx-exchange-consumer \
-           forge-dhcp-server forge-dpu-agent forge-hw-health forge-log-parser ssh-console; do
-  echo "$bin: $(docker run --rm nico /opt/carbide/$bin --help 2>&1 | head -1)"
-done
-```
-
-Each line should print a usage string or a startup log line. Services that don't implement
-`--help` (e.g. `carbide-dsx-exchange-consumer`, `forge-hw-health`) will log their startup config
-and then block waiting for connections — that is expected and counts as a pass. Any
-`exec format error` or `No such file` indicates a broken build.
-
-## Build Optimizations and Trade-offs
-
-The Docker release builds include several non-obvious optimizations (debug info levels,
-`--no-workspace`, clippy artifact sharing). See
-[Build Optimizations and Trade-offs](docs/development/build-optimizations.md) for details.
+For pinned dependency updates, image testing, and build optimization trade-offs, see the
+[Build Guide](docs/development/build-guide.md).
 
 ## Questions?
 
