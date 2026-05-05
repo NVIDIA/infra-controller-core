@@ -26,7 +26,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 fn capitalize(s: &str) -> String {
@@ -120,10 +120,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 struct PowerShelfDetail {
     id: String,
     rack_id: String,
-    controller_state: String,
-    state_version: String,
-    time_in_state: String,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    lifecycle_detail: super::LifecycleDetail,
     power_state: Option<String>,
     name: String,
     capacity: String,
@@ -140,15 +137,12 @@ impl PowerShelfDetail {
             .map(|id| id.to_string())
             .unwrap_or_default();
         let config = shelf.config.unwrap_or_default();
-        let state_reason = shelf.status.as_ref().and_then(|s| s.state_reason.clone());
-        let power_state = shelf.status.as_ref().and_then(|s| s.power_state.clone());
-        let controller_state = shelf
+        let lifecycle = shelf
             .status
             .as_ref()
-            .and_then(|s| s.controller_state.clone())
-            .map(|s| capitalize(&s))
-            .unwrap_or_else(|| "Unknown".to_string());
-        let time_in_state = config_version::since_state_change_humanized(&shelf.state_version);
+            .and_then(|s| s.lifecycle.clone())
+            .unwrap_or_default();
+        let power_state = shelf.status.as_ref().and_then(|s| s.power_state.clone());
         let metadata_detail = super::MetadataDetail {
             metadata: shelf.metadata.unwrap_or_default(),
             metadata_version: shelf.version,
@@ -156,10 +150,7 @@ impl PowerShelfDetail {
         Self {
             id,
             rack_id: shelf.rack_id.map(|id| id.to_string()).unwrap_or_default(),
-            controller_state,
-            state_version: shelf.state_version,
-            time_in_state,
-            state_reason,
+            lifecycle_detail: lifecycle.into(),
             power_state,
             name: config.name,
             capacity: config
@@ -262,3 +253,6 @@ async fn fetch_power_shelves(api: &Api) -> Result<rpc::forge::PowerShelfList, to
     }
     Ok(rpc::forge::PowerShelfList { power_shelves })
 }
+
+impl super::Base for PowerShelfShow {}
+impl super::Base for PowerShelfDetail {}

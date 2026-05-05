@@ -27,6 +27,7 @@ pub mod instance;
 pub mod instance_type;
 pub mod ipxe_template;
 pub mod machine;
+pub mod machine_validation;
 pub mod measured_boot;
 pub mod network;
 pub mod network_security_group;
@@ -38,6 +39,7 @@ pub mod switch;
 pub mod typed_uuids;
 pub mod vpc;
 pub mod vpc_peering;
+
 #[derive(Debug)]
 pub struct UuidEmptyStringError;
 

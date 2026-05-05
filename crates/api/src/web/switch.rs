@@ -26,7 +26,7 @@ use carbide_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -58,7 +58,12 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
         .switches
         .into_iter()
         .map(|switch| {
-            let state = parse_controller_state(&switch.controller_state);
+            let state = switch
+                .status
+                .as_ref()
+                .and_then(|status| status.lifecycle.as_ref())
+                .map(|lifecycle| super::filters::normalize_state_label(&lifecycle.state))
+                .unwrap_or_else(|| "Unknown".to_string());
 
             let config = switch.config.unwrap_or_default();
             SwitchRecord {
@@ -132,35 +137,16 @@ async fn fetch_switches(api: &Api) -> Result<rpc::forge::SwitchList, tonic::Stat
     Ok(rpc::forge::SwitchList { switches })
 }
 
-/// Parse the JSON controller_state string into a human-friendly state name.
-fn parse_controller_state(controller_state: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(controller_state)
-        .ok()
-        .and_then(|v| v.get("state")?.as_str().map(capitalize))
-        .unwrap_or_else(|| "Unknown".to_string())
-}
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
-}
-
 #[derive(Template)]
 #[template(path = "switch_detail.html")]
 struct SwitchDetail {
     id: String,
     rack_id: String,
-    controller_state: String,
-    state_version: String,
-    time_in_state: String,
     name: String,
     slot_number: String,
     tray_index: String,
     enable_nmxc: bool,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    lifecycle_detail: super::LifecycleDetail,
     power_state: Option<String>,
     health_status: Option<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
@@ -175,10 +161,13 @@ impl SwitchDetail {
             .map(|id| id.to_string())
             .unwrap_or_default();
         let config = switch.config.unwrap_or_default();
-        let state_reason = switch.status.as_ref().and_then(|s| s.state_reason.clone());
+        let lifecycle = switch
+            .status
+            .as_ref()
+            .and_then(|s| s.lifecycle.clone())
+            .unwrap_or_default();
         let power_state = switch.status.as_ref().and_then(|s| s.power_state.clone());
         let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
-        let time_in_state = config_version::since_state_change_humanized(&switch.state_version);
         let metadata_detail = super::MetadataDetail {
             metadata: switch.metadata.unwrap_or_default(),
             metadata_version: switch.version,
@@ -186,9 +175,6 @@ impl SwitchDetail {
         Self {
             id,
             rack_id: switch.rack_id.map(|id| id.to_string()).unwrap_or_default(),
-            controller_state: parse_controller_state(&switch.controller_state),
-            state_version: switch.state_version,
-            time_in_state,
             name: config.name,
             slot_number: switch
                 .placement_in_rack
@@ -203,7 +189,7 @@ impl SwitchDetail {
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "N/A".to_string()),
             enable_nmxc: config.enable_nmxc,
-            state_reason,
+            lifecycle_detail: lifecycle.into(),
             power_state,
             health_status,
             bmc_info: switch.bmc_info,
@@ -262,35 +248,5 @@ async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<rpc::forge::S
     Ok(response.switches.into_iter().next())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_controller_state_ready() {
-        assert_eq!(parse_controller_state(r#"{"state":"ready"}"#), "Ready");
-    }
-
-    #[test]
-    fn parse_controller_state_initializing() {
-        assert_eq!(
-            parse_controller_state(
-                r#"{"state":"initializing","initializing_state":"WaitForOsMachineInterface"}"#
-            ),
-            "Initializing"
-        );
-    }
-
-    #[test]
-    fn parse_controller_state_error() {
-        assert_eq!(
-            parse_controller_state(r#"{"state":"error","cause":"something broke"}"#),
-            "Error"
-        );
-    }
-
-    #[test]
-    fn parse_controller_state_invalid_json() {
-        assert_eq!(parse_controller_state("not json"), "Unknown");
-    }
-}
+impl super::Base for SwitchShow {}
+impl super::Base for SwitchDetail {}

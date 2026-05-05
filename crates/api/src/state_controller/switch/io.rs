@@ -57,6 +57,7 @@ impl StateControllerIO for SwitchStateControllerIO {
                 deleted: model::DeletedFilter::Include,
                 controller_state: None,
                 bmc_mac: None,
+                ..Default::default()
             },
         )
         .await
@@ -119,7 +120,14 @@ impl StateControllerIO for SwitchStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::switch_state_history::persist(txn, object_id, new_state, new_version).await?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::Switch,
+            object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 

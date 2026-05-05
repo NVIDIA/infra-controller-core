@@ -132,6 +132,7 @@ async fn convert_and_print_into_nice_table(
         "SKU ID",
         "Pause On Ingestion",
         "DPF Enabled",
+        "Disable Lockdown",
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
@@ -151,20 +152,7 @@ async fn convert_and_print_into_nice_table(
             )
             .map(String::as_str);
 
-        let labels = expected_machine
-            .metadata
-            .as_ref()
-            .map(|m| {
-                m.labels
-                    .iter()
-                    .map(|label| {
-                        let key = label.key.as_str();
-                        let value = label.value.as_deref().unwrap_or_default();
-                        format!("\"{key}:{value}\"")
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(expected_machine.metadata.as_ref());
 
         table.add_row(row![
             expected_machine.chassis_serial_number,
@@ -192,6 +180,11 @@ async fn convert_and_print_into_nice_table(
             expected_machine
                 .is_dpf_enabled
                 .unwrap_or(expected_machine.dpf_enabled)
+                .to_string(),
+            expected_machine
+                .host_lifecycle_profile
+                .and_then(|hlp| hlp.disable_lockdown)
+                .unwrap_or_default()
                 .to_string(),
         ]);
     }

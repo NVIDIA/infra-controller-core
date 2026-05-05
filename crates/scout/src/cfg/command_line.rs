@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_uuid::machine_validation::MachineValidationId;
 use clap::{Parser, Subcommand, ValueEnum};
 use forge_tls::default as tls_default;
 use libmlx::device::cmd::device::args::DeviceAction;
@@ -150,7 +151,7 @@ pub struct Logerror {
 #[derive(Parser, Clone)]
 pub struct MachineValidation {
     #[clap(short, long, require_equals(true))]
-    pub validataion_id: uuid::Uuid,
+    pub validataion_id: MachineValidationId,
     pub context: String,
 }
 

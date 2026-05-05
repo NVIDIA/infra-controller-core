@@ -123,7 +123,8 @@ fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogR
         }
         CollectorEvent::Metric(_)
         | CollectorEvent::MetricCollectionStart
-        | CollectorEvent::MetricCollectionEnd => None,
+        | CollectorEvent::MetricCollectionEnd
+        | CollectorEvent::CollectorRemoved => None,
     }
 }
 

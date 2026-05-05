@@ -21,6 +21,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_network::BaseMac;
+use carbide_utils::models::arch::CpuArchitecture;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
@@ -33,7 +34,6 @@ pub use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
-use utils::models::arch::CpuArchitecture;
 
 use super::DpuModel;
 use super::bmc_info::BmcInfo;
@@ -98,7 +98,7 @@ pub struct EndpointExplorationReport {
     /// Parsed versions, serializtion override means it will always be sorted
     #[serde(
         default,
-        serialize_with = "utils::ordered_map",
+        serialize_with = "carbide_utils::ordered_map",
         skip_serializing_if = "HashMap::is_empty"
     )]
     pub versions: HashMap<FirmwareComponentType, String>,
@@ -883,12 +883,12 @@ impl EndpointExplorationReport {
         let sys_vendor = if let Some(x) = vendor {
             x.to_string()
         } else {
-            utils::DEFAULT_DMI_SYSTEM_MANUFACTURER.to_string()
+            carbide_utils::DEFAULT_DMI_SYSTEM_MANUFACTURER.to_string()
         };
         let product_name = if let Some(x) = model {
             x.to_string()
         } else {
-            utils::DEFAULT_DMI_SYSTEM_MODEL.to_string()
+            carbide_utils::DEFAULT_DMI_SYSTEM_MODEL.to_string()
         };
         // For DPUs the discovered data contains enough information to
         // calculate a MachineId
@@ -897,8 +897,8 @@ impl EndpointExplorationReport {
         // the same values here.
         DmiData {
             product_serial: serial_number.trim().to_string(),
-            chassis_serial: utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string(),
-            board_serial: utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string(),
+            chassis_serial: carbide_utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string(),
+            board_serial: carbide_utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string(),
             bios_version: "".to_string(),
             sys_vendor,
             board_name: "BlueField SoC".to_string(),
@@ -1217,6 +1217,15 @@ impl EndpointExplorationError {
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, EndpointExplorationError::Unauthorized { .. })
             || matches!(self, EndpointExplorationError::AvoidLockout)
+    }
+
+    pub fn is_unreachable(&self) -> bool {
+        matches!(
+            self,
+            EndpointExplorationError::ConnectionTimeout { .. }
+                | EndpointExplorationError::ConnectionRefused { .. }
+                | EndpointExplorationError::Unreachable { .. }
+        )
     }
 
     pub fn is_redfish(&self) -> bool {

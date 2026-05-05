@@ -237,9 +237,8 @@ fn convert_applied_remediations_to_nice_table(
         table.add_row(row!["None", "None", "None", "None", "None", "None",]);
     } else {
         for applied_remediations in applied_remediations.applied_remediations.into_iter() {
-            let labels = crate::metadata::get_nice_labels_from_rpc_metadata(
-                applied_remediations.metadata.as_ref(),
-            );
+            let labels =
+                crate::metadata::fmt_labels_as_kv_pairs(applied_remediations.metadata.as_ref());
 
             table.add_row(row![
                 applied_remediations

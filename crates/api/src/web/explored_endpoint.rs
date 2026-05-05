@@ -32,7 +32,7 @@ use rpc::site_explorer::{
 };
 use serde::Deserialize;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 use crate::web::action_status::{self, ActionStatus};
 
@@ -1178,3 +1178,7 @@ fn lockdown_status_to_string(status: Option<&LockdownStatus>) -> String {
         },
     }
 }
+
+impl super::Base for ExploredEndpointsShow {}
+impl super::Base for ExploredEndpointsShowPaired {}
+impl<'a> super::Base for ExploredEndpointDetail<'a> {}

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_validation::MachineValidationResult;
 use sqlx::PgConnection;
@@ -181,7 +182,7 @@ pub async fn create(value: MachineValidationResult, txn: &mut PgConnection) -> D
 
 pub async fn validate_current_context(
     txn: &mut PgConnection,
-    id: &uuid::Uuid,
+    id: &MachineValidationId,
 ) -> DatabaseResult<Option<String>> {
     let db_results = find_by(
         txn,
@@ -200,11 +201,11 @@ pub async fn validate_current_context(
 
 pub async fn find_by_validation_id(
     txn: impl DbReader<'_>,
-    id: &uuid::Uuid,
+    validation_id: &MachineValidationId,
 ) -> DatabaseResult<Vec<MachineValidationResult>> {
     find_by(
         txn,
-        ObjectFilter::List(&[id.to_string()]),
+        ObjectFilter::List(&[validation_id.to_string()]),
         "machine_validation_id",
     )
     .await

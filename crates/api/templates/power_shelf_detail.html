@@ -15,30 +15,6 @@
 		<td>{{ id }}</td>
 	</tr>
 	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
-	<tr>
-		<th>State</th>
-		<td>
-			{% if controller_state == "Ready" %}
-				<span class="bubble success">{{ controller_state }}</span>
-			{% else if controller_state.to_lowercase().contains("error") || controller_state.to_lowercase().contains("failed") %}
-				<span class="bubble error">{{ controller_state }}</span>
-			{% else %}
-				<span class="bubble">{{ controller_state }}</span>
-			{% endif %}
-		</td>
-	</tr>
-	<tr>
-		<th>State Handler Outcome</th>
-		<td>{{ state_reason|controller_state_reason_fmt|safe }}</td>
-	</tr>
-	<tr>
-		<th>State Version</th>
-		<td>{{ state_version|config_version|safe }}</td>
-	</tr>
-	<tr>
-		<th>Time in State</th>
-		<td>{{ time_in_state }}</td>
-	</tr>
 	{% if let Some(power_state) = power_state %}
 	<tr>
 		<th>Power State</th>
@@ -46,6 +22,8 @@
 	</tr>
 	{% endif %}
 </table>
+
+{{ lifecycle_detail|safe }}
 
 <h2>Configuration</h2>
 <table class="detailsview">

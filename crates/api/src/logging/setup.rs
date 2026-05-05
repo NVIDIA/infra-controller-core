@@ -36,7 +36,6 @@ use tracing_subscriber::{Layer, filter, reload};
 use super::level_filter::ActiveLevel;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::logging::level_filter::ReloadableFilter;
-use crate::logging::sqlx_query_tracing;
 
 #[derive(Debug, Clone, Default)]
 pub struct Logging {

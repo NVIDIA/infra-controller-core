@@ -23,6 +23,7 @@ use std::time::{Duration, SystemTime};
 use ::rpc::forge::forge_server::Forge;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcPrefixId;
 use chrono::Utc;
@@ -610,7 +611,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "Cleanup".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: true,
@@ -637,10 +638,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let response = mh.host().forge_agent_control().await;
     let uuid = &response.data.unwrap().pair[1].value;
+    let validation_id: MachineValidationId = uuid.parse().unwrap();
 
-    machine_validation_result.validation_id = Some(rpc::Uuid {
-        value: uuid.to_owned(),
-    });
+    machine_validation_result.validation_id = Some(validation_id);
     persist_machine_validation_result(&env, machine_validation_result.clone()).await;
 
     let mut txn = env.db_txn().await;
@@ -2930,8 +2930,8 @@ async fn test_allocate_with_instance_type_id(
 
     assert_eq!(good_id, instance.instance_type_id.unwrap());
 
-    // Try that one more time, but this time with no type id
-    // to see if we inherit it from the machine.
+    // Try that one more time, but this time with no type id.
+    // The request should succeed, but we should not persist an explicit instance type.
     let instance = env
         .api
         .allocate_instance(
@@ -2952,7 +2952,25 @@ async fn test_allocate_with_instance_type_id(
         .unwrap()
         .into_inner();
 
-    assert_eq!(good_id, instance.instance_type_id.unwrap());
+    // Verify the immediate response.
+    // Expect no explicit instance type on the created instance.
+    assert!(instance.instance_type_id.is_none());
+
+    // Read the instance back from the API.
+    // Expect no explicit instance type to have been persisted.
+    let persisted = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![instance.id.unwrap()],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+
+    assert!(persisted.instance_type_id.is_none());
 
     Ok(())
 }

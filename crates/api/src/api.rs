@@ -30,6 +30,8 @@ use ::rpc::protos::dns::{
     UpdateDomainRequest,
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
+use carbide_ib_fabric::ib::IBFabricManager;
+use carbide_nvlink_manager::nvlink::NmxmClientPool;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_site_explorer::EndpointExplorer;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -42,7 +44,7 @@ use librms::RmsApi;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::resource_pool::common::CommonPools;
-use sqlx::{PgPool, PgTransaction};
+use sqlx::PgTransaction;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -52,9 +54,7 @@ use crate::cfg::file::CarbideConfig;
 use crate::dpf::DpfOperations;
 use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
-use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
-use crate::nvlink::NmxmClientPool;
 use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::state_controller::controller::Enqueuer;
@@ -499,46 +499,71 @@ impl Forge for Api {
         crate::handlers::dpu::record_dpu_network_status(self, request).await
     }
 
+    async fn list_machine_health_reports(
+        &self,
+        request: Request<MachineId>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::health::list_machine_health_reports(self, request).await
+    }
+
+    async fn insert_machine_health_report(
+        &self,
+        request: Request<rpc::InsertMachineHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::health::insert_machine_health_report(self, request).await
+    }
+
+    async fn remove_machine_health_report(
+        &self,
+        request: Request<rpc::RemoveMachineHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::health::remove_machine_health_report(self, request).await
+    }
+
+    async fn list_rack_health_reports(
+        &self,
+        request: Request<rpc::ListRackHealthReportsRequest>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::rack::list_rack_health_reports(self, request).await
+    }
+
+    async fn insert_rack_health_report(
+        &self,
+        request: Request<rpc::InsertRackHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::rack::insert_rack_health_report(self, request).await
+    }
+
+    async fn remove_rack_health_report(
+        &self,
+        request: Request<rpc::RemoveRackHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::rack::remove_rack_health_report(self, request).await
+    }
+
+    // Deprecated aliases. Delegate to the canonical handlers above.
+    #[allow(deprecated)]
     async fn list_health_report_overrides(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
-        crate::handlers::health::list_health_report_overrides(self, request).await
+        self.list_machine_health_reports(request).await
     }
 
+    #[allow(deprecated)]
     async fn insert_health_report_override(
         &self,
-        request: Request<rpc::InsertHealthReportOverrideRequest>,
+        request: Request<rpc::InsertMachineHealthReportRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::health::insert_health_report_override(self, request).await
+        self.insert_machine_health_report(request).await
     }
 
+    #[allow(deprecated)]
     async fn remove_health_report_override(
         &self,
-        request: Request<rpc::RemoveHealthReportOverrideRequest>,
+        request: Request<rpc::RemoveMachineHealthReportRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::health::remove_health_report_override(self, request).await
-    }
-
-    async fn list_rack_health_report_overrides(
-        &self,
-        request: Request<rpc::ListRackHealthReportOverridesRequest>,
-    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
-        crate::handlers::rack::list_rack_health_report_overrides(self, request).await
-    }
-
-    async fn insert_rack_health_report_override(
-        &self,
-        request: Request<rpc::InsertRackHealthReportOverrideRequest>,
-    ) -> Result<Response<()>, Status> {
-        crate::handlers::rack::insert_rack_health_report_override(self, request).await
-    }
-
-    async fn remove_rack_health_report_override(
-        &self,
-        request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
-    ) -> Result<Response<()>, Status> {
-        crate::handlers::rack::remove_rack_health_report_override(self, request).await
+        self.remove_machine_health_report(request).await
     }
 
     async fn list_switch_health_reports(
@@ -3324,19 +3349,6 @@ pub(crate) fn truncate(mut s: String, len: usize) -> String {
         s.replace_range(len - 2..len, "..");
     }
     s
-}
-
-pub trait TransactionVending {
-    fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>>;
-}
-
-impl TransactionVending for PgPool {
-    #[track_caller]
-    // This returns an `impl Future` instead of being async, so that we can use #[track_caller],
-    // which is unsupported with async fn's.
-    fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
-        db::Transaction::begin(self)
-    }
 }
 
 impl Api {

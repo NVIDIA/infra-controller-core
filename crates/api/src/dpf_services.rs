@@ -27,17 +27,19 @@ use carbide_dpf::{
     ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 
+use crate::cfg::file::DpfServiceConfig;
+
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
 pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
-    "https://gitlab-master.nvidia.com/aadvani/my-helm-project/-/raw/main/charts-repo";
+    "https://helm.ngc.nvidia.com/0837451325059433/carbide-dev";
 
 /// Default DOCA container image registry prefix.
 pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 
 /// Default Carbide container image registry prefix.
-pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "gitlab-master.nvidia.com/aadvani/my-helm-project";
+pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
@@ -48,32 +50,51 @@ pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 
 /// DHCP Service Definitions
 pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "carbide-dhcp-server";
-pub const DHCP_SERVER_SERVICE_HELM_VERSION: &str = "2.0.9";
-pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
-pub const DHCP_SERVER_SERVICE_IMAGE_TAG: &str = "v1.9.5-arm64-distroless";
 pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
 pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
+pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
+
+/// DTS service definitions
+pub const DTS_SERVICE_NAME: &str = "dts";
+pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
+pub const DTS_SERVICE_HELM_VERSION: &str = "1.22.1";
 
 // DPU Agent Service Definitions
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
-pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = "0.9.0";
 pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
-pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = "v0.5-arm64-multistage";
 
 /// FMDS Agent Service Definitions
 pub const FMDS_SERVICE_HELM_NAME: &str = "carbide-fmds";
-pub const FMDS_SERVICE_HELM_VERSION: &str = "0.1.0";
 pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
 pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
-pub const FMDS_SERVICE_IMAGE_TAG: &str = "v0.1-arm64-distroless";
 pub const FMDS_SERVICE_MTU: i64 = 1500;
+
+/// OTel Collector Service Definitions
+pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
+pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "carbide-otelcol";
+pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
+
+/// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
+pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
+    Some(v) => v,
+    None => "",
+};
+
+/// Compile-time image tag (set by CI via VERSION env var). Empty on PR/fork builds.
+pub(crate) const COMPILE_TIME_IMAGE_TAG: &str = match option_env!("CARBIDE_BUILD_GIT_TAG") {
+    Some(v) => v,
+    None => "",
+};
 
 fn doca_hbn_service_interfaces() -> Vec<ServiceInterface> {
     dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK)
 }
 fn dhcp_server_service_interfaces() -> Vec<ServiceInterface> {
     dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME)
+}
+fn fmds_service_interfaces() -> Vec<ServiceInterface> {
+    dpu_service_interfaces(FMDS_SERVICE_NAME, FMDS_SERVICE_NAD_NAME)
 }
 
 fn dpu_service_interfaces(service_name: &str, network: &str) -> Vec<ServiceInterface> {
@@ -102,6 +123,10 @@ fn doca_hbn_startup_yaml(interfaces: &[ServiceInterface]) -> String {
         "    rev-id: 1.0\n",
         "    version: HBN 2.4.0\n",
         "- set:\n",
+        "    system:\n",
+        "      api:\n",
+        "        listening-address:\n",
+        "          0.0.0.0: {}\n",
         "    interface:\n",
     ));
 
@@ -113,39 +138,84 @@ fn doca_hbn_startup_yaml(interfaces: &[ServiceInterface]) -> String {
     startup_yaml
 }
 
-/// Extended registry configuration for Carbide DPU services.
-#[derive(Debug, Clone)]
-pub struct CarbideServiceRegistryConfig {
-    /// Helm chart repository URL for DOCA services (HBN, DTS).
-    pub doca_helm_registry: String,
-    /// Helm image repository for DOCA Services
-    pub doca_image_registry: String,
-    /// Helm chart repository URL for Carbide services.
-    pub carbide_helm_registry: String,
-    /// Container image registry prefix for Carbide images.
-    pub carbide_image_registry: String,
-}
-
-impl Default for CarbideServiceRegistryConfig {
-    fn default() -> Self {
-        Self {
-            doca_helm_registry: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
-            doca_image_registry: DEFAULT_DOCA_IMAGE_REGISTRY.to_string(),
-            carbide_helm_registry: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
-            carbide_image_registry: DEFAULT_CARBIDE_IMAGE_REGISTRY.to_string(),
-        }
+pub(crate) fn default_dts_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DTS_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DTS_SERVICE_HELM_NAME.to_string(),
+        helm_version: DTS_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: String::new(),
+        docker_image_tag: String::new(),
     }
 }
 
-pub fn doca_hbn_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
-    let interfaces = doca_hbn_service_interfaces();
+pub(crate) fn default_doca_hbn_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DOCA_HBN_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DOCA_HBN_SERVICE_HELM_NAME.to_string(),
+        helm_version: DOCA_HBN_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_HBN_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: DOCA_HBN_SERVICE_IMAGE_TAG.to_string(),
+    }
+}
 
+pub(crate) fn default_dpu_agent_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DPU_AGENT_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: DPU_AGENT_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DPU_AGENT_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+    }
+}
+
+pub(crate) fn default_dhcp_server_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DHCP_SERVER_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: DHCP_SERVER_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!(
+            "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DHCP_SERVER_SERVICE_IMAGE_NAME}"
+        ),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+    }
+}
+
+pub(crate) fn default_fmds_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: FMDS_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: FMDS_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{FMDS_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+    }
+}
+
+pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: OTEL_COLLECTOR_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: OTEL_COLLECTOR_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!(
+            "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{OTEL_COLLECTOR_SERVICE_IMAGE_NAME}"
+        ),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+    }
+}
+
+/// DOCA HBN service definition.
+pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    let interfaces = doca_hbn_service_interfaces();
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
             "image": {
-                "repository": format!("{}/{}", reg.doca_image_registry,
-                    DOCA_HBN_SERVICE_IMAGE_NAME),
-                "tag": DOCA_HBN_SERVICE_IMAGE_TAG,
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
             },
             "resources": {
                 "memory": "6Gi",
@@ -154,10 +224,7 @@ pub fn doca_hbn_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition
             "configuration": {
                 "user": {
                     "create": true,
-                    "username": {
-                        "secretName": "hbn-user-password",
-                        "secretKey": "username",
-                    },
+                    "username": "carbide",
                     "password": {
                         "secretName": "hbn-user-password",
                         "secretKey": "password",
@@ -177,95 +244,93 @@ pub fn doca_hbn_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition
         interfaces,
 
         ..ServiceDefinition::new(
-            DOCA_HBN_SERVICE_NAME,
-            &reg.doca_helm_registry,
-            DOCA_HBN_SERVICE_HELM_NAME,
-            DOCA_HBN_SERVICE_HELM_VERSION,
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
         )
     }
 }
 
-/// Build a Carbide service definition with standard image helm values.
-#[allow(dead_code)]
-fn carbide_service(
-    reg: &CarbideServiceRegistryConfig,
-    name: &str,
-    image_name: &str,
-    version: &str,
-) -> ServiceDefinition {
+/// DTS (DOCA Telemetry Service) service definition.
+pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
-            "image": {
-                "repository": format!("{}/{}", reg.carbide_image_registry, image_name),
-                "tag": version
-            }
+            "exposedPorts": { "ports": { "httpserverport": true } }
         })),
-        ..ServiceDefinition::new(name, &reg.carbide_helm_registry, name, version)
+        config_ports: Some(vec![ServiceConfigPort {
+            name: "httpserverport".to_string(),
+            port: 9100,
+            protocol: ServiceConfigPortProtocol::Tcp,
+            node_port: None,
+        }]),
+        config_ports_service_type: Some(ConfigPortsServiceType::None),
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
     }
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
-#[allow(dead_code)]
-/// OpenTelemetry Collector service definition.
-pub fn otelcol_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
-    let mut svc = carbide_service(reg, "carbide-otelcol", "otelcol-contrib", "0.1.0");
-    svc.config_ports = Some(vec![ServiceConfigPort {
-        name: "prometheus".to_string(),
-        port: 9999,
-        protocol: ServiceConfigPortProtocol::Tcp,
-        node_port: None,
-    }]);
-    svc.config_ports_service_type = Some(ConfigPortsServiceType::None);
-    svc
-}
-
 /// Forge DPU Agent service definition.
-pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
+pub fn dpu_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
             "image": {
-                "repository": format!("{}/{}", reg.carbide_image_registry,
-                    DPU_AGENT_SERVICE_IMAGE_NAME),
-                "tag": DPU_AGENT_SERVICE_IMAGE_TAG,
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
             },
             "hbn": {
                 "nvue_https_address": "nvue",
                 "nvue_credentials_secret_name": "hbn-user-password",
-                "nvue_username_key": "username",
                 "nvue_password_key": "password",
             },
+            "imagePullSecrets": [
+                {
+                    "name": "dpf-pull-secret"
+                }
+            ]
         })),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
 
         config_values: Some(serde_json::json!({
             "dhcp_server": {
-                "service_name": "{{ (index .Services \"carbide-dhcp-server\").Name }}"
+                "service_name": "{{ (index .Services \"carbide-dhcp-server\").Name }}",
+                "interface_prepend": "d_"
             },
-            "carbide_fmds": {
+            "fmds": {
                 "service_name": "{{ (index .Services \"carbide-fmds\").Name }}"
+            },
+            "hbn": {
+                "nvue_https_address": "{{ (index .Services \"doca-hbn\").Name }}"
             }
         })),
 
         ..ServiceDefinition::new(
-            DPU_AGENT_SERVICE_NAME,
-            &reg.carbide_helm_registry,
-            DPU_AGENT_SERVICE_HELM_NAME,
-            DPU_AGENT_SERVICE_HELM_VERSION,
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
         )
     }
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
 /// Forge DHCP Server service definition.
-pub fn dhcp_server_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
+pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
             "image": {
-                "repository": format!("{}/{}", reg.carbide_image_registry,
-                    DHCP_SERVER_SERVICE_IMAGE_NAME),
-                "tag": DHCP_SERVER_SERVICE_IMAGE_TAG,
-            }
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
+            },
+            "imagePullSecrets": [
+                {
+                    "name": "dpf-pull-secret"
+                }
+            ]
         })),
 
         interfaces: dhcp_server_service_interfaces(),
@@ -281,41 +346,30 @@ pub fn dhcp_server_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinit
         }),
 
         ..ServiceDefinition::new(
-            DHCP_SERVER_SERVICE_NAME,
-            &reg.carbide_helm_registry,
-            DHCP_SERVER_SERVICE_HELM_NAME,
-            DHCP_SERVER_SERVICE_HELM_VERSION,
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
         )
     }
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
-#[allow(dead_code)]
-/// Forge DPU OTel Agent service definition.
-pub fn dpu_otel_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
-    carbide_service(
-        reg,
-        "carbide-dpu-otel-agent",
-        "forge-dpu-otel-agent",
-        "0.1.0",
-    )
-}
-
-/// FMDS Service
-pub fn fmds_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
+/// Forge FMDS service definition.
+pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
             "image": {
-                "repository": format!("{}/{}", reg.carbide_image_registry,
-                    FMDS_SERVICE_IMAGE_NAME),
-                "tag": FMDS_SERVICE_IMAGE_TAG,
-            }
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
+            },
+            "imagePullSecrets": [
+                {
+                    "name": "dpf-pull-secret"
+                }
+            ]
         })),
 
-        interfaces: vec![ServiceInterface {
-            name: "f_pf0hpf_if".to_string(),
-            network: FMDS_SERVICE_NAD_NAME.to_string(),
-        }],
+        interfaces: fmds_service_interfaces(),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
 
@@ -328,22 +382,51 @@ pub fn fmds_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
         }),
 
         ..ServiceDefinition::new(
-            FMDS_SERVICE_NAME,
-            &reg.carbide_helm_registry,
-            FMDS_SERVICE_HELM_NAME,
-            FMDS_SERVICE_HELM_VERSION,
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
+    }
+}
+
+/// OTel service definition.
+pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(serde_json::json!({
+            "exposedPorts": { "ports": { "prometheus": true } },
+            "image": {
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
+            },
+            "imagePullSecrets": [
+                {
+                    "name": "dpf-pull-secret"
+                }
+            ]
+        })),
+        service_daemon_set_annotations: Some(BTreeMap::new()),
+        config_ports: Some(vec![ServiceConfigPort {
+            name: "prometheus".to_string(),
+            port: 9999,
+            protocol: ServiceConfigPortProtocol::Tcp,
+            node_port: None,
+        }]),
+        config_ports_service_type: Some(ConfigPortsServiceType::None),
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
         )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use carbide_dpf::build_service_interface;
     use carbide_dpf::sdk::build_dpu_interfaces_vec;
     use carbide_dpf::types::DpuServiceInterfaceTemplateType;
-    use carbide_dpf::{
-        NoLabels, build_deployment, build_service_configuration, build_service_interface,
-        build_service_nad, build_service_template,
-    };
 
     use super::*;
 
@@ -402,250 +485,6 @@ mod tests {
             );
         }
     }
-
-    // ---- doca_hbn_service ----
-
-    #[test]
-    fn test_doca_hbn_service_name_and_helm() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = doca_hbn_service(&reg);
-        assert_eq!(svc.name, DOCA_HBN_SERVICE_NAME);
-        assert_eq!(svc.helm_chart, DOCA_HBN_SERVICE_HELM_NAME);
-        assert_eq!(svc.helm_version, DOCA_HBN_SERVICE_HELM_VERSION);
-        assert!(svc.helm_repo_url.contains("helm.ngc.nvidia.com"));
-    }
-
-    #[test]
-    fn test_doca_hbn_service_interfaces_match_derived() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = doca_hbn_service(&reg);
-        let expected = dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK);
-        assert_eq!(
-            svc.interfaces.len(),
-            expected.len(),
-            "HBN service interface count mismatch"
-        );
-        for (a, b) in svc.interfaces.iter().zip(expected.iter()) {
-            assert_eq!(a.name, b.name);
-            assert_eq!(a.network, b.network);
-        }
-    }
-
-    #[test]
-    fn test_doca_hbn_service_startup_yaml_contains_interfaces() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = doca_hbn_service(&reg);
-        let config_values = svc
-            .config_values
-            .as_ref()
-            .expect("config_values must be set");
-        let startup_yaml = config_values["configuration"]["startupYAMLJ2"]
-            .as_str()
-            .expect("startupYAMLJ2 must be a string");
-        for iface in &svc.interfaces {
-            assert!(
-                startup_yaml.contains(&iface.name),
-                "startupYAMLJ2 missing interface '{}'",
-                iface.name
-            );
-        }
-    }
-
-    #[test]
-    fn test_doca_hbn_service_image_uses_registry() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = doca_hbn_service(&reg);
-        let helm_values = svc.helm_values.as_ref().unwrap();
-        let repo = helm_values["image"]["repository"].as_str().unwrap();
-        assert!(
-            repo.contains(DOCA_HBN_SERVICE_IMAGE_NAME),
-            "image repository should contain image name"
-        );
-        assert!(
-            repo.starts_with(&reg.doca_image_registry),
-            "image repository should use doca_image_registry"
-        );
-    }
-
-    // ---- dhcp_server_service ----
-
-    #[test]
-    fn test_dhcp_server_service_name_and_helm() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dhcp_server_service(&reg);
-        assert_eq!(svc.name, DHCP_SERVER_SERVICE_NAME);
-        assert_eq!(svc.helm_chart, DHCP_SERVER_SERVICE_HELM_NAME);
-        assert_eq!(svc.helm_version, DHCP_SERVER_SERVICE_HELM_VERSION);
-    }
-
-    #[test]
-    fn test_dhcp_server_service_interfaces_match_derived() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dhcp_server_service(&reg);
-        let expected =
-            dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME);
-        assert_eq!(
-            svc.interfaces.len(),
-            expected.len(),
-            "DHCP service interface count mismatch"
-        );
-        for (a, b) in svc.interfaces.iter().zip(expected.iter()) {
-            assert_eq!(a.name, b.name);
-            assert_eq!(a.network, b.network);
-        }
-    }
-
-    #[test]
-    fn test_dhcp_server_service_nad_properties() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dhcp_server_service(&reg);
-        let nad = svc
-            .service_nad
-            .as_ref()
-            .expect("DHCP service must have a NAD");
-        assert_eq!(nad.name, DHCP_SERVER_SERVICE_NAD_NAME);
-        assert_eq!(nad.mtu, Some(DHCP_SERVER_SERVICE_MTU));
-        assert_eq!(nad.ipam, Some(false));
-        assert_eq!(nad.bridge.as_deref(), Some("br-sfc"));
-    }
-
-    // ---- dpu_agent_service ----
-
-    #[test]
-    fn test_dpu_agent_service_name_and_helm() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dpu_agent_service(&reg);
-        assert_eq!(svc.name, DPU_AGENT_SERVICE_NAME);
-        assert_eq!(svc.helm_chart, DPU_AGENT_SERVICE_HELM_NAME);
-        assert_eq!(svc.helm_version, DPU_AGENT_SERVICE_HELM_VERSION);
-    }
-
-    #[test]
-    fn test_dpu_agent_service_image_uses_registry() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dpu_agent_service(&reg);
-        let helm_values = svc.helm_values.as_ref().unwrap();
-        let repo = helm_values["image"]["repository"].as_str().unwrap();
-        assert!(repo.contains(DPU_AGENT_SERVICE_IMAGE_NAME));
-        assert!(repo.starts_with(&reg.carbide_image_registry));
-    }
-
-    // ---- build_service_template ----
-
-    #[test]
-    fn test_build_service_template_metadata() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dhcp_server_service(&reg);
-        let tmpl = build_service_template(&svc, TEST_NS);
-        assert_eq!(
-            tmpl.metadata.name.as_deref(),
-            Some(DHCP_SERVER_SERVICE_NAME)
-        );
-        assert_eq!(tmpl.metadata.namespace.as_deref(), Some(TEST_NS));
-        assert_eq!(tmpl.spec.deployment_service_name, DHCP_SERVER_SERVICE_NAME);
-        assert_eq!(
-            tmpl.spec.helm_chart.source.version.as_str(),
-            DHCP_SERVER_SERVICE_HELM_VERSION
-        );
-    }
-
-    #[test]
-    fn test_build_service_template_helm_values_included() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = doca_hbn_service(&reg);
-        let tmpl = build_service_template(&svc, TEST_NS);
-        let values = tmpl
-            .spec
-            .helm_chart
-            .values
-            .as_ref()
-            .expect("helm values must be present");
-        assert!(
-            values.contains_key("image"),
-            "helm values must include 'image'"
-        );
-    }
-
-    // ---- build_service_configuration ----
-
-    #[test]
-    fn test_build_service_configuration_interfaces() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dhcp_server_service(&reg);
-        let cfg = build_service_configuration(&svc, TEST_NS);
-        let ifaces = cfg
-            .spec
-            .interfaces
-            .as_ref()
-            .expect("interfaces must be present");
-        assert_eq!(ifaces.len(), svc.interfaces.len());
-        for (actual, expected) in ifaces.iter().zip(svc.interfaces.iter()) {
-            assert_eq!(actual.name, expected.name);
-            assert_eq!(actual.network, expected.network);
-        }
-    }
-
-    #[test]
-    fn test_build_service_configuration_config_values() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = doca_hbn_service(&reg);
-        let cfg = build_service_configuration(&svc, TEST_NS);
-        let svc_cfg = cfg
-            .spec
-            .service_configuration
-            .as_ref()
-            .expect("service_configuration must be present");
-        let helm = svc_cfg
-            .helm_chart
-            .as_ref()
-            .expect("helm_chart config must be present");
-        let values = helm
-            .values
-            .as_ref()
-            .expect("helm chart values must be present");
-        assert!(
-            values.contains_key("configuration"),
-            "config_values must include 'configuration'"
-        );
-    }
-
-    #[test]
-    fn test_build_service_configuration_no_interfaces_for_agents() {
-        // dpu_agent_service has no interfaces — spec.interfaces should be None
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dpu_agent_service(&reg);
-        let cfg = build_service_configuration(&svc, TEST_NS);
-        assert!(
-            cfg.spec.interfaces.is_none(),
-            "agent service must have no interfaces in config"
-        );
-    }
-
-    // ---- build_service_nad ----
-
-    #[test]
-    fn test_build_service_nad_present_for_dhcp() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = dhcp_server_service(&reg);
-        let nad = build_service_nad(&svc, TEST_NS).expect("DHCP must produce a NAD");
-        assert_eq!(
-            nad.metadata.name.as_deref(),
-            Some(DHCP_SERVER_SERVICE_NAD_NAME)
-        );
-        assert_eq!(nad.metadata.namespace.as_deref(), Some(TEST_NS));
-    }
-
-    #[test]
-    fn test_build_service_nad_absent_for_hbn() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let svc = doca_hbn_service(&reg);
-        assert!(
-            build_service_nad(&svc, TEST_NS).is_none(),
-            "HBN service should not produce a NAD"
-        );
-    }
-
-    // ---- build_service_interface ----
 
     #[test]
     fn test_build_service_interface_physical() {
@@ -737,65 +576,5 @@ mod tests {
                 iface.name
             );
         }
-    }
-
-    // ---- build_deployment ----
-
-    #[test]
-    fn test_build_deployment_lists_all_services() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let services = vec![dhcp_server_service(&reg), doca_hbn_service(&reg)];
-        let interfaces = build_dpu_interfaces_vec();
-        let deployment = build_deployment(
-            &services,
-            "carbide-deployment",
-            "test-bfb",
-            "dpu-flavor",
-            TEST_NS,
-            &NoLabels,
-            &interfaces,
-        );
-        assert_eq!(
-            deployment.metadata.name.as_deref(),
-            Some("carbide-deployment")
-        );
-        assert_eq!(deployment.spec.dpus.bfb, "test-bfb");
-        assert_eq!(deployment.spec.dpus.flavor, "dpu-flavor");
-        assert_eq!(deployment.spec.services.len(), 2);
-        assert!(
-            deployment
-                .spec
-                .services
-                .contains_key(DHCP_SERVER_SERVICE_NAME)
-        );
-        assert!(deployment.spec.services.contains_key(DOCA_HBN_SERVICE_NAME));
-    }
-
-    #[test]
-    fn test_build_deployment_service_chain_count_matches_chained_interfaces() {
-        let reg = CarbideServiceRegistryConfig::default();
-        let services = vec![dhcp_server_service(&reg), doca_hbn_service(&reg)];
-        let interfaces = build_dpu_interfaces_vec();
-        let expected_switches = interfaces
-            .iter()
-            .filter(|i| i.chained_svc_if.is_some())
-            .count();
-        let deployment = build_deployment(
-            &services,
-            "carbide-deployment",
-            "test-bfb",
-            "dpu-flavor",
-            TEST_NS,
-            &NoLabels,
-            &interfaces,
-        );
-        let switches = deployment
-            .spec
-            .service_chains
-            .as_ref()
-            .expect("service_chains must be present")
-            .switches
-            .len();
-        assert_eq!(switches, expected_switches);
     }
 }

@@ -14,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_utils::models::dhcp::InterfaceInfo;
 use carbide_uuid::machine::MachineInterfaceId;
 use lru::LruCache;
 use rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tonic::async_trait;
-use utils::models::dhcp::InterfaceInfo;
 
 use super::DhcpMode;
 use crate::cache::CacheEntry;

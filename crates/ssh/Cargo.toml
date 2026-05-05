@@ -27,7 +27,6 @@ name = "forge_ssh"
 
 [dependencies]
 async-ssh2-tokio = { workspace = true }
-humantime = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

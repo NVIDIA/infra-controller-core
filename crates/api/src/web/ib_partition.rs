@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -317,3 +317,6 @@ pub async fn detail(
     let tmpl: IbPartitionDetail = partition.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for IbPartitionShow {}
+impl super::Base for IbPartitionDetail {}

@@ -49,6 +49,9 @@ lazy_static::lazy_static! {
 pub struct Config<'a, B: Bmc> {
     pub need_oem_nvidia_bluefield: bool,
     // Temporary workaround for BlueField DPU BMCs that intermittently return
+    // HTTP 500 for the BIOS resource while the DPU is in NIC mode.
+    pub ignore_500_on_bios_fetch: bool,
+    // Temporary workaround for BlueField DPU BMCs that intermittently return
     // HTTP 404 for the OOB interface or the full EthernetInterfaces collection.
     // This is expected to be fixed in BMC firmware 24.10-39, which adds
     // internal retries.
@@ -83,7 +86,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             vec![]
         };
 
-        let bios = system.bios().await.map_err(Error::nv_redfish("bios"))?;
+        let bios = Self::fetch_bios(&system, config).await?;
 
         let ethernet_interfaces = Self::fetch_eth_interfaces(&system, config)
             .await
@@ -113,6 +116,28 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         })
     }
 
+    async fn fetch_bios(
+        system: &ComputerSystem<B>,
+        config: &Config<'_, B>,
+    ) -> Result<Option<Bios<B>>, Error<B>> {
+        match system.bios().await {
+            Ok(bios) => Ok(bios),
+            Err(err) if config.ignore_500_on_bios_fetch => {
+                if let nv_redfish::Error::Bmc(bmc_error) = &err
+                    && (config.explore.error_classifier)(bmc_error)
+                        == Some(ErrorClass::InternalServerError)
+                {
+                    // Ignore BlueField DPU BIOS HTTP 500 because it may fail in NIC mode.
+                    tracing::warn!("ignoring HTTP 500 while fetching BlueField DPU BIOS");
+                    Ok(None)
+                } else {
+                    Err(Error::nv_redfish("bios")(err))
+                }
+            }
+            Err(err) => Err(Error::nv_redfish("bios")(err)),
+        }
+    }
+
     async fn fetch_eth_interfaces(
         system: &ComputerSystem<B>,
         config: &Config<'_, B>,
@@ -130,7 +155,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                 Err(err) if config.retry_404_on_eth_interfaces && retries_remaining != 0 => {
                     if let nv_redfish::Error::Bmc(bmc_error) = &err
                         && (config.explore.error_classifier)(bmc_error)
-                            == Some(ErrorClass::HttpNotFound)
+                            == Some(ErrorClass::NotFound)
                     {
                         tracing::warn!(
                             "received 404 on system's ethernet collection fetch. Retrying. {retries_remaining} tries left"
@@ -145,7 +170,6 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             }
         }
     }
-
     pub fn to_model(
         &self,
         hw_type: Option<hw::HwType>,

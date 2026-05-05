@@ -83,6 +83,10 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
     fn collector_type(&self) -> &'static str {
         "sensor_collector"
     }
+
+    async fn stop(&mut self) {
+        self.emit_event(CollectorEvent::CollectorRemoved);
+    }
 }
 
 /// Monitored entity with its associated sensors

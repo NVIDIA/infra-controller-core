@@ -70,6 +70,7 @@ pub fn build() {
         // TODO: Remove after migration to new CARBIDE_ naming
         println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG=");
         println!("cargo:rustc-env=CARBIDE_BUILD_GIT_HASH=");
+        println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION=");
         return;
     }
 
@@ -93,6 +94,17 @@ pub fn build() {
     // TODO: Remove after migration to new CARBIDE_ naming
     println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
     println!("cargo:rustc-env=CARBIDE_BUILD_GIT_TAG={build_version}");
+
+    // Helm version: strip leading 'v', replace last '-' with '.'
+    // e.g. "v1.2.3-42-gabcdef1" → "1.2.3-42.gabcdef1"
+    let helm_version = {
+        let s = build_version.trim_start_matches('v');
+        match s.rfind('-') {
+            Some(idx) => format!("{}.{}", &s[..idx], &s[idx + 1..]),
+            None => s.to_string(),
+        }
+    };
+    println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION={helm_version}");
 
     // Only re-calculate all of this when there's a new commit... but use an env var to allow
     // avoiding rebuilds when the commit hash changes. (This is good for local development iteration
@@ -200,6 +212,9 @@ macro_rules! v {
     (build_hostname) => {
         option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default()
     };
+    (helm_version) => {
+        option_env!("CARBIDE_BUILD_HELM_VERSION").unwrap_or_default()
+    };
 }
 
 /// Same a v! but expands to a literal. That allows using it in `concat!` macro.
@@ -224,6 +239,9 @@ macro_rules! literal {
     };
     (build_hostname) => {
         env!("FORGE_BUILD_HOSTNAME")
+    };
+    (helm_version) => {
+        env!("CARBIDE_BUILD_HELM_VERSION")
     };
 }
 

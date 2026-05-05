@@ -173,12 +173,12 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
         .expect("Error getting DPU1 network config")
         .into_inner();
 
-    // Assert: They should not have the same config version, since the managed_host_config_version
-    // represents the health of that particular DPU.
-    assert!(
-        dpu_1_network_config
-            .managed_host_config_version
-            .ne(&dpu_2_network_config.managed_host_config_version)
+    // Assert: Both DPUs report the same managed_host_config_version, because
+    // it's the host's network_config_version and group-sync keeps every member
+    // of the host's machine group at the same version.
+    assert_eq!(
+        dpu_1_network_config.managed_host_config_version,
+        dpu_2_network_config.managed_host_config_version,
     );
 }
 

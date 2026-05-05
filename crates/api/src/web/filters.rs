@@ -222,6 +222,69 @@ pub fn option_fmt(value: &Option<impl Display>) -> askama::Result<String> {
     })
 }
 
+pub fn option_fmt_or(value: &Option<impl Display>, default: &str) -> askama::Result<String> {
+    Ok(match value {
+        Some(value) => value.to_string(),
+        None => default.to_string(),
+    })
+}
+
+pub(crate) fn normalize_state_label(state: impl Display) -> String {
+    state_and_substate_labels(state).0
+}
+
+pub(crate) fn state_and_substate_labels(state_json: impl Display) -> (String, String) {
+    let state_json = state_json.to_string();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&state_json) else {
+        return (state_json, String::new());
+    };
+    let Some(object) = value.as_object() else {
+        return (state_json, String::new());
+    };
+    let Some(state) = object.get("state").and_then(|value| value.as_str()) else {
+        return (state_json, String::new());
+    };
+
+    let state_specific_key = format!("{state}_state");
+    let substate = object
+        .get(&state_specific_key)
+        .or_else(|| {
+            object
+                .iter()
+                .find(|(key, _)| key.as_str() != "state" && key.ends_with("_state"))
+                .map(|(_, value)| value)
+        })
+        .map(format_substate_label)
+        .unwrap_or_default();
+
+    (capitalize_state(state), substate)
+}
+
+pub fn state_with_substate_label(state: impl Display) -> ::askama::Result<String> {
+    let (state, substate) = state_and_substate_labels(state);
+    Ok(if substate.is_empty() {
+        state
+    } else {
+        format!("{state}/{substate}")
+    })
+}
+
+fn format_substate_label(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .or_else(|| value.get("state").and_then(|value| value.as_str()))
+        .map(capitalize_state)
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn capitalize_state(state: &str) -> String {
+    let mut chars = state.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
 /// Formats the boot order list
 pub fn boot_order_fmt(
     boot_order: &Option<rpc::site_explorer::BootOrder>,

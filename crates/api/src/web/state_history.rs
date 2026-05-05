@@ -32,7 +32,7 @@ use rpc::forge::{
     SwitchStateHistoriesRequest,
 };
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -250,3 +250,5 @@ define_show_state_history_handlers!(
     object_type_display = "Switch",
     object_url_path = "switch",
 );
+
+impl super::Base for StateHistory {}

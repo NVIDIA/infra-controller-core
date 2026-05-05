@@ -23,16 +23,16 @@ use std::path::Path;
 use std::process::Command;
 use std::str::Utf8Error;
 
+use ::carbide_utils::cmd::CmdError;
+use ::carbide_utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use ::rpc::machine_discovery as rpc_discovery;
-use ::utils::cmd::CmdError;
-use ::utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use base64::prelude::*;
+use carbide_utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
 use libudev::Device;
 use procfs::{CpuInfo, FromRead};
 use rpc::machine_discovery::MemoryDevice;
 use tracing::warn;
 use uname::uname;
-use utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
 
 use crate::cpu::aggregate_cpus;
 
@@ -728,8 +728,9 @@ fn enumerate_hardware_inner(
             // Figure out a longer term strategy to use all three serial numbers. Keeping the commented out code below for future reference.
             // Possible Values for dmi.product_name: BlueField SoC (BF2), BlueField-3 SmartNIC Main Card (BF3), BlueField-3 DPU (BF3)
             if dmi.product_name.contains(BF_PRODUCT_NAME_REGEX) {
-                dmi.board_serial = utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string();
-                dmi.chassis_serial = utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string();
+                dmi.board_serial = carbide_utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string();
+                dmi.chassis_serial =
+                    carbide_utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string();
             } else {
                 dmi.board_serial = convert_sysattr_to_string("board_serial", &device)?.to_string();
                 dmi.chassis_serial =

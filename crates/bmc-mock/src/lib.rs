@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 pub mod ipmi;
 
+mod auth_router;
 mod bmc_state;
 pub mod bug;
 mod combined_server;
@@ -44,6 +45,10 @@ pub use machine_info::{
 pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
 };
+
+pub const DUMMY_FACTORY_USERNAME: &str = "root";
+pub const DUMMY_FACTORY_PASSWORD: &str = "factory_password";
+pub const DUMMY_FACTORY_DPU_PASSWORD: &str = "0penBmc";
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum HostHardwareType {

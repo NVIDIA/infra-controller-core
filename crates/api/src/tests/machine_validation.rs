@@ -18,6 +18,7 @@
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use carbide_uuid::machine_validation::MachineValidationId;
 use common::api_fixtures::{
     TestEnvOverrides, create_host_with_machine_validation, create_test_env,
     create_test_env_with_overrides, get_config, get_machine_validation_results,
@@ -177,7 +178,7 @@ async fn test_machine_validation_with_error(
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "OnDemand".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: env.config.machine_validation_config.enabled,
@@ -258,7 +259,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "OnDemand".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: env.config.machine_validation_config.enabled,
@@ -318,7 +319,7 @@ async fn test_machine_validation_get_results(
         runs.runs[0].context.clone().unwrap_or_default(),
         "Discovery".to_owned()
     );
-    let discovery_validation_id = runs.runs[0].validation_id.clone();
+    let discovery_validation_id = runs.runs[0].validation_id;
     tinstance.delete().await;
 
     // one for cleanup and one for discovery
@@ -329,7 +330,7 @@ async fn test_machine_validation_get_results(
     assert_eq!(results.results.len(), 2);
     assert_eq!(results.results[0].name, machine_validation_result.name);
     assert_eq!(results.results[1].name, "instance".to_owned());
-    let cleanup_validation_id = results.results[1].validation_id.clone();
+    let cleanup_validation_id = results.results[1].validation_id;
 
     // find using validation id
     let results = get_machine_validation_results(&env, None, true, discovery_validation_id).await;
@@ -501,8 +502,7 @@ async fn test_machine_validation_test_on_demand_filter(
     )
     .await;
 
-    let validation_id =
-        uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
+    let validation_id: MachineValidationId = on_demand_response.validation_id.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         1,
@@ -533,6 +533,21 @@ async fn test_machine_validation_test_on_demand_filter(
     .await;
 
     let response = mh.host().forge_agent_control().await;
+    let Some(rpc::forge_agent_control_response::Action::MachineValidation(machine_validation)) =
+        response.action.as_ref()
+    else {
+        panic!("expected typed machine validation action");
+    };
+    let typed_filter = machine_validation
+        .filter
+        .as_ref()
+        .expect("typed machine validation filter");
+    assert!(
+        allowed_tests
+            .iter()
+            .all(|item| typed_filter.allowed_tests.contains(item))
+    );
+
     for item in response.data.unwrap().pair {
         if item.key == "MachineValidationFilter" {
             let machine_validation_filter: MachineValidationFilter =
@@ -606,7 +621,7 @@ async fn test_machine_validation_disabled(
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "OnDemand".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: env.config.machine_validation_config.enabled,
@@ -624,7 +639,7 @@ async fn test_machine_validation_disabled(
     let mut status_asserted = false;
     for run in runs.runs {
         if run.validation_id.unwrap_or_default()
-            == on_demand_response.validation_id.clone().unwrap_or_default()
+            == on_demand_response.validation_id.unwrap_or_default()
         {
             status_asserted = true;
             assert_eq!(
@@ -649,7 +664,7 @@ async fn test_machine_validation_disabled(
     let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
     for run in runs.runs {
         if run.validation_id.unwrap_or_default()
-            == on_demand_response.validation_id.clone().unwrap_or_default()
+            == on_demand_response.validation_id.unwrap_or_default()
         {
             status_asserted = true;
             assert_eq!(
@@ -1054,8 +1069,7 @@ async fn test_on_demant_un_verified_machine_validation(
         Vec::new(),
     )
     .await;
-    let validation_id =
-        uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
+    let validation_id = on_demand_response.validation_id.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         1,
@@ -1236,8 +1250,7 @@ async fn test_on_demant_machine_validation_all_contexts(
         }
     }
 
-    let validation_id =
-        uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
+    let validation_id = on_demand_response.validation_id.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         1,

@@ -19,8 +19,8 @@ use std::sync::Arc;
 
 use prometheus::Counter;
 
+use super::dedup_queue::DedupQueue;
 use super::event_mapper::RedfishEventMapper;
-use super::override_queue::OverrideQueue;
 use super::{CollectorEvent, DataSink, EventContext, SensorHealthData};
 use crate::HealthError;
 use crate::config::OtlpSinkConfig;
@@ -28,8 +28,8 @@ use crate::metrics::MetricsManager;
 use crate::otlp::drain::OtlpDrainTask;
 use crate::otlp::metrics_drain::OtlpMetricsDrainTask;
 
-pub(crate) type OtlpQueue = OverrideQueue<String, (EventContext, CollectorEvent)>;
-pub(crate) type OtlpMetricsQueue = OverrideQueue<String, (EventContext, SensorHealthData)>;
+pub(crate) type OtlpQueue = DedupQueue<String, (EventContext, CollectorEvent)>;
+pub(crate) type OtlpMetricsQueue = DedupQueue<String, (EventContext, SensorHealthData)>;
 
 #[cfg(not(feature = "bench-hooks"))]
 pub(crate) struct OtlpSink {
@@ -56,6 +56,7 @@ pub(crate) fn is_otlp_log_relevant(event: &CollectorEvent) -> bool {
         CollectorEvent::Metric(_)
             | CollectorEvent::MetricCollectionStart
             | CollectorEvent::MetricCollectionEnd
+            | CollectorEvent::CollectorRemoved
     )
 }
 
@@ -70,8 +71,8 @@ impl OtlpSink {
             HealthError::GenericError(format!("otlp sink requires active tokio runtime: {e}"))
         })?;
 
-        let queue: Arc<OtlpQueue> = Arc::new(OverrideQueue::new());
-        let metrics_queue: Arc<OtlpMetricsQueue> = Arc::new(OverrideQueue::new());
+        let queue: Arc<OtlpQueue> = Arc::new(DedupQueue::new());
+        let metrics_queue: Arc<OtlpMetricsQueue> = Arc::new(DedupQueue::new());
 
         let replaced_total = Counter::new(
             format!("{prefix}_otlp_sink_replaced_total"),
@@ -120,8 +121,8 @@ impl OtlpSink {
 impl OtlpSink {
     pub fn new_for_bench(mapper: Arc<dyn RedfishEventMapper>) -> Self {
         Self {
-            queue: Arc::new(OverrideQueue::new()),
-            metrics_queue: Arc::new(OverrideQueue::new()),
+            queue: Arc::new(DedupQueue::new()),
+            metrics_queue: Arc::new(DedupQueue::new()),
             replaced_total: Counter::new("bench_replaced", "bench").unwrap(),
             metrics_replaced_total: Counter::new("bench_metrics_replaced", "bench").unwrap(),
             mapper,

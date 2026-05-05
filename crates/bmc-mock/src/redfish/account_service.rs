@@ -17,11 +17,13 @@
 
 use std::borrow::Cow;
 use std::fmt::Display;
+use std::sync::Mutex;
 
-use axum::Router;
-use axum::extract::Path;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::get;
+use axum::{Json, Router};
 use serde_json::json;
 
 use crate::bmc_state::BmcState;
@@ -55,6 +57,100 @@ const ACCOUNTS_COLLECTION_RESOURCE: redfish::Collection<'static> = redfish::Coll
     name: Cow::Borrowed("Accounts Collection"),
 };
 
+#[derive(Debug)]
+pub struct AccountServiceState {
+    accounts: Mutex<Vec<Account>>,
+}
+
+impl AccountServiceState {
+    pub fn new(factory_default_account: Account) -> Self {
+        Self {
+            accounts: Mutex::new(vec![factory_default_account]),
+        }
+    }
+
+    pub fn accounts(&self) -> Vec<Account> {
+        self.accounts.lock().expect("mutex poisoned").clone()
+    }
+
+    pub fn find(&self, account_id: &str) -> Option<Account> {
+        self.accounts
+            .lock()
+            .expect("mutex poisoned")
+            .iter()
+            .find(|account| account.id == account_id)
+            .cloned()
+    }
+
+    pub fn is_authorized(&self, username: &str, password: &str) -> bool {
+        self.accounts
+            .lock()
+            .expect("mutex poisoned")
+            .iter()
+            .any(|account| account.matches(username, password))
+    }
+
+    pub fn is_factory_default_password(&self, username: &str, password: &str) -> bool {
+        self.accounts
+            .lock()
+            .expect("mutex poisoned")
+            .iter()
+            .any(|account| account.matches_factory_default_password(username, password))
+    }
+
+    pub fn update_password(&self, account_id: &str, password: impl Into<String>) -> bool {
+        let mut accounts = self.accounts.lock().expect("mutex poisoned");
+        let Some(account) = accounts.iter_mut().find(|account| account.id == account_id) else {
+            return false;
+        };
+        account.password = password.into();
+        true
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Account {
+    id: String,
+    username: String,
+    password: String,
+    factory_default_password: String,
+    role_id: String,
+}
+
+impl Account {
+    pub fn administrator(
+        id: impl Into<String>,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
+        let password = password.into();
+        Self {
+            id: id.into(),
+            username: username.into(),
+            password: password.clone(),
+            factory_default_password: password,
+            role_id: "Administrator".into(),
+        }
+    }
+
+    fn matches(&self, username: &str, password: &str) -> bool {
+        self.username == username && self.password == password
+    }
+
+    fn matches_factory_default_password(&self, username: &str, password: &str) -> bool {
+        self.matches(username, password) && self.password == self.factory_default_password
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        json!({
+            "UserName": self.username,
+            "RoleId": self.role_id,
+            "AccountTypes": ["Redfish"]
+        })
+        .patch(account_resource(&self.id))
+    }
+}
+
 pub async fn get_root() -> Response {
     let service_attrs = json!({
         "AccountLockoutCounterResetAfter": 0,
@@ -84,36 +180,51 @@ pub fn account_resource(id: impl Display) -> redfish::Resource<'static> {
     }
 }
 
-pub async fn get_accounts() -> Response {
-    // This is Dell-specific behavior of Account handling. Fixed slots...
-    let members = (1..16)
-        .map(|v| json!({"@odata.id": format!("{}/{v}", ACCOUNTS_COLLECTION_RESOURCE.odata_id)}))
+pub async fn get_accounts(State(state): State<BmcState>) -> Response {
+    let members = state
+        .account_service_state
+        .accounts()
+        .iter()
+        .map(|account| account_resource(&account.id).entity_ref())
         .collect::<Vec<_>>();
     ACCOUNTS_COLLECTION_RESOURCE
         .with_members(&members)
         .into_ok_response()
 }
 
-pub async fn create_account(Path(_account_id): Path<String>) -> Response {
+pub async fn create_account() -> Response {
     json!({}).into_ok_response()
 }
 
-pub async fn patch_account(Path(_account_id): Path<String>) -> Response {
-    http::ok_no_content()
+pub async fn patch_account(
+    State(state): State<BmcState>,
+    Path(account_id): Path<String>,
+    Json(patch_account): Json<serde_json::Value>,
+) -> Response {
+    let Some(password) = patch_account
+        .get("Password")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return json!("Password must be a string").into_response(StatusCode::BAD_REQUEST);
+    };
+
+    if state
+        .account_service_state
+        .update_password(&account_id, password)
+    {
+        http::ok_no_content()
+    } else {
+        http::not_found()
+    }
 }
 
-pub async fn get_account(Path(account_id): Path<String>) -> Response {
-    // This is Dell behavior must be fixed for other platform.
-    let (username, role_id) = if account_id == "2" {
-        ("root", "Administrator")
-    } else {
-        ("", "")
-    };
-    json!({
-        "UserName": username,
-        "RoleId": role_id,
-        "AccountTypes": ["Redfish"]
-    })
-    .patch(account_resource(account_id))
-    .into_ok_response()
+pub async fn get_account(
+    State(state): State<BmcState>,
+    Path(account_id): Path<String>,
+) -> Response {
+    state
+        .account_service_state
+        .find(&account_id)
+        .map(|account| account.to_json().into_ok_response())
+        .unwrap_or_else(http::not_found)
 }

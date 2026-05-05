@@ -1,8 +1,6 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,14 +25,22 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_ib_fabric::IbFabricMonitor;
+use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
+use carbide_ib_fabric::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
 use carbide_ipmi::IPMITool;
+use carbide_nvlink_manager::NvlPartitionMonitor;
+use carbide_nvlink_manager::config::NvLinkConfig;
+use carbide_nvlink_manager::nvlink::NmxmClientPool;
+use carbide_nvlink_manager::nvlink::test_support::NmxmSimClient;
 use carbide_redfish::libredfish::test_support::RedfishSim;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
-use carbide_site_explorer::{BmcEndpointExplorer, SiteExplorer};
+use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
@@ -74,7 +80,7 @@ use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportEntry, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
+    HealthReportEntry, InsertMachineHealthReportRequest, RemoveMachineHealthReportRequest,
     VpcVirtualizationType,
 };
 use rpc_instance::RpcInstance;
@@ -86,30 +92,23 @@ use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
-use utils::test_support::test_meter::TestMeter;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, ComputeAllocationEnforcement, DpaConfig,
     DpaInterfaceStateControllerConfig, DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig,
-    IBFabricConfig, IbFabricDefinition, IbPartitionStateControllerConfig, ListenMode,
-    MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
-    MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
+    IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
+    MachineValidationConfig, MeasuredBootMetricsCollectorConfig, MqttAuthConfig,
+    NetworkSecurityGroupConfig, NetworkSegmentStateControllerConfig, PowerManagerOptions,
     PowerShelfStateControllerConfig, RackStateControllerConfig, SpdmConfig,
     SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
     VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::dpf::DpfOperations;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
-use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
-use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
-use crate::nvl_partition_monitor::NvlPartitionMonitor;
-use crate::nvlink::NmxmClientPool;
-use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::test_support::RmsSim;
 use crate::scout_stream;
 use crate::state_controller::common_services::CommonStateHandlerServices;
@@ -408,7 +407,9 @@ impl TestEnv {
             ManagedHostState::HostInit { machine_state } => {
                 let mc = match machine_state {
                     model::machine::MachineState::Init => machine_state,
-                    model::machine::MachineState::WaitingForPlatformConfiguration => machine_state,
+                    model::machine::MachineState::WaitingForPlatformConfiguration { .. } => {
+                        machine_state
+                    }
                     model::machine::MachineState::PollingBiosSetup => machine_state,
                     model::machine::MachineState::SetBootOrder { .. } => machine_state,
                     model::machine::MachineState::UefiSetup { .. } => machine_state,
@@ -418,6 +419,7 @@ impl TestEnv {
                     model::machine::MachineState::Measuring { .. } => machine_state,
 
                     model::machine::MachineState::EnableIpmiOverLan => machine_state,
+                    model::machine::MachineState::WaitingForBiosJob { .. } => machine_state,
                 };
                 ManagedHostState::HostInit { machine_state: mc }
             }
@@ -1054,6 +1056,7 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
         default_tenant_routing_profile_type: "EXTERNAL".to_string(),
+        web_ui_sidebar_tools: vec![],
         bgp_leaf_session_password: None,
         rack_validation_config: crate::cfg::file::RackValidationConfig {
             enabled: true,
@@ -1238,6 +1241,8 @@ pub fn get_config() -> CarbideConfig {
         external_static_pxe_url: None,
         supernic_firmware_profiles: HashMap::default(),
         component_manager: None,
+        initial_objects_file: None,
+        config_ctx: None,
     }
 }
 
@@ -1422,7 +1427,7 @@ pub async fn create_test_env_with_overrides(
         config.ib_fabrics.clone(),
         test_meter.meter(),
         ib_fabric_manager.clone(),
-        config.clone(),
+        config.host_health,
         work_lock_manager_handle.clone(),
     );
 
@@ -1479,15 +1484,15 @@ pub async fn create_test_env_with_overrides(
     };
 
     let bmc_proxy = Arc::new(ArcSwap::new(None.into()));
-    let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
+    let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
         redfish_sim.clone(),
-        Arc::new(NvRedfishClientPool::new(bmc_proxy)),
+        carbide_redfish::nv_redfish::new_pool(bmc_proxy),
         carbide_ipmi::test_support(),
         composite_manager.clone(),
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         SiteExplorerExploreMode::NvRedfish,
-    ));
+    );
 
     let reachability_params = ReachabilityParams {
         dpu_wait_time: Duration::seconds(0),
@@ -1656,6 +1661,8 @@ pub async fn create_test_env_with_overrides(
 
     let fake_endpoint_explorer = MockEndpointExplorer {
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
+        power_states: Arc::new(std::sync::Mutex::new(Default::default())),
+        redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
         set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
 
@@ -2268,12 +2275,12 @@ pub async fn simulate_hardware_health_report(
     health_report: health_report::HealthReport,
 ) {
     use rpc::forge::forge_server::Forge;
-    use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest};
+    use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest};
     use tonic::Request;
 
     let _ = env
         .api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             machine_id: Some(*host_machine_id),
             health_report_entry: Some(HealthReportEntry {
                 report: Some(health_report.into()),
@@ -2284,34 +2291,34 @@ pub async fn simulate_hardware_health_report(
         .unwrap();
 }
 
-/// Send a health report override
-pub async fn send_health_report_override(
+/// Send a health report entry
+pub async fn send_health_report_entry(
     env: &TestEnv,
     machine_id: &MachineId,
-    r#override: (HealthReport, HealthReportApplyMode),
+    entry: (HealthReport, HealthReportApplyMode),
 ) {
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             health_report_entry: Some(HealthReportEntry {
-                report: Some(r#override.0.into()),
-                mode: r#override.1 as i32,
+                report: Some(entry.0.into()),
+                mode: entry.1 as i32,
             }),
         }))
         .await
         .unwrap();
 }
 
-/// Remove a health report override
-pub async fn remove_health_report_override(env: &TestEnv, machine_id: &MachineId, source: String) {
+/// Remove a health report entry
+pub async fn remove_health_report_entry(env: &TestEnv, machine_id: &MachineId, source: String) {
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env
         .api
-        .remove_health_report_override(Request::new(RemoveHealthReportOverrideRequest {
+        .remove_machine_health_report(Request::new(RemoveMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             source,
         }))
@@ -2494,6 +2501,7 @@ pub async fn machine_validation_completed(
 ) {
     let response = forge_agent_control(env, *machine_id).await;
     let uuid = &response.data.unwrap().pair[1].value;
+    let validation_id: MachineValidationId = uuid.parse().unwrap();
 
     let _response = env
         .api
@@ -2501,9 +2509,7 @@ pub async fn machine_validation_completed(
             rpc::forge::MachineValidationCompletedRequest {
                 machine_id: Some(*machine_id),
                 machine_validation_error,
-                validation_id: Some(rpc::Uuid {
-                    value: uuid.to_owned(),
-                }),
+                validation_id: Some(validation_id),
             },
         ))
         .await
@@ -2578,7 +2584,7 @@ pub async fn get_machine_validation_results(
     env: &TestEnv,
     machine_id: Option<&MachineId>,
     include_history: bool,
-    validation_id: Option<rpc::common::Uuid>,
+    validation_id: Option<MachineValidationId>,
 ) -> rpc::forge::MachineValidationResultList {
     env.api
         .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
@@ -2634,7 +2640,7 @@ pub async fn on_demand_machine_validation(
 
 pub async fn update_machine_validation_run(
     env: &TestEnv,
-    validation_id: Option<rpc::common::Uuid>,
+    validation_id: Option<MachineValidationId>,
     duration_to_complete: Option<rpc::Duration>,
     total: u32,
 ) -> rpc::forge::MachineValidationRunResponse {
