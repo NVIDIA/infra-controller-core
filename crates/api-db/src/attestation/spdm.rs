@@ -85,7 +85,7 @@ pub async fn cancel_machine_attestation(
         SET cancelled_at = $2
         WHERE machine_id = $1
         "#;
-    let _ = sqlx::query(query)
+    sqlx::query(query)
         .bind(machine_id)
         .bind(current_time)
         .execute(txn)
@@ -105,7 +105,7 @@ pub async fn set_completed_at(
         SET completed_at = $3
         WHERE machine_id = $1 and device_id = $2
         "#;
-    let _rows_affected = sqlx::query(query)
+    sqlx::query(query)
         .bind(machine_id)
         .bind(device_id)
         .bind(current_time)
