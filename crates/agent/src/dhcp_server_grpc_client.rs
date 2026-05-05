@@ -19,12 +19,12 @@ pub mod proto {
     tonic::include_proto!("dhcp_server_control");
 }
 
-use carbide_uuid::machine::MachineInterfaceId;
-use proto::dhcp_server_control_client::DhcpServerControlClient;
-use utils::models::dhcp::{
+use carbide_utils::models::dhcp::{
     DhcpConfig as ModelDhcpConfig, HostConfig as ModelHostConfig,
     InterfaceInfo as ModelInterfaceInfo,
 };
+use carbide_uuid::machine::MachineInterfaceId;
+use proto::dhcp_server_control_client::DhcpServerControlClient;
 
 // ── Model → proto conversions ─────────────────────────────────────────────────
 

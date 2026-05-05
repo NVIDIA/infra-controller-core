@@ -36,7 +36,6 @@ carbide-uuid = { path = "../uuid" }
 # [end-local-dependencies]
 
 axum = { workspace = true }
-axum-response-cache = { workspace = true }
 axum-client-ip = { workspace = true }
 axum-template = { workspace = true, features = ["tera"] }
 base64 = { workspace = true }
@@ -63,7 +62,6 @@ carbide-version = { path = "../version" }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-rand = { workspace = true }
 
 [lints]
 workspace = true

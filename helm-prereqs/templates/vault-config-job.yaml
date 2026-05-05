@@ -1,3 +1,4 @@
+{{- if .Values.vault.configJob.enabled }}
 ## =============================================================================
 ## Vault PKI Configuration Job (post-install hook)
 ## Uses only tools built into hashicorp/vault image (busybox wget/sed/grep).
@@ -87,7 +88,7 @@ spec:
         ## works reliably with self-signed certs.
         ## ---------------------------------------------------------------
         - name: wait-vault
-          image: hashicorp/vault:1.17
+          image: {{ .Values.vault.configJob.vaultImage | quote }}
           env:
             - name: VAULT_ADDR
               value: {{ .Values.vault.address | quote }}
@@ -119,7 +120,7 @@ spec:
         ## No apk install required.
         ## ---------------------------------------------------------------
         - name: configure
-          image: hashicorp/vault:1.17
+          image: {{ .Values.vault.configJob.vaultImage | quote }}
           env:
             - name: VAULT_ADDR
               value: {{ .Values.vault.address | quote }}
@@ -242,10 +243,10 @@ spec:
         ## Patch carbide-vault-approle-tokens with real AppRole credentials.
         ## Runs alongside configure; waits for /approle-creds/done sentinel
         ## written by the configure container before patching.
-        ## Uses bitnami/kubectl since the vault image has no kubectl.
+        ## Uses a kubectl image since the vault image has no kubectl.
         ## ---------------------------------------------------------------
         - name: patch-approle-secret
-          image: bitnami/kubectl:latest
+          image: {{ .Values.vault.configJob.kubectlImage | quote }}
           volumeMounts:
             - name: approle-creds
               mountPath: /approle-creds
@@ -262,3 +263,4 @@ spec:
                 --type=merge \
                 -p "{\"stringData\":{\"VAULT_ROLE_ID\":\"${_ROLE_ID}\",\"VAULT_SECRET_ID\":\"${_SECRET_ID}\"}}"
               echo "carbide-vault-approle-tokens patched with real AppRole credentials"
+{{- end }}

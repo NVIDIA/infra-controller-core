@@ -32,7 +32,8 @@ use crate::cfg::file::DpfServiceConfig;
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
-pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str = "https://nvcr.io/0837451325059433/carbide-dev";
+pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
+    "https://helm.ngc.nvidia.com/0837451325059433/carbide-dev";
 
 /// Default DOCA container image registry prefix.
 pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
@@ -68,6 +69,11 @@ pub const FMDS_SERVICE_HELM_NAME: &str = "carbide-fmds";
 pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
 pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
 pub const FMDS_SERVICE_MTU: i64 = 1500;
+
+/// OTel Collector Service Definitions
+pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
+pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "carbide-otelcol";
+pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
 pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
@@ -189,8 +195,17 @@ pub(crate) fn default_fmds_service() -> DpfServiceConfig {
     }
 }
 
-pub(crate) fn default_otel_service() -> DpfServiceConfig {
-    DpfServiceConfig::default()
+pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: OTEL_COLLECTOR_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: OTEL_COLLECTOR_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!(
+            "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{OTEL_COLLECTOR_SERVICE_IMAGE_NAME}"
+        ),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+    }
 }
 
 /// DOCA HBN service definition.
@@ -376,10 +391,10 @@ pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// OTel service definition.
-#[allow(dead_code)]
-pub fn otel_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
+            "exposedPorts": { "ports": { "prometheus": true } },
             "image": {
                 "repository": cfg.docker_repo_url,
                 "tag": cfg.docker_image_tag,
@@ -390,6 +405,7 @@ pub fn otel_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
                 }
             ]
         })),
+        service_daemon_set_annotations: Some(BTreeMap::new()),
         config_ports: Some(vec![ServiceConfigPort {
             name: "prometheus".to_string(),
             port: 9999,

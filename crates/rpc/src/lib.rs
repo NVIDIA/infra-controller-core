@@ -36,6 +36,7 @@ use serde::ser::Error;
 use serde_json::{Value, json};
 use tokio_stream::Stream;
 
+use crate::forge_agent_control_response::LegacyAction;
 pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
@@ -780,6 +781,97 @@ impl forge::ScoutStreamApiBoundMessage {
         Self {
             flow_uuid: Some(flow_uuid.into()),
             payload: Some(msg),
+        }
+    }
+}
+
+impl forge::ForgeAgentControlResponse {
+    pub fn noop() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::noop()),
+            legacy_action: LegacyAction::Noop as i32,
+            data: None,
+        }
+    }
+
+    pub fn reset() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::reset()),
+            legacy_action: LegacyAction::Reset as i32,
+            data: None,
+        }
+    }
+
+    pub fn retry() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::retry()),
+            legacy_action: LegacyAction::Retry as i32,
+            data: None,
+        }
+    }
+
+    pub fn measure() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::measure()),
+            legacy_action: LegacyAction::Measure as i32,
+            data: None,
+        }
+    }
+
+    pub fn discovery() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::discovery()),
+            legacy_action: LegacyAction::Discovery as i32,
+            data: None,
+        }
+    }
+
+    pub fn log_error() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::log_error()),
+            legacy_action: LegacyAction::Logerror as i32,
+            data: None,
+        }
+    }
+}
+
+impl forge_agent_control_response::Action {
+    pub fn noop() -> Self {
+        Self::Noop(forge_agent_control_response::Noop {})
+    }
+
+    pub fn reset() -> Self {
+        Self::Reset(forge_agent_control_response::Reset {})
+    }
+
+    pub fn retry() -> Self {
+        Self::Retry(forge_agent_control_response::Retry {})
+    }
+
+    pub fn measure() -> Self {
+        Self::Measure(forge_agent_control_response::Measure {})
+    }
+
+    pub fn discovery() -> Self {
+        Self::Discovery(forge_agent_control_response::Discovery {})
+    }
+
+    pub fn log_error() -> Self {
+        Self::LogError(forge_agent_control_response::LogError {})
+    }
+
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Noop(_) => "NOOP",
+            Self::Reset(_) => "RESET",
+            Self::Discovery(_) => "DISCOVERY",
+            Self::Rebuild(_) => "REBUILD",
+            Self::Retry(_) => "RETRY",
+            Self::Measure(_) => "MEASURE",
+            Self::LogError(_) => "LOGERROR",
+            Self::MachineValidation(_) => "MACHINE_VALIDATION",
+            Self::MlxAction(_) => "MLX_ACTION",
+            Self::FirmwareUpgrade(_) => "FIRMWARE_UPGRADE",
         }
     }
 }

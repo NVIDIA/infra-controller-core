@@ -18,11 +18,11 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use carbide_utils::models::arch::CpuArchitecture;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{CpuInfo, Gpu, InfinibandInterface, MemoryDevice};
 use rpc::{BlockDevice, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice, PciDeviceProperties};
 use serde_json::json;
-use utils::models::arch::CpuArchitecture;
 
 use crate::json::JsonExt;
 use crate::{BootOptionKind, Callbacks, hw, redfish};

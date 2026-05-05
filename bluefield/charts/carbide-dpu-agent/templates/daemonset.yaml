@@ -74,6 +74,9 @@ spec:
               mountPath: /host-mem-info
             - name: forge-certs
               mountPath: /opt/forge
+            - name: host-resolv-conf
+              mountPath: /host-resolv.conf
+              readOnly: true
       containers:
         - name: forge-dpu-agent
           securityContext:
@@ -158,6 +161,10 @@ spec:
         - name: proc-mem-info
           hostPath:
             path: /proc/meminfo
+        - name: host-resolv-conf
+          hostPath:
+            path: /etc/resolv.conf
+            type: File
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

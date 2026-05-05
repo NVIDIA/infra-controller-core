@@ -22,6 +22,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
+use carbide_utils::managed_host_display::to_time;
 use carbide_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use itertools::Itertools;
@@ -29,10 +30,9 @@ use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
-use utils::managed_host_display::to_time;
 
-use super::filters;
 use super::state_history::StateHistoryTable;
+use super::{Base, filters};
 use crate::api::Api;
 use crate::web::action_status::{self, ActionStatus};
 
@@ -450,8 +450,7 @@ struct MachineDetail<'a> {
     interfaces: Vec<MachineInterfaceDisplay>,
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
     inventory: Vec<MachineInventorySoftwareComponent>,
-    health: health_report::HealthReport,
-    health_sources: Vec<String>,
+    health_detail: super::HealthDetail,
     bmc_info: Option<rpc::forge::BmcInfo>,
     discovery_info_json: String,
     metadata_detail: super::MetadataDetail,
@@ -637,6 +636,21 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
         let quarantine_state = m
             .quarantine_state
             .and_then(|q| ManagedHostQuarantineState::try_from(q).ok());
+        let is_host = m.machine_type == forgerpc::MachineType::Host as i32;
+        let host_id = m
+            .associated_host_machine_id
+            .map_or_else(String::default, |id| id.to_string());
+        let health_reports_url = if is_host || host_id.is_empty() {
+            format!("/admin/machine/{machine_id}/health")
+        } else {
+            format!("/admin/machine/{host_id}/health")
+        };
+        let health_detail = super::HealthDetail::new(
+            health_reports_url,
+            "Go to ManagedHost health reports",
+            m.health,
+            m.health_sources,
+        );
 
         MachineDetail {
             id: machine_id.clone(),
@@ -654,7 +668,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                 metadata_version: m.version,
             },
             machine_type: get_machine_type(&machine_id),
-            is_host: m.machine_type == forgerpc::MachineType::Host as i32,
+            is_host,
             network_config: String::new(), // filled in later
             bmc_info: m.bmc_info,
             history,
@@ -676,17 +690,8 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             maintenance_reference: m.maintenance_reference.unwrap_or_default(),
             maintenance_start_time: to_time(m.maintenance_start_time, Some(&machine_id))
                 .unwrap_or_default(),
-            host_id: m
-                .associated_host_machine_id
-                .map_or_else(String::default, |id| id.to_string()),
-            health: m
-                .health
-                .map(|h| {
-                    health_report::HealthReport::try_from(h)
-                        .unwrap_or_else(health_report::HealthReport::malformed_report)
-                })
-                .unwrap_or_else(health_report::HealthReport::missing_report),
-            health_sources: m.health_sources.iter().map(|o| o.source.clone()).collect(),
+            host_id,
+            health_detail,
             discovery_info_json,
             capabilities_json: m
                 .capabilities
@@ -1015,3 +1020,6 @@ pub async fn set_dpu_first_boot_order(
 
     Redirect::to(&redirect_url).into_response()
 }
+
+impl super::Base for MachineShow {}
+impl<'a> super::Base for MachineDetail<'a> {}

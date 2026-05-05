@@ -199,3 +199,32 @@ async fn explore_bluefield3_succeeds_when_erot_returns_error() {
     );
     assert_eq!(report.chassis.len(), 3);
 }
+
+#[test]
+async fn explore_bluefield3_ignores_500_on_bios_fetch() {
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
+
+    h.state.injected_bugs.update_args(bmc_mock::bug::Args {
+        http_error: Some(bmc_mock::bug::HttpErrorRule {
+            method: Some("GET".into()),
+            path: "/redfish/v1/Systems/Bluefield/Bios".to_string(),
+            status: 500,
+            remaining: 100,
+        }),
+        ..Default::default()
+    });
+
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .expect("exploration must succeed when BlueField BIOS fetch returns 500");
+
+    assert_eq!(report.endpoint_type, EndpointType::Bmc);
+    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
+    assert!(
+        report
+            .machine_setup_status
+            .as_ref()
+            .is_some_and(|status| !status.diffs.is_empty() || status.is_done),
+        "machine setup status must be present and structurally valid"
+    );
+}

@@ -263,6 +263,7 @@ mod tests {
             )),
             callbacks,
             String::default(),
+            false,
         )
         .0
     }

@@ -21,6 +21,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_network::BaseMac;
+use carbide_utils::models::arch::CpuArchitecture;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
@@ -28,12 +29,9 @@ use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use libredfish::RedfishError;
-pub use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
-use utils::models::arch::CpuArchitecture;
 
 use super::DpuModel;
 use super::bmc_info::BmcInfo;
@@ -98,7 +96,7 @@ pub struct EndpointExplorationReport {
     /// Parsed versions, serializtion override means it will always be sorted
     #[serde(
         default,
-        serialize_with = "utils::ordered_map",
+        serialize_with = "carbide_utils::ordered_map",
         skip_serializing_if = "HashMap::is_empty"
     )]
     pub versions: HashMap<FirmwareComponentType, String>,
@@ -883,12 +881,12 @@ impl EndpointExplorationReport {
         let sys_vendor = if let Some(x) = vendor {
             x.to_string()
         } else {
-            utils::DEFAULT_DMI_SYSTEM_MANUFACTURER.to_string()
+            carbide_utils::DEFAULT_DMI_SYSTEM_MANUFACTURER.to_string()
         };
         let product_name = if let Some(x) = model {
             x.to_string()
         } else {
-            utils::DEFAULT_DMI_SYSTEM_MODEL.to_string()
+            carbide_utils::DEFAULT_DMI_SYSTEM_MODEL.to_string()
         };
         // For DPUs the discovered data contains enough information to
         // calculate a MachineId
@@ -897,8 +895,8 @@ impl EndpointExplorationReport {
         // the same values here.
         DmiData {
             product_serial: serial_number.trim().to_string(),
-            chassis_serial: utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string(),
-            board_serial: utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string(),
+            chassis_serial: carbide_utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string(),
+            board_serial: carbide_utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string(),
             bios_version: "".to_string(),
             sys_vendor,
             board_name: "BlueField SoC".to_string(),
@@ -1430,7 +1428,7 @@ lazy_static! {
 }
 
 impl FromStr for UefiDevicePath {
-    type Err = RedfishError;
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Uefi string is received as PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x0)/MAC(A088C208545C,0x1)
@@ -1439,12 +1437,9 @@ impl FromStr for UefiDevicePath {
 
         let st = s.rsplit_once("/MAC").map(|x| x.0).unwrap_or(s);
 
-        let captures =
-            UEFI_DEVICE_PATH_REGEX
-                .captures(st)
-                .ok_or_else(|| RedfishError::GenericError {
-                    error: format!("Could not match regex in PCI Device Path {s}."),
-                })?;
+        let captures = UEFI_DEVICE_PATH_REGEX
+            .captures(st)
+            .ok_or_else(|| format!("Could not match regex in PCI Device Path {s}."))?;
 
         let mut pci = vec![];
 
@@ -1456,10 +1451,10 @@ impl FromStr for UefiDevicePath {
             if let Some(capture) = capture {
                 for hex in capture.as_str().split(',') {
                     let hex_int = u32::from_str_radix(&hex.to_lowercase().replace("0x", ""), 16)
-                        .map_err(|e| RedfishError::GenericError {
-                            error: format!(
+                        .map_err(|e| {
+                            format!(
                                 "Can't convert pci address to int {hex}, error: {e} for pci: {s}"
-                            ),
+                            )
                         })?;
                     pci.push(hex_int.to_string());
                 }
@@ -1752,86 +1747,17 @@ impl From<Option<bool>> for MachineExpectation {
     }
 }
 
-impl From<libredfish::PowerState> for PowerState {
-    fn from(state: libredfish::PowerState) -> Self {
-        match state {
-            libredfish::PowerState::Off => PowerState::Off,
-            libredfish::PowerState::On => PowerState::On,
-            libredfish::PowerState::PoweringOff => PowerState::PoweringOff,
-            libredfish::PowerState::PoweringOn => PowerState::PoweringOn,
-            libredfish::PowerState::Paused => PowerState::Paused,
-            libredfish::PowerState::Reset => PowerState::PoweringOn,
-            libredfish::PowerState::Unknown => PowerState::Unknown,
-        }
-    }
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum NicMode {
+    #[serde(rename = "DpuMode", alias = "Dpu")]
+    Dpu,
+    #[serde(rename = "NicMode", alias = "Nic")]
+    Nic,
 }
 
-impl From<libredfish::PCIeDevice> for PCIeDevice {
-    fn from(device: libredfish::PCIeDevice) -> Self {
-        PCIeDevice {
-            description: device.description,
-            firmware_version: device.firmware_version,
-            id: device.id,
-            manufacturer: device.manufacturer,
-            name: device.name,
-            part_number: device.part_number,
-            serial_number: device.serial_number,
-            status: device.status.map(|s| s.into()),
-            gpu_vendor: device.gpu_vendor,
-        }
-    }
-}
-impl From<PCIeDevice> for libredfish::PCIeDevice {
-    fn from(device: PCIeDevice) -> Self {
-        libredfish::PCIeDevice {
-            description: device.description,
-            firmware_version: device.firmware_version,
-            id: device.id,
-            manufacturer: device.manufacturer,
-            name: device.name,
-            part_number: device.part_number,
-            serial_number: device.serial_number,
-            status: device.status.map(|s| s.into()),
-            gpu_vendor: device.gpu_vendor,
-            odata: libredfish::OData {
-                odata_id: "odata_id".to_owned(),
-                odata_type: "odata_type".to_owned(),
-                odata_etag: None,
-                odata_context: None,
-            },
-            pcie_functions: None,
-            slot: None,
-        }
-    }
-}
-
-impl From<SystemStatus> for libredfish::model::SystemStatus {
-    fn from(status: SystemStatus) -> Self {
-        libredfish::model::SystemStatus {
-            health: status.health,
-            health_rollup: status.health_rollup,
-            state: Some(status.state),
-        }
-    }
-}
-impl From<libredfish::model::SystemStatus> for SystemStatus {
-    fn from(status: libredfish::model::SystemStatus) -> Self {
-        SystemStatus {
-            health: status.health,
-            health_rollup: status.health_rollup,
-            state: status.state.unwrap_or("".to_string()),
-        }
-    }
-}
-
-impl From<libredfish::model::BootOption> for BootOption {
-    fn from(boot_option: libredfish::model::BootOption) -> Self {
-        BootOption {
-            display_name: boot_option.display_name,
-            id: boot_option.id,
-            boot_option_enabled: boot_option.boot_option_enabled,
-            uefi_device_path: boot_option.uefi_device_path,
-        }
+impl Display for NicMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
 

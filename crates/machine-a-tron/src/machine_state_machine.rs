@@ -45,8 +45,7 @@ use crate::dhcp_wrapper::{
 use crate::machine_fsm::{Action as FsmAction, DhcpType, Event, MachineFsm, Timer};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
-    PxeError, PxeResponse, forge_agent_control, get_fac_action, get_validation_id,
-    send_pxe_boot_request,
+    PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
 use crate::{PersistedDpuMachine, PersistedHostMachine, dhcp_wrapper};
 
@@ -690,24 +689,23 @@ impl MachineStateMachine {
         else {
             return Err(MachineStateError::MachineNotFound(machine_id));
         };
-        let action = get_fac_action(&control_response);
         tracing::trace!(
             "get action took {}ms; action={:?}",
             start.elapsed().as_millis(),
-            action,
+            control_response.action,
         );
 
-        match action {
-            Action::Discovery => self.send_discovery_complete(&machine_id).await?,
-            Action::MachineValidation if os_image == OsImage::Scout => {
+        match &control_response.action {
+            Some(Action::Discovery(_)) => self.send_discovery_complete(&machine_id).await?,
+            Some(Action::MachineValidation(_)) if os_image == OsImage::Scout => {
                 if let Some(validation_id) = get_validation_id(&control_response) {
                     self.app_context
                         .api_client()
-                        .machine_validation_complete(&machine_id, validation_id)
+                        .machine_validation_complete(&machine_id, &validation_id)
                         .await?;
                 }
             }
-            Action::Reset if os_image == OsImage::Scout => {
+            Some(Action::Reset(_)) if os_image == OsImage::Scout => {
                 tracing::debug!("Got Reset action in scout image, sending cleanup_complete");
                 // Wait a bit before confirming the cleanup in order to mimic real
                 // cleanup and give the tests a higher chance to observe teh cleanup state
@@ -717,10 +715,12 @@ impl MachineStateMachine {
                     .cleanup_complete(&machine_id)
                     .await?;
             }
-            Action::Noop => {}
+            Some(Action::Noop(_)) => {}
             _ => {
                 tracing::warn!(
-                    "Unknown action from forge_agent_control: {action:?} for OS image {os_image}"
+                    "Unknown action from forge_agent_control: {:?} for OS image {}",
+                    control_response.action,
+                    os_image,
                 );
             }
         }

@@ -28,7 +28,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 50;
@@ -282,3 +282,5 @@ async fn fetch_network_status(
 
     Ok((pages, result))
 }
+
+impl super::Base for NetworkStatus {}

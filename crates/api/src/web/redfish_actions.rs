@@ -28,7 +28,7 @@ use rpc::forge::RedfishAction;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
-use super::Oauth2Layer;
+use super::{Base, Oauth2Layer};
 use crate::api::Api;
 use crate::auth::AuthContext;
 use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
@@ -208,9 +208,9 @@ pub mod filters {
     use std::fmt::Write;
 
     use askama_escape::Escaper;
+    use carbide_utils::managed_host_display::to_time;
     use itertools::Itertools;
     use rpc::forge::OptionalRedfishActionResult;
-    use utils::managed_host_display::to_time;
 
     pub fn date_fmt(value: &rpc::Timestamp) -> ::askama::Result<String> {
         Ok(to_time::<String>(Some(*value), None).unwrap_or_default())
@@ -270,3 +270,5 @@ pub mod filters {
             .collect::<Result<Vec<_>, _>>()
     }
 }
+
+impl super::Base for RedfishBrowser {}

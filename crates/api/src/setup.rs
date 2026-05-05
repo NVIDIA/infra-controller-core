@@ -15,13 +15,16 @@
  * limitations under the License.
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use carbide_firmware::FirmwareDownloader;
+use carbide_ib_fabric::IbFabricMonitor;
+use carbide_ib_fabric::ib::{self, IBFabricManager};
 use carbide_ipmi::IPMITool;
 use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
@@ -29,6 +32,7 @@ use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_site_explorer::SiteExplorer;
+use carbide_utils::HostPortPair;
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
@@ -43,7 +47,7 @@ use model::attestation::spdm::VerifierImpl;
 use model::expected_machine::ExpectedMachine;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::HostHealthConfig;
-use model::resource_pool::{self};
+use model::resource_pool::{self, ResourcePoolDef};
 use model::route_server::RouteServerSourceType;
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
@@ -54,17 +58,14 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_log::AsLog as _;
-use utils::HostPortPair;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
-use crate::cfg::file::{CarbideConfig, ListenMode};
+use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode};
 use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::handlers::machine_validation::apply_config_on_startup;
-use crate::ib::{self, IBFabricManager};
-use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
@@ -96,19 +97,141 @@ use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::{attestation, db_init, ethernet_virtualization, listener};
 
+/// Parse an `InitialObjectsConfig` file (the file pointed at by
+pub fn parse_initial_objects_config(path: &Path) -> eyre::Result<InitialObjectsConfig> {
+    Figment::new()
+        .merge(Toml::file(path))
+        .extract()
+        .wrap_err_with(|| format!("while parsing InitialObjectsConfig at {}", path.display()))
+}
+
+/// Return a list of all configuration files that were merged to create the
+/// effective configuration, for logging purposes. This is used in error messages
+/// when there is a problem with the configuration, to help the operator
+/// understand which files to look at to fix the problem.
+fn all_configuration_files(carbide_config: &CarbideConfig) -> Vec<&Path> {
+    carbide_config
+        .config_ctx
+        .as_ref()
+        .into_iter()
+        .flat_map(|f| f.metadata())
+        .filter_map(|m| m.source.as_ref()?.file_path())
+        .collect::<Vec<&Path>>()
+}
+
+/// Given a figment and the name of a resource pool, return a human-readable
+/// string describing where the resource pool definition came from
+/// (for logging purposes). This is used to provide more helpful log messages
+/// when there are conflicting resource pool definitions.
+fn pool_source(figment: Option<&Figment>, name: &str) -> String {
+    figment
+        .and_then(|f| f.find_metadata(&format!("pools.{name}")))
+        .and_then(|m| m.source.as_ref())
+        .map(|source| source.to_string())
+        .unwrap_or_else(|| "carbide-api config".to_string())
+}
+
+/// Determines the authoritative set of resource pool definitions to reconcile
+/// against the database at startup, merging `InitialObjectsConfig.pools`
+/// with the legacy `CarbideConfig.pools` source.
+/// #[allow(clippy::result_large_err)] is used instead of Box
+/// because this function is called once on startup of carbide-api and never again
+#[allow(clippy::result_large_err)]
+fn resolve_initial_pools(
+    carbide_config: &CarbideConfig,
+    initial_objects: Option<&InitialObjectsConfig>,
+) -> Result<HashMap<String, ResourcePoolDef>, DefineResourcePoolError> {
+    let from_initial_objects = initial_objects.and_then(|io| io.pools.as_ref());
+    let from_carbide_config = carbide_config.pools.as_ref();
+
+    match (from_initial_objects, from_carbide_config) {
+        // No pools are defined anywhere
+        (None, None) => Err(DefineResourcePoolError::InvalidArgument(format!(
+            "No resource pools are defined in loaded configuration files: {:?}",
+            all_configuration_files(carbide_config)
+        ))),
+        // Pools are defined in InitialObjectsConfig.pools
+        (Some(io), None) => Ok(io.clone()),
+        // Pools are defined in CarbideConfig.pools
+        (None, Some(cc)) => {
+            for name in cc.keys() {
+                let source = pool_source(carbide_config.config_ctx.as_ref(), name);
+                tracing::warn!(
+                    pool = %name,
+                    source = %source,
+                    "Resource pool `{name} is defined in {source}. Defining Resource Pools \
+                    in {source}` is deprecated move the definitions into `initial_objects_file`. ")
+            }
+            Ok(cc.clone())
+        }
+        // Pools are defined in both CarbideConfig.pools and InitialObjects.pools
+        (Some(io), Some(cc)) => {
+            let mut merged = io.clone();
+            let mut conflicts: Vec<String> = vec![];
+            let mut legacy_names: Vec<String> = vec![];
+
+            for (name, legacy_pool_def) in cc {
+                match merged.get(name) {
+                    // `ResourcePoolDef`'s exist in both CarbideConfig.pools and InitialObjectsConfig.pools but are not the same `ResourcePoolDef`
+                    // This is a conflict and must be resolved by the operator
+                    Some(new_def) if new_def != legacy_pool_def => conflicts.push(name.clone()),
+                    // `ResourcePoolDef`'s exist in both CarbideConfig.pools and InitialObjectsConfig.pools and have identical
+                    // `ResourcePoolDef`.  `legacy_names` is the name of the pools defined in CarbideConfig.pools
+                    Some(_) => legacy_names.push(name.clone()),
+                    None => {
+                        // `ResourcePoolDef` only exists in `CarbideConfig.pools`. We still return the ResourcePoolDef,
+                        // but we also want to alert operator that defining pools in `CarbideConfig.pool` is deprecated.
+                        legacy_names.push(name.clone());
+                        merged.insert(name.clone(), legacy_pool_def.clone());
+                    }
+                }
+            }
+
+            if !conflicts.is_empty() {
+                let conflict_details: Vec<String> = conflicts
+                    .iter()
+                    .map(|name| {
+                        format!(
+                            "`{name}` (in {})",
+                            pool_source(carbide_config.config_ctx.as_ref(), name)
+                        )
+                    })
+                    .collect();
+                return Err(DefineResourcePoolError::InvalidArgument(format!(
+                    "resource pools have conflicting definitions \
+                     {conflict_details:?}. Reconcile each pool by \
+                     removing it from one source.",
+                )));
+            }
+            for name in &legacy_names {
+                let source = pool_source(carbide_config.config_ctx.as_ref(), name);
+                tracing::warn!(
+                    pool = %name,
+                    source = %source,
+                    "Resource pool `{name}` is still defined in both {source}. \
+                     Move it into initial_objects_file to silence this warning.",
+                );
+            }
+            Ok(merged)
+        }
+    }
+}
+
 pub fn parse_carbide_config(
-    config_str: String,
-    site_config_str: Option<String>,
+    config_str: &Path,
+    site_config_str: Option<&Path>,
 ) -> eyre::Result<Arc<CarbideConfig>> {
-    let mut figment = Figment::new().merge(Toml::string(config_str.as_str()));
+    let mut figment = Figment::new().merge(Toml::file(config_str));
     if let Some(site_config_str) = site_config_str {
-        figment = figment.merge(Toml::string(site_config_str.as_str()));
+        figment = figment.merge(Toml::file(site_config_str));
     }
 
-    let mut config: CarbideConfig = figment
-        .merge(Env::prefixed("CARBIDE_API_"))
+    let merged_config = figment.merge(Env::prefixed("CARBIDE_API_"));
+    let mut config: CarbideConfig = merged_config
         .extract()
         .wrap_err("Failed to load configuration files")?;
+
+    config.config_ctx = Some(merged_config);
 
     for (label, _) in config
         .host_models
@@ -151,6 +274,13 @@ pub fn parse_carbide_config(
         }
     }
 
+    // Validate that admin-UI tool entries have unique names.
+    config.validate_web_ui_sidebar_tools()?;
+
+    // Publish the configured tool list to the web layer so the
+    // admin-UI sidebar and per-machine "Logs" deep link can read it.
+    crate::web::init_tools(config.web_ui_sidebar_tools.clone());
+
     // Validate that the firmware profile config keys match their inner
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
@@ -190,7 +320,7 @@ pub fn create_ipmi_tool(
         }
         Some("bmc-mock") => {
             tracing::info!("Using HTTP IPMI transport via bmc_proxy");
-            carbide_ipmi::bmc_mock(bmc_proxy)
+            carbide_ipmi::bmc_mock(bmc_proxy, credential_reader)
         }
         _ => {
             tracing::info!("Using lanplus IPMI transport (/usr/bin/ipmitool)");
@@ -229,6 +359,7 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
 pub async fn start_api(
     join_set: &mut JoinSet<()>,
     carbide_config: Arc<CarbideConfig>,
+    initial_objects: Option<InitialObjectsConfig>,
     meter: Meter,
     dynamic_settings: DynamicSettings,
     shared_redfish_pool: Arc<dyn RedfishClientPool>,
@@ -284,21 +415,18 @@ pub async fn start_api(
     // since the controllers rely on a fully-hydrated Api object, which relies on route_servers and
     // common_pools being populated. So if we're configured for listen_only, strictly read them from
     // the database (assuming another instance has populated them), otherwise, populate them now.
+    //
+    // Pool reconciliation specifically must happen before `create_common_pools` runs below, because
+    // that call queries `resource_pool` and bails if any mandatory pool is missing or empty.
     if carbide_config.listen_only {
         tracing::info!(
             "Not populating resource pools or route_servers in database, as listen_only=true"
         );
     } else {
+        // Determine the authoritative list of resource_pools to seed into the database
+        let resolved_pools = resolve_initial_pools(&carbide_config, initial_objects.as_ref())?;
         let mut txn = Transaction::begin(&db_pool).await?;
-        db::resource_pool::define_all_from(
-            &mut txn,
-            carbide_config.pools.as_ref().ok_or_else(|| {
-                DefineResourcePoolError::InvalidArgument(String::from(
-                    "resource pools are not defined in carbide config",
-                ))
-            })?,
-        )
-        .await?;
+        db::resource_pool::reconcile_pool_defs(&mut txn, &resolved_pools).await?;
 
         // We'll always update whatever route servers are in the config
         // to the database, and then leverage the enable_route_servers
@@ -408,63 +536,27 @@ pub async fn start_api(
         let provider = crate::dpf::CarbideBmcPasswordProvider::new(credential_manager.clone());
 
         let mandatory_services = carbide_config.dpf.services.clone();
-        let services = vec![crate::dpf_services::dts_service(&mandatory_services.dts)];
-        let v2_services = vec![
+        let dpf_mandatory_services = vec![
             crate::dpf_services::dts_service(&mandatory_services.dts),
             crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
             crate::dpf_services::dhcp_server_service(&mandatory_services.dhcp_server),
             crate::dpf_services::dpu_agent_service(&mandatory_services.dpu_agent),
             crate::dpf_services::fmds_service(&mandatory_services.fmds),
-            // crate::dpf_services::otel_service(&mandatory_services.otel),
+            crate::dpf_services::otelcol_service(&mandatory_services.otel),
         ];
-
-        let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
-            Some(crate::dpf::render_bfcfg(&carbide_config)?)
-        } else {
-            None
-        };
-
-        let bfb_url = if carbide_config.dpf.v2 && carbide_config.dpf.bfb_url.is_empty() {
-            // This should move to cfg/file as a default value once v2 is the only mode.
-            "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb".to_string()
-        } else if carbide_config.dpf.bfb_url.is_empty() {
-            crate::dpf::resolve_bfb_url().await?
-        } else {
-            carbide_config.dpf.bfb_url.clone()
-        };
 
         // This is just temparary code until we make v2 only option. (just 2 weeks)
         // Soon v2 flag will be removed and will become only mode for dpf handling.
         let init_config = carbide_dpf::InitDpfResourcesConfig {
-            bfb_url,
+            bfb_url: carbide_config.dpf.bfb_url.clone(),
             flavor_name: carbide_config.dpf.flavor_name.clone(),
-            deployment_name: if carbide_config.dpf.v2 {
-                // We can't keep name longer than 20 chars (DPF restriction)
-                "nico-deployment-v2".to_string()
-            } else {
-                carbide_config.dpf.deployment_name.clone()
-            },
-            services: if carbide_config.dpf.v2 {
-                v2_services
-            } else {
-                services
-            },
-            bfcfg_template: if carbide_config.dpf.v2 {
-                // We use default bf.cfg.
-                None
-            } else {
-                bfcfg_template
-            },
+            deployment_name: carbide_config.dpf.deployment_name.clone(),
+            services: dpf_mandatory_services,
         };
 
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
             .with_labeler(crate::dpf::CarbideDPFLabeler::new(
-                if carbide_config.dpf.v2 {
-                    // This will be removed and moved to config file when v1 code is deleted.
-                    "carbide.nvidia.com/controlled.node.v2".to_string()
-                } else {
-                    carbide_config.dpf.node_label_key.clone()
-                },
+                carbide_config.dpf.node_label_key.clone(),
             ))
             .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
             .with_join_set(join_set)
@@ -616,18 +708,6 @@ pub async fn initialize_and_start_controllers(
     {
         tracing::info!("Created initial domain {domain_name}");
     }
-
-    let mut txn = Transaction::begin(db_pool).await?;
-    db::resource_pool::define_all_from(
-        &mut txn,
-        carbide_config.pools.as_ref().ok_or_else(|| {
-            DefineResourcePoolError::InvalidArgument(String::from(
-                "resource pools are not defined in carbide config",
-            ))
-        })?,
-    )
-    .await?;
-    txn.commit().await?;
 
     const EXPECTED_MACHINE_FILE_PATH: &str = "/etc/forge/carbide-api/site/expected_machines.json";
     if let Ok(file_str) = tokio::fs::read_to_string(EXPECTED_MACHINE_FILE_PATH).await {
@@ -1025,7 +1105,7 @@ pub async fn initialize_and_start_controllers(
         },
         meter.clone(),
         ib_fabric_manager.clone(),
-        carbide_config.clone(),
+        carbide_config.host_health,
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;
@@ -1070,7 +1150,6 @@ pub async fn initialize_and_start_controllers(
         Some(upload_limiter),
         Some(api_service.credential_manager.clone()),
         work_lock_manager_handle.clone(),
-        bmc_explorer.clone(),
     )
     .start(join_set, cancel_token.clone())?;
 
@@ -1098,4 +1177,157 @@ pub async fn initialize_and_start_controllers(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use figment::Figment;
+    use figment::providers::{Format, Toml};
+    use model::resource_pool::ResourcePoolType;
+    use model::resource_pool::define::ResourcePoolDef;
+
+    use super::resolve_initial_pools;
+    use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
+
+    // Builds a `CarbideConfig` from the smallest valid TOML and overrides
+    // the `pools` field. `resolve_initial_pools` only reads `.pools`, so
+    // the rest of the config can be defaulted.
+    fn carbide_with_pools(pools: Option<HashMap<String, ResourcePoolDef>>) -> CarbideConfig {
+        let mut cfg: CarbideConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    database_url = "postgres://test"
+                    listen = "[::]:1081"
+                    asn = 1
+                "#,
+            ))
+            .extract()
+            .expect("minimal CarbideConfig parses");
+        cfg.pools = pools;
+        cfg
+    }
+
+    fn ipv4_pool(prefix: &str) -> ResourcePoolDef {
+        ResourcePoolDef {
+            ranges: Vec::new(),
+            prefix: Some(prefix.to_string()),
+            pool_type: ResourcePoolType::Ipv4,
+            delegate_prefix_len: None,
+        }
+    }
+
+    fn pool_map(entries: &[(&str, ResourcePoolDef)]) -> HashMap<String, ResourcePoolDef> {
+        entries
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect()
+    }
+
+    fn initial_objects(entries: &[(&str, ResourcePoolDef)]) -> InitialObjectsConfig {
+        InitialObjectsConfig {
+            pools: Some(pool_map(entries)),
+        }
+    }
+
+    // neither source declares pools — operator misconfiguration.
+    #[test]
+    fn no_sources_errors() {
+        let cfg = carbide_with_pools(None);
+        let err =
+            resolve_initial_pools(&cfg, None).expect_err("missing pools must surface as an error");
+        assert!(
+            err.to_string().to_lowercase().contains("no resource pools"),
+            "error message should name the missing input: {err}"
+        );
+    }
+
+    // only `InitialObjectsConfig.pools` declares pools
+    #[test]
+    fn initial_objects_only_succeeds() {
+        let cfg = carbide_with_pools(None);
+        let io = initial_objects(&[("lo-ip", ipv4_pool("10.0.0.0/24"))]);
+
+        let resolved =
+            resolve_initial_pools(&cfg, Some(&io)).expect("InitialObjectsConfig-only must succeed");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved.get("lo-ip"), Some(&ipv4_pool("10.0.0.0/24")));
+    }
+
+    // only legacy `CarbideConfig.pools` declares pools — the
+    // Returns the legacy map; emits a deprecation warning
+    #[test]
+    fn legacy_only_returns_legacy_pools() {
+        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
+
+        let resolved = resolve_initial_pools(&cfg, None).expect("legacy-only must succeed");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved.get("lo-ip"), Some(&ipv4_pool("10.0.0.0/24")));
+    }
+
+    // both sources declare pools but with disjoint names
+    // Resolver returns the union; emits a deprecation warning naming the still-legacy entries.
+    #[test]
+    fn disjoint_union_returns_all_pools() {
+        let cfg = carbide_with_pools(Some(pool_map(&[("legacy-only", ipv4_pool("10.0.1.0/24"))])));
+        let io = initial_objects(&[("new-only", ipv4_pool("10.0.2.0/24"))]);
+
+        let resolved = resolve_initial_pools(&cfg, Some(&io)).expect("disjoint union must succeed");
+
+        assert_eq!(resolved.len(), 2);
+        assert!(resolved.contains_key("legacy-only"));
+        assert!(resolved.contains_key("new-only"));
+    }
+
+    // both sources declare the same pool with identical defs —
+    // Resolver dedupes silently; the still-legacy entry is included in the deprecation warning.
+    #[test]
+    fn overlap_identical_succeeds() {
+        let pool = ipv4_pool("10.0.0.0/24");
+        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", pool.clone())])));
+        let io = initial_objects(&[("lo-ip", pool.clone())]);
+
+        let resolved = resolve_initial_pools(&cfg, Some(&io)).expect("identical defs must succeed");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved.get("lo-ip"), Some(&pool));
+    }
+
+    // both sources declare the same pool with different defs —
+    // Resolver must fail loudly so the bad state is fixed before reconcile runs.
+    #[test]
+    fn overlap_conflict_errors() {
+        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
+        let io = initial_objects(&[("lo-ip", ipv4_pool("10.0.0.0/16"))]);
+
+        let err = resolve_initial_pools(&cfg, Some(&io)).expect_err("conflicting defs must error");
+
+        assert!(
+            err.to_string().contains("lo-ip"),
+            "error message should name the conflicting pool: {err}"
+        );
+    }
+
+    // every overlap is a conflict — the resolver collects all
+    // bad names so the operator can fixe them
+    #[test]
+    fn collects_all_conflict_names() {
+        let cfg = carbide_with_pools(Some(pool_map(&[
+            ("alpha", ipv4_pool("10.0.0.0/24")),
+            ("beta", ipv4_pool("10.0.1.0/24")),
+        ])));
+        let io = initial_objects(&[
+            ("alpha", ipv4_pool("10.0.0.0/16")),
+            ("beta", ipv4_pool("10.0.1.0/16")),
+        ]);
+
+        let err = resolve_initial_pools(&cfg, Some(&io)).expect_err("any conflict must error");
+        let msg = err.to_string();
+
+        assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
+        assert!(msg.contains("beta"), "expected `beta` in {msg}");
+    }
 }

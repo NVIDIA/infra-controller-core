@@ -169,6 +169,10 @@ pub async fn find_ids(
         qb.push(" JOIN machine_interfaces mi ON mi.switch_id = s.id");
     }
 
+    if filter.nvos_mac.is_some() {
+        qb.push(" JOIN expected_switches es_nvos ON es_nvos.bmc_mac_address = s.bmc_mac_address");
+    }
+
     qb.push(" WHERE TRUE");
 
     if filter.rack_id.is_some() {
@@ -190,6 +194,12 @@ pub async fn find_ids(
     if let Some(mac) = filter.bmc_mac {
         qb.push(" AND mi.mac_address = ");
         qb.push_bind(mac);
+    }
+
+    if let Some(mac) = filter.nvos_mac {
+        qb.push(" AND ");
+        qb.push_bind(mac);
+        qb.push(" = ANY(es_nvos.nvos_mac_addresses)");
     }
 
     qb.build_query_as()
@@ -255,9 +265,20 @@ pub async fn set_switch_reprovisioning_requested(
     switch_id: SwitchId,
     initiator: &str,
 ) -> DatabaseResult<()> {
+    set_switch_reprovisioning_requested_with_firmware_continuation(txn, switch_id, initiator, true)
+        .await
+}
+
+pub async fn set_switch_reprovisioning_requested_with_firmware_continuation(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    initiator: &str,
+    continue_after_firmware_upgrade: bool,
+) -> DatabaseResult<()> {
     let req = SwitchReprovisionRequest {
         requested_at: Utc::now(),
         initiator: initiator.to_string(),
+        continue_after_firmware_upgrade,
     };
     let query =
         "UPDATE switches SET switch_reprovisioning_requested = $1 WHERE id = $2 RETURNING id";

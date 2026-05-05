@@ -18,23 +18,24 @@
 mod implementation;
 
 pub mod auth;
+pub mod conv;
 pub mod error;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
+use carbide_utils::HostPortPair;
 pub use error::RedfishClientCreationError;
 use forge_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use libredfish::Redfish;
 use libredfish::model::service_root::RedfishVendor;
 use model::machine::Machine;
 use sqlx::PgPool;
-use utils::HostPortPair;
 
 pub fn new_pool(
     credential_reader: Arc<dyn CredentialReader>,
@@ -70,6 +71,27 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     fn credential_reader(&self) -> &dyn CredentialReader;
 
     // MARK: - Default (helper) methods
+
+    async fn probe_redfish_endpoint(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> Result<(), RedfishClientCreationError> {
+        let client = self
+            .create_client(
+                &bmc_ip_address.ip().to_string(),
+                Some(bmc_ip_address.port()),
+                RedfishAuth::Anonymous,
+                Some(RedfishVendor::Unknown),
+            )
+            .await?;
+
+        client
+            .get_service_root()
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        Ok(())
+    }
 
     async fn create_client_from_machine(
         &self,

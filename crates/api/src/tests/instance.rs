@@ -23,6 +23,7 @@ use std::time::{Duration, SystemTime};
 use ::rpc::forge::forge_server::Forge;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcPrefixId;
 use chrono::Utc;
@@ -610,7 +611,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "Cleanup".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: true,
@@ -637,10 +638,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let response = mh.host().forge_agent_control().await;
     let uuid = &response.data.unwrap().pair[1].value;
+    let validation_id: MachineValidationId = uuid.parse().unwrap();
 
-    machine_validation_result.validation_id = Some(rpc::Uuid {
-        value: uuid.to_owned(),
-    });
+    machine_validation_result.validation_id = Some(validation_id);
     persist_machine_validation_result(&env, machine_validation_result.clone()).await;
 
     let mut txn = env.db_txn().await;

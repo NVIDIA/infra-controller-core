@@ -19,10 +19,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::db::work_lock_manager::WorkLockManagerHandle;
+use carbide_utils::periodic_timer::PeriodicTimer;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use utils::periodic_timer::PeriodicTimer;
 
 use crate::config::IterationConfig;
 use crate::controller::{ControllerIteration, ControllerIterationId, IterationError, db};

@@ -24,7 +24,7 @@ use axum::response::{Html, IntoResponse};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 use crate::web::machine;
 
@@ -143,3 +143,5 @@ pub async fn list_json(AxumState(state): AxumState<Arc<Api>>) -> impl IntoRespon
 
     (StatusCode::OK, Json(machines)).into_response()
 }
+
+impl super::Base for DpuVersions {}

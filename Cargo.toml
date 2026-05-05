@@ -26,7 +26,7 @@ authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.43.11" }
+libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.43.12" }
 librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.0.9.beta-rc2" }
 ansi-to-html = "0.2.2"
 
@@ -262,7 +262,7 @@ k8s-openapi = "0.27.0"
 tower-test = "0.4"
 
 [profile.release]
-debug = true            # Enable debuginfo
+debug = "line-tables-only"
 debug-assertions = true # Add some extra assurance during development
 overflow-checks = true  # Add some extra assurance during development
 

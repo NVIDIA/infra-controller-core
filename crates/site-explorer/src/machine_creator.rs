@@ -174,7 +174,7 @@ impl MachineCreator {
             let dpu_machine_id = *dpu_report.machine_id_if_valid_report()?;
             dpu_ids.push(dpu_machine_id);
 
-            if !self.create_dpu(&mut txn, dpu_report).await? {
+            let Some(dpu_machine) = self.create_dpu(&mut txn, dpu_report).await? else {
                 // Site explorer has already created a machine for this DPU previously.
                 //
                 // If the DPU's machine is not attached to its machine interface, do so here.
@@ -183,12 +183,19 @@ impl MachineCreator {
                     txn.commit().await?;
                 }
                 return Ok(false);
-            }
+            };
 
             let host_machine_id = self
                 .attach_dpu_to_host(&mut txn, &managed_host, dpu_report, machine_data)
                 .await?;
-            managed_host.machine_id = Some(host_machine_id)
+            managed_host.machine_id = Some(host_machine_id);
+
+            // Now that the host link exists in machine_interfaces, the
+            // machine group syncing in try_update_network_config keeps this
+            // DPU verison bump in sync with the host-level version (and any
+            // sibling DPUs already linked) network_config_version.
+            self.update_dpu_network_config(&mut txn, &dpu_machine)
+                .await?;
         }
 
         // Now since all DPUs are created, update host and DPUs state correctly.
@@ -407,24 +414,29 @@ impl MachineCreator {
     }
 
     // create_dpu does everything needed to create a DPU as part of a newly discovered managed host.
-    // If the DPU does not exist in the machines table, the function creates a new DPU machine and configures it appropriately. create_dpu returns true.
-    // If the DPU already exists in the machines table, this is a no-op. create_dpu returns false.
+    // If the DPU does not exist in the machines table, the function creates a new DPU machine and
+    // configures it appropriately, returning the new `Machine`.
+    // If the DPU already exists in the machines table, this is a no-op and returns `None`.
+    //
+    // The DPU's `network_config` is intentionally NOT written here -- the caller writes it after
+    // `attach_dpu_to_host` has wired the host link in `machine_interfaces`, so that
+    // `try_update_network_config`'s group sync observes both rows as siblings and keeps their
+    // versions equal.
     async fn create_dpu(
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
-    ) -> SiteExplorerResult<bool> {
+    ) -> SiteExplorerResult<Option<Machine>> {
         if let Some(dpu_machine) = self.create_dpu_machine(txn, explored_dpu).await? {
             self.configure_dpu_interface(txn, explored_dpu).await?;
-            self.update_dpu_network_config(txn, &dpu_machine).await?;
             let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
             let dpu_bmc_info = explored_dpu.bmc_info();
             let dpu_hw_info = explored_dpu.hardware_info()?;
             self.update_machine_topology(txn, dpu_machine_id, dpu_bmc_info, dpu_hw_info)
                 .await?;
-            return Ok(true);
+            return Ok(Some(dpu_machine));
         }
-        Ok(false)
+        Ok(None)
     }
 
     // 1) Create a machine for this host using the passed machine_id
@@ -646,7 +658,6 @@ impl MachineCreator {
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
         }
 
-        network_config.use_admin_network = Some(true);
         db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
             .await?;
 

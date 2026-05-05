@@ -42,10 +42,8 @@ carbide-health-report = { path = "../health-report" }
 carbide-rpc = { path = "../rpc" }
 carbide-uuid = { path = "../uuid" }
 carbide-tls = { path = "../tls" }
-carbide-version = { path = "../version" }
 
 [build-dependencies]
-carbide-version = { path = "../version" }
 
 [lints]
 workspace = true

@@ -47,3 +47,10 @@ Selector labels
 app.kubernetes.io/name: {{ include "carbide-otelcol.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Prometheus scrape port (must match DPUServiceConfiguration configPorts in NICo dpf_services).
+*/}}
+{{- define "carbide-otelcol.prometheusPort" -}}
+{{- default 9999 .Values.prometheusPort -}}
+{{- end -}}

@@ -53,7 +53,6 @@ pub mod spdm {
 
     use config_version::ConfigVersion;
     use itertools::Itertools;
-    use libredfish::model::component_integrity::{CaCertificate, ComponentIntegrity, Evidence};
     use nras::{NrasError, NrasVerifierClient, ProcessedAttestationOutcome, RawAttestationOutcome};
     use serde::{Deserialize, Serialize};
     use sqlx::Row;
@@ -342,6 +341,33 @@ pub mod spdm {
         pub firmware_version: Option<String>,
     }
 
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct CaCertificate {
+        pub certificate_string: String,
+        pub certificate_type: String,
+        pub certificate_usage_types: Vec<String>,
+        pub id: String,
+        pub name: String,
+        #[serde(rename = "SPDM")]
+        pub spdm: SlotInfo,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Evidence {
+        pub hashing_algorithm: String,
+        pub signed_measurements: String,
+        pub signing_algorithm: String,
+        pub version: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct SlotInfo {
+        pub slot_id: u16,
+    }
+
     impl<'r> sqlx::FromRow<'r, PgRow> for SpdmMachineAttestationHistory {
         fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
             let snapshot: sqlx::types::Json<SpdmMachineStateSnapshot> =
@@ -476,38 +502,6 @@ pub mod spdm {
                 update_machine_version: false,
                 update_device_version: false,
             }
-        }
-    }
-
-    pub fn from_component_integrity(
-        integrity: ComponentIntegrity,
-        machine_id: MachineId,
-    ) -> SpdmMachineDeviceAttestation {
-        let ca_certificate_link = integrity
-            .spdm
-            .map(|x| x.identity_authentication)
-            .map(|x| x.component_certificate)
-            .map(|x| x.odata_id);
-
-        let evidence_target =
-            if let Some(Some(data)) = integrity.actions.map(|x| x.get_signed_measurements) {
-                Some(data.target)
-            } else {
-                None
-            };
-
-        SpdmMachineDeviceAttestation {
-            machine_id,
-            device_id: integrity.id,
-            nonce: uuid::Uuid::new_v4(),
-            state: AttestationDeviceState::FetchData(FetchDataDeviceStates::FetchMetadata),
-            state_version: ConfigVersion::initial(),
-            state_outcome: None,
-            metadata: None,
-            ca_certificate_link,
-            ca_certificate: None,
-            evidence_target,
-            evidence: None,
         }
     }
 

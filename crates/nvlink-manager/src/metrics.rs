@@ -20,7 +20,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::time::Duration;
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use serde::Serialize;

@@ -23,6 +23,7 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_uuid::machine_validation::MachineValidationId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -171,18 +172,19 @@ fn parse_results_show_with_machine() {
 // results show parses with validation ID.
 #[test]
 fn parse_results_show_with_validation_id() {
+    let validation_id = MachineValidationId::new();
     let cmd = Cmd::try_parse_from([
         "machine-validation",
         "results",
         "show",
         "--validation-id",
-        "val-123",
+        validation_id.to_string().as_str(),
     ])
     .expect("should parse results show with validation-id");
 
     match cmd {
         Cmd::Results(results::Args::Show(args)) => {
-            assert_eq!(args.validation_id, Some("val-123".to_string()));
+            assert_eq!(args.validation_id, Some(validation_id));
         }
         _ => panic!("expected Results Show variant"),
     }
