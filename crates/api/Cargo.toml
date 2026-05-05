@@ -60,6 +60,7 @@ carbide-ssh = { path = "../ssh" }
 carbide-tls = { path = "../tls" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
+carbide-metrics-utils = { path = "../metrics-utils" }
 carbide-libmlx = { path = "../libmlx" }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
