@@ -2,7 +2,7 @@
 
 This page lists the software dependencies that must be deployed before installing NICo, along with validated versions and configuration requirements.
 
-A reference installation and configuration of all these components is described in the [Quick Start Guide](../quick-start.md) (automated via `setup.sh`) and the [Reference Installation](../installation-options/reference-install.md) (manual phase-by-phase).
+A reference installation and configuration of all these components is described in the [Quick Start Guide](../quick-start.md) (automated via `setup.sh`) and the [Reference Installation](../installation-options/reference-install.md), which is a manual step-by-step guide.
 
 ## Kubernetes and Node Runtime
 
@@ -33,7 +33,7 @@ A reference installation and configuration of all these components is described 
 ESO syncs secrets from Vault into Kubernetes Secret objects.
 
 **Configuration required:**
-- A SecretStore or ClusterSecretStore pointing at Vault
+- A SecretStore or ClusterSecretStore pointing to Vault.
 - ExternalSecret objects for each NICo namespace:
   - `forge-roots-eso`: target secret `forge-roots` with keys `site-root`, `forge-root`
   - DB credentials ExternalSecrets per namespace (e.g. `clouddb-db-eso : forge.forge-pg-cluster.credentials`)
@@ -46,18 +46,18 @@ ESO syncs secrets from Vault into Kubernetes Secret objects.
 | cert-manager (controller/webhook/CA-injector) | v1.11.1 |
 | Approver-policy | v0.6.3 |
 
-cert-manager issues and rotates the TLS certificates NICo services use for mTLS/gRPC communication.
+<Note>The cert-manager component issues and rotates the TLS certificates that NICo services use for mTLS/gRPC communication.</Note>
 
-**ClusterIssuers required:** `self-issuer`, `site-issuer`, `vault-issuer`, `vault-forge-issuer`
+**ClusterIssuers required**: `self-issuer`, `site-issuer`, `vault-issuer`, `vault-forge-issuer`
 
 **If you already have cert-manager:**
-- Ensure version is v1.11.1 or later
-- Your ClusterIssuer objects must be able to issue cluster-internal certs (service DNS SANs) and any externally-facing FQDNs
-- Approver flows must allow Certificate resources for NICo namespaces
+- Ensure cert-manager is version v1.11.1 or later.
+- Your ClusterIssuer objects must be able to issue cluster-internal certs (service DNS SANs) and any externally-facing FQDNs.
+- Approver flows must allow Certificate resources for NICo namespaces.
 
 **If deploying the reference version:**
-- Install cert-manager v1.11.1 and approver-policy v0.6.3
-- Create ClusterIssuers matching your PKI
+- Install cert-manager version v1.11.1 and approver-policy version v0.6.3.
+- Create ClusterIssuers matching your PKI.
 - Typical SANs include internal service names (e.g. `carbide-api.<ns>.svc.cluster.local`, `carbide-api.forge`) and optional external FQDNs
 
 ## State and Identity
@@ -114,12 +114,12 @@ Vault provides a PKI engine for certificate issuance and a KV secrets engine for
 
 **If deploying the reference version:**
 - Stand up Vault 1.14.0 with TLS (server cert for `vault.vault.svc`)
-- Configure environment variables:
+- Configure the following environment variables:
   - `VAULT_ADDR` (cluster-internal URL, e.g. `https://vault.vault.svc:8200` or `http://vault.vault.svc:8200` if testing)
   - `VAULT_PKI_MOUNT_LOCATION`
   - `VAULT_KV_MOUNT_LOCATION`
   - `VAULT_PKI_ROLE_NAME=forge-cluster`
-- Injector (optional) may be enabled for sidecar-based secret injection
+- Injector (optional) may be enabled for sidecar-based secret injection.
 
 Vault is consumed by carbide-api for PKI and secrets (env `VAULT_*`) and by credsmgr (cloud-cert-manager) for CA material exposed to the site bootstrap flow.
 
@@ -143,7 +143,7 @@ Temporal is the workflow orchestration engine used by NICo REST for multi-step o
 **If you already have Temporal:**
 - Ensure the frontend gRPC endpoint is reachable from NICo workloads
 - Present proper mTLS/CA if TLS is required
-- Register namespaces:
+- Register the following namespaces:
 
 ```bash
 tctl --ns cloud namespace register
@@ -152,8 +152,8 @@ tctl --ns <SITE_UUID> namespace register   # once you know the site UUID
 ```
 
 **If deploying the reference version:**
-- Deploy Temporal and expose port `:7233`
-- Register the same namespaces as above
+- Deploy Temporal and expose port `:7233`.
+- Register the same namespaces as above.
 
 ## Monitoring and Telemetry (Optional)
 
@@ -182,4 +182,4 @@ These prerequisites should be installed in the following order:
 4. **NICo REST components**: Deploy cloud-api, cloud-workflow (cloud-worker & site-worker), and cloud-cert-manager (credsmgr). Seed DB and register Temporal namespaces (`cloud`, `site`, then site UUID). Create OTP and bootstrap secrets for elektra-site-agent; roll restart it.
 5. **Monitoring** (optional): Prometheus operator, Grafana, Loki, OTel, node exporter
 
-For the automated deployment path, see the [Quick Start Guide](../quick-start.md).
+To use the automated deployment path, refer to the [Quick Start Guide](../quick-start.md).

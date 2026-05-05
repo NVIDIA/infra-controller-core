@@ -6,15 +6,15 @@ Before starting, review the [Prerequisites](prerequisites/hardware.md) for hardw
 
 ## Step 1 — Build NICo Containers
 
-Build all NICo container images from source on Ubuntu 24.04. This produces images for NCX Core, DPU BFB artifacts, and the admin CLI.
+Build all NICo container images from source on Ubuntu 24.04. This produces images for Infra Controller Core, DPU BFB artifacts, and the admin CLI.
 
-See [Building NICo Containers](../manuals/building_nico_containers.md) for full build instructions, including x86_64 and aarch64 cross-compilation steps.
+Refer to the [Building NICo Containers](../manuals/building_nico_containers.md) manual for full build instructions, including x86_64 and aarch64 cross-compilation steps.
 
 Push the built images to your container registry before proceeding.
 
 ## Step 2 — Prepare the Kubernetes Cluster
 
-NICo requires a Kubernetes cluster with at least 3 schedulable nodes (Ready, not tainted NoSchedule/NoExecute) for HA Vault and PostgreSQL. NICo does not provision the cluster itself — operators are expected to provision their own Kubernetes cluster meeting the requirements below using their preferred tooling (kubeadm, Kubespray, managed K8s, etc.).
+NICo requires a Kubernetes cluster with at least three schedulable nodes (Ready, not tainted NoSchedule/NoExecute) for HA Vault and PostgreSQL. NICo does not provision the cluster itself--operators are expected to provision their own Kubernetes cluster that meets the requirements below using their preferred tooling (kubeadm, Kubespray, managed K8s, etc.).
 
 **Validated baseline:**
 
@@ -27,13 +27,13 @@ NICo requires a Kubernetes cluster with at least 3 schedulable nodes (Ready, not
 | OS | Ubuntu 24.04.1 LTS |
 
 The cluster must have:
-- `net.bridge.bridge-nf-call-iptables=1` and `net.ipv4.ip_forward=1` on every node
-- DNS resolution working (`kubernetes.default.svc.cluster.local` resolves on every node)
-- Network connectivity to your container registry
+- `net.bridge.bridge-nf-call-iptables=1` and `net.ipv4.ip_forward=1` on every node.
+- DNS resolution working (`kubernetes.default.svc.cluster.local` resolves on every node).
+- Network connectivity to your container registry.
 
 ### Required tools (local machine)
 
-The following tools must be installed on the machine where you will run `setup.sh` — not on the Kubernetes cluster itself.
+The following tools must be installed on the machine that you will use to run `setup.sh`--not on the Kubernetes cluster itself.
 
 | Tool | Min version | Mac | Linux |
 |------|-------------|-----|-------|
@@ -44,16 +44,17 @@ The following tools must be installed on the machine where you will run `setup.s
 | `jq` | 1.6 | `brew install jq` | `apt install jq` / `yum install jq` |
 | `ssh-keygen` | any | built-in | built-in |
 
-> **helmfile requires the `helm-diff` plugin.** Install it once:
-> ```bash
-> helm plugin install https://github.com/databus23/helm-diff
-> ```
+The `helmfile` tool requires the `helm-diff` plugin. Install it as follows:
+
+```bash
+helm plugin install https://github.com/databus23/helm-diff
+```
 
 ## Step 3 — Configure the Site
 
 Everything in this step must be done **before** running `setup.sh`. Skipping any item will either cause setup to fail or result in a deployment with incorrect site configuration that is hard to fix after the fact.
 
-### 3a. Set required environment variables
+### 3a. Set Required Environment Variables
 
 ```bash
 export KUBECONFIG=/path/to/kubeconfig          # your cluster kubeconfig
@@ -69,15 +70,15 @@ Obtain an NGC API key at [ngc.nvidia.com](https://ngc.nvidia.com) → **API Keys
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `REGISTRY_PULL_SECRET` | **Yes** | Pull secret / API key for your image registry. Used to create the image pull secret for both NCX Core and NCX REST. |
-| `NCX_IMAGE_REGISTRY` | **Yes** | Base image registry for all NCX images (e.g. `my-registry.example.com/ncx`). Used for NCX Core (`<registry>/nvmetal-carbide`) and NCX REST (`<registry>/carbide-rest-*`). |
-| `NCX_CORE_IMAGE_TAG` | **Yes** | NCX Core (ncx-infra-controller-core) image tag (e.g. `v2025.12.30`). |
-| `NCX_REST_IMAGE_TAG` | **Yes** | NCX REST (ncx-infra-controller-rest) image tag (e.g. `v1.0.4`). |
+| `REGISTRY_PULL_SECRET` | **Yes** | Pull secret and API key for your image registry. Used to create the image pull secret for both Infra Controller Core and Infra Controller REST. |
+| `NCX_IMAGE_REGISTRY` | **Yes** | Base image registry for all Infra Controller images (e.g. `my-registry.example.com/ncx`). Used for Infra Controller Core (`<registry>/nvmetal-carbide`) and Infra Controller REST (`<registry>/carbide-rest-*`). |
+| `NCX_CORE_IMAGE_TAG` | **Yes** | Infra Controller Core (infra-controller-core) image tag (e.g. `v2025.12.30`). |
+| `NCX_REST_IMAGE_TAG` | **Yes** | Infra Controller REST (infra-controller-rest) image tag (e.g. `v1.0.4`). |
 | `KUBECONFIG` | **Yes** | Path to your cluster kubeconfig. |
-| `NCX_REPO` | No | Path to a local clone of `ncx-infra-controller-rest`. Auto-detected from sibling directories; `preflight.sh` offers to clone it if not found. |
+| `NCX_REPO` | No | Path to a local clone of `infra-controller-rest`. Auto-detected from sibling directories; `preflight.sh` offers to clone it if not found. |
 | `NCX_SITE_UUID` | No | Stable UUID for this site. Defaults to `a1b2c3d4-e5f6-4000-8000-000000000001`. |
 
-### 3b. Set your site name
+### 3b. Set your Site Name
 
 Open `helm-prereqs/values.yaml` and change `siteName` from the placeholder to your actual site identifier:
 
@@ -87,7 +88,7 @@ siteName: "mysite"   # ← replace "TMP_SITE" with your site name (e.g. "example
 
 This value is injected into every postgres pod as the `TMP_SITE` environment variable. It must match the `sitename` in the NCX Core `siteConfig` block below.
 
-To tune PostgreSQL resources for your node capacity (the defaults are conservative for dev):
+To tune PostgreSQL resources for your node capacity (the defaults are conservative for dev), edit the following values:
 ```yaml
 postgresql:
   instances: 3
@@ -101,46 +102,47 @@ postgresql:
       memory: "1Gi"
 ```
 
-### 3c. Configure NCX Core site deployment
+### 3c. Configure NCX Core Site Deployment
 
-Open `helm-prereqs/values/ncx-core.yaml` and update:
+Open `helm-prereqs/values/ncx-core.yaml` and update the following values:
 
-**API hostname** — the external DNS name for the NCX Core API:
-```yaml
-carbide-api:
-  hostname: "carbide.mysite.example.com"   # ← must resolve to your cluster's ingress/LB
-```
+- **API hostname**: The external DNS name for the Infra Controller Core API:
 
-**`siteConfig` TOML block** — site identity, network topology, and resource pools. The fields most likely to differ per site:
+  ```yaml
+  carbide-api:
+    hostname: "carbide.mysite.example.com"   # ← must resolve to your cluster's ingress/LB
+  ```
 
-| Field | What to set |
-|-------|-------------|
-| `sitename` | Short identifier matching `siteName` in `values.yaml` |
-| `initial_domain_name` | Base DNS domain for the site (e.g. `mysite.example.com`) |
-| `dhcp_servers` | List of DHCP server IPs reachable from bare-metal hosts, or `[]` |
-| `site_fabric_prefixes` | CIDRs that are part of the site fabric (instance-to-instance traffic) |
-| `deny_prefixes` | CIDRs instances must not reach (OOB, control plane, management) |
-| `[pools.lo-ip]` ranges | Loopback IP range allocated to bare-metal hosts |
-| `[pools.vlan-id]` ranges | VLAN ID allocation range |
-| `[pools.vni]` ranges | VXLAN Network Identifier range |
-| `[networks.admin]` | Admin network CIDR, gateway, and MTU |
-| `[networks.<underlay>]` | Underlay data-plane network(s) — one block per L3 segment |
+- **`siteConfig` TOML block**: The site identity, network topology, and resource pools. These fields are most likely to differ per site:
+
+  | Field | What to set |
+  |-------|-------------|
+  | `sitename` | Short identifier matching `siteName` in `values.yaml` |
+  | `initial_domain_name` | Base DNS domain for the site (e.g. `mysite.example.com`) |
+  | `dhcp_servers` | List of DHCP server IPs reachable from bare-metal hosts, or `[]` |
+  | `site_fabric_prefixes` | CIDRs that are part of the site fabric (instance-to-instance traffic) |
+  | `deny_prefixes` | CIDRs instances must not reach (OOB, control plane, management) |
+  | `[pools.lo-ip]` ranges | Loopback IP range allocated to bare-metal hosts |
+  | `[pools.vlan-id]` ranges | VLAN ID allocation range |
+  | `[pools.vni]` ranges | VXLAN Network Identifier range |
+  | `[networks.admin]` | Admin network CIDR, gateway, and MTU |
+  | `[networks.<underlay>]` | Underlay data-plane network(s) — one block per L3 segment |
 
 All fields are documented with inline comments in the file.
 
-> **Required fields — do not leave empty:** `[networks.admin]` `prefix` and `gateway` must be set to real values. `carbide-api` crashes at startup with a parse error if these are empty strings. Similarly, `[pools.lo-ip]`, `[pools.vlan-id]`, and `[pools.vni]` ranges must be non-empty.
->
-> Fields that are safe to leave as empty arrays: `dhcp_servers`, `site_fabric_prefixes`, `deny_prefixes`. Do not delete any field from the TOML block — missing keys cause a different crash than empty ones.
+- **Required fields--do not leave empty:** `[networks.admin]`, `prefix`, and `gateway` must be set to real values. `carbide-api` crashes at startup with a parse error if these are empty strings. Similarly, `[pools.lo-ip]`, `[pools.vlan-id]`, and `[pools.vni]` ranges must be non-empty.
+ 
+  These fields are safe to leave as empty arrays: `dhcp_servers`, `site_fabric_prefixes`, `deny_prefixes`. Do not delete any field from the TOML block; missing keys cause a different crash than empty ones.
 
-### 3d. Get the NCX REST repository
+### 3d. Get the NCX REST Repository
 
-NCX REST (`ncx-infra-controller-rest`) is a separate repository that contains the Helm chart, kustomize bases, and helper scripts that `setup.sh` uses for Phase 7. It is **not** bundled inside this repo — you need a local clone before running setup.
+NCX REST (`infra-controller-rest`) is a separate repository that contains the Helm chart, kustomize bases, and helper scripts that `setup.sh` uses for [Phase 7](#setup-script-phases). It is *not* bundled inside this repo--you need a local clone before running setup.
 
-**Option A — Let `setup.sh` handle it automatically (recommended)**
+**Option 1: Let `setup.sh` handle it automatically (recommended)**
 
 `setup.sh` looks for the repo in these locations in order:
 
-1. `NCX_REPO` env var (explicit path — use this if you cloned it somewhere non-standard)
+1. `NCX_REPO` env var (explicit path--use this if you cloned it somewhere non-standard)
 2. Sibling directories next to this repo: `../carbide-rest`, `../ncx-infra-controller-rest`, `../ncx`
 3. If not found anywhere, `preflight.sh` offers to clone it for you before setup proceeds
 
@@ -152,21 +154,24 @@ your-workspace/
   ncx-infra-controller-rest/   ← NCX REST repo (clone here)
 ```
 
-**Option B — Clone it manually**
+**Option 2: Clone it manually**
+
+Use the following commands to clone the repository:
 
 ```bash
-git clone https://github.com/NVIDIA/ncx-infra-controller-rest.git
+git clone https://github.com/NVIDIA/infra-controller-rest.git
 # Then either place it as a sibling, or:
-export NCX_REPO=/path/to/ncx-infra-controller-rest
+export NCX_REPO=/path/to/infra-controller-rest
 ```
 
-### 3e. Configure NCX REST authentication
+### 3e. Configure NCX REST Authentication
 
-The default configuration uses the **dev Keycloak instance** that `setup.sh` deploys automatically. No changes are needed if you're running a dev/test environment.
+The default configuration uses the *dev Keycloak instance* that `setup.sh` deploys automatically. No changes are needed if you're running a dev/test environment.
 
-For **production** or if you are bringing your own IdP, edit `helm-prereqs/values/ncx-rest.yaml`:
+For *production*, or if you are using your own IdP, edit the `helm-prereqs/values/ncx-rest.yaml` file as follows:
 
-**Option A — Use your own Keycloak or OIDC-compatible IdP:**
+**Option 1: Use your own Keycloak or OIDC-compatible IdP**
+
 ```yaml
 carbide-rest-api:
   config:
@@ -178,7 +183,8 @@ carbide-rest-api:
       clientID: "carbide-api"
 ```
 
-**Option B — Disable Keycloak and use a generic OIDC issuer:**
+**Option 2: Disable Keycloak and use a generic OIDC issuer**
+
 ```yaml
 carbide-rest-api:
   config:
@@ -189,11 +195,11 @@ carbide-rest-api:
         audience: "carbide-api"
 ```
 
-When `keycloak.enabled: false`, the Keycloak deployment is still created by setup.sh but `carbide-rest-api` will not use it for token validation.
+When `keycloak.enabled: false`, the Keycloak deployment is still created by `setup.sh`, but `carbide-rest-api` will not use it for token validation.
 
-### 3f. Review site-agent config
+### 3f. Review site-agent Config
 
-The defaults in `helm-prereqs/values/ncx-site-agent.yaml` match the dev postgres instance deployed by setup.sh.
+The defaults in `helm-prereqs/values/ncx-site-agent.yaml` should match the dev postgres instance deployed by `setup.sh`.
 
 `DB_USER` and `DB_PASSWORD` are injected at runtime from the `db-creds` Kubernetes Secret (created by the `carbide-rest-common` sub-chart during Phase 7g). The Secret is referenced via `secrets.dbCreds` in the site-agent values.
 
@@ -210,11 +216,11 @@ envConfig:
 
 ### 3g. Configure MetalLB
 
-MetalLB provides LoadBalancer IPs for NCX Core services (carbide-api, DHCP, DNS, PXE, SSH console). Without it those services stay in `<pending>` state and the site is unreachable.
+MetalLB provides LoadBalancer IPs for NCX Core services (carbide-api, DHCP, DNS, PXE, SSH console). Without it, those services stay in `<pending>` state and the site is unreachable.
 
-> **NTP note:** NICo does not run a standalone NTP service. Instead, NTP server addresses are provided to managed hosts via DHCP option 42 — configured in the `carbide-dhcp` chart's Kea hook parameters (`carbide-ntpserver`). Point this to your enterprise NTP servers.
+> **NTP note:** NICo does not run a standalone NTP service. Instead, NTP server addresses are provided to managed hosts via DHCP option 42--configured in the `carbide-dhcp` chart Kea hook parameters (`carbide-ntpserver`). Point this to your enterprise NTP servers.
 
-Edit `helm-prereqs/values/metallb-config.yaml` — **the file ships pre-populated with worked example values**. Replace all values labeled `# EXAMPLE` with your site-specific configuration before running setup.sh.
+Edit `helm-prereqs/values/metallb-config.yaml`--this file ships pre-populated with example values. Replace all values labeled `# EXAMPLE` with your site-specific configuration before running `setup.sh`.
 
 | Field | Example value in file | What to put for your site |
 |-------|----------------------|--------------------------|
@@ -225,13 +231,13 @@ Edit `helm-prereqs/values/metallb-config.yaml` — **the file ships pre-populate
 | `BGPPeer.spec.peerAddress` | `10.180.248.80/82/84` | TOR switch IP reachable from each node |
 | `BGPPeer.spec.nodeSelectors` hostnames | `rno1-m04-d04-cpu-{1,2,3}` | Your actual node hostnames (`kubectl get nodes`) |
 
-Add or remove `BGPPeer` blocks to match your node count — one block per worker node.
+Add or remove `BGPPeer` blocks to match your node count, with one block per worker node.
 
-**If your environment does not use BGP** (local dev, flat network): comment out the `BGPPeer` and `BGPAdvertisement` sections and uncomment the `L2Advertisement` section at the bottom of the file.
+<Note>If your environment does not use BGP (local dev, flat network), comment out the `BGPPeer` and `BGPAdvertisement` sections and uncomment the `L2Advertisement` section at the bottom of the file.</Note>
 
-### 3h. Assign service VIPs
+### 3h. Assign Service VIPs
 
-Each NCX Core service that exposes a LoadBalancer needs a **specific, stable IP** from your MetalLB pool. Without explicit assignments, MetalLB picks IPs randomly on each install — which means your DHCP relay, DNS records, PXE config, and API hostname cannot be pre-configured and will break on redeploy.
+Each NCX Core service that exposes a LoadBalancer needs a **specific, stable IP** from your MetalLB pool. Without explicit assignments, MetalLB picks IPs randomly on each install, which means your DHCP relay, DNS records, PXE config, and API hostname cannot be pre-configured and will break on redeploy.
 
 Open `helm-prereqs/values/ncx-core.yaml` and update the VIP for each service:
 
@@ -246,15 +252,13 @@ Open `helm-prereqs/values/ncx-core.yaml` and update the VIP for each service:
 
 All IPs must be within the `IPAddressPool` ranges you defined in `values/metallb-config.yaml` and must be unique across services.
 
-> **carbide-dhcp note:** `externalService.enabled: true` must be set explicitly — it defaults to false in the chart.
->
-> **carbide-dns note:** uses `perPodAnnotations` (a list) rather than `annotations` because each replica gets its own VIP.
->
-> **carbide-api IP and DNS:** the carbide-api VIP must resolve in external DNS to the `hostname` you set in Step 3c.
+- **carbide-dhcp Note**: `externalService.enabled: true` must be set explicitly; it defaults to false in the chart.
+- **carbide-dns Note**: Use `perPodAnnotations` (a list) rather than `annotations` because each replica gets its own VIP.
+- **carbide-api IP and DNS Note**: The carbide-api VIP must resolve in external DNS to the `hostname` you set in Step 3c.
 
-### 3i. (Optional) Set a stable site UUID
+### 3i. (Optional) Set a Stable Site UUID
 
-If you want a specific site UUID instead of the default placeholder:
+If you want a specific site UUID instead of the default placeholder, set the `NCX_SITE_UUID` environment variable:
 
 ```bash
 export NCX_SITE_UUID=<your-uuid>   # must be a valid UUID v4
@@ -262,7 +266,7 @@ export NCX_SITE_UUID=<your-uuid>   # must be a valid UUID v4
 
 This UUID is used as the Temporal namespace for the site and as the `CLUSTER_ID` passed to the site-agent. Once set and deployed, changing it requires redeploying the site-agent and re-registering the site.
 
-### 3j. Validate configuration
+### 3j. Validate Configuration
 
 Run the pre-flight check to catch issues before deployment:
 
@@ -271,28 +275,31 @@ cd helm-prereqs/
 source ./preflight.sh
 ```
 
-`preflight.sh` is also run automatically at the start of every `setup.sh` invocation.
+The `preflight.sh` script is also run automatically at the start of every `setup.sh` invocation.
 
-**What it checks:**
+The `preflight.sh` script checks the following:
 
 | Category | Checks |
 |----------|--------|
-| Environment variables | Required vars are set; format checks: no `https://` prefix on registry, version tags start with `v`, UUID is valid if set, KUBECONFIG path exists if set |
+| Environment variables | Required vars are set; no `https://` prefix on registry; version tags start with `v`; UUID is valid if set; KUBECONFIG path exists if set |
 | Required tools | `helm`, `helmfile`, `kubectl`, `jq`, `ssh-keygen` are in PATH |
 | `values/metallb-config.yaml` | File exists; YAML is valid; at least one IPAddressPool defined; exactly one advertisement mode active (BGP or L2, not both); example placeholder hostnames not still present |
-| Cluster reachability | `kubectl` can reach the API server |
-| Node resources | At least 3 schedulable nodes |
+| Cluster reachability | `kubectl` can reach the API server. |
+| Node resources | At least three schedulable nodes |
 | Per-node: kernel parameters | `net.bridge.bridge-nf-call-iptables=1` and `net.ipv4.ip_forward=1` on every node |
-| Per-node: DNS | `kubernetes.default.svc.cluster.local` resolves on every node |
-| Registry connectivity | The registry host responds to an HTTPS probe |
+| Per-node: DNS | `kubernetes.default.svc.cluster.local` resolves on every node. |
+| Registry connectivity | The registry host responds to an HTTPS probe. |
 | NCX REST repo | Resolves the repo from `NCX_REPO` env var, sibling directories, or offers to clone from GitHub |
 
-> **Air-gapped clusters:** the per-node checks pull `busybox:1.36` by default. If your cluster cannot reach Docker Hub, set `PREFLIGHT_CHECK_IMAGE` to a local mirror:
-> ```bash
-> export PREFLIGHT_CHECK_IMAGE=my-registry.example.com/busybox:1.36
-> ```
+For air-gapped clusters, the per-node checks pull `busybox:1.36` by default. If your cluster cannot reach Docker Hub, set `PREFLIGHT_CHECK_IMAGE` to a local mirror:
 
-## Step 4 — Run setup.sh
+```bash
+export PREFLIGHT_CHECK_IMAGE=my-registry.example.com/busybox:1.36
+```
+
+## Step 4 — Run the Setup Script
+
+Run the `setup.sh` script as follows:
 
 ```bash
 cd helm-prereqs/
@@ -300,7 +307,9 @@ cd helm-prereqs/
 ./setup.sh -y     # non-interactive — deploys everything
 ```
 
-`setup.sh` installs all prerequisites and NICo components in sequential phases:
+The `setup.sh` script installs all prerequisites and NICo components in sequential phases:
+
+<Anchor id="setup-script-phases"/>
 
 | Phase | What it installs |
 |-------|-----------------|
@@ -315,7 +324,7 @@ cd helm-prereqs/
 | 6 | **NCX Core** (carbide helm release) |
 | 7a-7h | **NCX REST** full stack (postgres, Keycloak, Temporal, carbide-rest, site-agent) |
 
-**What gets deployed:**
+The following components are deployed:
 
 ```
 local-path-provisioner     (raw manifest - StorageClasses for Vault + PostgreSQL PVCs)
@@ -335,13 +344,13 @@ NCX REST                   (ncx-infra-controller-rest/helm/charts/carbide-rest)
   └── carbide-rest-site-agent (StatefulSet, bootstrap via site-manager)
 ```
 
-For manual phase-by-phase installation, re-running individual phases, or debugging failures, see the [Reference Installation](installation-options/reference-install.md) guide.
+For manual phase-by-phase installation, re-running individual phases, or debugging failures, refer to the [Reference Installation](../installation-options/reference-install.md) guide.
 
 ## Step 5 — Verify the Site Controller
 
 Before ingesting hosts, verify that all site controller components are healthy.
 
-### Check all pods are running
+### Check That All Pods Are Running
 
 ```bash
 kubectl get pods -n forge-system        # NCX Core
@@ -349,24 +358,24 @@ kubectl get pods -n carbide-rest        # NCX REST
 kubectl get pods -n temporal            # Temporal
 ```
 
-### Verify site-agent is connected
+### Verify That the Site-agent Is Connected
 
 ```bash
 kubectl logs -n carbide-rest -l app.kubernetes.io/name=carbide-rest-site-agent --prefix \
     | grep "CarbideClient"
 ```
 
-Look for "successfully connected to server".
+Look for the "successfully connected to server" message in the logs.
 
-### Verify LoadBalancer IPs
+### Verify That the LoadBalancer IPs Are Assigned
 
 ```bash
 kubectl get svc -n forge-system | grep LoadBalancer
 ```
 
-All LoadBalancer services should have an external IP from your `IPAddressPool` ranges. If any show `<pending>`, MetalLB has not assigned an IP — check BGP session status on your TOR switches and verify `values/metallb-config.yaml` has correct peer addresses.
+All LoadBalancer services should have an external IP from your `IPAddressPool` ranges. If any show `<pending>`, MetalLB has not assigned an IP. Check BGP session status on your TOR switches and verify `values/metallb-config.yaml` has correct peer addresses.
 
-### Verify DHCP and PXE are serving
+### Verify That DHCP and PXE Are Serving
 
 ```bash
 kubectl get svc carbide-dhcp carbide-pxe -n forge-system
@@ -374,11 +383,11 @@ kubectl get svc carbide-dhcp carbide-pxe -n forge-system
 
 Both external IPs should be within your internal VIP pool range.
 
-### Acquire a Keycloak access token
+### Acquire a Keycloak Access Token
 
 This section only applies if `keycloak.enabled: true` in `values/ncx-rest.yaml` (the default). If you disabled the bundled Keycloak and pointed `carbide-rest-api` at your own IdP, obtain tokens from that IdP instead.
 
-`setup.sh` deploys a dev Keycloak instance with a `carbide` realm pre-loaded with the `ncx-service` client (M2M / `client_credentials`).
+The `setup.sh` script deploys a dev Keycloak instance with a `carbide` realm pre-loaded with the `ncx-service` client (M2M / `client_credentials`).
 
 | Value | Setting |
 |-------|---------|
@@ -387,9 +396,9 @@ This section only applies if `keycloak.enabled: true` in `values/ncx-rest.yaml` 
 | `client_id` | `ncx-service` |
 | `client_secret` | `carbide-local-secret` |
 
-> **Fetch tokens from inside the cluster.** Do NOT port-forward Keycloak and request tokens against `localhost` — the resulting JWT's `iss` claim will not match what `carbide-rest-api` expects, and the token will be rejected.
+<Warning>Fetch tokens from inside the cluster only. *Do not* port-forward Keycloak and request tokens against `localhost`. The resulting JWT `iss` claim will not match what `carbide-rest-api` expects, and the token will be rejected.</Warning>
 
-Use the helper script (runs `curl` from a throw-away in-cluster pod):
+Use the helper script, which runs `curl` from a throw-away in-cluster pod:
 
 ```bash
 TOKEN=$(helm-prereqs/keycloak/get-token.sh)
@@ -404,37 +413,37 @@ kubectl run -i --rm --restart=Never --image=curlimages/curl curl-test \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### Set up carbidecli and create your first site
+### Set up carbidecli and Create your First Site
 
-NICo has two CLIs for different purposes:
+NICo has two CLIs that serve different purposes:
 
-| CLI | Talks to | Used for |
+| CLI | Communicates with | Used for |
 |---|---|---|
 | `carbidecli` | NICo REST (REST API) | Site management, org bootstrap, instance operations |
 | `carbide-admin-cli` | NICo Core (gRPC API) | Host ingestion, credentials, expected machines, TPM approval |
 
 `carbidecli` is built from the NCX REST repo. `carbide-admin-cli` is built from the NCX Core repo (`crates/admin-cli`).
 
-**1. Build and install the CLI:**
+#### 1. Build and Install the CLI
 
 ```bash
 cd "$NCX_REPO"
 make carbide-cli        # installs to $(go env GOPATH)/bin/carbidecli
 ```
 
-**2. Generate the default config file:**
+#### 2. Generate the Default Config File
 
 ```bash
 carbidecli init          # writes ~/.carbide/config.yaml
 ```
 
-**3. Port-forward `carbide-rest-api` to localhost:**
+#### 3. Port-forward `carbide-rest-api` to localhost
 
 ```bash
 kubectl port-forward -n carbide-rest svc/carbide-rest-api 8388:8388
 ```
 
-**4. Edit `~/.carbide/config.yaml`:**
+#### 4. Edit `~/.carbide/config.yaml`
 
 ```yaml
 api:
@@ -445,9 +454,9 @@ auth:
   token: <paste value of $TOKEN here>
 ```
 
-**5. Bootstrap the org (required one-time call):**
+#### 5. Bootstrap the Org (Required One-Time Call)
 
-This `GET` endpoint lazily initializes the org on first call. It:
+This `GET` endpoint lazily initializes the org on first call as follows:
 1. Checks if service account is enabled in the auth config
 2. Creates an **InfrastructureProvider** for the org if one doesn't exist
 3. Creates a **Tenant** with targeted instance creation enabled if one doesn't exist
@@ -464,14 +473,16 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
     | python3 -m json.tool
 ```
 
-**6. Create your first site:**
+#### 6. Create your First Site
 
 ```bash
 carbidecli site create --name mysite --description 'first site'
 carbidecli site list
 ```
 
-### Overall health check
+### Overall Health Check
+
+Run the following commands to verify that all components are healthy:
 
 ```bash
 kubectl get clusterissuer
@@ -488,21 +499,21 @@ kubectl get pods -n temporal
 kubectl get certificate core-grpc-client-site-agent-certs -n carbide-rest
 ```
 
-For troubleshooting common issues, see the [Reference Installation — Troubleshooting](installation-options/reference-install.md#troubleshooting) guide.
+For troubleshooting common issues, refer to the [Reference Installation — Troubleshooting](../installation-options/reference-install.md#troubleshooting) guide.
 
 ## Step 6 — Connect the OOB Network
 
 Configure the out-of-band network to relay BMC DHCP requests to the NICo DHCP service.
 
-1. **Configure DHCP relay** on your OOB switches to forward DHCP requests to the `carbide-dhcp` LoadBalancer VIP (assigned in Step 3h).
+1. *Configure the DHCP relay* on your OOB switches to forward DHCP requests to the `carbide-dhcp` LoadBalancer VIP (assigned in Step 3h).
 
-2. **Verify DHCP requests are reaching NICo** by checking the DHCP service logs:
+2. *Verify DHCP requests are reaching NICo* by checking the DHCP service logs:
 
-```bash
-kubectl logs -n forge-system -l app.kubernetes.io/name=carbide-dhcp --tail=20
-```
+   ```bash
+   kubectl logs -n forge-system -l app.kubernetes.io/name=carbide-dhcp --tail=20
+   ```
 
-For detailed OOB network requirements, see [BMC and Out-of-Band Setup](prerequisites/bmc-oob-setup.md).
+For detailed OOB network requirements, refer to the [BMC and Out-of-Band Setup](../prerequisites/bmc-oob-setup.md) guide.
 
 ## Step 7 — Discover Your First Host
 
@@ -516,13 +527,13 @@ cargo build --release -p carbide-admin-cli
 
 Alternatively, use the containerized version bundled in the `carbide-api` pod (available at `/opt/carbide/forge-admin-cli` inside the container).
 
-The `<api-url>` in the commands below is the NICo Core gRPC API endpoint — this is the `carbide-api` hostname configured in [Step 3c](#3c-configure-ncx-core-site-deployment), not the REST API used in Step 5. The format is typically `https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`. You can also retrieve it from the LoadBalancer VIP:
+The `<api-url>` in the commands below is the NICo Core gRPC API endpoint. This is the `carbide-api` hostname configured in [Step 3c](#3c-configure-ncx-core-site-deployment), not the REST API used in Step 5. The format is typically `https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`. You can also retrieve it from the LoadBalancer VIP:
 
 ```bash
 kubectl get svc carbide-api -n forge-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 ```
 
-### Set site-wide credentials
+### Set Site-wide Credentials
 
 Configure the credentials NICo will apply to BMCs and UEFI after ingestion:
 
@@ -532,7 +543,7 @@ carbide-admin-cli -c <api-url> host generate-host-uefi-password
 carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='<password>'
 ```
 
-### Upload the expected machines manifest
+### Upload the Expected Machines Manifest
 
 Prepare an `expected_machines.json` with the BMC MAC address, factory default credentials, and chassis serial number for each host:
 
@@ -549,7 +560,7 @@ Prepare an `expected_machines.json` with the BMC MAC address, factory default cr
 }
 ```
 
-Upload it:
+Upload the manifest:
 
 ```bash
 carbide-admin-cli -c <api-url> em replace-all --filename expected_machines.json
@@ -563,9 +574,9 @@ NICo uses Measured Boot with TPM v2.0 to enforce cryptographic identity:
 carbide-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
-NICo will now discover the host via Redfish, pair it with its DPU(s), provision the DPU, and bring the host to a ready state. For more details, see [Ingesting Hosts](../provisioning/ingesting-hosts.md).
+NICo will now discover the host via Redfish, pair it with its DPU(s), provision the DPU, and bring the host to a ready state. For more details, refer to the [Ingesting Hosts](../provisioning/ingesting-hosts.md) guide.
 
-### Monitor host discovery
+### Monitor Host Discovery
 
 ```bash
 kubectl logs -n forge-system -l app.kubernetes.io/name=carbide-api --tail=50 \
@@ -574,11 +585,11 @@ kubectl logs -n forge-system -l app.kubernetes.io/name=carbide-api --tail=50 \
 
 ## Teardown
 
-To remove everything:
+To perform teardown, run the following command:
 
 ```bash
 cd helm-prereqs/
 ./clean.sh
 ```
 
-This removes NCX REST, NCX Core, all helmfile releases, cluster-scoped resources, namespaces, and released PersistentVolumes. For details on what `clean.sh` does and the removal order, see the [Reference Installation](installation-options/reference-install.md) guide.
+This removes NCX REST, NCX Core, all helmfile releases, cluster-scoped resources, namespaces, and released PersistentVolumes. For details on what `clean.sh` does and the removal order, refer to the [Reference Installation](installation-options/reference-install.md) guide.
