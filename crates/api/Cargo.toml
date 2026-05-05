@@ -141,7 +141,7 @@ prost-types = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { default-features = false, features = [
-    "rustls-tls",
+    "rustls",
     "stream",
 ], workspace = true }
 rsa = { workspace = true }

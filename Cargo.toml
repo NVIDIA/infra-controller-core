@@ -188,7 +188,7 @@ rand_core = "0.10"
 ratatui = "0.29.0"
 rcgen = "0.13.1"
 regex = "1.11.2"
-reqwest = { default-features = false, version = "0.12.23" }
+reqwest = { default-features = false, version = "0.13.3" }
 resolv-conf = "0.7.0"
 ringbuf = "0.4.8"
 rsa = "0.9.9"
