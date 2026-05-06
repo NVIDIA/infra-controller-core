@@ -38,6 +38,7 @@ carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
 carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }
+carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
@@ -90,8 +91,8 @@ tokio = { workspace = true }
 carbide-version = { path = "../version" }
 
 [dev-dependencies]
-lazy_static = { workspace = true }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+lazy_static = { workspace = true }
 prost = { workspace = true }
 toml = { workspace = true }
 

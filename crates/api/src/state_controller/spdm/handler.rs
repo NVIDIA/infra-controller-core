@@ -19,6 +19,7 @@
 
 use std::sync::Arc;
 
+use carbide_redfish::libredfish::conv::IntoModel;
 use itertools::Itertools;
 use libredfish::Redfish;
 use libredfish::model::task::TaskState;
@@ -160,7 +161,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                     &mut txn,
                     &object_id.0,
                     device_id,
-                    &ca_certificate,
+                    &ca_certificate.into_model(),
                 )
                 .await?;
                 Ok(StateHandlerOutcome::transition(
@@ -229,7 +230,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                             &mut txn,
                             &object_id.0,
                             device_id,
-                            &evidence,
+                            &evidence.into_model(),
                         )
                         .await?;
                         Ok(

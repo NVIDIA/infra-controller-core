@@ -2914,7 +2914,10 @@ async fn handle_dpu_reprovision(
                     )));
                 }
 
-                if !managed_host_network_config_version_synced_and_dpu_healthy(dsnapshot) {
+                if !managed_host_network_config_version_synced_and_dpu_healthy(
+                    dsnapshot,
+                    state.host_snapshot.network_config.version,
+                ) {
                     tracing::warn!("Waiting for network to be ready for DPU {}", dsnapshot.id);
 
                     // we requested a DPU reboot in ReprovisionState::WaitingForNetworkInstall
@@ -3826,7 +3829,10 @@ impl DpuMachineStateHandler {
                 // is_network_ready is syncing over all DPUs.
                 // The code will move only when all DPUs returns network_ready signal.
                 for dsnapshot in &state.dpu_snapshots {
-                    if !managed_host_network_config_version_synced_and_dpu_healthy(dsnapshot) {
+                    if !managed_host_network_config_version_synced_and_dpu_healthy(
+                        dsnapshot,
+                        state.host_snapshot.network_config.version,
+                    ) {
                         let mut reboot_status = None;
                         // Only reboot the DPU which is targeted in this event loop.
                         if dsnapshot.id == dpu_snapshot.id {
@@ -4549,8 +4555,11 @@ impl HostMachineStateHandler {
     }
 }
 
-fn managed_host_network_config_version_synced_and_dpu_healthy(dpu_snapshot: &Machine) -> bool {
-    if !dpu_snapshot.managed_host_network_config_version_synced() {
+fn managed_host_network_config_version_synced_and_dpu_healthy(
+    dpu_snapshot: &Machine,
+    host_version: ConfigVersion,
+) -> bool {
+    if !dpu_snapshot.managed_host_network_config_version_synced(host_version) {
         return false;
     }
 

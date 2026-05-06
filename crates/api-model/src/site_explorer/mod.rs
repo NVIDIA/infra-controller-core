@@ -21,7 +21,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_network::BaseMac;
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};

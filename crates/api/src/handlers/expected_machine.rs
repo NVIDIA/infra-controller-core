@@ -110,30 +110,72 @@ pub(crate) async fn add(
         data: db_data,
     };
 
-    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
-
     let mut txn = api.txn_begin().await?;
 
-    // Pre-allocate BMC interface if bmc_ip_address is set.
-    if let Some(bmc_ip) = machine.data.bmc_ip_address {
-        preallocate_machine_interface(&mut txn, machine.bmc_mac_address, bmc_ip).await?;
-    }
-
-    // Pre-allocate machine interfaces for host NICs with fixed IPs.
-    for nic in &machine.data.host_nics {
-        if let Some(ref ip_str) = nic.fixed_ip {
-            let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
-                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
-            })?;
-            preallocate_machine_interface(&mut txn, nic.mac_address, ip).await?;
-        }
-    }
-
+    preallocate_interfaces_for(&mut txn, &machine).await?;
     db::expected_machine::create(&mut txn, machine).await?;
 
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+/// Validate the ExpectedMachine payload and pre-allocate `machine_interfaces`
+/// (and their addresses) for the BMC and any host NICs with a fixed-address
+/// via `fixed_ip`.
+///
+/// Shared between the `add` gRPC handler and `expected_machines.json`.
+pub(crate) async fn preallocate_interfaces_for(
+    txn: &mut sqlx::PgConnection,
+    machine: &ExpectedMachine,
+) -> Result<(), CarbideError> {
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+
+    if let Some(bmc_ip) = machine.data.bmc_ip_address {
+        preallocate_machine_interface(txn, machine.bmc_mac_address, bmc_ip).await?;
+    }
+
+    for nic in &machine.data.host_nics {
+        if let Some(ref ip_str) = nic.fixed_ip {
+            let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
+                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
+            })?;
+            preallocate_machine_interface(txn, nic.mac_address, ip).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Create missing expected_machines that aren't already in the database,
+/// calling `preallocate_interfaces_for` for each new entry. This is currently
+/// purely used by the expected_machines.json import path only, but lives
+/// here so it can re-leverage `preallocate_instances_for` and share the
+/// same allocation codepath as the API handler.
+pub(crate) async fn create_missing_from(
+    txn: &mut sqlx::PgConnection,
+    expected_machines: &[ExpectedMachine],
+) -> Result<(), CarbideError> {
+    let existing_macs: std::collections::HashSet<String> =
+        db::expected_machine::find_all(&mut *txn)
+            .await?
+            .into_iter()
+            .map(|m| m.bmc_mac_address.to_string())
+            .collect();
+
+    for expected_machine in expected_machines {
+        if existing_macs.contains(&expected_machine.bmc_mac_address.to_string()) {
+            tracing::debug!(
+                "Not overwriting expected-machine with mac_addr: {}",
+                expected_machine.bmc_mac_address
+            );
+            continue;
+        }
+        preallocate_interfaces_for(&mut *txn, expected_machine).await?;
+        db::expected_machine::create(&mut *txn, expected_machine.clone()).await?;
+    }
+
+    Ok(())
 }
 
 /// Deletes an expected machine by id or BMC MAC.

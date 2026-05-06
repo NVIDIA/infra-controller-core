@@ -174,6 +174,63 @@ async fn test_managed_host_network_config_group_sync(pool: sqlx::PgPool) {
     );
 }
 
+// Per-DPU network-config sync is rooted in the host-level
+// `network_config.version`, not the DPU's own row version.
+// carbide-api serves `host.version` to carbide-dpu-agent as
+// `managed_host_config_version`, and the agent echoes it back
+// as its observation; this just makes sure the host-level
+// verison is looked at, and the DPU-level version is ignored.
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_sync_host_version(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // Do a baseline check that the initial ingestion
+    // `network_configured` brought DPU observations up
+    // to host.version, meaning things shold be in sync.
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should be true after ingestion"
+    );
+
+    // Now, bump just the DPU row's `network_config_version` via
+    // a direct raw UPDATE (and bypassing `try_update_network_config`).
+    // The idea is this shouldn't matter, since we're looking at the
+    // host-level version.
+    let dpu_before = mh.dpu().db_machine(&mut txn).await;
+    let host_before = mh.host().db_machine(&mut txn).await;
+    let drifted_dpu_version = dpu_before.network_config.version.increment();
+    sqlx::query("UPDATE machines SET network_config_version = $1 WHERE id = $2")
+        .bind(drifted_dpu_version)
+        .bind(dpu_before.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let host_after = mh.host().db_machine(&mut txn).await;
+    let dpu_after = mh.dpu().db_machine(&mut txn).await;
+    assert_eq!(
+        host_after.network_config.version, host_before.network_config.version,
+        "raw DPU update should leave host.version untouched"
+    );
+    assert_ne!(
+        dpu_after.network_config.version, host_after.network_config.version,
+        "dpu.row.version is now ahead of host.version"
+    );
+
+    // The observation version should still equal the host.version,
+    // so things should still be in sync!
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should be true because observation == host.version, even though dpu.row.version is ahead"
+    );
+}
+
 // A freshly-created host defaults to admin (`use_admin_network` = true);
 // flipping the host-level `network_config.use_admin_network` to false
 // must be reflected by `ManagedHostStateSnapshot::use_admin_network()`.
@@ -568,10 +625,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
                 message: "test nvme failure".to_string(),
             },
         ),
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
 
     env.api
@@ -612,10 +666,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
                 message: "test nvme failure".to_string(),
             },
         ),
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
     env.api
         .cleanup_machine_completed(clean_failed_req)
@@ -643,11 +694,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     // Now the host cleans up successfully.
     let clean_succeeded_req = tonic::Request::new(rpc::MachineCleanupInfo {
         machine_id: mh.id.into(),
-        nvme: None,
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
     env.api
         .cleanup_machine_completed(clean_succeeded_req)
@@ -664,6 +711,54 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     assert!(matches!(
         host.current_state(),
         ManagedHostState::WaitingForCleanup { .. }
+    ));
+}
+
+#[crate::sqlx_test]
+async fn test_hdd_clean_failed_state_host(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+
+    let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
+        machine_id: mh.id.into(),
+        hdd: Some(
+            rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
+                result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
+                message: "test hdd failure".to_string(),
+            },
+        ),
+        ..Default::default()
+    });
+
+    env.api
+        .cleanup_machine_completed(clean_failed_req)
+        .await
+        .unwrap();
+
+    update_time_params(
+        &env.pool,
+        &host,
+        1,
+        Some(host.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
+    )
+    .await;
+    // let state machine check the failure condition.
+    env.run_machine_state_controller_iteration().await;
+
+    let host = mh.host().db_machine(&mut txn).await;
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: model::machine::FailureCause::NVMECleanFailed { .. },
+                ..
+            },
+            retry_count: 0,
+            ..
+        }
     ));
 }
 

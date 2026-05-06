@@ -95,10 +95,10 @@ async fn main() -> eyre::Result<()> {
         }
     };
 
-    let state = Arc::new(FmdsState::new(
-        options.forge_api.clone(),
-        forge_client_config,
-    ));
+    let state = Arc::new(
+        FmdsState::try_new(options.forge_api.clone(), forge_client_config)
+            .map_err(|e| eyre::eyre!("failed to initialize FMDS state: {e}"))?,
+    );
 
     // Start REST server for tenant metadata queries
     let rest_state = state.clone();

@@ -569,14 +569,12 @@ impl ManagedHostStateSnapshot {
     /// Returns true if the desired managedhost networking configuration had been synced
     /// to **all** DPUs.
     ///
-    /// Each DPU's check compares its own `network_config.version` against its
-    /// reported observation; per-DPU versions are kept equal to the host's via
-    /// its "machine group" (and `try_update_network_config`), so a change
-    /// anywhere in the machine group flips all per-DPU sync states to out of
-    /// sync until each agent has polled + re-sent an observation.
+    /// Each DPU's check compares the host-level `network_config.version`
+    /// against the version that DPU agent reported observing.
     pub fn managed_host_network_config_version_synced(&self) -> bool {
+        let host_version = self.host_snapshot.network_config.version;
         for dpu_snapshot in self.dpu_snapshots.iter() {
-            if !dpu_snapshot.managed_host_network_config_version_synced() {
+            if !dpu_snapshot.managed_host_network_config_version_synced(host_version) {
                 return false;
             }
         }
@@ -1076,10 +1074,11 @@ impl Machine {
             .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
     }
 
-    /// If this machine is a DPU, then this returns whether the desired ManagedHost
-    /// network configuration had been applied by forge-dpu-agent
-    pub fn managed_host_network_config_version_synced(&self) -> bool {
-        let dpu_expected_version = self.network_config.version;
+    /// If this machine is a DPU, returns whether the version of the
+    /// given ManagedHostNetworkConfig (which is a host-level versioned
+    /// config that is kept in sync across all DPUs on a host) has been
+    /// applied + reported back as same by the carbide-dpu-agent.
+    pub fn managed_host_network_config_version_synced(&self, host_version: ConfigVersion) -> bool {
         let dpu_observation = self.network_status_observation.as_ref();
 
         let dpu_observed_version: ConfigVersion = match dpu_observation {
@@ -1094,11 +1093,7 @@ impl Machine {
             },
         };
 
-        if dpu_expected_version != dpu_observed_version {
-            return false;
-        }
-
-        true
+        host_version == dpu_observed_version
     }
 
     pub fn instance_network_restrictions(&self) -> rpc::forge::InstanceNetworkRestrictions {

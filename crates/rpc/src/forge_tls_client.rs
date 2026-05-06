@@ -591,7 +591,10 @@ impl<'a> ForgeTlsClient<'a> {
                 let current_time = start
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards");
-                if current_time.as_secs() > cert_expiry.try_into().unwrap() {
+                if u64::try_from(cert_expiry)
+                    .ok()
+                    .is_none_or(|v| current_time.as_secs() > v)
+                {
                     tracing::error!(
                         "Client certificate is expired, perhaps you need to regenerate your cert?"
                     );

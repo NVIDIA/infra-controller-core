@@ -17,10 +17,9 @@
 
 use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
-use libredfish::model::component_integrity::{CaCertificate, Evidence};
 use model::attestation::spdm::{
-    SpdmAttestationState, SpdmDeviceAttestation, SpdmDeviceAttestationDetails,
-    SpdmMachineDeviceMetadata, SpdmObjectId,
+    CaCertificate, Evidence, SpdmAttestationState, SpdmDeviceAttestation,
+    SpdmDeviceAttestationDetails, SpdmMachineDeviceMetadata, SpdmObjectId,
 };
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use sqlx::{PgConnection, Row};
@@ -251,7 +250,7 @@ pub async fn get_attestation_status_for_machine_id(
             SpdmAttestationState::Cancelled => {
                 flags |= CANCELLELD_MASK;
             }
-            SpdmAttestationState::Failed { .. } => {
+            SpdmAttestationState::Failed(_) => {
                 flags |= FAILED_MASK;
             }
             _ => {
