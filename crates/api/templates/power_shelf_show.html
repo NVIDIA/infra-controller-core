@@ -35,7 +35,7 @@
                             <tr>
                                 <td>{{ shelf.id|power_shelf_id_link|safe }}</td>
                                 <td>{{ shelf.name }}</td>
-                                <td>{{ shelf.state }}</td>
+                                <td>{{ shelf.state_display|safe }}</td>
                                 <td>{{ shelf.capacity }}</td>
                                 <td>{{ shelf.voltage }}</td>
                                 <td>

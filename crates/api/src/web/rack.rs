@@ -26,13 +26,45 @@ use carbide_uuid::rack::RackId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
+use super::state_history::StateHistoryTable;
 use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "rack_show.html")]
 struct Racks {
-    racks: Vec<rpc::forge::Rack>,
+    racks: Vec<RackRecord>,
+}
+
+struct RackRecord {
+    id: String,
+    state_display: super::StateDisplay,
+    compute_trays_count: usize,
+    expected_compute_trays_count: usize,
+    power_shelves_count: usize,
+    expected_power_shelves_count: usize,
+    switches_count: usize,
+    expected_nvlink_switches_count: usize,
+}
+
+impl From<rpc::forge::Rack> for RackRecord {
+    fn from(rack: rpc::forge::Rack) -> Self {
+        let lifecycle = rack
+            .status
+            .as_ref()
+            .and_then(|status| status.lifecycle.as_ref());
+
+        Self {
+            id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
+            state_display: super::StateDisplay::from_lifecycle(lifecycle),
+            compute_trays_count: rack.compute_trays.len(),
+            expected_compute_trays_count: rack.expected_compute_trays.len(),
+            power_shelves_count: rack.power_shelves.len(),
+            expected_power_shelves_count: rack.expected_power_shelves.len(),
+            switches_count: rack.switches.len(),
+            expected_nvlink_switches_count: rack.expected_nvlink_switches.len(),
+        }
+    }
 }
 
 #[derive(Template)]
@@ -46,14 +78,7 @@ struct RackDetail {
     associated_switches: Vec<String>,
     associated_power_shelves: Vec<String>,
     metadata_detail: super::MetadataDetail,
-    history: Vec<RackStateHistoryRecord>,
-}
-
-#[derive(Debug)]
-struct RackStateHistoryRecord {
-    state: String,
-    version: String,
-    time: String,
+    history: StateHistoryTable,
 }
 
 /// Show all racks
@@ -66,7 +91,9 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let display = Racks { racks: racks.racks };
+    let display = Racks {
+        racks: racks.racks.into_iter().map(Into::into).collect(),
+    };
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -222,7 +249,20 @@ pub async fn detail(
             .unwrap_or_default(),
     );
 
-    let history = fetch_rack_state_history(&api, &rack_id).await;
+    let history = match super::state_history::fetch_rack_state_history_records(
+        &api,
+        rack_id.as_ref(),
+    )
+    .await
+    {
+        Ok((_rack_id, records)) => StateHistoryTable {
+            records: records.into_iter().map(Into::into).collect(),
+        },
+        Err((code, err)) => {
+            tracing::error!(%code, %err, %rack_id, "fetch_rack_state_history_records");
+            StateHistoryTable { records: vec![] }
+        }
+    };
 
     let display = RackDetail {
         id: rack_id.to_string(),
@@ -289,38 +329,6 @@ async fn fetch_power_shelf_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String
         .into_iter()
         .map(|id| id.to_string())
         .collect())
-}
-
-async fn fetch_rack_state_history(api: &Api, rack_id: &RackId) -> Vec<RackStateHistoryRecord> {
-    let request = tonic::Request::new(rpc::forge::RackStateHistoriesRequest {
-        rack_ids: vec![rack_id.clone()],
-    });
-
-    match api.find_rack_state_histories(request).await {
-        Ok(response) => {
-            let mut histories = response.into_inner().histories;
-            let mut records = histories
-                .remove(&rack_id.to_string())
-                .unwrap_or_default()
-                .records;
-            records.reverse();
-            records
-                .into_iter()
-                .map(|r| RackStateHistoryRecord {
-                    state: r.state,
-                    version: r.version,
-                    time: r
-                        .time
-                        .map(|t| t.to_string())
-                        .unwrap_or_else(|| "N/A".to_string()),
-                })
-                .collect()
-        }
-        Err(err) => {
-            tracing::error!(%err, "fetch_rack_state_history");
-            vec![]
-        }
-    }
 }
 
 impl super::Base for Racks {}
