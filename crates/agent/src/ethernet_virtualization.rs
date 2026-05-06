@@ -465,6 +465,11 @@ pub async fn update_nvue(
                         vni: rt.vni,
                     })
                     .collect(),
+                accepted_leaks_from_underlay: rp
+                    .accepted_leaks_from_underlay
+                    .iter()
+                    .map(|l| l.prefix.to_owned())
+                    .collect(),
             })
         },
         bgp_leaf_session_password: nc.bgp_leaf_session_password.clone(),
@@ -2575,6 +2580,13 @@ mod tests {
                 leak_default_route_from_underlay: include_network_host_route_and_default_leaking,
                 leak_tenant_host_routes_to_underlay: include_network_host_route_and_default_leaking,
                 tenant_leak_communities_accepted: include_network_host_route_and_default_leaking,
+                accepted_leaks_from_underlay: if include_network_host_route_and_default_leaking {
+                    vec![rpc::PrefixFilterPolicyEntry {
+                        prefix: "10.255.0.0/24".to_string(),
+                    }]
+                } else {
+                    vec![]
+                },
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,
@@ -2828,6 +2840,7 @@ mod tests {
                 tenant_leak_communities_accepted: false,
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
+                accepted_leaks_from_underlay: vec![],
                 route_target_imports: vec![nvue::RouteTargetConfig {
                     asn: 44444,
                     vni: 55555,
@@ -3062,6 +3075,7 @@ mod tests {
                 tenant_leak_communities_accepted: false,
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
+                accepted_leaks_from_underlay: vec![],
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,

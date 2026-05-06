@@ -674,6 +674,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
             tenant_leak_communities_accepted: p.tenant_leak_communities_accepted,
             leak_default_route_from_underlay: p.leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
+            accepted_leaks_from_underlay: p
+                .accepted_leaks_from_underlay
+                .iter()
+                .map(|l| rpc::PrefixFilterPolicyEntry {
+                    prefix: l.prefix.to_string(),
+                })
+                .collect(),
             route_target_imports: p
                 .route_target_imports
                 .iter()

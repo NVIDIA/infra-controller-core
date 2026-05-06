@@ -298,6 +298,7 @@ impl TestEnvOverrides {
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
                             tenant_leak_communities_accepted: false,
+                            accepted_leaks_from_underlay: vec![],
                         },
                     ),
                     (
@@ -310,6 +311,7 @@ impl TestEnvOverrides {
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
                             tenant_leak_communities_accepted: false,
+                            accepted_leaks_from_underlay: vec![],
                         },
                     ),
                 ]),
