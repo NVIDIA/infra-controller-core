@@ -45,6 +45,7 @@ chrono = { workspace = true }
 clap = { workspace = true }
 eyre = { workspace = true }
 efivar = { workspace = true }
+hex = { workspace = true }
 http = { workspace = true }
 lazy_static = { workspace = true }
 once_cell = { workspace = true }
