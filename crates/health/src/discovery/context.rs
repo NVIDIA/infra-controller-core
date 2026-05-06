@@ -19,13 +19,13 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use nv_redfish::bmc_http::HttpBmc;
 use nv_redfish::bmc_http::reqwest::{
     BmcError, Client as ReqwestClient, ClientParams as ReqwestClientParams,
 };
 use prometheus::{Histogram, HistogramOpts};
 
 use crate::HealthError;
+use crate::bmc::AuthRefreshingBmc;
 use crate::collectors::Collector;
 use crate::config::{
     Config, Configurable, FirmwareCollectorConfig as FirmwareCollectorOptions,
@@ -35,7 +35,7 @@ use crate::config::{
 use crate::limiter::RateLimiter;
 use crate::metrics::{MetricsManager, operation_duration_buckets_seconds};
 
-pub(crate) type BmcClient = HttpBmc<ReqwestClient>;
+pub(crate) type BmcClient = AuthRefreshingBmc;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(super) enum CollectorKind {

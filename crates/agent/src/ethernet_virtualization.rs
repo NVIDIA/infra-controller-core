@@ -870,13 +870,13 @@ async fn update_dhcp_via_grpc(
             )
         })?;
 
-    let dhcp_config = carbide_utils::models::dhcp::DhcpConfig::from_forge_dhcp_config(
+    let dhcp_config = carbide_rpc_utils::dhcp::DhcpConfig::from_forge_dhcp_config(
         pxe_ip_v4,
         ntpservers_v4,
         nameservers_v4,
         loopback_ip,
     )?;
-    let mut host_config = carbide_utils::models::dhcp::HostConfig::try_from(
+    let mut host_config = carbide_rpc_utils::dhcp::HostConfig::try_from(
         network_config.clone(),
         hbn_device_names.reps[0],
         hbn_device_names.virt_rep_begin,
@@ -1712,7 +1712,7 @@ mod tests {
 
     use ::rpc::{common as rpc_common, forge as rpc};
     use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
-    use carbide_utils::models::dhcp::{DhcpConfig, HostConfig};
+    use carbide_rpc_utils::dhcp::{DhcpConfig, HostConfig};
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
 

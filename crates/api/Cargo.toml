@@ -54,6 +54,7 @@ libnmxm = { path = "../libnmxm" }
 logfmt = { path = "../logfmt" }
 mqttea = { path = "../mqttea" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }
+carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-ssh = { path = "../ssh" }
 carbide-tls = { path = "../tls" }

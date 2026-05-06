@@ -28,6 +28,7 @@ use std::time::Instant;
 
 use carbide_firmware::FirmwareConfig;
 use carbide_network::sanitized_mac;
+use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
@@ -38,7 +39,6 @@ use forge_secrets::credentials::CredentialManager;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
@@ -49,8 +49,8 @@ use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, PowerState,
-    PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
+    ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
+    PowerState, PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -2031,7 +2031,7 @@ impl SiteExplorer {
         self.endpoint_explorer
             .redfish_get_power_state(bmc_target_addr, endpoint.iface)
             .await
-            .map(PowerState::from)
+            .map(IntoModel::into_model)
             .map_err(|err| SiteExplorerError::EndpointExplorationError {
                 action: "redfish_get_power_state",
                 err,
@@ -2324,7 +2324,7 @@ impl SiteExplorer {
                         .redfish_get_power_state(bmc_target_addr, interface)
                         .await
                         .ok()
-                        .map(PowerState::from),
+                        .map(IntoModel::into_model),
                     None => None,
                 },
             };

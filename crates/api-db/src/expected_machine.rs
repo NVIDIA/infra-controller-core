@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
@@ -441,32 +441,5 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
             id: target_id,
         });
     }
-    Ok(())
-}
-
-/// fn will insert rows that are not currently present in DB for each expected_machine arg in list,
-/// but will NOT overwrite existing rows matching by MAC addr.
-pub async fn create_missing_from(
-    txn: &mut PgConnection,
-    expected_machines: &[ExpectedMachine],
-) -> DatabaseResult<()> {
-    let existing_machines = find_all(&mut *txn).await?;
-    let existing_map: BTreeMap<String, ExpectedMachine> = existing_machines
-        .into_iter()
-        .map(|machine| (machine.bmc_mac_address.to_string(), machine))
-        .collect();
-
-    for expected_machine in expected_machines {
-        if existing_map.contains_key(&expected_machine.bmc_mac_address.to_string()) {
-            tracing::debug!(
-                "Not overwriting expected-machine with mac_addr: {}",
-                expected_machine.bmc_mac_address.to_string()
-            );
-            continue;
-        }
-
-        create(txn, expected_machine.clone()).await?;
-    }
-
     Ok(())
 }

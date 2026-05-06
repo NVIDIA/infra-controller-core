@@ -22,7 +22,7 @@ port = 1266
 mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
-rack_id = "RACK-1"
+rack_id = "RACK_1"
 
 [endpoint_sources.carbide_api]
 enabled = false

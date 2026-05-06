@@ -23,7 +23,6 @@ authors.workspace = true
 
 [dependencies]
 clap = { workspace = true }
-libredfish = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 
 [lints]

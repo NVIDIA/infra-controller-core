@@ -23,8 +23,8 @@ use std::path::Path;
 use std::process::Command;
 use std::str::Utf8Error;
 
+use ::carbide_utils::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use ::carbide_utils::cmd::CmdError;
-use ::carbide_utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use ::rpc::machine_discovery as rpc_discovery;
 use base64::prelude::*;
 use carbide_utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
@@ -850,7 +850,7 @@ fn enumerate_hardware_inner(
         nvme_devices: nvmes,
         dmi_data: Some(dmi),
         machine_type: arch.to_string(),
-        machine_arch: Some(arch.into()),
+        machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(arch)),
         tpm_ek_certificate,
         dpu_info: dpu_vpd,
         gpus,

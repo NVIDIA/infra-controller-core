@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, NvmeDevice};
 use serde_json::json;
 
@@ -305,7 +305,9 @@ impl WiwynnGB200Nvl<'_> {
                 })
                 .collect(),
             machine_type: CpuArchitecture::Aarch64.to_string(),
-            machine_arch: Some(CpuArchitecture::Aarch64.into()),
+            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(
+                CpuArchitecture::Aarch64,
+            )),
             nvme_devices: (0..9)
                 .map(|n| NvmeDevice {
                     model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),

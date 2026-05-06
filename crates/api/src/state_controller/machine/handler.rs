@@ -24,7 +24,13 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+use attestation::{
+    handle_spdm_attestation_failed_recovery, handle_spdm_poll_state, handle_spdm_trigger_state,
+};
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
+use carbide_redfish::libredfish::conv::{
+    IntoLibredfish, IntoModel, machine_last_reboot_requested_mode,
+};
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -41,7 +47,7 @@ use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::HostPrivilegeLevel;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
-use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
+use libredfish::{Boot, EnabledDisabled, Redfish, RedfishError, SystemPowerControl};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
@@ -61,16 +67,17 @@ use model::machine::LockdownMode::{self, Enable};
 use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
-    BiosConfigInfo, BiosConfigState, BomValidating, BomValidatingContext, CleanupState,
-    CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
-    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
-    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, Machine, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState, ManagedHostState,
-    ManagedHostStateSnapshot, MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport,
-    PerformPowerOperation, PowerDrainState, ReprovisionState, RetryInfo, SecureEraseBossContext,
-    SecureEraseBossState, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    StateMachineArea, UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
+    AttestationMode, BiosConfigInfo, BiosConfigState, BomValidating, BomValidatingContext,
+    CleanupState, CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState,
+    DpuInitNextStateResolver, DpuInitState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState, Machine,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
+    MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState,
+    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
+    UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
     dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
@@ -101,6 +108,7 @@ use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
+mod attestation;
 mod dpf;
 mod helpers;
 mod machine_validation;
@@ -427,7 +435,6 @@ impl MachineStateHandler {
                 builder.dpf_sdk.clone(),
             ),
             instance_handler: InstanceStateHandler::new(
-                builder.attestation_enabled,
                 builder.reachability_params,
                 builder.common_pools,
                 host_upgrade.clone(),
@@ -798,46 +805,11 @@ impl MachineStateHandler {
 
                 // Check if instance to be created.
                 if mh_snapshot.instance.is_some() {
-                    // Instance is requested by user. Let's configure it.
-                    let mut txn = ctx.services.db_pool.begin().await?;
-
-                    // Clear if any reprovision (dpu or host) is set due to race scenario.
-                    Self::clear_host_update_alert_and_reprov(mh_snapshot, &mut txn).await?;
-
-                    // Flip the host onto the tenant network. Setting
-                    // `use_admin_network = false` on the host row goes through
-                    // `try_update_network_config`, which fans the version bump out
-                    // to every DPU in the host machine group -- each DPU's sync state
-                    // then flips to "out of sync" until its agent has polled, applied,
-                    // and reported the new version. State-machine waits (e.g.
-                    // WaitingForNetworkReconfig, WaitingForNetworkSegmentToBeReady)
-                    // gate on that. DPAs follow the same flag (read host-level via the
-                    // snapshot), but use a separate per-interface ack mechanism for
-                    // SetVNI commands.
-                    let host_version = mh_snapshot.host_snapshot.network_config.version;
-                    let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
-                    host_netconf.use_admin_network = Some(false);
-                    db::machine::try_update_network_config(
-                        &mut txn,
-                        &mh_snapshot.host_snapshot.id,
-                        host_version,
-                        &host_netconf,
-                    )
-                    .await?;
-
-                    let mut next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::DpaProvisioning,
-                    };
-
-                    if !ctx.services.site_config.is_dpa_enabled() {
-                        // If DPA is not enabled, we don't need to do any DPA provisioning.
-                        // So go directly to WaitingForDpaToBeReady state, where we will change
-                        // the network status of our DPUs.
-                        next_state = ManagedHostState::Assigned {
-                            instance_state: InstanceState::WaitingForDpaToBeReady,
-                        };
-                    }
-                    return Ok(StateHandlerOutcome::transition(next_state).with_txn(txn));
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::PreAssignedMeasuring {
+                            spdm_measuring_state: SpdmMeasuringState::TriggerMeasurements,
+                        },
+                    ));
                 }
 
                 if let Some(outcome) = handle_bom_validation_requested(
@@ -1457,8 +1429,9 @@ impl MachineStateHandler {
                                                 })),
                                             StateMachineArea::AssignedInstance => Ok(StateHandlerOutcome::transition(
                                                 ManagedHostState::PostAssignedMeasuring {
-                                                        measuring_state: MeasuringState::WaitingForMeasurements
-                                                })),
+                                                    attestation_mode: AttestationMode::MeasuredBoot { measuring_state: MeasuringState::WaitingForMeasurements }
+                                                }
+                                            )),
                                             _ => Err(StateHandlerError::InvalidState(
                                                 "Unimplemented StateMachineArea for FailureSource of  MeasurementsRetired, MeasurementsRevoked, MeasurementsCAValidationFailed"
                                                     .to_string(),
@@ -1473,6 +1446,9 @@ impl MachineStateHandler {
                         } else {
                             Ok(StateHandlerOutcome::do_nothing())
                         }
+                    }
+                    FailureCause::SpdmAttestationFailed { .. } => {
+                        handle_spdm_attestation_failed_recovery(ctx, host_machine_id, details).await
                     }
                     FailureCause::MachineValidation { .. }
                         if machine_id.machine_type().is_host() =>
@@ -1539,7 +1515,6 @@ impl MachineStateHandler {
                 }
                 Ok(StateHandlerOutcome::do_nothing())
             }
-
             ManagedHostState::HostReprovision { .. } => {
                 self.host_upgrade
                     .handle_host_reprovision(
@@ -1563,16 +1538,147 @@ impl MachineStateHandler {
             )
             .await
             .map(|v| map_measuring_outcome_to_state_handler_outcome(&v, measuring_state))?,
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => handle_measuring_state(
-                measuring_state,
-                &mh_snapshot.host_snapshot.id,
-                &mut ctx.services.db_reader,
-                self.host_handler.host_handler_params.attestation_enabled,
-            )
-            .await
-            .map(|v| {
-                map_post_assigned_measuring_outcome_to_state_handler_outcome(&v, measuring_state)
-            })?,
+            ManagedHostState::PostAssignedMeasuring { attestation_mode } => {
+                match attestation_mode {
+                    AttestationMode::MeasuredBoot { measuring_state } => {
+                        if !self.host_handler.host_handler_params.attestation_enabled {
+                            return Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::PostAssignedMeasuring {
+                                    attestation_mode: AttestationMode::SpdmAttestation {
+                                        spdm_measuring_state:
+                                            SpdmMeasuringState::TriggerMeasurements,
+                                    },
+                                },
+                            ));
+                        }
+                        handle_measuring_state(
+                            measuring_state,
+                            &mh_snapshot.host_snapshot.id,
+                            &mut ctx.services.db_reader,
+                            self.host_handler.host_handler_params.attestation_enabled,
+                        )
+                        .await
+                        .map(|v| {
+                            map_post_assigned_measuring_outcome_to_state_handler_outcome(
+                                &v,
+                                measuring_state,
+                            )
+                        })?
+                    }
+                    AttestationMode::SpdmAttestation {
+                        spdm_measuring_state,
+                    } => {
+                        let next_skip_state = ManagedHostState::WaitingForCleanup {
+                            cleanup_state: CleanupState::Init,
+                        };
+                        if !ctx.services.site_config.spdm.enabled {
+                            return Ok(StateHandlerOutcome::transition(next_skip_state));
+                        }
+                        match spdm_measuring_state {
+                            SpdmMeasuringState::TriggerMeasurements => {
+                                handle_spdm_trigger_state(
+                                    &ctx.services.db_pool,
+                                    ctx.services.redfish_client_pool.clone(),
+                                    mh_snapshot,
+                                    host_machine_id,
+                                    ManagedHostState::PostAssignedMeasuring {
+                                        attestation_mode: AttestationMode::SpdmAttestation {
+                                            spdm_measuring_state: SpdmMeasuringState::PollResult,
+                                        },
+                                    },
+                                    next_skip_state,
+                                )
+                                .await
+                            }
+                            SpdmMeasuringState::PollResult => {
+                                handle_spdm_poll_state(
+                                    &ctx.services.db_pool,
+                                    host_machine_id,
+                                    FailureSource::StateMachineArea(
+                                        StateMachineArea::AssignedInstance,
+                                    ),
+                                    next_skip_state,
+                                )
+                                .await
+                            }
+                        }
+                    }
+                }
+            }
+            ManagedHostState::PreAssignedMeasuring {
+                spdm_measuring_state,
+            } => {
+                let next_skip_state = ManagedHostState::StartAssignmentCycle;
+                if !ctx.services.site_config.spdm.enabled {
+                    return Ok(StateHandlerOutcome::transition(next_skip_state));
+                }
+                match spdm_measuring_state {
+                    SpdmMeasuringState::TriggerMeasurements => {
+                        handle_spdm_trigger_state(
+                            &ctx.services.db_pool,
+                            ctx.services.redfish_client_pool.clone(),
+                            mh_snapshot,
+                            host_machine_id,
+                            ManagedHostState::PreAssignedMeasuring {
+                                spdm_measuring_state: SpdmMeasuringState::PollResult,
+                            },
+                            next_skip_state,
+                        )
+                        .await
+                    }
+                    SpdmMeasuringState::PollResult => {
+                        handle_spdm_poll_state(
+                            &ctx.services.db_pool,
+                            host_machine_id,
+                            FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+                            next_skip_state,
+                        )
+                        .await
+                    }
+                }
+            }
+            ManagedHostState::StartAssignmentCycle => {
+                // Instance is requested by user. Let's configure it.
+                let mut txn = ctx.services.db_pool.begin().await?;
+
+                // Clear if any reprovision (dpu or host) is set due to race scenario.
+                Self::clear_host_update_alert_and_reprov(mh_snapshot, &mut txn).await?;
+
+                // Flip the host onto the tenant network. Setting
+                // `use_admin_network = false` on the host row goes through
+                // `try_update_network_config`, which fans the version bump out
+                // to every DPU in the host machine group -- each DPU's sync state
+                // then flips to "out of sync" until its agent has polled, applied,
+                // and reported the new version. State-machine waits (e.g.
+                // WaitingForNetworkReconfig, WaitingForNetworkSegmentToBeReady)
+                // gate on that. DPAs follow the same flag (read host-level via the
+                // snapshot), but use a separate per-interface ack mechanism for
+                // SetVNI commands.
+                let host_version = mh_snapshot.host_snapshot.network_config.version;
+                let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
+                host_netconf.use_admin_network = Some(false);
+                db::machine::try_update_network_config(
+                    &mut txn,
+                    &mh_snapshot.host_snapshot.id,
+                    host_version,
+                    &host_netconf,
+                )
+                .await?;
+
+                let mut next_state = ManagedHostState::Assigned {
+                    instance_state: InstanceState::DpaProvisioning,
+                };
+
+                if !ctx.services.site_config.is_dpa_enabled() {
+                    // If DPA is not enabled, we don't need to do any DPA provisioning.
+                    // So go directly to WaitingForDpaToBeReady state, where we will change
+                    // the network status of our DPUs.
+                    next_state = ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForDpaToBeReady,
+                    };
+                }
+                Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
+            }
             ManagedHostState::BomValidating {
                 bom_validating_state,
             } => {
@@ -2319,7 +2425,9 @@ fn map_host_init_measuring_outcome_to_state_handler_outcome(
         }
         MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::transition(
             ManagedHostState::HostInit {
-                machine_state: MachineState::WaitingForDiscovery,
+                machine_state: MachineState::SpdmMeasuring {
+                    spdm_measuring_state: SpdmMeasuringState::TriggerMeasurements,
+                },
             },
         )),
     }
@@ -2475,12 +2583,16 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
         )),
         MeasuringOutcome::WaitForGoldenValues => Ok(StateHandlerOutcome::transition(
             ManagedHostState::PostAssignedMeasuring {
-                measuring_state: MeasuringState::PendingBundle,
+                attestation_mode: AttestationMode::MeasuredBoot {
+                    measuring_state: MeasuringState::PendingBundle,
+                },
             },
         )),
         MeasuringOutcome::WaitForScoutToSendMeasurements => Ok(StateHandlerOutcome::transition(
             ManagedHostState::PostAssignedMeasuring {
-                measuring_state: MeasuringState::WaitingForMeasurements,
+                attestation_mode: AttestationMode::MeasuredBoot {
+                    measuring_state: MeasuringState::WaitingForMeasurements,
+                },
             },
         )),
         MeasuringOutcome::Unsuccessful((failure_details, machine_id)) => {
@@ -2495,8 +2607,10 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
             }))
         }
         MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::transition(
-            ManagedHostState::WaitingForCleanup {
-                cleanup_state: CleanupState::Init,
+            ManagedHostState::PostAssignedMeasuring {
+                attestation_mode: AttestationMode::SpdmAttestation {
+                    spdm_measuring_state: SpdmMeasuringState::TriggerMeasurements,
+                },
             },
         )),
     }
@@ -2800,7 +2914,10 @@ async fn handle_dpu_reprovision(
                     )));
                 }
 
-                if !managed_host_network_config_version_synced_and_dpu_healthy(dsnapshot) {
+                if !managed_host_network_config_version_synced_and_dpu_healthy(
+                    dsnapshot,
+                    state.host_snapshot.network_config.version,
+                ) {
                     tracing::warn!("Waiting for network to be ready for DPU {}", dsnapshot.id);
 
                     // we requested a DPU reboot in ReprovisionState::WaitingForNetworkInstall
@@ -3712,7 +3829,10 @@ impl DpuMachineStateHandler {
                 // is_network_ready is syncing over all DPUs.
                 // The code will move only when all DPUs returns network_ready signal.
                 for dsnapshot in &state.dpu_snapshots {
-                    if !managed_host_network_config_version_synced_and_dpu_healthy(dsnapshot) {
+                    if !managed_host_network_config_version_synced_and_dpu_healthy(
+                        dsnapshot,
+                        state.host_snapshot.network_config.version,
+                    ) {
                         let mut reboot_status = None;
                         // Only reboot the DPU which is targeted in this event loop.
                         if dsnapshot.id == dpu_snapshot.id {
@@ -4435,8 +4555,11 @@ impl HostMachineStateHandler {
     }
 }
 
-fn managed_host_network_config_version_synced_and_dpu_healthy(dpu_snapshot: &Machine) -> bool {
-    if !dpu_snapshot.managed_host_network_config_version_synced() {
+fn managed_host_network_config_version_synced_and_dpu_healthy(
+    dpu_snapshot: &Machine,
+    host_version: ConfigVersion,
+) -> bool {
+    if !dpu_snapshot.managed_host_network_config_version_synced(host_version) {
         return false;
     }
 
@@ -4494,19 +4617,11 @@ async fn handle_host_boot_order_setup(
                         set_boot_order_info: Some(boot_order_info),
                     },
                 },
-                SetBootOrderOutcome::Done => {
-                    if host_handler_params.attestation_enabled {
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::Measuring {
-                                measuring_state: MeasuringState::WaitingForMeasurements,
-                            },
-                        }
-                    } else {
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::WaitingForDiscovery,
-                        }
-                    }
-                }
+                SetBootOrderOutcome::Done => ManagedHostState::HostInit {
+                    machine_state: MachineState::Measuring {
+                        measuring_state: MeasuringState::WaitingForMeasurements,
+                    },
+                },
                 SetBootOrderOutcome::WaitingForReboot(reason) => {
                     return Ok(StateHandlerOutcome::wait(reason));
                 }
@@ -4927,6 +5042,15 @@ impl StateHandler for HostMachineStateHandler {
                 )
                 .await?),
                 MachineState::Measuring { measuring_state } => {
+                    if !self.host_handler_params.attestation_enabled {
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::SpdmMeasuring {
+                                    spdm_measuring_state: SpdmMeasuringState::TriggerMeasurements,
+                                },
+                            },
+                        ));
+                    }
                     match handle_measuring_state(
                         measuring_state,
                         &mh_snapshot.host_snapshot.id,
@@ -4950,6 +5074,42 @@ impl StateHandler for HostMachineStateHandler {
                             ))
                         }
                         Err(e) => Err(e),
+                    }
+                }
+                MachineState::SpdmMeasuring {
+                    spdm_measuring_state,
+                } => {
+                    let next_skip_state = ManagedHostState::HostInit {
+                        machine_state: MachineState::WaitingForDiscovery,
+                    };
+                    if !ctx.services.site_config.spdm.enabled {
+                        return Ok(StateHandlerOutcome::transition(next_skip_state));
+                    }
+                    match spdm_measuring_state {
+                        SpdmMeasuringState::TriggerMeasurements => {
+                            handle_spdm_trigger_state(
+                                &ctx.services.db_pool,
+                                ctx.services.redfish_client_pool.clone(),
+                                mh_snapshot,
+                                host_machine_id,
+                                ManagedHostState::HostInit {
+                                    machine_state: MachineState::SpdmMeasuring {
+                                        spdm_measuring_state: SpdmMeasuringState::PollResult,
+                                    },
+                                },
+                                next_skip_state,
+                            )
+                            .await
+                        }
+                        SpdmMeasuringState::PollResult => {
+                            handle_spdm_poll_state(
+                                &ctx.services.db_pool,
+                                host_machine_id,
+                                FailureSource::StateMachineArea(StateMachineArea::HostInit),
+                                next_skip_state,
+                            )
+                            .await
+                        }
                     }
                 }
                 MachineState::WaitingForDiscovery => {
@@ -5238,7 +5398,6 @@ impl StateHandler for HostMachineStateHandler {
 /// A `StateHandler` implementation for instances
 #[derive(Debug, Clone)]
 pub struct InstanceStateHandler {
-    attestation_enabled: bool,
     reachability_params: ReachabilityParams,
     common_pools: Option<Arc<CommonPools>>,
     host_upgrade: Arc<HostUpgradeState>,
@@ -5250,7 +5409,6 @@ pub struct InstanceStateHandler {
 impl InstanceStateHandler {
     #[allow(clippy::too_many_arguments)]
     fn new(
-        attestation_enabled: bool,
         reachability_params: ReachabilityParams,
         common_pools: Option<Arc<CommonPools>>,
         host_upgrade: Arc<HostUpgradeState>,
@@ -5259,7 +5417,6 @@ impl InstanceStateHandler {
         dpf_sdk: Option<Arc<dyn DpfOperations>>,
     ) -> Self {
         InstanceStateHandler {
-            attestation_enabled,
             reachability_params,
             common_pools,
             host_upgrade,
@@ -6062,14 +6219,10 @@ impl StateHandler for InstanceStateHandler {
                     release_vpc_dpu_loopback(mh_snapshot, self.common_pools.as_deref(), &mut txn)
                         .await?;
 
-                    let next_state = if self.attestation_enabled {
-                        ManagedHostState::PostAssignedMeasuring {
+                    let next_state = ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::MeasuredBoot {
                             measuring_state: MeasuringState::WaitingForMeasurements,
-                        }
-                    } else {
-                        ManagedHostState::WaitingForCleanup {
-                            cleanup_state: CleanupState::Init,
-                        }
+                        },
                     };
 
                     Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
@@ -6817,7 +6970,9 @@ impl HostUpgradeState {
                     .await
             }
             HostReprovisionState::WaitingForScoutUpgrade {
-                component_type,
+                firmware_type,
+                final_version,
+                power_drains_needed,
                 deadline,
                 result,
                 ..
@@ -6828,11 +6983,16 @@ impl HostUpgradeState {
                             "Scout firmware upgrade succeeded for {}",
                             state.host_snapshot.id
                         );
+                        let next_reprov_state = HostReprovisionState::ResetForNewFirmware {
+                            final_version: final_version.to_string(),
+                            firmware_type: *firmware_type,
+                            firmware_number: None,
+                            power_drains_needed: *power_drains_needed,
+                            delay_until: None,
+                            last_power_drain_operation: None,
+                        };
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
-                            HostReprovisionState::CheckingFirmwareRepeatV2 {
-                                firmware_type: None,
-                                firmware_number: None,
-                            },
+                            next_reprov_state,
                             state.managed_state.get_host_repro_retry_count(),
                         )))
                     } else {
@@ -6848,7 +7008,7 @@ impl HostUpgradeState {
                         );
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             HostReprovisionState::FailedFirmwareUpgrade {
-                                firmware_type: *component_type,
+                                firmware_type: *firmware_type,
                                 report_time: Some(Utc::now()),
                                 reason: Some(reason),
                             },
@@ -6863,7 +7023,7 @@ impl HostUpgradeState {
                     );
                     Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         HostReprovisionState::FailedFirmwareUpgrade {
-                            firmware_type: *component_type,
+                            firmware_type: *firmware_type,
                             report_time: Some(Utc::now()),
                             reason: Some(format!(
                                 "Scout firmware upgrade timed out (deadline {deadline})"
@@ -7163,7 +7323,7 @@ impl HostUpgradeState {
                     let task = rpc::forge_agent_control_response::ScoutFirmwareUpgradeTask {
                         upgrade_task_id: upgrade_task_id.clone(),
                         component_type: firmware_type.to_string(),
-                        target_version: to_install.version,
+                        target_version: to_install.version.clone(),
                         script: Some(FileArtifact {
                             url: to_pxe_url(&scout_config.script.filename),
                             sha256: scout_config.script.sha256.clone(),
@@ -7194,8 +7354,9 @@ impl HostUpgradeState {
                         scenario.actual_new_state(
                             HostReprovisionState::WaitingForScoutUpgrade {
                                 upgrade_task_id,
-                                component_type: firmware_type,
-                                target_version: task.target_version.clone(),
+                                firmware_type,
+                                final_version: to_install.version,
+                                power_drains_needed: to_install.power_drains_needed,
                                 started_at,
                                 deadline,
                                 // Safety: The #[derive(Serialize)] impl does not fail
@@ -7524,12 +7685,7 @@ impl HostUpgradeState {
                         operation: "power off",
                         error: e,
                     })?;
-                let status = redfish_client.get_power_state().await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get power state",
-                        error: e,
-                    }
-                })?;
+                let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::Off {
                     return Err(StateHandlerError::GenericError(eyre!(
                         "Host {} did not turn off when requested",
@@ -7564,12 +7720,7 @@ impl HostUpgradeState {
                         operation: "power on",
                         error: e,
                     })?;
-                let status = redfish_client.get_power_state().await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get power state",
-                        error: e,
-                    }
-                })?;
+                let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::On {
                     return Err(StateHandlerError::GenericError(eyre!(
                         "Host {} did not turn on when requested",
@@ -7685,7 +7836,7 @@ impl HostUpgradeState {
         let redfish_component_type: libredfish::model::update_service::ComponentType =
             match to_install.install_only_specified {
                 false => libredfish::model::update_service::ComponentType::Unknown,
-                true => (*component_type).into(),
+                true => component_type.into_libredfish(),
             };
         let address = address.to_string();
 
@@ -8531,7 +8682,7 @@ fn get_next_state_boss_job_failure(
                     failure,
                     power_state,
                 } => match power_state {
-                    libredfish::PowerState::Off => (
+                    PowerState::Off => (
                         ManagedHostState::WaitingForCleanup {
                             cleanup_state: CleanupState::SecureEraseBoss {
                                 secure_erase_boss_context: SecureEraseBossContext {
@@ -8543,14 +8694,14 @@ fn get_next_state_boss_job_failure(
                                     secure_erase_boss_state:
                                         SecureEraseBossState::HandleJobFailure {
                                             failure: failure.to_string(),
-                                            power_state: libredfish::PowerState::On,
+                                            power_state: PowerState::On,
                                         },
                                 },
                             },
                         },
                         *power_state,
                     ),
-                    libredfish::PowerState::On => (
+                    PowerState::On => (
                         ManagedHostState::WaitingForCleanup {
                             cleanup_state: CleanupState::SecureEraseBoss {
                                 secure_erase_boss_context: SecureEraseBossContext {
@@ -8590,7 +8741,7 @@ fn get_next_state_boss_job_failure(
                     failure,
                     power_state,
                 } => match power_state {
-                    libredfish::PowerState::Off => (
+                    PowerState::Off => (
                         ManagedHostState::WaitingForCleanup {
                             cleanup_state: CleanupState::CreateBossVolume {
                                 create_boss_volume_context: CreateBossVolumeContext {
@@ -8602,14 +8753,14 @@ fn get_next_state_boss_job_failure(
                                     create_boss_volume_state:
                                         CreateBossVolumeState::HandleJobFailure {
                                             failure: failure.to_string(),
-                                            power_state: libredfish::PowerState::On,
+                                            power_state: PowerState::On,
                                         },
                                 },
                             },
                         },
                         *power_state,
                     ),
-                    libredfish::PowerState::On => (
+                    PowerState::On => (
                         ManagedHostState::WaitingForCleanup {
                             cleanup_state: CleanupState::CreateBossVolume {
                                 create_boss_volume_context: CreateBossVolumeContext {
@@ -8704,7 +8855,7 @@ fn handle_boss_controller_job_error(
                 secure_erase_jid: None,
                 secure_erase_boss_state: SecureEraseBossState::HandleJobFailure {
                     failure: err.to_string(),
-                    power_state: libredfish::PowerState::Off,
+                    power_state: PowerState::Off,
                 },
                 iteration: Some(iterations),
             },
@@ -8716,7 +8867,7 @@ fn handle_boss_controller_job_error(
                 create_boss_volume_jid: None,
                 create_boss_volume_state: CreateBossVolumeState::HandleJobFailure {
                     failure: err.to_string(),
-                    power_state: libredfish::PowerState::Off,
+                    power_state: PowerState::Off,
                 },
                 iteration: Some(iterations),
             },
@@ -8941,7 +9092,7 @@ async fn handle_boss_job_failure(
             })?;
 
     match expected_power_state {
-        libredfish::PowerState::Off => {
+        PowerState::Off => {
             if current_power_state != libredfish::PowerState::Off {
                 handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceOff).await?;
 
@@ -8961,7 +9112,7 @@ async fn handle_boss_job_failure(
 
             Ok(StateHandlerOutcome::transition(next_state))
         }
-        libredfish::PowerState::On => {
+        PowerState::On => {
             let basetime = mh_snapshot
                 .host_snapshot
                 .last_reboot_requested
@@ -9081,7 +9232,7 @@ pub async fn handler_host_power_control_with_location(
             ctx.pending_db_writes
                 .push(MachineWriteOp::UpdateRebootRequestedTime {
                     machine_id: dpu_snapshot.id,
-                    mode: action.into(),
+                    mode: machine_last_reboot_requested_mode(action),
                     time: Utc::now(),
                 });
         }
@@ -9176,7 +9327,7 @@ async fn do_ipmi_restart(
     ctx.pending_db_writes
         .push(MachineWriteOp::UpdateRebootRequestedTime {
             machine_id: machine.id,
-            mode: action.into(),
+            mode: machine_last_reboot_requested_mode(action),
             time: Utc::now(),
         });
 
@@ -9454,12 +9605,7 @@ async fn handle_instance_host_platform_config(
             power_on,
             power_on_retry_count,
         } => {
-            let power_state = redfish_client.get_power_state().await.map_err(|e| {
-                StateHandlerError::RedfishError {
-                    operation: "get_power_state",
-                    error: e,
-                }
-            })?;
+            let power_state = get_power_state(redfish_client.as_ref()).await?;
 
             // Phase 1: Power OFF (power_on=false means we need to power off first)
             if !power_on {
@@ -9997,7 +10143,7 @@ fn bios_config_enter_handle_failure(
         bios_job_id: info.bios_job_id.clone(),
         bios_config_state: BiosConfigState::HandleBiosJobFailure {
             failure,
-            power_state: libredfish::PowerState::Off,
+            power_state: PowerState::Off,
         },
         retry_count: info.retry_count + 1,
     })
@@ -10137,7 +10283,7 @@ async fn advance_bios_config_job(
             })?;
 
             match power_state {
-                libredfish::PowerState::Off => {
+                PowerState::Off => {
                     if current_power_state != libredfish::PowerState::Off {
                         handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceOff)
                             .await?;
@@ -10161,12 +10307,12 @@ async fn advance_bios_config_job(
                         bios_job_id: info.bios_job_id.clone(),
                         bios_config_state: BiosConfigState::HandleBiosJobFailure {
                             failure: failure.clone(),
-                            power_state: libredfish::PowerState::On,
+                            power_state: PowerState::On,
                         },
                         retry_count: info.retry_count,
                     }))
                 }
-                libredfish::PowerState::On => {
+                PowerState::On => {
                     if current_power_state != libredfish::PowerState::On {
                         let basetime = mh_snapshot
                             .host_snapshot
@@ -10381,7 +10527,7 @@ async fn set_host_boot_order(
                             set_boot_order_jid: None,
                             set_boot_order_state: SetBootOrderState::HandleJobFailure {
                                 failure: format!("Job {} lookup failed: {}", job_id, e),
-                                power_state: libredfish::PowerState::Off,
+                                power_state: PowerState::Off,
                             },
                             retry_count: set_boot_order_info.retry_count,
                         }));
@@ -10404,7 +10550,7 @@ async fn set_host_boot_order(
                             set_boot_order_jid: None,
                             set_boot_order_state: SetBootOrderState::HandleJobFailure {
                                 failure: format!("Job {} failed: {job_state:#?}", job_id),
-                                power_state: libredfish::PowerState::Off,
+                                power_state: PowerState::Off,
                             },
                             retry_count: set_boot_order_info.retry_count,
                         }));
@@ -10442,7 +10588,7 @@ async fn set_host_boot_order(
             })?;
 
             match power_state {
-                libredfish::PowerState::Off => {
+                PowerState::Off => {
                     if current_power_state != libredfish::PowerState::Off {
                         handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceOff)
                             .await?;
@@ -10472,12 +10618,12 @@ async fn set_host_boot_order(
                         set_boot_order_jid: None,
                         set_boot_order_state: SetBootOrderState::HandleJobFailure {
                             failure: failure.clone(),
-                            power_state: libredfish::PowerState::On,
+                            power_state: PowerState::On,
                         },
                         retry_count: set_boot_order_info.retry_count,
                     }))
                 }
-                libredfish::PowerState::On => {
+                PowerState::On => {
                     // BMC should be back, power the host back on
                     if current_power_state != libredfish::PowerState::On {
                         // Wait for the BMC to come back online after reset before powering on
@@ -10596,6 +10742,17 @@ async fn set_host_boot_order(
             )))
         }
     }
+}
+
+async fn get_power_state(redfish_client: &dyn Redfish) -> Result<PowerState, StateHandlerError> {
+    redfish_client
+        .get_power_state()
+        .await
+        .map_err(|e| StateHandlerError::RedfishError {
+            operation: "get_power_state",
+            error: e,
+        })
+        .map(IntoModel::into_model)
 }
 
 #[cfg(test)]

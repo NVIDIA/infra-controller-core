@@ -47,12 +47,17 @@ use sqlx::PgPool;
 
 use crate::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
+const TRIGGER_EVIDENCE_TASK_ID: &str = "SpdmTriggerEvidenceTaskId";
+
 #[derive(Default)]
 struct RedfishSimState {
     hosts: HashMap<String, RedfishSimHostState>,
     users: HashMap<String, String>,
     fw_version: Arc<String>,
     secure_boot: AtomicBool,
+    no_component_integrities: bool,
+    firmware_for_component_error: bool,
+    get_task_trigger_evidence_returns_interrupted: bool,
     machine_setup_bios_job_id: Option<String>,
     job_state_sequence: VecDeque<JobState>,
     /// Records every call to `RedfishClientPool::create_client` so tests can
@@ -124,6 +129,20 @@ impl RedfishSim {
         }
     }
 
+    /// Build a simulator with optional SPDM / firmware-integration test flags.
+    pub fn with_test_overrides(overrides: RedfishSimTestOverrides) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(RedfishSimState {
+                no_component_integrities: overrides.no_component_integrities,
+                firmware_for_component_error: overrides.firmware_for_component_error,
+                get_task_trigger_evidence_returns_interrupted: overrides
+                    .get_task_trigger_evidence_returns_interrupted,
+                ..Default::default()
+            })),
+            credential_manager: TestCredentialManager::default(),
+        }
+    }
+
     pub fn set_machine_setup_bios_job_id(&self, job_id: Option<String>) {
         self.state.lock().unwrap().machine_setup_bios_job_id = job_id;
     }
@@ -148,6 +167,14 @@ impl RedfishSim {
             .users
             .insert(username.to_string(), password.to_string());
     }
+}
+
+/// Optional simulation flags used by API integration tests.
+#[derive(Clone, Default)]
+pub struct RedfishSimTestOverrides {
+    pub no_component_integrities: bool,
+    pub firmware_for_component_error: bool,
+    pub get_task_trigger_evidence_returns_interrupted: bool,
 }
 
 pub struct RedfishSimTimepoint {
@@ -463,7 +490,28 @@ impl Redfish for RedfishSimClient {
         .unwrap())
     }
 
-    async fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
+    async fn get_task(&self, id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
+        if self
+            .state
+            .lock()
+            .unwrap()
+            .get_task_trigger_evidence_returns_interrupted
+            && id == TRIGGER_EVIDENCE_TASK_ID
+        {
+            return Ok(serde_json::from_str(
+                "{
+                    \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+                    \"@odata.type\": \"#Task.v1_4_3.Task\",
+                    \"Id\": \"0\",
+                    \"PercentComplete\": 100,
+                    \"StartTime\": \"2024-01-30T09:00:52+00:00\",
+                    \"TaskMonitor\": \"/redfish/v1/TaskService/Tasks/0/Monitor\",
+                    \"TaskState\": \"Interrupted\",
+                    \"TaskStatus\": \"OK\"
+                    }",
+            )
+            .unwrap());
+        }
         Ok(serde_json::from_str(
             "{
             \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
@@ -1092,6 +1140,13 @@ impl Redfish for RedfishSimClient {
     async fn get_component_integrities(
         &self,
     ) -> Result<libredfish::model::component_integrity::ComponentIntegrities, RedfishError> {
+        if self.state.lock().unwrap().no_component_integrities {
+            return Ok(ComponentIntegrities {
+                members: Vec::new(),
+                name: "ComponentIntegrities".to_string(),
+                count: 0,
+            });
+        }
         Ok(ComponentIntegrities {
                 members: vec![ComponentIntegrity {
                     component_integrity_enabled: true,
@@ -1307,6 +1362,11 @@ impl Redfish for RedfishSimClient {
         &self,
         component_integrity_id: &str,
     ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError> {
+        if self.state.lock().unwrap().firmware_for_component_error {
+            return Err(RedfishError::GenericError {
+                error: "Firmware for Component Error".to_string(),
+            });
+        }
         if !component_integrity_id.contains("HGX_IRoT_GPU_") {
             return Err(RedfishError::NotSupported(
                 "not supported device".to_string(),
@@ -1352,14 +1412,14 @@ impl Redfish for RedfishSimClient {
         _url: &str,
         _nonce: &str,
     ) -> Result<Task, RedfishError> {
-        Ok(serde_json::from_str(
-            "{
-            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
-            \"@odata.type\": \"#Task.v1_4_3.Task\",
-            \"Id\": \"0\"
-            }",
-        )
-        .unwrap())
+        let task_str = format!(
+            r##"{{
+                    "@odata.id": "/redfish/v1/TaskService/Tasks/{TRIGGER_EVIDENCE_TASK_ID}",
+                    "@odata.type": "#Task.v1_4_3.Task",
+                    "Id": "{TRIGGER_EVIDENCE_TASK_ID}"
+                }}"##
+        );
+        Ok(serde_json::from_str(&task_str).unwrap())
     }
 
     async fn get_evidence(
