@@ -16,10 +16,11 @@
  */
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 use tempfile::TempDir;
@@ -89,7 +90,25 @@ impl Kea {
                 println!("KEA STDOUT: {}", line.unwrap());
             }
         });
-        thread::sleep(Duration::from_millis(500)); // let Kea start
+
+        // Poll until Kea binds its DHCP receive port, so the test doesn't race.
+        // Trying to bind the same port ourselves: success means Kea hasn't taken it yet;
+        // AddrInUse means Kea is listening and we're ready to proceed.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            thread::sleep(Duration::from_millis(100));
+            match UdpSocket::bind(format!("0.0.0.0:{}", self.dhcp_in_port)) {
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => break,
+                Ok(_) => {}
+                Err(e) => return Err(eyre::eyre!("Unexpected error probing Kea readiness: {e}")),
+            }
+            if Instant::now() >= deadline {
+                return Err(eyre::eyre!(
+                    "Kea did not bind DHCP port {} within 15 seconds",
+                    self.dhcp_in_port
+                ));
+            }
+        }
 
         self.process = Some(process);
 
@@ -145,7 +164,7 @@ impl Kea {
                         "library": hook_lib,
                         "parameters": {
                             "carbide-api-url": api_server_url,
-                        "carbide-metrics-endpoint": "[::]:1089",
+                        "carbide-metrics-endpoint": "[::]:0",
                             "carbide-nameservers": "1.1.1.1,8.8.8.8",
                             "carbide-provisioning-server-ipv4": "127.0.0.1"
                         }

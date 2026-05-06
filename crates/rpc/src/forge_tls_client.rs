@@ -644,7 +644,7 @@ impl<'a> ForgeTlsClient<'a> {
         let resolver_config = ResolverConfig::from_parts(
             forge_resolver_config.0.domain,
             forge_resolver_config.0.search_domain,
-            forge_resolver_config.0.inner.into_inner(),
+            forge_resolver_config.0.inner,
         );
         // Five seconds is the default, but setting anyway for documentation and future proofing
         let mut resolver_opts = ForgeResolverOpts::default().timeout(Duration::from_secs(5));
@@ -870,7 +870,7 @@ mod tests {
         let resolver_config = ResolverConfig::from_parts(
             forge_resolver_config.0.domain,
             forge_resolver_config.0.search_domain,
-            forge_resolver_config.0.inner.into_inner(),
+            forge_resolver_config.0.inner,
         );
 
         let resolver_opts = ForgeResolverOpts::default().timeout(Duration::from_secs(5));
