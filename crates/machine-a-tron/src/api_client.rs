@@ -482,6 +482,7 @@ impl ApiClient {
                 arch: arch.into(),
                 interface_id: Some(interface_id),
                 product,
+                client_ip: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

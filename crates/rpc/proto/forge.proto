@@ -4524,8 +4524,21 @@ message ForgeScoutErrorReportResult {
 
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
+  // interface_id is populated via DHCP option 43.70, either by
+  // carbide-dhcp or an operator DHCP server that integrates with
+  // carbide-api. If unset, we fall back to identifying the booting
+  // machine by its source IP (see client_ip below).
   common.MachineInterfaceId interface_id = 2;
   optional string product = 3;
+  // client_ip is the IP carbide-pxe observed for the booting machine
+  // -- read from X-Forwarded-For when carbide-pxe is fronted by a
+  // proxy, or the TCP socket peer when reached directly.
+  // Used as the machine identifier when DHCP option 43.70 wasn't
+  // populated (and interface_id above isn't set). Resolved here via
+  // find_by_ip on machine_interface_addresses to fetch the matching
+  // interface_id. At least one of interface_id or client_ip must be
+  // set; interface_id wins if both are present.
+  optional string client_ip = 4;
 }
 
 message PxeInstructions {
