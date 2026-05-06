@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec;
 
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+use hickory_resolver::config::{LookupIpStrategy, ResolverConfig, ResolverOpts};
 use hickory_resolver::net::NetError;
 use hickory_resolver::net::runtime::iocompat::AsyncIoTokioAsStd;
 use hickory_resolver::net::runtime::{RuntimeProvider, TokioHandle, TokioTime};
@@ -172,10 +172,24 @@ impl RuntimeProvider for ForgeRuntimeProvider {
 /// A hyper resolver using `hickory`'s [`TokioAsyncResolver`].
 pub type ForgeResolver = HickoryResolver<ForgeRuntimeProvider>;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ForgeResolverOpts {
     inner: ResolverOpts,
     use_mgmt_vrf: bool,
+}
+
+impl Default for ForgeResolverOpts {
+    fn default() -> Self {
+        let mut inner = ResolverOpts::default();
+        // This was default in earlier hickory versions, maintain it here to avoid regressions in
+        // improperly-setup dual-stack environments.
+        inner.ip_strategy = LookupIpStrategy::Ipv4thenIpv6;
+
+        Self {
+            inner,
+            use_mgmt_vrf: false,
+        }
+    }
 }
 
 #[derive(Clone)]
