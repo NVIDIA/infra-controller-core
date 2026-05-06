@@ -121,11 +121,29 @@ impl HealthDetail {
 
 /// Reusable template for rendering a color-coded state bubble.
 /// Render with `{{ state_display|safe }}`.
-#[derive(Template)]
+#[derive(Debug, Clone, PartialEq, Eq, Template)]
 #[template(path = "state_display.html")]
 pub(crate) struct StateDisplay {
     pub state: String,
     pub time_in_state_above_sla: bool,
+}
+
+impl StateDisplay {
+    pub fn from_lifecycle(lifecycle: Option<&forgerpc::LifecycleStatus>) -> Self {
+        let state = lifecycle
+            .map(|lifecycle| lifecycle.state.clone())
+            .filter(|state| !state.is_empty())
+            .unwrap_or_else(|| r#"{ "state": "unknown" }"#.to_string());
+        let time_in_state_above_sla = lifecycle
+            .and_then(|lifecycle| lifecycle.sla.as_ref())
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or(false);
+
+        Self {
+            state,
+            time_in_state_above_sla,
+        }
+    }
 }
 
 /// Reusable template for rendering State SLA, time-in-state-above-SLA, and
