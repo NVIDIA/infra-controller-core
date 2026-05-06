@@ -27,12 +27,10 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
-use axum_extra::TypedHeader;
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
-use axum_extra::headers::Host;
 use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
-use http::{HeaderMap, Request, StatusCode, Uri};
+use http::{HeaderMap, Request, StatusCode};
 use itertools::Itertools;
 use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
@@ -760,22 +758,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
 }
 
 pub async fn auth_oauth2(
-    TypedHeader::<Host>(hostname): TypedHeader<Host>,
     headers: HeaderMap,
     mut req: Request<AxumBody>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Remove the port (this matters on localhost) since a cookie for localhost:1079
-    // does not apply for the a page hosted on localhost:1079. Instead the cookie
-    // must be for localhost.
-
-    let Some(hostname) = Uri::try_from(hostname.hostname())
-        .ok()
-        .and_then(|uri| uri.host().map(|host| host.to_owned()))
-    else {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    };
-
     let oauth_extension_layer = match req.extensions().get::<Option<Oauth2Layer>>() {
         None => {
             tracing::error!("failed to find oauth2 extension layer");
@@ -849,7 +835,6 @@ pub async fn auth_oauth2(
     // during code exchange when they hit our callback URL.
     // Using this with a cookie is a little weird, but it'll be encrypted.
     let pkce_cookie = Cookie::build(("pkce_verifier", pkce_verifier.secret().to_owned()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -858,7 +843,6 @@ pub async fn auth_oauth2(
     // Store the csrf state so we can compare the state we get back from Azure
     // when they hit our callback URL.
     let csrf_cookie = Cookie::build(("csrf_state", csrf_state.secret().to_owned()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -873,7 +857,6 @@ pub async fn auth_oauth2(
             .unwrap_or_else(|| req.uri().path())
             .to_string(),
     ))
-    .domain(hostname)
     .path("/")
     .secure(true)
     .http_only(true)
