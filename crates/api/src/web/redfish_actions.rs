@@ -208,7 +208,7 @@ pub mod filters {
     use std::fmt::Write;
 
     use askama_escape::Escaper;
-    use carbide_utils::managed_host_display::to_time;
+    use carbide_rpc_utils::managed_host_display::to_time;
     use itertools::Itertools;
     use rpc::forge::OptionalRedfishActionResult;
 
