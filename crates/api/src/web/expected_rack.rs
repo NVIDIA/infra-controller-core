@@ -97,10 +97,11 @@ async fn fetch_expected_racks(
             let mut compute_trays: String = "0".to_string();
             let mut switches: String = "0".to_string();
             let mut power_shelves: String = "0".to_string();
-            if profile.is_some() {
-                compute_trays = profile.unwrap().rack_capabilities.compute.count.to_string();
-                switches = profile.unwrap().rack_capabilities.switch.count.to_string();
-                power_shelves = profile.unwrap().rack_capabilities.power_shelf.count.to_string();
+
+            if let Some(rack_profile) = profile {
+                compute_trays = rack_profile.rack_capabilities.compute.count.to_string();
+                switches = rack_profile.rack_capabilities.switch.count.to_string();
+                power_shelves = rack_profile.rack_capabilities.power_shelf.count.to_string();
             }
 
             ExpectedRackRow {

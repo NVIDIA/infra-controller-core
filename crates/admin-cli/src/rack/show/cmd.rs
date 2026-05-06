@@ -154,21 +154,21 @@ pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfi
 
 fn show_single(output: &RackOutput, format: OutputFormat) -> Result<()> {
     match format {
-        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&output)?),
-        OutputFormat::Yaml => println!("{}", serde_yaml::to_string(&output)?),
-        _ => show_detail(&output),
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(output)?),
+        OutputFormat::Yaml => println!("{}", serde_yaml::to_string(output)?),
+        _ => show_detail(output),
     }
     Ok(())
 }
 
 fn show_list(outputs: &[RackOutput], format: OutputFormat) -> Result<()> {
     match format {
-        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&outputs)?),
-        OutputFormat::Yaml => println!("{}", serde_yaml::to_string(&outputs)?),
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(outputs)?),
+        OutputFormat::Yaml => println!("{}", serde_yaml::to_string(outputs)?),
         OutputFormat::Csv => {
-            show_table_csv(&outputs);
+            show_table_csv(outputs);
         }
-        _ => show_table(&outputs),
+        _ => show_table(outputs),
     }
     Ok(())
 }
