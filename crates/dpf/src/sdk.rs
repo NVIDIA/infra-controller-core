@@ -410,9 +410,9 @@ async fn create_bfb<R: BfbRepository>(
     bfb_url: &str,
 ) -> Result<String, DpfError> {
     let bfb_name = format!(
-        "{}-{:x}",
+        "{}-{}",
         BFB_NAME_PREFIX,
-        Sha256::digest(bfb_url.as_bytes())
+        hex::encode(Sha256::digest(bfb_url.as_bytes()))
     );
 
     let bfb = BFB {
