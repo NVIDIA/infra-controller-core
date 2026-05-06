@@ -1222,6 +1222,7 @@ dependencies = [
  "blake3",
  "carbide-certs",
  "carbide-dpu-agent-utils",
+ "carbide-dpu-fmds-shared",
  "carbide-dpu-remediation",
  "carbide-health-report",
  "carbide-host-support",
@@ -1292,6 +1293,7 @@ dependencies = [
  "tower 0.5.2",
  "tower-http",
  "tracing",
+ "url",
  "uuid",
  "uzers",
  "version-compare 0.2.1",
@@ -1533,6 +1535,7 @@ dependencies = [
  "carbide-libmlx",
  "carbide-network",
  "carbide-rpc",
+ "carbide-secrets",
  "carbide-sqlx-testing",
  "carbide-utils",
  "carbide-uuid",
@@ -1823,14 +1826,26 @@ name = "carbide-dpu-agent-utils"
 version = "0.0.0"
 dependencies = [
  "carbide-rpc",
- "carbide-tls",
  "eyre",
- "rand 0.9.2",
+]
+
+[[package]]
+name = "carbide-dpu-fmds-shared"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum 0.8.6",
+ "carbide-dpu-agent-utils",
+ "carbide-rpc",
+ "governor",
+ "http-body-util",
+ "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "tokio",
  "tonic 0.14.2",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -1937,6 +1952,7 @@ dependencies = [
  "axum 0.8.6",
  "axum-server",
  "carbide-dpu-agent-utils",
+ "carbide-dpu-fmds-shared",
  "carbide-rpc",
  "carbide-tls",
  "carbide-uuid",
@@ -1953,6 +1969,7 @@ dependencies = [
  "netlink-packet-route",
  "nonzero_ext",
  "prost 0.14.1",
+ "reqwest",
  "rtnetlink",
  "tokio",
  "tonic 0.14.2",
@@ -2023,6 +2040,7 @@ name = "carbide-host-support"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "carbide-dpu-agent-utils",
  "carbide-libmlx",
  "carbide-rpc",
  "carbide-tls",
@@ -2035,6 +2053,7 @@ dependencies = [
  "logfmt",
  "procfs",
  "regex",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "serde_with",
@@ -2048,6 +2067,7 @@ dependencies = [
  "tracing-subscriber",
  "tryhard",
  "uname",
+ "url",
  "uuid",
 ]
 
