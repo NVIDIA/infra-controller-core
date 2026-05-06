@@ -24,6 +24,7 @@ use nv_redfish::bmc_http::reqwest::{BmcError, Client as ReqwestClient};
 use nv_redfish::core::query::{ExpandQuery, FilterQuery};
 use nv_redfish::core::{
     Action, Bmc, BoxTryStream, EntityTypeRef, Expandable, ModificationResponse, ODataETag, ODataId,
+    SessionCreateResponse,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -211,6 +212,20 @@ impl Bmc for AuthRefreshingBmc {
                 .refresh_auth_if_needed(error, credential_generation)
                 .await),
         }
+    }
+
+    async fn create_session<
+        V: Send + Sync + Serialize,
+        R: Send + Sync + for<'de> Deserialize<'de>,
+    >(
+        &self,
+        id: &ODataId,
+        query: &V,
+    ) -> Result<SessionCreateResponse<R>, Self::Error> {
+        self.inner
+            .create_session(id, query)
+            .await
+            .map_err(HealthError::from)
     }
 }
 
