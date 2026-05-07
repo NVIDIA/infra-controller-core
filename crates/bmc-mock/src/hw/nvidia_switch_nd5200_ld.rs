@@ -121,6 +121,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                         "MGX_BMC_0",
                         redfish::sensor::Layout {
                             temperature: 1,
+                            voltage: 8,
                             ..Default::default()
                         },
                     )),
