@@ -29,6 +29,7 @@ use crate::HealthError;
 use crate::collectors::Collector;
 use crate::config::{
     Config, Configurable, FirmwareCollectorConfig as FirmwareCollectorOptions,
+    LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
     LogsCollectorConfig as LogsCollectorOptions, NmxtCollectorConfig as NmxtCollectorOptions,
     NvueCollectorConfig as NvueCollectorOptions, SensorCollectorConfig as SensorCollectorOptions,
 };
@@ -42,15 +43,17 @@ pub(super) enum CollectorKind {
     Sensor,
     Logs,
     Firmware,
+    LeakDetector,
     Nmxt,
     NvueRest,
 }
 
 impl CollectorKind {
-    pub(super) const ALL: [CollectorKind; 5] = [
+    pub(super) const ALL: [CollectorKind; 6] = [
         CollectorKind::Sensor,
         CollectorKind::Logs,
         CollectorKind::Firmware,
+        CollectorKind::LeakDetector,
         CollectorKind::Nmxt,
         CollectorKind::NvueRest,
     ];
@@ -60,6 +63,9 @@ impl CollectorKind {
             CollectorKind::Sensor => "Stopping sensor collector for removed BMC endpoint",
             CollectorKind::Logs => "Stopping logs collector for removed BMC endpoint",
             CollectorKind::Firmware => "Stopping firmware collector for removed BMC endpoint",
+            CollectorKind::LeakDetector => {
+                "Stopping leak detector collector for removed BMC endpoint"
+            }
             CollectorKind::Nmxt => "Stopping NMX-T collector for removed BMC endpoint",
             CollectorKind::NvueRest => "Stopping NVUE REST collector for removed BMC endpoint",
         }
@@ -69,6 +75,7 @@ impl CollectorKind {
 pub(super) struct CollectorState {
     sensors: HashMap<Cow<'static, str>, Collector>,
     firmware: HashMap<Cow<'static, str>, Collector>,
+    leak_detector: HashMap<Cow<'static, str>, Collector>,
     logs: HashMap<Cow<'static, str>, Collector>,
     nmxt: HashMap<Cow<'static, str>, Collector>,
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
@@ -79,6 +86,7 @@ impl CollectorState {
         Self {
             sensors: HashMap::new(),
             firmware: HashMap::new(),
+            leak_detector: HashMap::new(),
             logs: HashMap::new(),
             nmxt: HashMap::new(),
             nvue_rest: HashMap::new(),
@@ -90,6 +98,7 @@ impl CollectorState {
             CollectorKind::Sensor => &self.sensors,
             CollectorKind::Logs => &self.logs,
             CollectorKind::Firmware => &self.firmware,
+            CollectorKind::LeakDetector => &self.leak_detector,
             CollectorKind::Nmxt => &self.nmxt,
             CollectorKind::NvueRest => &self.nvue_rest,
         }
@@ -103,6 +112,7 @@ impl CollectorState {
             CollectorKind::Sensor => &mut self.sensors,
             CollectorKind::Logs => &mut self.logs,
             CollectorKind::Firmware => &mut self.firmware,
+            CollectorKind::LeakDetector => &mut self.leak_detector,
             CollectorKind::Nmxt => &mut self.nmxt,
             CollectorKind::NvueRest => &mut self.nvue_rest,
         }
@@ -133,6 +143,7 @@ impl CollectorState {
             .keys()
             .chain(self.logs.keys())
             .chain(self.firmware.keys())
+            .chain(self.leak_detector.keys())
             .chain(self.nmxt.keys())
             .chain(self.nvue_rest.keys())
             .filter(|key| !active_keys.contains(*key))
@@ -152,6 +163,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) sensors_config: Configurable<SensorCollectorOptions>,
     pub(crate) logs_config: Configurable<LogsCollectorOptions>,
     pub(crate) firmware_config: Configurable<FirmwareCollectorOptions>,
+    pub(crate) leak_detector_config: Configurable<LeakDetectorCollectorOptions>,
     pub(crate) nmxt_config: Configurable<NmxtCollectorOptions>,
     pub(crate) nvue_config: Configurable<NvueCollectorOptions>,
 }
@@ -191,6 +203,7 @@ impl DiscoveryLoopContext {
         let sensors_config = config.collectors.sensors.clone();
         let logs_config = config.collectors.logs.clone();
         let firmware_config = config.collectors.firmware.clone();
+        let leak_detector_config = config.collectors.leak_detector.clone();
         let nmxt_config = config.collectors.nmxt.clone();
         let nvue_config = config.collectors.nvue.clone();
 
@@ -205,6 +218,7 @@ impl DiscoveryLoopContext {
             sensors_config,
             logs_config,
             firmware_config,
+            leak_detector_config,
             nmxt_config,
             nvue_config,
         })

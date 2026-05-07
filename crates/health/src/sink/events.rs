@@ -145,6 +145,7 @@ pub enum CollectorEvent {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ReportSource {
     BmcSensors,
+    BmcLeakDetectors,
     TrayLeakDetection,
     RackLeakDetection,
 }
@@ -153,6 +154,7 @@ impl ReportSource {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::BmcSensors => "bmc-sensors",
+            Self::BmcLeakDetectors => "bmc-leak-detectors",
             Self::TrayLeakDetection => "tray-leak-detection",
             Self::RackLeakDetection => "rack-leak-detection",
         }
