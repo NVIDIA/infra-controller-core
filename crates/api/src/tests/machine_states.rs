@@ -2172,7 +2172,9 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
 async fn test_host_discovery_without_tpm_cert_does_not_downgrade_existing_tpm_identity(
     pool: sqlx::PgPool,
 ) {
-    let env = create_test_env(pool).await;
+    let mut config = get_config();
+    config.tpm_required = false;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
     let host_config = env.managed_host_config();
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
