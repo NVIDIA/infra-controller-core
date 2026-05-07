@@ -117,8 +117,12 @@ impl prost::Message for MachineId {
     {
         let mut legacy_message = legacy_rpc::MachineId::from(*self);
         legacy_message.merge_field(tag, wire_type, buf, ctx)?;
-        *self = MachineId::from_str(&legacy_message.id)
-            .map_err(|_| DecodeError::new(format!("Invalid machine id: {}", legacy_message.id)))?;
+        *self = MachineId::from_str(&legacy_message.id).map_err(|_| {
+            // Deprecation: if they remove DecodeError::new, they hopefully will provide some other way
+            // to impl prost::Message.
+            #[allow(deprecated)]
+            DecodeError::new(format!("Invalid machine id: {}", legacy_message.id))
+        })?;
         Ok(())
     }
 

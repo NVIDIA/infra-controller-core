@@ -13,6 +13,11 @@ spec:
       {{- toYaml . | nindent 4 }}
     {{- end }}
   ports:
-    - protocol: TCP
+    - name: grpc-service
+      protocol: TCP
       port: {{ include "carbide-fmds.serverPort" . | int }}
       targetPort: {{ include "carbide-fmds.serverPort" . | int }}
+    - name: metrics
+      protocol: TCP
+      port: {{ include "carbide-fmds.metricsPort" . | int }}
+      targetPort: {{ include "carbide-fmds.metricsPort" . | int }}

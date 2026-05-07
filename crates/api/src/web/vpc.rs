@@ -116,7 +116,18 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
 
     vpcs.sort_unstable_by(|vpc1, vpc2| {
         // Order by name first, and ID second
-        let ord = vpc1.name.cmp(&vpc2.name);
+        let vpc1_name = vpc1
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or_default();
+        let vpc2_name = vpc2
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or_default();
+        let ord = vpc1_name.cmp(vpc2_name);
+
         if !ord.is_eq() {
             return ord;
         }

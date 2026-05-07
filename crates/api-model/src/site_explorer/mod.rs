@@ -132,14 +132,6 @@ pub struct EndpointExplorationReport {
 }
 
 impl EndpointExplorationReport {
-    pub fn cannot_login(&self) -> bool {
-        if let Some(ref e) = self.last_exploration_error {
-            return e.is_unauthorized();
-        }
-
-        false
-    }
-
     /// model does a best effort to find a model name within the report
     pub fn model(&self) -> Option<String> {
         // Prefer Systems, not Chassis; at least for Lenovo, Chassis has what is more of a SKU instead of the actual model name.

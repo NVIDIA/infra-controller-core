@@ -60,6 +60,10 @@ spec:
               {{- . | nindent 14 }}
           {{- end }}
           env:
+            - name: FORGE_DPU_AGENT_METRICS_TARGET
+              value: carbide-dpf-cluster-{{ .Values.carbide_dpu_agent }}.dpf-operator-system.svc.cluster.local:8888
+            - name: CARBIDE_FMDS_METRICS_TARGET
+              value: carbide-dpf-cluster-{{ .Values.carbide_fmds }}.dpf-operator-system.svc.cluster.local:8888
             - name: NODE_NAME
               valueFrom:
                 fieldRef:

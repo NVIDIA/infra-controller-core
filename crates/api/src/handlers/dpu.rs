@@ -195,7 +195,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
         &mut txn,
-        &snapshot.host_snapshot.id,
+        &snapshot,
         &dpu_snapshot.id,
         use_fnn_over_admin_nw,
         &api.common_pools,

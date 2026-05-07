@@ -18,6 +18,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use carbide_metrics_utils::OtelView;
 use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry::trace::{Link, SamplingDecision, SamplingResult, SpanKind, TracerProvider};
@@ -170,7 +171,7 @@ pub fn setup_logging(
     }
 }
 
-pub fn create_metrics() -> Result<Metrics, opentelemetry_sdk::metrics::MetricError> {
+pub fn create_metrics() -> eyre::Result<Metrics> {
     // This sets the global meter provider
     // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
     // for tracking milliseconds
@@ -212,17 +213,16 @@ pub fn create_metrics() -> Result<Metrics, opentelemetry_sdk::metrics::MetricErr
 /// This is more useful than the default histogram range where the lowest sets of
 /// buckets are 0, 5, 10, 25
 fn create_metric_view_for_retry_histograms(
-    name_filter: &str,
-) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry_sdk::metrics::MetricError> {
-    let mut criteria = opentelemetry_sdk::metrics::Instrument::new().name(name_filter.to_string());
-    criteria.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
-    let mask = opentelemetry_sdk::metrics::Stream::new().aggregation(
+    name_filter: &'static str,
+) -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        name_filter,
+        Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram),
         opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
             boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
             record_min_max: true,
         },
-    );
-    opentelemetry_sdk::metrics::new_view(criteria, mask)
+    )
 }
 
 #[derive(Debug, Clone)]

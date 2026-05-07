@@ -129,6 +129,10 @@ include_sensor_thresholds = true
 [collectors.firmware]
 firmware_refresh_interval = "30m"
 
+[collectors.leak_detector]
+poll_interval = "1m"
+state_refresh_interval = "30m"
+
 [collectors.logs]
 mode = "sse" # "sse" (default, preferred) or "periodic" (fallback)
 

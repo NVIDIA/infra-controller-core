@@ -31,7 +31,7 @@ use nv_redfish::bmc_http::{CacheSettings, HttpBmc};
 use nv_redfish::core::Bmc;
 use nv_redfish::event_service::EventStreamPayload;
 use prometheus::{Counter, Gauge, Histogram, HistogramOpts, IntCounter, IntGauge, Opts};
-use rand::Rng;
+use rand::RngExt;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 

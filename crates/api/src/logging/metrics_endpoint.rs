@@ -46,13 +46,12 @@ fn handle_metrics_request(
                 let alt_name_families: Vec<MetricFamily> = metric_families
                     .iter()
                     .filter_map(|family| {
-                        if !family.get_name().starts_with(old_prefix) {
+                        if !family.name().starts_with(old_prefix) {
                             return None;
                         }
 
                         let mut alt_name_family = family.clone();
-                        alt_name_family
-                            .set_name(family.get_name().replacen(old_prefix, new_prefix, 1));
+                        alt_name_family.set_name(family.name().replacen(old_prefix, new_prefix, 1));
                         Some(alt_name_family)
                     })
                     .collect();
