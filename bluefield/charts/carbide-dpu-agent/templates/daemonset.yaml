@@ -82,10 +82,6 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          ports:
-            - name: metrics
-              containerPort: 8888
-              protocol: TCP
           args:
             - run
             - "--hbn-config-mode=nvue-rest"
