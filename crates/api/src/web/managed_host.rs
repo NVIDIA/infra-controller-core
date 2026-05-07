@@ -337,7 +337,8 @@ impl ManagedHostRowDisplay {
                 .dpus
                 .iter()
                 .map(|d| {
-                    filters::machine_id_link(d.machine_id.clone()).unwrap_or("UNKNOWN".to_string())
+                    filters::machine_link(d.machine_id.clone(), "machine")
+                        .unwrap_or("UNKNOWN".to_string())
                 })
                 .collect(),
             DpuProperty::BmcIp => self

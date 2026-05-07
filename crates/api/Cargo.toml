@@ -76,7 +76,7 @@ state-controller = { path = "../state-controller" }
 #these are alphabetized
 ansi-to-html = { workspace = true }
 arc-swap = { workspace = true }
-askama = { features = ["serde-json"], workspace = true }
+askama = { features = ["serde_json"], workspace = true }
 askama_escape = { workspace = true }
 asn1-rs = { workspace = true }
 async-trait = { workspace = true }
