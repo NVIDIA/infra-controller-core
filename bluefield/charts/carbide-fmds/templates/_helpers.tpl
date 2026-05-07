@@ -56,7 +56,7 @@ Server Port
 {{- end -}}
 
 {{/*
-Metrics (Prometheus) port for stand-alone FMDS HTTP /metrics
+Metrics port for collecting FMDS metrics
 */}}
 {{- define "carbide-fmds.metricsPort" -}}
 {{- default 8888 .Values.metricsPort -}}

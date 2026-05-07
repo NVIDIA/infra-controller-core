@@ -49,7 +49,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Metrics (Prometheus) port for stand-alone FMDS HTTP /metrics
+Metrics port for collecting agent metrics
 */}}
 {{- define "carbide-dpu-agent.metricsPort" -}}
 {{- default 8888 .Values.metricsPort -}}
