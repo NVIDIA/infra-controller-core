@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine_validation::MachineValidationId;
 use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
@@ -74,12 +75,12 @@ pub async fn forge_agent_control(
     }
 }
 
-pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<rpc::common::Uuid> {
+pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<MachineValidationId> {
     if let Some(rpc::forge::forge_agent_control_response::Action::MachineValidation(
         machine_validation,
     )) = &response.action
     {
-        machine_validation.validation_id.clone()
+        machine_validation.validation_id
     } else {
         None
     }

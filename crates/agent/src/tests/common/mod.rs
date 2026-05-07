@@ -128,11 +128,14 @@ pub async fn run_grpc_server(
     app: axum::Router<()>,
 ) -> eyre::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")?; // 0 let OS choose available port
+    listener.set_nonblocking(true)?;
     let addr = listener.local_addr()?;
     let server_config = make_rustls_server_config()?;
     let join_handle = tokio::spawn(async move {
         let config = RustlsConfig::from_config(Arc::new(server_config));
         axum_server::from_tcp_rustls(listener, config)
+            // Safety: This only happens if the socket is nonblocking, and we already did set_nonblocking above.
+            .expect("BUG: Could not bind to listener")
             .serve(app.into_make_service())
             .await
             .unwrap();

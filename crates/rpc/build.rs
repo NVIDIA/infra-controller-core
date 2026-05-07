@@ -67,6 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.ComputeAllocationId", "::carbide_uuid::compute_allocation::ComputeAllocationId")
         .extern_path(".common.OperatingSystemId", "::carbide_uuid::operating_system::OperatingSystemId")
         .extern_path(".common.IpxeTemplateId", "::carbide_uuid::ipxe_template::IpxeTemplateId")
+        .extern_path(".common.MachineValidationId", "::carbide_uuid::machine_validation::MachineValidationId")
         .extern_path(".measured_boot.MeasurementSystemProfileId", "::carbide_uuid::measured_boot::MeasurementSystemProfileId")
         .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::carbide_uuid::measured_boot::MeasurementSystemProfileAttrId")
         .extern_path(".measured_boot.MeasurementBundleId", "::carbide_uuid::measured_boot::MeasurementBundleId")
@@ -282,6 +283,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.RoutingProfile",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.PrefixFilterPolicyEntry",
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.TrafficInterceptConfig", "#[derive(serde::Serialize)]")

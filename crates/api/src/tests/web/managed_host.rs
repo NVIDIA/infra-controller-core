@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use axum::body::Body;
-use carbide_utils::ManagedHostOutput;
+use carbide_rpc_utils::ManagedHostOutput;
 use db::managed_host;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;

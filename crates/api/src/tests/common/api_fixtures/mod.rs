@@ -1,8 +1,6 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +22,7 @@ use std::default::Default;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
@@ -35,13 +34,14 @@ use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_nvlink_manager::nvlink::NmxmClientPool;
 use carbide_nvlink_manager::nvlink::test_support::NmxmSimClient;
-use carbide_redfish::libredfish::test_support::RedfishSim;
+use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
@@ -257,6 +257,15 @@ pub struct TestEnvOverrides {
     // After n create_requests succeed, they will start failing.
     pub nmxm_fail_after_n_creates: Option<usize>,
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
+    pub redfish_overrides: Option<RedfishOverrides>,
+    pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RedfishOverrides {
+    pub no_component_integrities: bool,
+    pub firmware_for_component_error: bool,
+    pub get_task_trigger_evidence_returns_interrupted: bool,
 }
 
 impl TestEnvOverrides {
@@ -289,6 +298,7 @@ impl TestEnvOverrides {
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
                             tenant_leak_communities_accepted: false,
+                            accepted_leaks_from_underlay: vec![],
                         },
                     ),
                     (
@@ -301,6 +311,7 @@ impl TestEnvOverrides {
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
                             tenant_leak_communities_accepted: false,
+                            accepted_leaks_from_underlay: vec![],
                         },
                     ),
                 ]),
@@ -418,6 +429,7 @@ impl TestEnv {
                     model::machine::MachineState::Discovered { .. } => machine_state,
                     model::machine::MachineState::WaitingForLockdown { .. } => machine_state,
                     model::machine::MachineState::Measuring { .. } => machine_state,
+                    model::machine::MachineState::SpdmMeasuring { .. } => machine_state,
 
                     model::machine::MachineState::EnableIpmiOverLan => machine_state,
                     model::machine::MachineState::WaitingForBiosJob { .. } => machine_state,
@@ -445,6 +457,8 @@ impl TestEnv {
             ManagedHostState::DPUReprovision { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
+            ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),
+            ManagedHostState::StartAssignmentCycle => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
@@ -833,10 +847,14 @@ impl TestEnv {
         Option<u32>,
         NetworkSegmentId,
     ) {
-        let vpc_details =
-            VpcCreationRequest::builder("test vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
-                .network_virtualization_type(vtype1)
-                .tonic_request();
+        let vpc_details = VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            .metadata(Metadata {
+                name: "test vpc".to_string(),
+                description: "".to_string(),
+                labels: Default::default(),
+            })
+            .network_virtualization_type(vtype1)
+            .tonic_request();
 
         let vpc = self.api.create_vpc(vpc_details).await.unwrap().into_inner();
 
@@ -853,10 +871,13 @@ impl TestEnv {
         self.run_network_segment_controller_iteration().await;
         self.run_network_segment_controller_iteration().await;
 
-        let peer_vpc_details =
-            VpcCreationRequest::builder("test peer vpc", "e65a9d69-39d2-4872-a53e-e5cb87c84e75")
-                .network_virtualization_type(vtype2)
-                .tonic_request();
+        let peer_vpc_details = VpcCreationRequest::builder("e65a9d69-39d2-4872-a53e-e5cb87c84e75")
+            .metadata(Metadata {
+                name: "test peer vpc".to_string(),
+                ..Default::default()
+            })
+            .network_virtualization_type(vtype2)
+            .tonic_request();
 
         let peer_vpc = self
             .api
@@ -890,7 +911,12 @@ impl TestEnv {
 
     pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
         self.create_vpc_and_tenant_segment_with_vpc_details(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93").rpc(),
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .rpc(),
         )
         .await
     }
@@ -900,7 +926,12 @@ impl TestEnv {
         segment_count: usize,
     ) -> Vec<NetworkSegmentId> {
         self.create_vpc_and_tenant_segments_with_vpc_details(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93").rpc(),
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .rpc(),
             segment_count,
         )
         .await
@@ -910,7 +941,11 @@ impl TestEnv {
         let vpc = self
             .api
             .create_vpc(
-                VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                    .metadata(Metadata {
+                        name: "test vpc 1".to_string(),
+                        ..Default::default()
+                    })
                     .tonic_request(),
             )
             .await
@@ -1057,6 +1092,7 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
         default_tenant_routing_profile_type: "EXTERNAL".to_string(),
+        web_ui_sidebar_tools: vec![],
         bgp_leaf_session_password: None,
         rack_validation_config: crate::cfg::file::RackValidationConfig {
             enabled: true,
@@ -1223,7 +1259,7 @@ pub fn get_config() -> CarbideConfig {
             controller: StateControllerConfig::default(),
         },
         spdm: SpdmConfig {
-            enabled: true,
+            enabled: false,
             nras_config: Some(nras::Config::default()),
         },
         machine_identity: crate::cfg::file::MachineIdentityConfig {
@@ -1280,7 +1316,9 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
 }
 
 #[derive(Debug, Default)]
-pub struct VerifierSimImpl {}
+pub struct VerifierSimImpl {
+    should_fail_parsing: Arc<AtomicBool>,
+}
 
 #[async_trait::async_trait]
 impl Verifier for VerifierSimImpl {
@@ -1292,10 +1330,17 @@ impl Verifier for VerifierSimImpl {
         _nras_config: &nras::Config,
         _state: &RawAttestationOutcome,
     ) -> Result<ProcessedAttestationOutcome, NrasError> {
-        Ok(ProcessedAttestationOutcome {
-            attestation_passed: true,
-            devices: HashMap::new(),
-        })
+        if self.should_fail_parsing.load(Ordering::Relaxed) {
+            Ok(ProcessedAttestationOutcome {
+                attestation_passed: false,
+                devices: HashMap::new(),
+            })
+        } else {
+            Ok(ProcessedAttestationOutcome {
+                attestation_passed: true,
+                devices: HashMap::new(),
+            })
+        }
     }
 }
 
@@ -1358,7 +1403,18 @@ pub async fn create_test_env_with_overrides(
     ));
 
     let certificate_provider = Arc::new(TestCertificateProvider::new());
-    let redfish_sim = Arc::new(RedfishSim::default());
+
+    let redfish_sim = if let Some(redfish_overrides) = overrides.redfish_overrides {
+        Arc::new(RedfishSim::with_test_overrides(RedfishSimTestOverrides {
+            no_component_integrities: redfish_overrides.no_component_integrities,
+            firmware_for_component_error: redfish_overrides.firmware_for_component_error,
+            get_task_trigger_evidence_returns_interrupted: redfish_overrides
+                .get_task_trigger_evidence_returns_interrupted,
+        }))
+    } else {
+        Arc::new(RedfishSim::default())
+    };
+
     let nmxm_sim: Arc<dyn NmxmClientPool> =
         Arc::new(if let Some(n) = overrides.nmxm_fail_after_n_creates {
             NmxmSimClient::with_fail_after_n_creates(n)
@@ -1561,9 +1617,15 @@ pub async fn create_test_env_with_overrides(
         )),
     };
 
+    let verifier = VerifierSimImpl {
+        should_fail_parsing: overrides
+            .nras_should_fail_parsing
+            .unwrap_or(Arc::new(AtomicBool::new(false))),
+    };
+
     let spdm_swap = SwapHandler {
         inner: Arc::new(Mutex::new(SpdmAttestationStateHandler::new(
-            Arc::new(VerifierSimImpl::default()),
+            Arc::new(verifier),
             nras::Config::default(),
         ))),
     };
@@ -2501,6 +2563,7 @@ pub async fn machine_validation_completed(
 ) {
     let response = forge_agent_control(env, *machine_id).await;
     let uuid = &response.data.unwrap().pair[1].value;
+    let validation_id: MachineValidationId = uuid.parse().unwrap();
 
     let _response = env
         .api
@@ -2508,9 +2571,7 @@ pub async fn machine_validation_completed(
             rpc::forge::MachineValidationCompletedRequest {
                 machine_id: Some(*machine_id),
                 machine_validation_error,
-                validation_id: Some(rpc::Uuid {
-                    value: uuid.to_owned(),
-                }),
+                validation_id: Some(validation_id),
             },
         ))
         .await
@@ -2585,7 +2646,7 @@ pub async fn get_machine_validation_results(
     env: &TestEnv,
     machine_id: Option<&MachineId>,
     include_history: bool,
-    validation_id: Option<rpc::common::Uuid>,
+    validation_id: Option<MachineValidationId>,
 ) -> rpc::forge::MachineValidationResultList {
     env.api
         .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
@@ -2641,7 +2702,7 @@ pub async fn on_demand_machine_validation(
 
 pub async fn update_machine_validation_run(
     env: &TestEnv,
-    validation_id: Option<rpc::common::Uuid>,
+    validation_id: Option<MachineValidationId>,
     duration_to_complete: Option<rpc::Duration>,
     total: u32,
 ) -> rpc::forge::MachineValidationRunResponse {

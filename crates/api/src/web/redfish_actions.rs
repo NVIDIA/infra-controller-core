@@ -22,13 +22,14 @@ use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use axum::{Extension, Json};
 use axum_extra::extract::PrivateCookieJar;
+use carbide_rpc_utils::managed_host_display::to_time;
 use http::HeaderMap;
 use hyper::http::StatusCode;
 use rpc::forge::RedfishAction;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
-use super::Oauth2Layer;
+use super::{Base, Oauth2Layer};
 use crate::api::Api;
 use crate::auth::AuthContext;
 use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
@@ -208,15 +209,19 @@ pub mod filters {
     use std::fmt::Write;
 
     use askama_escape::Escaper;
-    use carbide_utils::managed_host_display::to_time;
     use itertools::Itertools;
     use rpc::forge::OptionalRedfishActionResult;
 
-    pub fn date_fmt(value: &rpc::Timestamp) -> ::askama::Result<String> {
-        Ok(to_time::<String>(Some(*value), None).unwrap_or_default())
+    #[askama::filter_fn]
+    pub fn date_fmt(value: &rpc::Timestamp, _env: &dyn askama::Values) -> ::askama::Result<String> {
+        super::date_fmt_inner(value)
     }
 
-    pub fn machine_ips_fmt(values: &[String]) -> ::askama::Result<String> {
+    #[askama::filter_fn]
+    pub fn machine_ips_fmt(
+        values: &[String],
+        _env: &dyn askama::Values,
+    ) -> ::askama::Result<String> {
         let mut result = String::new();
 
         for value in values {
@@ -235,11 +240,20 @@ pub mod filters {
         Ok(result)
     }
 
-    pub fn contains_name(approvals: &[String], name: &str) -> ::askama::Result<bool> {
+    #[askama::filter_fn]
+    pub fn contains_name(
+        approvals: &[String],
+        _env: &dyn askama::Values,
+        name: &str,
+    ) -> ::askama::Result<bool> {
         Ok(approvals.iter().any(|o| o == name))
     }
 
-    pub fn to_json(values: &[OptionalRedfishActionResult]) -> ::askama::Result<Vec<String>> {
+    #[askama::filter_fn]
+    pub fn to_json(
+        values: &[OptionalRedfishActionResult],
+        _env: &dyn askama::Values,
+    ) -> ::askama::Result<Vec<String>> {
         fn escape_quotes(s: String) -> String {
             format!("\"{}\"", s.replace('"', r#"\""#))
         }
@@ -261,7 +275,7 @@ pub mod filters {
                     escape_quotes(v.body.clone()),
                     v.completed_at
                         .as_ref()
-                        .map(date_fmt)
+                        .map(super::date_fmt_inner)
                         .transpose()?
                         .unwrap_or("missing timestamp".to_string()),
                 );
@@ -270,3 +284,9 @@ pub mod filters {
             .collect::<Result<Vec<_>, _>>()
     }
 }
+
+pub fn date_fmt_inner(value: &rpc::Timestamp) -> ::askama::Result<String> {
+    Ok(to_time::<String>(Some(*value), None).unwrap_or_default())
+}
+
+impl super::Base for RedfishBrowser {}

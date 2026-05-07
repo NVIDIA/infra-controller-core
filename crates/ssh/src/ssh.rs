@@ -18,42 +18,28 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use async_ssh2_tokio::{AuthMethod, Client, ServerCheckMethod};
-
-#[derive(thiserror::Error, Debug)]
-#[error(transparent)]
-pub struct SshError(#[from] pub async_ssh2_tokio::Error);
-
-/// Configuration for russh's SSH client connections
-fn russh_client_config() -> russh::client::Config {
-    russh::client::Config {
-        // Some BMC's use a Diffie-Hellman group size of 2048, which is not allowed by default.
-        gex: russh::client::GexParams::new(2048, 8192, 8192)
-            .expect("BUG: static DH group parameters must be valid"),
-        keepalive_interval: Some(Duration::from_secs(60)),
-        keepalive_max: 2,
-        window_size: 2097152 * 3,
-        maximum_packet_size: 65535,
-        ..Default::default()
-    }
-}
+use crate::SshError;
+use crate::ssh_client::AuthConfig;
 
 async fn execute_command(
     command: &str,
     ip_address: SocketAddr,
-    username: &str,
-    password: &str,
+    username: String,
+    password: String,
 ) -> Result<(String, u32), SshError> {
-    let auth_method = AuthMethod::with_password(password);
-    let client = Client::connect_with_config(
-        ip_address,
-        username,
-        auth_method,
-        ServerCheckMethod::NoCheck,
-        russh_client_config(),
-    )
+    let host = ip_address.to_string();
+    let auth = AuthConfig::Password { password };
+    let client = crate::ssh_client::SshClientConfig {
+        host: &host,
+        port: 22,
+        username: &username,
+        auth: Some(&auth),
+        known_hosts_file: None,
+    }
+    .make_authenticated_client()
     .await?;
-    let result = client.execute(command).await?;
+
+    let result = client.execute_ssh_command(command).await?;
 
     Ok((result.stdout, result.exit_status))
 }
@@ -64,8 +50,7 @@ pub async fn disable_rshim(
     password: String,
 ) -> Result<(), SshError> {
     let command = "systemctl disable --now rshim";
-    let (_stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (_stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
     Ok(())
 }
 
@@ -75,8 +60,7 @@ pub async fn enable_rshim(
     password: String,
 ) -> Result<(), SshError> {
     let command = "systemctl enable --now rshim";
-    let (_stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (_stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
     Ok(())
 }
 
@@ -86,8 +70,7 @@ pub async fn is_rshim_enabled(
     password: String,
 ) -> Result<bool, SshError> {
     let command = "systemctl is-active rshim";
-    let (stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
     Ok(stdout.trim() == "active")
 }
 
@@ -220,7 +203,7 @@ async fn scp_cmd_write(
 }
 
 fn io_ssh_error(e: std::io::Error) -> SshError {
-    SshError(async_ssh2_tokio::Error::IoError(e))
+    SshError::Io(e)
 }
 
 pub async fn read_obmc_console_log(
@@ -229,8 +212,7 @@ pub async fn read_obmc_console_log(
     password: String,
 ) -> Result<String, SshError> {
     let command = "cat /var/log/obmc-console.log";
-    let (stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
     Ok(stdout)
 }
 
@@ -244,8 +226,7 @@ pub async fn check_console_for_markers(
     markers: &[&str],
 ) -> Result<bool, SshError> {
     let command = r#"(printf '\n'; sleep 2) | timeout 5 obmc-console-client 2>/dev/null; true"#;
-    let (stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
 
     let found = stdout
         .lines()

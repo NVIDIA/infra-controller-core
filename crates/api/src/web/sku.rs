@@ -25,6 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
 use crate::api::Api;
 use crate::web::filters;
 
@@ -214,3 +215,6 @@ pub async fn detail(
     let tmpl: SkuDetail = sku.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for SkuShow {}
+impl super::Base for SkuDetail {}

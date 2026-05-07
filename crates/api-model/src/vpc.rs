@@ -144,7 +144,6 @@ impl From<Vpc> for rpc::forge::Vpc {
         rpc::forge::Vpc {
             id: Some(src.id),
             version: src.version.version_string(),
-            name: src.metadata.name.clone(),
             tenant_organization_id: src.tenant_organization_id,
             network_security_group_id: src
                 .network_security_group_id
@@ -199,24 +198,14 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
     fn try_from(value: rpc::forge::VpcCreationRequest) -> Result<Self, Self::Error> {
         let virt_type = match value.network_virtualization_type {
             None => DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
-            Some(v) => v.try_into()?,
+            Some(v) => rpc::network::vpc_virtualization_type_try_from_rpc(v)?,
         };
         let id = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
-        // If Metadata isn't passed or empty, then use the old name field
-        let use_legacy_name = if let Some(metadata) = &value.metadata {
-            metadata.name.is_empty()
-        } else {
-            true
-        };
-
-        let mut metadata = match value.metadata {
+        let metadata = match value.metadata {
             Some(metadata) => metadata.try_into()?,
             None => Metadata::new_with_default_name(),
         };
-        if use_legacy_name {
-            metadata.name = value.name;
-        }
 
         metadata.validate(true).map_err(|e| {
             RpcDataConversionError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
@@ -262,20 +251,10 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
                 None => None,
             };
 
-        // If Metadata isn't passed or empty, then use the old name field
-        let use_legacy_name = if let Some(metadata) = &value.metadata {
-            metadata.name.is_empty()
-        } else {
-            true
-        };
-
-        let mut metadata = match value.metadata {
+        let metadata = match value.metadata {
             Some(metadata) => metadata.try_into()?,
             None => Metadata::new_with_default_name(),
         };
-        if use_legacy_name {
-            metadata.name = value.name;
-        }
 
         metadata.validate(true).map_err(|e| {
             RpcDataConversionError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
@@ -311,7 +290,7 @@ impl TryFrom<rpc::forge::VpcUpdateVirtualizationRequest> for UpdateVpcVirtualiza
             };
 
         let network_virtualization_type = match value.network_virtualization_type {
-            Some(v) => v.try_into()?,
+            Some(v) => rpc::network::vpc_virtualization_type_try_from_rpc(v)?,
             None => {
                 return Err(RpcDataConversionError::MissingArgument(
                     "network_virtualization_type",

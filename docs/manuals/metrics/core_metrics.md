@@ -120,4 +120,4 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_switches_total</td><td>gauge</td><td>The total number of carbide_switches in the system</td></tr>
 <tr><td>carbide_total_ips_count</td><td>gauge</td><td>The total number of ips in the site</td></tr>
 <tr><td>carbide_unavailable_dpu_nic_firmware_update_count</td><td>gauge</td><td>The number of machines in the system that need a firmware update but are unavailable for update.</td></tr>
-<table>
+</table>

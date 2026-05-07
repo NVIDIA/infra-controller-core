@@ -19,13 +19,13 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
 use carbide_site_explorer::{EndpointExplorer, SiteExplorationMetrics};
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::{PowerState, RoleId, SystemPowerControl};
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
+    NicMode,
 };
 
 /// EndpointExplorer which returns predefined data
@@ -86,7 +86,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
         _expected: Option<&ExpectedEntity>,
-        _last_report: Option<&EndpointExplorationReport>,
+        _last_error: Option<&EndpointExplorationError>,
         _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {bmc_ip_address} is getting explored");

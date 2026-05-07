@@ -36,6 +36,7 @@ use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -897,7 +898,6 @@ impl ApiClient {
         let vpc = match self
             .0
             .create_vpc(VpcCreationRequest {
-                name: name.to_string(),
                 vni: None,
                 routing_profile_type: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
@@ -1543,12 +1543,8 @@ impl ApiClient {
         &self,
         machine_id: Option<MachineId>,
         history: bool,
-        arg_validation_id: Option<String>,
+        validation_id: Option<MachineValidationId>,
     ) -> CarbideCliResult<rpc::MachineValidationResultList> {
-        let mut validation_id: Option<::rpc::common::Uuid> = None;
-        if let Some(value) = arg_validation_id {
-            validation_id = Some(::rpc::common::Uuid { value })
-        }
         let request = rpc::MachineValidationGetRequest {
             machine_id,
             include_history: history,
@@ -1671,12 +1667,10 @@ impl ApiClient {
         &self,
         vpc_id: VpcId,
         version: String,
-        name: String,
         metadata: Option<rpc::Metadata>,
         network_security_group_id: Option<String>,
     ) -> CarbideCliResult<rpc::Vpc> {
         let request = rpc::VpcUpdateRequest {
-            name,
             id: Some(vpc_id),
             if_version_match: Some(version),
             metadata,

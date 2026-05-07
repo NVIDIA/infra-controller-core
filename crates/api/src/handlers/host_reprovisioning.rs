@@ -163,8 +163,9 @@ pub async fn report_scout_firmware_upgrade_status(
         reprovision_state:
             HostReprovisionState::WaitingForScoutUpgrade {
                 upgrade_task_id,
-                component_type,
-                target_version,
+                firmware_type,
+                final_version,
+                power_drains_needed,
                 started_at,
                 deadline,
                 task_json,
@@ -199,8 +200,9 @@ pub async fn report_scout_firmware_upgrade_status(
     let new_state = ManagedHostState::HostReprovision {
         reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
             upgrade_task_id,
-            component_type,
-            target_version,
+            firmware_type,
+            final_version,
+            power_drains_needed,
             started_at,
             deadline,
             task_json,

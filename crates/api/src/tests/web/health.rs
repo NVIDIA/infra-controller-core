@@ -22,7 +22,9 @@ use rpc::forge::AdminForceDeleteMachineRequest;
 use rpc::forge::forge_server::Forge;
 use tower::ServiceExt;
 
-use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
+use crate::tests::common::api_fixtures::site_explorer::{
+    TestRackDbBuilder, new_power_shelf, new_switch,
+};
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 use crate::tests::web::{make_test_app, web_request_builder};
 
@@ -289,4 +291,242 @@ async fn test_health_of_rack(pool: sqlx::PgPool) {
         .to_bytes();
     let body = String::from_utf8_lossy(&body_bytes);
     assert!(!body.contains("web-rack-health-test"));
+}
+
+#[crate::sqlx_test]
+async fn test_health_of_switch(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let app = make_test_app(&env);
+    let switch_id = new_switch(&env, None, None).await.unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/switch/{switch_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(body.contains("Switch Health"));
+    assert!(body.contains("Health Report Management"));
+    assert!(body.contains("Health History"));
+
+    let payload = r#"{
+        "mode": "Merge",
+        "health_report": {
+            "source": "web-switch-health-test",
+            "triggered_by": null,
+            "observed_at": null,
+            "successes": [],
+            "alerts": [{
+                "id": "SwitchWebHealth",
+                "target": null,
+                "in_alert_since": null,
+                "message": "switch web health",
+                "tenant_message": null,
+                "classifications": ["PreventAllocations"]
+            }]
+        }
+    }"#;
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!("/admin/switch/{switch_id}/health/add-report"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/switch/{switch_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(body.contains("web-switch-health-test"));
+    assert!(body.contains("switch web health"));
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!("/admin/switch/{switch_id}/health/remove-report"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(r#"{"source":"web-switch-health-test"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/switch/{switch_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(!body.contains("web-switch-health-test"));
+}
+
+#[crate::sqlx_test]
+async fn test_health_of_power_shelf(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let app = make_test_app(&env);
+    let power_shelf_id = new_power_shelf(&env, None, None, None, None).await.unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/power-shelf/{power_shelf_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(body.contains("Power Shelf Health"));
+    assert!(body.contains("Health Report Management"));
+    assert!(body.contains("Health History"));
+
+    let payload = r#"{
+        "mode": "Merge",
+        "health_report": {
+            "source": "web-power-shelf-health-test",
+            "triggered_by": null,
+            "observed_at": null,
+            "successes": [],
+            "alerts": [{
+                "id": "PowerShelfWebHealth",
+                "target": null,
+                "in_alert_since": null,
+                "message": "power shelf web health",
+                "tenant_message": null,
+                "classifications": ["PreventAllocations"]
+            }]
+        }
+    }"#;
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/admin/power-shelf/{power_shelf_id}/health/add-report"
+                ))
+                .header("Content-Type", "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/power-shelf/{power_shelf_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(body.contains("web-power-shelf-health-test"));
+    assert!(body.contains("power shelf web health"));
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/admin/power-shelf/{power_shelf_id}/health/remove-report"
+                ))
+                .header("Content-Type", "application/json")
+                .body(Body::from(r#"{"source":"web-power-shelf-health-test"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/power-shelf/{power_shelf_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(!body.contains("web-power-shelf-health-test"));
 }

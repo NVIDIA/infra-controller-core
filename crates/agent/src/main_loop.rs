@@ -29,8 +29,8 @@ use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
-use carbide_utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
@@ -120,11 +120,22 @@ pub async fn setup_and_run(
             machine_id,
             forge_api_server.clone(),
             Arc::clone(&forge_client_config),
-        ),
+            agent_config.machine_identity.clone(),
+        )
+        .map_err(|e| eyre::eyre!("failed to initialize instance metadata router state: {e}"))?,
     );
 
     let agent_meter = get_dpu_agent_meter();
     let metrics = create_metrics(agent_meter);
+
+    if let Err(e) = crate::metadata_service::spawn_prometheus_metrics_server(
+        agent_config.telemetry.metrics_address.clone(),
+    ) {
+        tracing::warn!(
+            error = format!("{e:#}"),
+            "Failed to start Prometheus /metrics endpoint"
+        );
+    }
 
     // And now set up our FMDS updater, which will either be our original
     // embedded server (which spins up a local listener within the DPU agent)
@@ -135,8 +146,13 @@ pub async fn setup_and_run(
             fmds_address = fmds_addr,
             "Using FmdsUpdater::External FMDS service"
         );
-        match crate::fmds_client::FmdsGrpcClient::connect(fmds_addr).await {
-            Ok(fmds_client) => FmdsUpdater::External(fmds_client),
+        match crate::fmds_client::FmdsGrpcClient::connect(
+            fmds_addr,
+            agent_config.machine_identity.clone(),
+        )
+        .await
+        {
+            Ok(fmds_client) => FmdsUpdater::External(Box::new(fmds_client)),
             Err(e) => {
                 tracing::warn!(
                     "Failed to connect to external FMDS service: {e:#}, falling back to embedded"
@@ -148,7 +164,6 @@ pub async fn setup_and_run(
         if options.enable_metadata_service {
             crate::metadata_service::spawn_metadata_service(
                 agent_config.metadata_service.address.clone(),
-                agent_config.telemetry.metrics_address.clone(),
                 metrics.clone(),
                 instance_metadata_state.clone(),
             )

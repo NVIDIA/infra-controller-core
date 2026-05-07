@@ -30,7 +30,7 @@ use measured_boot::{
 use rpc::forge::forge_server::Forge;
 use rpc::protos::measured_boot as mbprotos;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const PCR_SLOT_MAX_NUM: usize = 12;
@@ -475,3 +475,6 @@ fn extract_pcr_slot_idx(potential_idx: &str) -> Result<Option<String>, (StatusCo
 
     Ok(None)
 }
+
+impl super::Base for AttestationSummary {}
+impl super::Base for AttestationResults {}

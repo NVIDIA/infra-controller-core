@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -210,3 +210,6 @@ pub async fn detail(
     let keyset_detail: TenantKeysetDetail = keyset.into();
     (StatusCode::OK, Html(keyset_detail.render().unwrap())).into_response()
 }
+
+impl super::Base for KeysetShow {}
+impl super::Base for TenantKeysetDetail {}

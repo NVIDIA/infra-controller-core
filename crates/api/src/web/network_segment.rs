@@ -27,7 +27,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -354,3 +354,6 @@ pub async fn detail(
     tmpl.domain_name = domain_name;
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for NetworkSegmentShow {}
+impl super::Base for NetworkSegmentDetail {}

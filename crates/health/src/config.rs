@@ -292,6 +292,9 @@ pub struct CollectorsConfig {
     /// Firmware collector configuration (if present, firmware collector is enabled)
     pub firmware: Configurable<FirmwareCollectorConfig>,
 
+    /// Leak detector collector configuration (if present, leak detector collector is enabled)
+    pub leak_detector: Configurable<LeakDetectorCollectorConfig>,
+
     /// Logs collector configuration (if present, logs collector is enabled)
     pub logs: Configurable<LogsCollectorConfig>,
 
@@ -307,6 +310,7 @@ impl Default for CollectorsConfig {
         Self {
             sensors: Configurable::Enabled(SensorCollectorConfig::default()),
             firmware: Configurable::Disabled,
+            leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
             nvue: Configurable::Disabled,
@@ -410,6 +414,27 @@ impl Default for FirmwareCollectorConfig {
     fn default() -> Self {
         Self {
             firmware_refresh_interval: Duration::from_secs(60 * 60 * 2), // 2 hours
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeakDetectorCollectorConfig {
+    /// Interval between thermal subsystem leak detector polls.
+    #[serde(with = "humantime_serde")]
+    pub poll_interval: Duration,
+
+    /// Interval between thermal subsystem leak detector discovery refreshes.
+    #[serde(with = "humantime_serde")]
+    pub state_refresh_interval: Duration,
+}
+
+impl Default for LeakDetectorCollectorConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(60),
+            state_refresh_interval: Duration::from_secs(60 * 30),
         }
     }
 }
@@ -771,6 +796,7 @@ mod tests {
 
         assert!(config.collectors.sensors.is_enabled());
         assert!(config.collectors.firmware.is_enabled());
+        assert!(config.collectors.leak_detector.is_enabled());
         assert!(config.collectors.logs.is_enabled());
         assert!(config.collectors.nvue.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
@@ -792,6 +818,16 @@ mod tests {
             assert!(logs.validate().is_ok());
         } else {
             panic!("logs empty")
+        }
+
+        if let Configurable::Enabled(ref leak_detector) = config.collectors.leak_detector {
+            assert_eq!(leak_detector.poll_interval, Duration::from_secs(60));
+            assert_eq!(
+                leak_detector.state_refresh_interval,
+                Duration::from_secs(1800)
+            );
+        } else {
+            panic!("leak detector collector is disabled")
         }
 
         if let Configurable::Enabled(ref leak_detection) = config.processors.leak_detection {
@@ -888,6 +924,7 @@ cache_size = 50
         }
 
         assert!(!config.collectors.firmware.is_enabled());
+        assert!(config.collectors.leak_detector.is_enabled());
         assert!(!config.collectors.logs.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
 
@@ -971,6 +1008,7 @@ cache_size = 50
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(config.rate_limit.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
+        assert!(config.collectors.leak_detector.is_enabled());
         assert!(!config.collectors.nvue.is_enabled());
     }
 

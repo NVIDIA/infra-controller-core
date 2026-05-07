@@ -1,4 +1,4 @@
-#!/bin/bash -p
+#!/usr/bin/env -S bash -p
 
 CERT_PATH=/opt/forge/machine_cert.pem
 KEY_PATH=/opt/forge/machine_cert.key

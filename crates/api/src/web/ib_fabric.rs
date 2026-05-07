@@ -25,6 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -77,3 +78,5 @@ pub async fn fetch_ib_fabric_ids(api: Arc<Api>) -> Result<Vec<String>, tonic::St
 
     Ok(ib_fabric_ids)
 }
+
+impl super::Base for IbFabricShow {}

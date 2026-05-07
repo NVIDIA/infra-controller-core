@@ -18,11 +18,12 @@
 use std::net::SocketAddr;
 
 use libredfish::RoleId;
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
-use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
+use model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, LockdownStatus, NicMode,
+};
 
 use super::metrics::SiteExplorationMetrics;
 
@@ -39,7 +40,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         expected: Option<&ExpectedEntity>,
-        last_report: Option<&EndpointExplorationReport>,
+        last_exploration_error: Option<&EndpointExplorationError>,
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
 

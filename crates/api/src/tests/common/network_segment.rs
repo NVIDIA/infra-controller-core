@@ -70,8 +70,7 @@ pub async fn create_network_segment_with_api(
     let vpc_id = if use_vpc {
         env.api
             .create_vpc(
-                VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
-                    .tonic_request(),
+                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93").tonic_request(),
             )
             .await
             .unwrap()

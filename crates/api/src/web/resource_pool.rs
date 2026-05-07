@@ -25,9 +25,13 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
+
 mod filters {
+    #[askama::filter_fn]
     pub fn resource_pool_allocated_fmt(
         pool: &super::forgerpc::ResourcePool,
+        _env: &dyn askama::Values,
     ) -> askama::Result<String> {
         Ok(format!(
             "{} ({:.0}%)",
@@ -88,3 +92,5 @@ async fn fetch_resource_pools(api: Arc<Api>) -> Result<Vec<forgerpc::ResourcePoo
     out.pools.sort_unstable_by(|p1, p2| p1.name.cmp(&p2.name));
     Ok(out.pools)
 }
+
+impl super::Base for ResourcePoolShow {}

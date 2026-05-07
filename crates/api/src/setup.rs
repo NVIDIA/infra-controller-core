@@ -274,6 +274,13 @@ pub fn parse_carbide_config(
         }
     }
 
+    // Validate that admin-UI tool entries have unique names.
+    config.validate_web_ui_sidebar_tools()?;
+
+    // Publish the configured tool list to the web layer so the
+    // admin-UI sidebar and per-machine "Logs" deep link can read it.
+    crate::web::init_tools(config.web_ui_sidebar_tools.clone());
+
     // Validate that the firmware profile config keys match their inner
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
@@ -708,7 +715,7 @@ pub async fn initialize_and_start_controllers(
                 tracing::error!("expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing: {err}.");
             })?;
         let mut txn = Transaction::begin(db_pool).await?;
-        db::expected_machine::create_missing_from(&mut txn, &expected_machines)
+        crate::handlers::expected_machine::create_missing_from(&mut txn, &expected_machines)
             .await
             .inspect_err(|err| {
                 tracing::error!(
@@ -1030,7 +1037,7 @@ pub async fn initialize_and_start_controllers(
     if carbide_config.spdm.enabled {
         let Some(nras_config) = carbide_config.spdm.nras_config.clone() else {
             return Err(eyre::eyre!(
-                "SPDm attestation is enabled but NRAS Config is missing!!"
+                "SPDM attestation is enabled but NRAS Config is missing!!"
             ));
         };
 

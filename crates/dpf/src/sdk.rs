@@ -76,9 +76,10 @@ use crate::repository::{
 };
 use crate::types::{
     BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuServiceInterfaceTemplateDefinition,
-    DpuServiceInterfaceTemplateType, FMDS_SERVICE_NAME, InitDpfResourcesConfig,
-    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType,
+    DPU_AGENT_SERVICE_NAME, DpuDeviceInfo, DpuNodeInfo, DpuPhase,
+    DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, FMDS_SERVICE_NAME,
+    InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
+    ServiceDefinition, ServiceNADResourceType,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -410,9 +411,9 @@ async fn create_bfb<R: BfbRepository>(
     bfb_url: &str,
 ) -> Result<String, DpfError> {
     let bfb_name = format!(
-        "{}-{:x}",
+        "{}-{}",
         BFB_NAME_PREFIX,
-        Sha256::digest(bfb_url.as_bytes())
+        hex::encode(Sha256::digest(bfb_url.as_bytes()))
     );
 
     let bfb = BFB {
@@ -640,8 +641,8 @@ pub fn build_deployment<L: ResourceLabeler>(
             (
                 svc.name.clone(),
                 DpuDeploymentServices {
-                    depends_on: if svc.name == "carbide-dpu-agent" {
-                        Some(vec![
+                    depends_on: match svc.name.as_str() {
+                        DPU_AGENT_SERVICE_NAME => Some(vec![
                             DpuDeploymentServicesDependsOn {
                                 name: DHCP_SERVER_SERVICE_NAME.to_string(),
                             },
@@ -651,9 +652,17 @@ pub fn build_deployment<L: ResourceLabeler>(
                             DpuDeploymentServicesDependsOn {
                                 name: DOCA_HBN_SERVICE_NAME.to_string(),
                             },
-                        ])
-                    } else {
-                        None
+                        ]),
+                        OTEL_COLLECTOR_SERVICE_NAME => Some(vec![
+                            DpuDeploymentServicesDependsOn {
+                                name: DPU_AGENT_SERVICE_NAME.to_string(),
+                            },
+                            DpuDeploymentServicesDependsOn {
+                                name: FMDS_SERVICE_NAME.to_string(),
+                            },
+                        ]),
+
+                        _ => None,
                     },
                     service_configuration: Some(svc.name.clone()),
                     service_template: Some(svc.name.clone()),
@@ -1431,24 +1440,6 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
     ) -> Result<(), DpfError> {
         let node_name = &dpu_node_cr_name(node_id);
         let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace).await?;
-
-        for name in dpu_device_names {
-            let dpu_cr_name = dpu_cr_name(name, node_id);
-            let dpu_cr = DpuRepository::get(&*self.repo, &dpu_cr_name, &self.namespace).await?;
-
-            if dpu_cr.is_some() {
-                // Move the DPU to the Error phase so the operator stops reconciling it
-                // before we drop the DPUNode and DPUDevice CRs below. Best-effort: a
-                // failed patch must not block the deletes that follow.
-                let patch = json!({ "status": { "phase": "Error" } });
-                if let Err(e) =
-                    DpuRepository::patch_status(&*self.repo, &dpu_cr_name, &self.namespace, patch)
-                        .await
-                {
-                    tracing::warn!("Failed to patch DPU {} to Error phase: {}", dpu_cr_name, e);
-                }
-            }
-        }
 
         if let Some(node) = node {
             let dpus = node.spec.dpus.unwrap_or_default();

@@ -768,10 +768,11 @@ service Forge {
   rpc FindInstancesByDpuExtensionService(FindInstancesByDpuExtensionServiceRequest) returns (FindInstancesByDpuExtensionServiceResponse);
 
   // SPDM attestation APIs start
-  rpc TriggerMachineAttestation(AttestationData) returns (google.protobuf.Empty);
-  rpc CancelMachineAttestation(AttestationData) returns (google.protobuf.Empty);
-  rpc FindMachineIdsUnderAttestation(AttestationIdsRequest) returns (common.MachineIdList);
-  rpc FindMachinesUnderAttestation(AttestationMachineList) returns (AttestationResponse);
+  rpc TriggerMachineAttestation(SpdmMachineAttestationTriggerRequest) returns (SpdmMachineAttestationTriggerResponse);
+  rpc CancelMachineAttestation(common.MachineId) returns (google.protobuf.Empty);
+  rpc FindMachineIdsUnderAttestation(google.protobuf.Empty) returns (common.MachineIdList);
+  rpc ListAttestationsForMachineId(common.MachineId) returns (SpdmListAttestationsResponse);
+  rpc GetMachineAttestationStatus(common.MachineId) returns (SpdmMachineAttestationStatusResponse);
   // SPDM attestation APIs end
 
   // SPIFFE Machine Identity APIs
@@ -933,37 +934,44 @@ message LifecycleStatus {
   StateSla sla = 4;
 }
 
+enum SpdmAttestationStatus{
+  SPDM_ATT_IN_PROGRESS = 0;
+  SPDM_ATT_CANCELLED = 1;
+  SPDM_ATT_PASSED = 2;
+  SPDM_ATT_FAILED = 3;
+}
+
 message AttestationIdsRequest {
 
 }
 
-message AttestationData {
+message SpdmMachineAttestationStatusResponse {
   common.MachineId machine_id = 1;
+  SpdmAttestationStatus attestation_status = 2;
 }
 
-message AttestationMachineList {
-  repeated common.MachineId machine_ids = 1;
+message SpdmMachineAttestationTriggerResponse {
+  common.MachineId machine_id = 1;
+  int32 devices_under_attestation = 2;
 }
 
-message AttestationResponse {
-  message AttestationDeviceData {
-    string device_id = 1;
-    common.UUID nonce = 2;
-    string state = 3;
-    optional string metadata = 4;
-  }
-  message AttestationMachineData {
-    common.MachineId machine_id = 1;
-    google.protobuf.Timestamp requested_at = 2;
-    optional google.protobuf.Timestamp started_at = 3;
-    optional google.protobuf.Timestamp canceled_at = 4;
-    string state = 5;
-    string state_version = 6;
-    optional string state_outcome = 7;
-    string status = 8;
-    repeated AttestationDeviceData device_data = 9;
-  }
-  repeated AttestationMachineData machines = 1;
+message SpdmAttestationDetails{
+  common.MachineId machine_id = 1;
+  string device_id = 2;
+  string state = 3;
+
+  google.protobuf.Timestamp started_at = 7;
+  optional google.protobuf.Timestamp cancelled_at = 8;
+  optional google.protobuf.Timestamp completed_at = 9;
+}
+
+message SpdmListAttestationsResponse {
+  repeated SpdmAttestationDetails attestations_details = 1;
+}
+
+message SpdmMachineAttestationTriggerRequest {
+  common.MachineId machine_id = 1;
+  uint32 redfish_timeout_secs = 2;
 }
 
 // Machine Identity - JWT-SVID token signing
@@ -1414,7 +1422,7 @@ message VpcStatus {
 
 message Vpc {
   common.VpcId id = 1;
-  string name = 2;
+  reserved 2;  // was: string name, replaced with metadata.name
   string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
   string version = 99;
@@ -1455,8 +1463,7 @@ message Vpc {
 }
 
 message VpcCreationRequest {
-  // TODO: Remove the name field as soon as cloud codes gets updated to using metadata.name.
-  string name = 2;
+  reserved 2;  // was: string name, replaced with metadata.name
   string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
   // this keyset will enable any key contained within it to access any instance associated with this VPC.
   optional string tenantKeysetId = 4; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
@@ -1517,8 +1524,7 @@ message VpcUpdateRequest {
   // a `message VpcConfig/VpcSettings`. However I don't feel like this would add
   // a lot for primitive types like Vpc.
 
-  // TODO: Remove the name field as soon as cloud codes gets updated to using metadata.name.
-  string name = 3;
+  reserved 3; // was string name, replaced with metadata.name
   reserved 4; // was tenantOrganizationId
   reserved 5; // was tenantKeysetId
 
@@ -4353,7 +4359,7 @@ message ForgeAgentControlResponse {
   message MachineValidation {
     bool is_enabled = 1;
     string context = 2;
-    common.UUID validation_id = 3;
+    common.MachineValidationId validation_id = 3;
     MachineValidationFilter filter = 4;
   }
 
@@ -4465,7 +4471,9 @@ message MachineCleanupInfo {
   // EFI variable MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829 must be set to 1
   CleanupStepResult mem_overwrite = 4;
   // Reset IB devices
-  CleanupStepResult ib = 5;
+  CleanupStepResult ib  = 5;
+  // HDD/SSD block device cleanup result
+  CleanupStepResult hdd = 6;
 
   CleanupResult result = 11;
 }
@@ -5517,7 +5525,7 @@ message ScoutFirmwareUpgradeStatusRequest {
 message MachineValidationCompletedRequest {
   common.MachineId machine_id = 1;
   optional string machine_validation_error = 2;
-  common.UUID validation_id = 3;
+  common.MachineValidationId validation_id = 3;
 }
 
 message MachineValidationCompletedResponse {
@@ -5534,7 +5542,7 @@ message MachineValidationResult {
   int32 exit_code = 8;
   google.protobuf.Timestamp start_time = 10;
   google.protobuf.Timestamp end_time = 11;
-  common.UUID validation_id = 12;
+  common.MachineValidationId validation_id = 12;
   optional string test_id = 13;
 }
 
@@ -5549,7 +5557,7 @@ message MachineValidationResultList {
 message MachineValidationGetRequest {
   optional common.MachineId machine_id = 1;
   bool include_history = 2;
-  optional common.UUID validation_id = 3;
+  optional common.MachineValidationId validation_id = 3;
 }
 
 message MachineValidationStatus {
@@ -5578,7 +5586,7 @@ message MachineValidationStatus {
   uint32 completed_tests = 5;
 }
 message MachineValidationRun {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
   common.MachineId machine_id = 2;
   google.protobuf.Timestamp start_time = 3;
   google.protobuf.Timestamp end_time = 4;
@@ -5647,7 +5655,7 @@ message MachineValidationOnDemandRequest {
 }
 
 message MachineValidationOnDemandResponse {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
 }
 
 message FirmwareUpgradeActivity {
@@ -5879,7 +5887,7 @@ message MachineValidationTestEnableDisableTestResponse {
 }
 
 message MachineValidationRunRequest {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
   google.protobuf.Duration duration_to_complete = 2;
   uint32 total = 3;
 }
@@ -7529,16 +7537,31 @@ enum ScoutStreamErrorStatus {
   SCOUT_STREAM_ERROR_STATUS_INTERNAL = 0;
 }
 
+// Entries used for prefix-list policies on the DPUS.
+// Default behavior is max-len lte 32
+// We can change that with additional fields on this struct
+// if necessary in the future.
+message PrefixFilterPolicyEntry {
+  string prefix = 1;
+}
+
 message RoutingProfile {
-  repeated common.RouteTarget route_target_imports     = 1;
-  repeated common.RouteTarget route_targets_on_exports = 2;
-  bool leak_default_route_from_underlay                = 3;
-  bool leak_tenant_host_routes_to_underlay             = 4;
+  repeated common.RouteTarget route_target_imports             = 1;
+  repeated common.RouteTarget route_targets_on_exports         = 2;
+  bool leak_default_route_from_underlay                        = 3;
+  bool leak_tenant_host_routes_to_underlay                     = 4;
 
   // Are route-leak communities sent by the host OS honored by the DPU for allowing
   // routes advertised by the host OS to be leaked into the underlay?
-  bool tenant_leak_communities_accepted                = 5;
+  bool tenant_leak_communities_accepted                        = 5;
 
+  // An explicit/granular list of prefixes that should
+  // be allowed to leak from the default VRF into the tenant
+  // VRF.
+  //
+  // These are purely for routing purposes and will not have any
+  // impact on ACLs.
+  repeated PrefixFilterPolicyEntry accepted_leaks_from_underlay = 6;
 }
 
 // ============================================================================

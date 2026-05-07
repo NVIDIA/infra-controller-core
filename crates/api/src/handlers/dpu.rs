@@ -22,7 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
@@ -195,7 +195,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
         &mut txn,
-        &snapshot.host_snapshot.id,
+        &snapshot,
         &dpu_snapshot.id,
         use_fnn_over_admin_nw,
         &api.common_pools,
@@ -674,6 +674,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
             tenant_leak_communities_accepted: p.tenant_leak_communities_accepted,
             leak_default_route_from_underlay: p.leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
+            accepted_leaks_from_underlay: p
+                .accepted_leaks_from_underlay
+                .iter()
+                .map(|l| rpc::PrefixFilterPolicyEntry {
+                    prefix: l.prefix.to_string(),
+                })
+                .collect(),
             route_target_imports: p
                 .route_target_imports
                 .iter()

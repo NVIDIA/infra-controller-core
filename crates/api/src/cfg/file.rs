@@ -630,6 +630,25 @@ pub struct CarbideConfig {
     /// (test fixtures, programmatic construction).
     #[serde(skip)]
     pub config_ctx: Option<Figment>,
+
+    /// External tool links surfaced in the admin web UI's "Tools"
+    /// sidebar. Each entry's `name` must be unique. The section is
+    /// hidden when the list is empty.
+    #[serde(default)]
+    pub web_ui_sidebar_tools: Vec<ToolLink>,
+}
+
+/// One external tool link rendered in the admin web UI's "Tools"
+/// sidebar.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ToolLink {
+    /// Stable identifier, must be unique within `tools`. Used
+    /// to look up well-known integrations.
+    pub name: String,
+    /// Label rendered in the sidebar.
+    pub display_name: String,
+    /// Absolute URL the link points to.
+    pub url: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -966,6 +985,15 @@ pub struct FnnRoutingProfileConfig {
     #[serde(default)]
     pub tenant_leak_communities_accepted: bool,
 
+    /// An explicit/granular list of prefixes that should
+    /// be allowed to leak from the default VRF into the tenant
+    /// VRF.
+    ///
+    /// These are purely for routing purposes and will not have any
+    /// impact on ACLs.
+    #[serde(default)]
+    pub accepted_leaks_from_underlay: Vec<PrefixFilterPolicyEntry>,
+
     /// Currently controls which profiles a tenant can use
     /// when creating VPCs.  Lower value means broader access.
     /// A tenant can create a VPC with a routing profile of the same or broader access.
@@ -977,6 +1005,15 @@ pub struct FnnRoutingProfileConfig {
     /// - A tenant with INTERNAL could only create INTERNAL VPCs.
     #[serde(default)]
     pub access_tier: u32,
+}
+
+/// Entries used for prefix-list policies on the DPUS.
+/// Default behavior is max-len lte 32
+/// We can change that with additional fields on this struct
+/// if necessary in the future.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct PrefixFilterPolicyEntry {
+    pub prefix: IpNetwork,
 }
 
 /// FNN configuration specific to the admin network.
@@ -995,6 +1032,22 @@ pub struct AdminFnnConfig {
     pub routing_profile: FnnRoutingProfileConfig,
 }
 
+/// Validates a tool URL: it must parse and use the `http` or
+/// `https` scheme. The `name` is included in the error for context.
+fn validate_tool_url(name: &str, url: &str) -> eyre::Result<()> {
+    let parsed = url::Url::parse(url)
+        .map_err(|e| eyre::eyre!("tools entry {name:?}: invalid url {url:?}: {e}"))?;
+
+    match parsed.scheme() {
+        "http" | "https" => Ok(()),
+        _ => Err(eyre::eyre!(
+            "tools entry {name:?}: url {url:?} must use http or https scheme"
+        )),
+    }?;
+
+    Ok(())
+}
+
 impl CarbideConfig {
     /// Returns a version of CarbideConfig where secrets are erased
     pub fn redacted(&self) -> Self {
@@ -1011,6 +1064,25 @@ impl CarbideConfig {
             &self.host_models,
             &self.dpu_config.dpu_models,
         )
+    }
+
+    /// Returns an error when two `tools` entries share a `name`,
+    /// since names are used as stable identifiers (e.g. `name = "grafana"`
+    /// is referenced by the per-machine "Logs" deep link).
+    /// Also rejects entries whose `url` is unparsable or doesn't use the `http` /
+    /// `https` scheme.
+    pub fn validate_web_ui_sidebar_tools(&self) -> eyre::Result<()> {
+        let mut seen = std::collections::HashSet::new();
+        for tool in &self.web_ui_sidebar_tools {
+            if !seen.insert(tool.name.as_str()) {
+                return Err(eyre::eyre!(
+                    "duplicate tools entry with name = {:?}; tool names must be unique",
+                    tool.name
+                ));
+            }
+            validate_tool_url(&tool.name, &tool.url)?;
+        }
+        Ok(())
     }
 
     /// validate_supernic_firmware_profiles checks that each profile's inner
@@ -2791,6 +2863,54 @@ mod tests {
         );
         let config: StateControllerConfig = serde_json::from_str(&config_str).unwrap();
         assert_eq!(config, input);
+    }
+
+    #[test]
+    fn validate_tool_url_accepts_https() {
+        validate_tool_url("grafana", "https://grafana.example.com").unwrap();
+    }
+
+    #[test]
+    fn validate_tool_url_accepts_http_domain() {
+        validate_tool_url("grafana", "http://grafana.example.com").unwrap();
+    }
+
+    #[test]
+    fn validate_tool_url_accepts_http_ip() {
+        validate_tool_url("grafana", "http://10.213.1.115").unwrap();
+    }
+
+    #[test]
+    fn validate_tool_url_rejects_javascript_scheme() {
+        let err = validate_tool_url("evil", "javascript:alert(1)")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("must use http or https"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Ensures `validate_web_ui_sidebar_tools` actually delegates per-entry
+    /// URL validation: a URL that fails `validate_tool_url` must also cause
+    /// `validate_web_ui_sidebar_tools` to fail.
+    #[test]
+    fn validate_web_ui_sidebar_tools_propagates_url_failure() {
+        const BAD_URL: &str = "javascript:alert(1)";
+
+        // Sanity-check the precondition: the helper rejects this URL.
+        assert!(validate_tool_url("evil", BAD_URL).is_err());
+
+        let mut config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+        config.web_ui_sidebar_tools = vec![ToolLink {
+            name: "evil".to_string(),
+            display_name: "Evil".to_string(),
+            url: BAD_URL.to_string(),
+        }];
+        assert!(config.validate_web_ui_sidebar_tools().is_err());
     }
 
     #[test]

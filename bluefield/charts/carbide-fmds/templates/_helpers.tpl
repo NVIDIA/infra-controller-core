@@ -54,3 +54,10 @@ Server Port
 {{- define "carbide-fmds.serverPort" -}}
 {{- default 50052 .Values.serverPort -}}
 {{- end -}}
+
+{{/*
+Metrics port for collecting FMDS metrics
+*/}}
+{{- define "carbide-fmds.metricsPort" -}}
+{{- default 8888 .Values.metricsPort -}}
+{{- end -}}

@@ -25,6 +25,7 @@ use axum::response::{Html, IntoResponse, Response};
 use carbide_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 
+use super::Base;
 use super::health::{HealthHistoryRecord, HealthHistoryTable, fetch_health_history};
 use crate::api::Api;
 
@@ -88,3 +89,5 @@ pub async fn fetch_health_records(
 
     Ok((machine_id, health_records))
 }
+
+impl super::Base for MachineHealth {}

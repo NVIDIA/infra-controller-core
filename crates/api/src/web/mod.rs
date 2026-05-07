@@ -17,8 +17,8 @@
 
 use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use askama::Template;
@@ -27,11 +27,10 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
-use axum_extra::extract::Host;
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
-use http::{HeaderMap, Request, StatusCode, Uri};
+use http::{HeaderMap, Request, StatusCode};
 use itertools::Itertools;
 use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
@@ -49,7 +48,31 @@ use tower_http::normalize_path::NormalizePath;
 use crate::CarbideError;
 use crate::api::Api;
 use crate::auth::AuthContext;
-use crate::cfg::file::CarbideConfig;
+use crate::cfg::file::{CarbideConfig, ToolLink};
+
+/// Process-global tool list. Static because `base.html` is rendered
+/// by more than 70 page structs and threading a field through all of them
+/// (and through every test fixture) is far more invasive than a
+/// write-once `OnceLock` read via the `Base` trait.
+static TOOLS: OnceLock<Vec<ToolLink>> = OnceLock::new();
+
+/// Initialize the global tool list. Call once during startup
+/// before serving any web requests. Subsequent calls are ignored.
+pub fn init_tools(tools: Vec<ToolLink>) {
+    let _ = TOOLS.set(tools);
+}
+
+/// Implemented by every page struct whose template extends `base.html`.
+/// Exposes the global tool list to the shared "Tools" sidebar via
+/// `Self::tools()`.
+pub trait Base {
+    /// Configured external tool links rendered in the admin UI's
+    /// "Tools" sidebar. Empty when no tools are configured or
+    /// when `init_tools` has not been called (e.g. unit tests).
+    fn tools() -> &'static [ToolLink] {
+        TOOLS.get().map(Vec::as_slice).unwrap_or(&[])
+    }
+}
 
 /// Reusable template for rendering metadata (name, description, labels, version)
 /// in entity detail pages. Render with `{{ metadata_detail|safe }}`.
@@ -97,11 +120,29 @@ impl HealthDetail {
 
 /// Reusable template for rendering a color-coded state bubble.
 /// Render with `{{ state_display|safe }}`.
-#[derive(Template)]
+#[derive(Debug, Clone, PartialEq, Eq, Template)]
 #[template(path = "state_display.html")]
 pub(crate) struct StateDisplay {
     pub state: String,
     pub time_in_state_above_sla: bool,
+}
+
+impl StateDisplay {
+    pub fn from_lifecycle(lifecycle: Option<&forgerpc::LifecycleStatus>) -> Self {
+        let state = lifecycle
+            .map(|lifecycle| lifecycle.state.clone())
+            .filter(|state| !state.is_empty())
+            .unwrap_or_else(|| r#"{ "state": "unknown" }"#.to_string());
+        let time_in_state_above_sla = lifecycle
+            .and_then(|lifecycle| lifecycle.sla.as_ref())
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or(false);
+
+        Self {
+            state,
+            time_in_state_above_sla,
+        }
+    }
 }
 
 /// Reusable template for rendering State SLA, time-in-state-above-SLA, and
@@ -536,6 +577,18 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/power-shelf.json", get(power_shelf::show_json))
             .route("/power-shelf/{power_shelf_id}", get(power_shelf::detail))
             .route(
+                "/power-shelf/{power_shelf_id}/health",
+                get(health::power_shelf_health),
+            )
+            .route(
+                "/power-shelf/{power_shelf_id}/health/add-report",
+                post(health::add_power_shelf_health_report),
+            )
+            .route(
+                "/power-shelf/{power_shelf_id}/health/remove-report",
+                post(health::remove_power_shelf_health_report),
+            )
+            .route(
                 "/power-shelf/{power_shelf_id}/state-history",
                 get(state_history::show_power_shelf_state_history),
             )
@@ -566,6 +619,15 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/switch", get(switch::show_html))
             .route("/switch.json", get(switch::show_json))
             .route("/switch/{switch_id}", get(switch::detail))
+            .route("/switch/{switch_id}/health", get(health::switch_health))
+            .route(
+                "/switch/{switch_id}/health/add-report",
+                post(health::add_switch_health_report),
+            )
+            .route(
+                "/switch/{switch_id}/health/remove-report",
+                post(health::remove_switch_health_report),
+            )
             .route(
                 "/switch/{switch_id}/state-history",
                 get(state_history::show_switch_state_history),
@@ -714,22 +776,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
 }
 
 pub async fn auth_oauth2(
-    Host(hostname): Host,
     headers: HeaderMap,
     mut req: Request<AxumBody>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Remove the port (this matters on localhost) since a cookie for localhost:1079
-    // does not apply for the a page hosted on localhost:1079. Instead the cookie
-    // must be for localhost.
-
-    let Some(hostname) = Uri::try_from(hostname)
-        .ok()
-        .and_then(|uri| uri.host().map(|host| host.to_owned()))
-    else {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    };
-
     let oauth_extension_layer = match req.extensions().get::<Option<Oauth2Layer>>() {
         None => {
             tracing::error!("failed to find oauth2 extension layer");
@@ -803,7 +853,6 @@ pub async fn auth_oauth2(
     // during code exchange when they hit our callback URL.
     // Using this with a cookie is a little weird, but it'll be encrypted.
     let pkce_cookie = Cookie::build(("pkce_verifier", pkce_verifier.secret().to_owned()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -812,7 +861,6 @@ pub async fn auth_oauth2(
     // Store the csrf state so we can compare the state we get back from Azure
     // when they hit our callback URL.
     let csrf_cookie = Cookie::build(("csrf_state", csrf_state.secret().to_owned()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -827,7 +875,6 @@ pub async fn auth_oauth2(
             .unwrap_or_else(|| req.uri().path())
             .to_string(),
     ))
-    .domain(hostname)
     .path("/")
     .secure(true)
     .http_only(true)
@@ -857,6 +904,8 @@ struct Index {
     carbide_config: CarbideConfig,
     bmc_proxy: String,
 }
+
+impl Base for Index {}
 
 pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     let request = tonic::Request::new(forgerpc::DpuAgentUpgradePolicyRequest { new_policy: None });

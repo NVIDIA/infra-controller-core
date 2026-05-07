@@ -48,7 +48,7 @@ async fn create_test_vpcs(
             Some(vtype) => env
                 .api
                 .create_vpc(
-                    VpcCreationRequest::builder(&name, "")
+                    VpcCreationRequest::builder("")
                         .metadata(Metadata {
                             name,
                             ..Default::default()
@@ -62,7 +62,7 @@ async fn create_test_vpcs(
             None => env
                 .api
                 .create_vpc(
-                    VpcCreationRequest::builder(&name, "")
+                    VpcCreationRequest::builder("")
                         .metadata(Metadata {
                             name,
                             ..Default::default()

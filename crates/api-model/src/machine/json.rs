@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -72,16 +73,16 @@ pub struct MachineSnapshotPgJson {
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
-    pub discovery_machine_validation_id: Option<uuid::Uuid>,
-    pub cleanup_machine_validation_id: Option<uuid::Uuid>,
+    pub discovery_machine_validation_id: Option<MachineValidationId>,
+    pub cleanup_machine_validation_id: Option<MachineValidationId>,
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
     pub firmware_autoupdate: Option<bool>,
     pub health_reports: Option<HealthReportSources>,
-    pub on_demand_machine_validation_id: Option<uuid::Uuid>,
+    pub on_demand_machine_validation_id: Option<MachineValidationId>,
     pub on_demand_machine_validation_request: Option<bool>,
     pub asn: Option<u32>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
-    pub current_machine_validation_id: Option<uuid::Uuid>,
+    pub current_machine_validation_id: Option<MachineValidationId>,
     pub machine_state_model_version: i32,
     pub instance_type_id: Option<InstanceTypeId>,
     pub interfaces: Vec<MachineInterfaceSnapshot>,

@@ -22,17 +22,22 @@ use askama::Template;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::switch::SwitchId;
 use health_report::HealthReport;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportApplyMode, InsertMachineHealthReportRequest, InsertRackHealthReportRequest,
-    ListRackHealthReportsRequest, MachinesByIdsRequest, RacksByIdsRequest,
-    RemoveMachineHealthReportRequest, RemoveRackHealthReportRequest,
+    HealthReportApplyMode, InsertMachineHealthReportRequest, InsertPowerShelfHealthReportRequest,
+    InsertRackHealthReportRequest, InsertSwitchHealthReportRequest,
+    ListPowerShelfHealthReportsRequest, ListRackHealthReportsRequest,
+    ListSwitchHealthReportsRequest, MachinesByIdsRequest, PowerShelvesByIdsRequest,
+    RacksByIdsRequest, RemoveMachineHealthReportRequest, RemovePowerShelfHealthReportRequest,
+    RemoveRackHealthReportRequest, RemoveSwitchHealthReportRequest, SwitchesByIdsRequest,
 };
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 use crate::auth::AuthContext;
 
@@ -84,28 +89,36 @@ struct LabeledHealthReport {
 #[derive(Clone)]
 enum HealthObject {
     Machine(MachineId),
+    PowerShelf(PowerShelfId),
     Rack(RackId),
+    Switch(SwitchId),
 }
 
 impl HealthObject {
     fn id(&self) -> String {
         match self {
             HealthObject::Machine(id) => id.to_string(),
+            HealthObject::PowerShelf(id) => id.to_string(),
             HealthObject::Rack(id) => id.to_string(),
+            HealthObject::Switch(id) => id.to_string(),
         }
     }
 
     fn kind(&self) -> &'static str {
         match self {
             HealthObject::Machine(_) => "machine",
+            HealthObject::PowerShelf(_) => "power-shelf",
             HealthObject::Rack(_) => "rack",
+            HealthObject::Switch(_) => "switch",
         }
     }
 
     fn label(&self) -> String {
         match self {
             HealthObject::Machine(id) => id.machine_type().to_string(),
+            HealthObject::PowerShelf(_) => "Power Shelf".to_string(),
             HealthObject::Rack(_) => "Rack".to_string(),
+            HealthObject::Switch(_) => "Switch".to_string(),
         }
     }
 
@@ -116,7 +129,9 @@ impl HealthObject {
     fn history_url(&self) -> Option<String> {
         match self {
             HealthObject::Machine(id) => Some(format!("/admin/machine/{id}/health-history")),
+            HealthObject::PowerShelf(_) => None,
             HealthObject::Rack(_) => None,
+            HealthObject::Switch(_) => None,
         }
     }
 
@@ -176,6 +191,40 @@ pub async fn rack_health(
     };
 
     render_health(HealthObject::Rack(rack_id), data)
+}
+
+/// View power shelf health.
+pub async fn power_shelf_health(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(power_shelf_id): AxumPath<String>,
+) -> Response {
+    let Ok(power_shelf_id) = PowerShelfId::from_str(&power_shelf_id) else {
+        return (StatusCode::BAD_REQUEST, "invalid power shelf id").into_response();
+    };
+
+    let data = match fetch_power_shelf_health_page_data(&state, &power_shelf_id).await {
+        Ok(data) => data,
+        Err(response) => return response,
+    };
+
+    render_health(HealthObject::PowerShelf(power_shelf_id), data)
+}
+
+/// View switch health.
+pub async fn switch_health(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(switch_id): AxumPath<String>,
+) -> Response {
+    let Ok(switch_id) = SwitchId::from_str(&switch_id) else {
+        return (StatusCode::BAD_REQUEST, "invalid switch id").into_response();
+    };
+
+    let data = match fetch_switch_health_page_data(&state, &switch_id).await {
+        Ok(data) => data,
+        Err(response) => return response,
+    };
+
+    render_health(HealthObject::Switch(switch_id), data)
 }
 
 fn render_health(object: HealthObject, data: HealthPageData) -> Response {
@@ -271,6 +320,54 @@ async fn fetch_rack_health_page_data(
     })
 }
 
+async fn fetch_power_shelf_health_page_data(
+    api: &Api,
+    power_shelf_id: &PowerShelfId,
+) -> Result<HealthPageData, Response> {
+    let aggregate_health = fetch_power_shelf_aggregate_health(api, power_shelf_id).await?;
+    let entries = match list_power_shelf_health_report_entries(api, power_shelf_id).await {
+        Ok(entries) => entries,
+        Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
+        Err(err) => {
+            tracing::error!(%err, %power_shelf_id, "list_power_shelf_health_reports");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
+        }
+    };
+
+    Ok(HealthPageData {
+        entries,
+        aggregate_health,
+        health_contributors: Vec::new(),
+        history: HealthHistoryTable {
+            records: Vec::new(),
+        },
+    })
+}
+
+async fn fetch_switch_health_page_data(
+    api: &Api,
+    switch_id: &SwitchId,
+) -> Result<HealthPageData, Response> {
+    let aggregate_health = fetch_switch_aggregate_health(api, switch_id).await?;
+    let entries = match list_switch_health_report_entries(api, switch_id).await {
+        Ok(entries) => entries,
+        Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
+        Err(err) => {
+            tracing::error!(%err, %switch_id, "list_switch_health_reports");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
+        }
+    };
+
+    Ok(HealthPageData {
+        entries,
+        aggregate_health,
+        health_contributors: Vec::new(),
+        history: HealthHistoryTable {
+            records: Vec::new(),
+        },
+    })
+}
+
 async fn fetch_dpu_health_contributors(
     api: &Api,
     host_machine_id: &MachineId,
@@ -327,6 +424,32 @@ async fn list_rack_health_report_entries(
     Ok(api
         .list_rack_health_reports(tonic::Request::new(ListRackHealthReportsRequest {
             rack_id: Some(rack_id.clone()),
+        }))
+        .await?
+        .into_inner()
+        .health_report_entries)
+}
+
+async fn list_power_shelf_health_report_entries(
+    api: &Api,
+    power_shelf_id: &PowerShelfId,
+) -> Result<Vec<::rpc::forge::HealthReportEntry>, tonic::Status> {
+    Ok(api
+        .list_power_shelf_health_reports(tonic::Request::new(ListPowerShelfHealthReportsRequest {
+            power_shelf_id: Some(*power_shelf_id),
+        }))
+        .await?
+        .into_inner()
+        .health_report_entries)
+}
+
+async fn list_switch_health_report_entries(
+    api: &Api,
+    switch_id: &SwitchId,
+) -> Result<Vec<::rpc::forge::HealthReportEntry>, tonic::Status> {
+    Ok(api
+        .list_switch_health_reports(tonic::Request::new(ListSwitchHealthReportsRequest {
+            switch_id: Some(*switch_id),
         }))
         .await?
         .into_inner()
@@ -405,6 +528,80 @@ async fn fetch_rack_aggregate_health(
     Ok(rack
         .as_ref()
         .and_then(|rack| rack.status.as_ref())
+        .and_then(|status| status.health.as_ref())
+        .map(|health| health_report_from_rpc_convert_invalid(health.clone())))
+}
+
+async fn fetch_power_shelf_aggregate_health(
+    api: &Api,
+    power_shelf_id: &PowerShelfId,
+) -> Result<Option<HealthReport>, Response> {
+    let power_shelf = match api
+        .find_power_shelves_by_ids(tonic::Request::new(PowerShelvesByIdsRequest {
+            power_shelf_ids: vec![*power_shelf_id],
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(r) if r.power_shelves.is_empty() => None,
+        Ok(r) if r.power_shelves.len() != 1 => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Power shelf list for {power_shelf_id} returned {} power shelves",
+                    r.power_shelves.len()
+                ),
+            )
+                .into_response());
+        }
+        Ok(mut r) => Some(r.power_shelves.remove(0)),
+        Err(err) if err.code() == tonic::Code::NotFound => None,
+        Err(err) => {
+            tracing::error!(%err, %power_shelf_id, "find_power_shelves_by_ids");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
+        }
+    };
+
+    Ok(power_shelf
+        .as_ref()
+        .and_then(|power_shelf| power_shelf.status.as_ref())
+        .and_then(|status| status.health.as_ref())
+        .map(|health| health_report_from_rpc_convert_invalid(health.clone())))
+}
+
+async fn fetch_switch_aggregate_health(
+    api: &Api,
+    switch_id: &SwitchId,
+) -> Result<Option<HealthReport>, Response> {
+    let switch = match api
+        .find_switches_by_ids(tonic::Request::new(SwitchesByIdsRequest {
+            switch_ids: vec![*switch_id],
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(r) if r.switches.is_empty() => None,
+        Ok(r) if r.switches.len() != 1 => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Switch list for {switch_id} returned {} switches",
+                    r.switches.len()
+                ),
+            )
+                .into_response());
+        }
+        Ok(mut r) => Some(r.switches.remove(0)),
+        Err(err) if err.code() == tonic::Code::NotFound => None,
+        Err(err) => {
+            tracing::error!(%err, %switch_id, "find_switches_by_ids");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
+        }
+    };
+
+    Ok(switch
+        .as_ref()
+        .and_then(|switch| switch.status.as_ref())
         .and_then(|status| status.health.as_ref())
         .map(|health| health_report_from_rpc_convert_invalid(health.clone())))
 }
@@ -495,6 +692,46 @@ pub async fn add_rack_health_report(
     add_health_report_for(state, HealthObject::Rack(rack_id), auth_context, payload).await
 }
 
+pub async fn add_power_shelf_health_report(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(power_shelf_id): AxumPath<String>,
+    auth_context: Option<axum::Extension<AuthContext>>,
+    extract::Json(payload): extract::Json<HealthReportEntry>,
+) -> Response {
+    let power_shelf_id = match power_shelf_id.parse::<PowerShelfId>() {
+        Ok(id) => id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    add_health_report_for(
+        state,
+        HealthObject::PowerShelf(power_shelf_id),
+        auth_context,
+        payload,
+    )
+    .await
+}
+
+pub async fn add_switch_health_report(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(switch_id): AxumPath<String>,
+    auth_context: Option<axum::Extension<AuthContext>>,
+    extract::Json(payload): extract::Json<HealthReportEntry>,
+) -> Response {
+    let switch_id = match switch_id.parse::<SwitchId>() {
+        Ok(id) => id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    add_health_report_for(
+        state,
+        HealthObject::Switch(switch_id),
+        auth_context,
+        payload,
+    )
+    .await
+}
+
 async fn add_health_report_for(
     state: Arc<Api>,
     object: HealthObject,
@@ -522,6 +759,19 @@ async fn add_health_report_for(
                 .await
                 .map(|response| response.into_inner())
         }
+        HealthObject::PowerShelf(power_shelf_id) => {
+            let mut request = tonic::Request::new(InsertPowerShelfHealthReportRequest {
+                power_shelf_id: Some(power_shelf_id),
+                health_report_entry: Some(entry),
+            });
+            if let Some(axum::Extension(auth_context)) = auth_context {
+                request.extensions_mut().insert(auth_context);
+            }
+            state
+                .insert_power_shelf_health_report(request)
+                .await
+                .map(|response| response.into_inner())
+        }
         HealthObject::Rack(rack_id) => {
             let mut request = tonic::Request::new(InsertRackHealthReportRequest {
                 rack_id: Some(rack_id),
@@ -532,6 +782,19 @@ async fn add_health_report_for(
             }
             state
                 .insert_rack_health_report(request)
+                .await
+                .map(|response| response.into_inner())
+        }
+        HealthObject::Switch(switch_id) => {
+            let mut request = tonic::Request::new(InsertSwitchHealthReportRequest {
+                switch_id: Some(switch_id),
+                health_report_entry: Some(entry),
+            });
+            if let Some(axum::Extension(auth_context)) = auth_context {
+                request.extensions_mut().insert(auth_context);
+            }
+            state
+                .insert_switch_health_report(request)
                 .await
                 .map(|response| response.into_inner())
         }
@@ -575,6 +838,32 @@ pub async fn remove_rack_health_report(
     remove_health_report_for(state, HealthObject::Rack(rack_id), payload).await
 }
 
+pub async fn remove_power_shelf_health_report(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(power_shelf_id): AxumPath<String>,
+    extract::Json(payload): extract::Json<RemoveHealthReport>,
+) -> Response {
+    let power_shelf_id = match power_shelf_id.parse::<PowerShelfId>() {
+        Ok(id) => id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    remove_health_report_for(state, HealthObject::PowerShelf(power_shelf_id), payload).await
+}
+
+pub async fn remove_switch_health_report(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(switch_id): AxumPath<String>,
+    extract::Json(payload): extract::Json<RemoveHealthReport>,
+) -> Response {
+    let switch_id = match switch_id.parse::<SwitchId>() {
+        Ok(id) => id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    remove_health_report_for(state, HealthObject::Switch(switch_id), payload).await
+}
+
 async fn remove_health_report_for(
     state: Arc<Api>,
     object: HealthObject,
@@ -590,9 +879,25 @@ async fn remove_health_report_for(
             }))
             .await
             .map(|response| response.into_inner()),
+        HealthObject::PowerShelf(power_shelf_id) => state
+            .remove_power_shelf_health_report(tonic::Request::new(
+                RemovePowerShelfHealthReportRequest {
+                    power_shelf_id: Some(power_shelf_id),
+                    source: payload.source,
+                },
+            ))
+            .await
+            .map(|response| response.into_inner()),
         HealthObject::Rack(rack_id) => state
             .remove_rack_health_report(tonic::Request::new(RemoveRackHealthReportRequest {
                 rack_id: Some(rack_id),
+                source: payload.source,
+            }))
+            .await
+            .map(|response| response.into_inner()),
+        HealthObject::Switch(switch_id) => state
+            .remove_switch_health_report(tonic::Request::new(RemoveSwitchHealthReportRequest {
+                switch_id: Some(switch_id),
                 source: payload.source,
             }))
             .await
@@ -644,3 +949,5 @@ pub(super) async fn fetch_health_history(
 
     Ok(records)
 }
+
+impl super::Base for HealthPage {}

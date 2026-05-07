@@ -19,24 +19,29 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use forge_secrets::credentials::{CredentialManager, Credentials};
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::expected_entity::{BmcCredentialsData, ExpectedEntity};
 use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
-use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
+use model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, LockdownStatus, NicMode,
+};
 
 use super::EndpointExplorer;
 use super::config::SiteExplorerExploreMode;
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
+
+const BMC_AUTH_RETRY_DURATION: Duration = Duration::from_secs(3);
 
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct BmcEndpointExplorer {
@@ -248,6 +253,50 @@ impl BmcEndpointExplorer {
         Ok(bmc_credentials)
     }
 
+    /// Fallback for reingested hardware: try the configured sitewide BMC root
+    /// password with the expected/factory username. If the BMC is already on
+    /// the sitewide password, we just need to re-populate the per-BMC vault entry.
+    async fn try_sitewide_bmc_root_credentials(
+        &self,
+        bmc_ip_address: SocketAddr,
+        bmc_mac_address: MacAddress,
+        username: &str,
+    ) -> Result<Credentials, EndpointExplorationError> {
+        tracing::info!(
+            %bmc_ip_address, %bmc_mac_address,
+            "Attempting sitewide BMC root credentials fallback for possible reingested hardware"
+        );
+
+        let sitewide_credentials = self
+            .credential_client
+            .get_sitewide_bmc_root_credentials()
+            .await?;
+        let Credentials::UsernamePassword { password, .. } = sitewide_credentials;
+        let credentials = Credentials::UsernamePassword {
+            username: username.to_string(),
+            password,
+        };
+
+        // Some BMCs (notably HPE iLO) enforce a brief auth-failure throttle
+        // after an attempt fails. Wait long enough to clear it
+        // before validating with the sitewide credentials.
+        tokio::time::sleep(BMC_AUTH_RETRY_DURATION).await;
+
+        self.redfish_client
+            .validate_bmc_credentials(bmc_ip_address, credentials.clone())
+            .await?;
+
+        self.set_bmc_root_credentials(bmc_mac_address, &credentials)
+            .await?;
+
+        tracing::info!(
+            %bmc_ip_address, %bmc_mac_address,
+            "Sitewide BMC root credentials succeeded - stored per-BMC vault entry"
+        );
+
+        Ok(credentials)
+    }
+
     // Handle switch NVOS admin credentials setup
     // Store NVOS admin credentials in vault for the switch if they exist in expected_switch
     pub async fn set_sitewide_switch_nvos_admin_credentials(
@@ -326,7 +375,7 @@ impl BmcEndpointExplorer {
         mode: NicMode,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
-            .set_nic_mode(bmc_ip_address, credentials, mode)
+            .set_nic_mode(bmc_ip_address, credentials, mode.into_libredfish())
             .await
     }
 
@@ -455,15 +504,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         expected: Option<&ExpectedEntity>,
-        last_report: Option<&EndpointExplorationReport>,
+        last_exploration_error: Option<&EndpointExplorationError>,
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         // If the site explorer was previously unable to login to the root BMC account using
         // the expected credentials, wait for an operator to manually intervene.
         // This will avoid locking us out of BMCs.
-        if let Some(report) = last_report
-            && report.cannot_login()
-        {
+        if last_exploration_error.is_some_and(|e| e.is_unauthorized()) {
             return Err(EndpointExplorationError::AvoidLockout);
         }
 
@@ -541,8 +588,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     }) if vendor == RedfishVendor::Hpe => {
                         const MAX_AUTH_RETRIES: u32 = 5;
 
-                        let previous_count = last_report
-                            .and_then(|r| r.last_exploration_error.as_ref())
+                        let previous_count = last_exploration_error
                             .and_then(|e| e.intermittent_unauthorized_count())
                             .unwrap_or(0);
                         let consecutive_count = previous_count + 1;
@@ -575,11 +621,16 @@ impl EndpointExplorer for BmcEndpointExplorer {
             }
 
             Err(EndpointExplorationError::MissingCredentials { .. }) => {
-                // The machine's BMC root password has not been set to the Forge Sitewide BMC root password
-                // 1) Try to login to the machine's BMC root account
-                // 2) Set the machine's BMC root password to the Forge Sitewide BMC root password
-                // 3) Set the password policy for the machine's BMC
-                // 4) Generate the report
+                // No per-BMC vault entry exists. Now try to:
+                //   1) Login with expected/factory credentials
+                //   2) Rotate the BMC root password to the sitewide root password
+                //   3) Store the per-BMC vault entry
+                //   4) Generate the report
+                //
+                // If the expected/factory credentials fail (Unauthorized), fall
+                // back to the configured sitewide root password without rotation.
+                // This covers reingested hardware whose per-BMC vault entry was
+                // lost but whose BMC is already set to the sitewide password.
 
                 tracing::info!(
                     %bmc_ip_address,
@@ -613,22 +664,43 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         }
                     }
                 };
-                let bmc_credentials = self
+
+                match self
                     .set_sitewide_bmc_root_password(
                         bmc_ip_address,
                         bmc_mac_address,
                         vendor,
                         bmc_cred_data,
                     )
-                    .await?;
-
-                self.generate_exploration_report(
-                    bmc_ip_address,
-                    bmc_credentials,
-                    None,
-                    Some(vendor),
-                )
-                .await?
+                    .await
+                {
+                    Ok(bmc_credentials) => {
+                        self.generate_exploration_report(
+                            bmc_ip_address,
+                            bmc_credentials,
+                            None,
+                            Some(vendor),
+                        )
+                        .await?
+                    }
+                    Err(EndpointExplorationError::Unauthorized { .. }) => {
+                        let bmc_credentials = self
+                            .try_sitewide_bmc_root_credentials(
+                                bmc_ip_address,
+                                bmc_mac_address,
+                                bmc_cred_data.username,
+                            )
+                            .await?;
+                        self.generate_exploration_report(
+                            bmc_ip_address,
+                            bmc_credentials,
+                            None,
+                            Some(vendor),
+                        )
+                        .await?
+                    }
+                    Err(e) => return Err(e),
+                }
             }
             Err(e) => {
                 return Err(e);

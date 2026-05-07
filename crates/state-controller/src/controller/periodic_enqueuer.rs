@@ -68,7 +68,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             // If a controller got the lock, the maximum delay is higher than for controllers
             // which failed to get the lock, which aims to give another bias to
             // a different controller.
-            use rand::Rng;
+            use rand::RngExt;
             let iteration_max_jitter = if iteration_result.skipped_iteration {
                 err_jitter
             } else {

@@ -340,6 +340,7 @@ pub mod linux_build {
     use x509_parser::certificate::X509Certificate;
     use x509_parser::public_key::PublicKey as x509_parser_pub_key;
 
+    use crate::attestation::digest_crate_shim::Sha256LegacyDigestShim;
     use crate::errors::{CarbideError, CarbideResult};
 
     const RSA_PUBKEY_EXPONENT: u32 = 65537u32;
@@ -469,7 +470,7 @@ pub mod linux_build {
         };
 
         match pub_key.verify(
-            rsa::Pss::new::<sha2::Sha256>(),
+            rsa::Pss::new::<Sha256LegacyDigestShim>(),
             &attest_hash,
             rsa_signature.signature().value(),
         ) {
@@ -478,7 +479,6 @@ pub mod linux_build {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

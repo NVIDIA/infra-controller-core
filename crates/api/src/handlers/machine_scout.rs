@@ -49,34 +49,48 @@ pub(crate) async fn cleanup_machine_completed(
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
 
+    let cleanup_error = [
+        ("NVMe", cleanup_info.nvme.as_ref()),
+        ("HDD/SAS", cleanup_info.hdd.as_ref()),
+    ]
+    .into_iter()
+    .find_map(|(label, result)| {
+        result.and_then(|result| {
+            (rpc::machine_cleanup_info::CleanupResult::Error as i32 == result.result)
+                .then(|| format!("{label} cleanup failed: {}", result.message))
+        })
+    });
+
     // Check if cleanup failed
-    if let Some(ref nvme_result) = cleanup_info.nvme
-        && rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result
-    {
-        // NVME Cleanup failed. Move machine to failed state.
+    if let Some(err) = cleanup_error {
+        // Storage cleanup failed. Move machine to failed state.
         tracing::warn!(
             machine_id = %machine_id,
-            error = %nvme_result.message,
-            "NVMe cleanup failed"
+            error = %err,
+            "Storage cleanup failed"
         );
         db::machine::update_failure_details(
             &machine,
             &mut txn,
             FailureDetails {
-                cause: FailureCause::NVMECleanFailed {
-                    err: nvme_result.message.to_string(),
-                },
+                cause: FailureCause::NVMECleanFailed { err },
                 failed_at: chrono::Utc::now(),
                 source: FailureSource::Scout,
             },
         )
         .await?;
     } else {
-        // Cleanup succeeded or was skipped (nvme field not present means scout skipped it)
+        // Cleanup succeeded or was skipped (field not present means scout skipped it)
         if cleanup_info.nvme.is_none() {
             tracing::info!(
                 machine_id = %machine_id,
                 "NVMe cleanup skipped by scout (likely due to safety check)"
+            );
+        }
+        if cleanup_info.hdd.is_none() {
+            tracing::info!(
+                machine_id = %machine_id,
+                "HDD/SAS cleanup skipped by scout (likely due to safety check)"
             );
         }
         // Update cleanup time on success
@@ -194,9 +208,7 @@ pub(crate) async fn forge_agent_control(
                         Action::MachineValidation(fac::MachineValidation {
                             is_enabled: true,
                             context: context.clone(),
-                            validation_id: Some(::rpc::Uuid {
-                                value: id.to_string(),
-                            }),
+                            validation_id: Some(*id),
                             filter: Some(machine_validation.filter.unwrap_or_default().into()),
                         }),
                         Some(txn),

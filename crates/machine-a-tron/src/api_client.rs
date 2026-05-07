@@ -20,6 +20,7 @@ use base64::prelude::*;
 use bmc_mock::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, MachineInfo};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine_validation::MachineValidationId;
 use mac_address::MacAddress;
 use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
@@ -405,7 +406,6 @@ impl ApiClient {
         self.0
             .create_vpc(rpc::forge::VpcCreationRequest {
                 id: None,
-                name: "".to_string(),
                 tenant_organization_id: "Forge-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
                 network_security_group_id: None,
@@ -429,13 +429,13 @@ impl ApiClient {
     pub async fn machine_validation_complete(
         &self,
         machine_id: &MachineId,
-        validation_id: rpc::common::Uuid,
+        validation_id: &MachineValidationId,
     ) -> ClientApiResult<()> {
         self.0
             .machine_validation_completed(rpc::forge::MachineValidationCompletedRequest {
                 machine_id: Some(*machine_id),
                 machine_validation_error: None,
-                validation_id: Some(validation_id),
+                validation_id: Some(*validation_id),
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -461,7 +461,7 @@ impl ApiClient {
                 result: 0,
                 message: "".to_string(),
             }),
-            result: 0,
+            ..Default::default()
         };
 
         self.0
