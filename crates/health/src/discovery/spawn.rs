@@ -22,9 +22,10 @@ use super::context::{BmcClient, CollectorKind, DiscoveryLoopContext};
 use crate::HealthError;
 use crate::collectors::{
     BackoffConfig, Collector, CollectorStartContext, FirmwareCollector, FirmwareCollectorConfig,
-    LogsCollector, LogsCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
-    NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, SseLogCollector,
-    SseLogCollectorConfig, StreamingCollectorStartContext,
+    LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig,
+    NmxtCollector, NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig,
+    SensorCollector, SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig,
+    StreamingCollectorStartContext,
 };
 use crate::config::{Configurable, LogCollectionMode};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
@@ -402,6 +403,7 @@ mod tests {
         config.collectors.sensors = Configurable::Disabled;
         config.collectors.logs = Configurable::Disabled;
         config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
 
         let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
@@ -434,6 +436,7 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Logs), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Firmware), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::LeakDetector), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
     }
