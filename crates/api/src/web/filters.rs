@@ -229,10 +229,6 @@ pub fn option_fmt_or(value: &Option<impl Display>, default: &str) -> askama::Res
     })
 }
 
-pub(crate) fn normalize_state_label(state: impl Display) -> String {
-    state_and_substate_labels(state).0
-}
-
 pub(crate) fn state_and_substate_labels(state_json: impl Display) -> (String, String) {
     let state_json = state_json.to_string();
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&state_json) else {

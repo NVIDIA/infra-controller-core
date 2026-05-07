@@ -78,29 +78,7 @@
 </table>
 
 <h2>History</h2>
-{% if !history.is_empty() %}
-<div class="table-responsive">
-	<table class="table table-striped">
-		<thead>
-		<tr>
-			<th>State</th>
-			<th>Version</th>
-			<th>Time</th>
-		</tr>
-		</thead>
-		<tbody>
-		{% for record in history %}
-		<tr>
-			<td>{{ record.state }}</td>
-			<td>{{ record.version }}</td>
-			<td>{{ record.time }}</td>
-		</tr>
-		{% endfor %}
-		</tbody>
-	</table>
-</div>
-{% else %}
-<p class="text-muted">No state history available.</p>
-{% endif %}
+<a href="/admin/rack/{{ id }}/state-history">Open State History on separate page</a>
+{{ history|safe }}
 
 {% endblock %}

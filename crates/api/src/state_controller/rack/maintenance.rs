@@ -40,6 +40,7 @@ use crate::rack::firmware_update::{
     load_rack_switch_firmware_inventory, submit_firmware_update_batches,
 };
 use crate::rack::rms_client::SwitchSystemImageRmsClient;
+use crate::state_controller::external_service_error::rack_manager_error;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::fabric_manager::{
     get_scale_up_fabric_services_status, persist_fabric_manager_statuses, persist_primary_switch,
@@ -751,6 +752,7 @@ async fn rms_get_firmware_upgrade_status(
                 device.error_message = Some(message);
             }
             Err(error) => {
+                let error = rack_manager_error("get_firmware_job_status", error);
                 tracing::warn!(
                     job_id = %job_id,
                     error = %error,
@@ -1754,13 +1756,8 @@ pub async fn handle_maintenance(
                 {
                     Ok(response) => response,
                     Err(error) => {
-                        return transition_to_rack_error(
-                            id,
-                            state,
-                            format!("RMS GetDeviceInfoByDeviceList failed: {}", error),
-                            ctx,
-                        )
-                        .await;
+                        let error = rack_manager_error("get_device_info_by_device_list", error);
+                        return transition_to_rack_error(id, state, error.to_string(), ctx).await;
                     }
                 };
                 let primary_switch =
@@ -1805,6 +1802,7 @@ pub async fn handle_maintenance(
                 {
                     Ok(response) => response,
                     Err(error) => {
+                        let error = rack_manager_error("configure_scale_up_fabric_manager", error);
                         tracing::error!(
                             rack_id = %id,
                             primary_switch = %primary_switch.device.node_id,

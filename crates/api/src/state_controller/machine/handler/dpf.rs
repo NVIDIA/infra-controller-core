@@ -31,6 +31,7 @@ use model::machine::{
 use super::helpers::{DpuInitStateHelper, ManagedHostStateHelper, ReprovisionStateHelper};
 use super::{handler_host_power_control, host_power_state};
 use crate::dpf::DpfOperations;
+use crate::state_controller::external_service_error::dpf_error;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -277,7 +278,10 @@ async fn handle_dpf_reboot(
         handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
     } else if power_state == libredfish::PowerState::Off {
         handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
-        dpf_sdk.reboot_complete(node_name).await?;
+        dpf_sdk
+            .reboot_complete(node_name)
+            .await
+            .map_err(dpf_error)?;
     }
 
     update_phase_detail_or_wait(
@@ -300,11 +304,21 @@ async fn handle_dpf_waiting_for_ready(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     let dpu_device_name = dpf_id(dpu_snapshot)?;
-    let current_phase = dpf_sdk.get_dpu_phase(&dpu_device_name, &node_name).await?;
+    let current_phase = dpf_sdk
+        .get_dpu_phase(&dpu_device_name, &node_name)
+        .await
+        .map_err(dpf_error)?;
 
-    dpf_sdk.release_maintenance_hold(&node_name).await?;
+    dpf_sdk
+        .release_maintenance_hold(&node_name)
+        .await
+        .map_err(dpf_error)?;
 
-    if dpf_sdk.is_reboot_required(&node_name).await? {
+    if dpf_sdk
+        .is_reboot_required(&node_name)
+        .await
+        .map_err(dpf_error)?
+    {
         return handle_dpf_reboot(
             state,
             dpu_snapshot,
@@ -378,7 +392,8 @@ async fn handle_dpf_reprovisioning(
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     dpf_sdk
         .reprovision_dpu(&dpf_id(dpu_snapshot)?, &node_name)
-        .await?;
+        .await
+        .map_err(dpf_error)?;
     let next = set_one_dpu_dpf_state(
         state,
         &dpu_snapshot.id,
@@ -401,7 +416,11 @@ pub async fn handle_dpf_state(
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
-    if !dpf_sdk.verify_node_labels(&node_name).await? {
+    if !dpf_sdk
+        .verify_node_labels(&node_name)
+        .await
+        .map_err(dpf_error)?
+    {
         tracing::error!(
             host = %state.host_snapshot.id,
             node = %node_name,

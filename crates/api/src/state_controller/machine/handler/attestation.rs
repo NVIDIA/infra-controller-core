@@ -31,6 +31,7 @@ use rpc::forge::SpdmAttestationStatus;
 use sqlx::PgPool;
 
 use crate::handlers::attestation as attestation_handlers;
+use crate::state_controller::external_service_error::redfish_client_creation_error;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -97,7 +98,8 @@ pub(crate) async fn handle_spdm_trigger_state(
     // create redfish client
     let redfish_client = redfish_client_pool
         .create_client_from_machine(&mh_snapshot.host_snapshot, db_pool)
-        .await?;
+        .await
+        .map_err(redfish_client_creation_error)?;
 
     let devices_scheduled = attestation_handlers::trigger_attestation(
         db_pool,
