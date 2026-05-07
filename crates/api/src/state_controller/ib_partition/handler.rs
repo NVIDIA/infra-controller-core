@@ -20,6 +20,7 @@ use carbide_uuid::infiniband::IBPartitionId;
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
 use model::ib_partition::{IBPartition, IBPartitionControllerState, IBPartitionStatus};
 
+use crate::state_controller::external_service_error::ufm_error;
 use crate::state_controller::ib_partition::context::IBPartitionStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -48,10 +49,7 @@ impl StateHandler for IBPartitionStateHandler {
             .ib_fabric_manager
             .new_client(DEFAULT_IB_FABRIC_NAME)
             .await
-            .map_err(|e| StateHandlerError::IBFabricError {
-                operation: "connect".to_string(),
-                error: e.into(),
-            })?;
+            .map_err(|e| ufm_error("connect", e.into()))?;
 
         let ib_config = ctx.services.ib_fabric_manager.get_config();
 
@@ -120,11 +118,12 @@ impl StateHandler for IBPartitionStateHandler {
                                         .ib_pools
                                         .pkey_pools
                                         .get(DEFAULT_IB_FABRIC_NAME)
-                                        .ok_or_else(|| StateHandlerError::IBFabricError {
-                                            operation: "release_pkey".to_string(),
-                                            error: eyre::eyre!(
+                                        .ok_or_else(|| {
+                                            let error = eyre::eyre!(
                                                 "pkey pool for fabric \"{DEFAULT_IB_FABRIC_NAME}\" was not found"
-                                            )})?;
+                                            );
+                                            ufm_error("release_pkey", error)
+                                        })?;
 
                                     db::ib_partition::final_delete(*partition_id, &mut txn).await?;
 
@@ -132,10 +131,7 @@ impl StateHandler for IBPartitionStateHandler {
                                         .await?;
                                     Ok(StateHandlerOutcome::deleted().with_txn(txn))
                                 }
-                                _ => Err(StateHandlerError::IBFabricError {
-                                    operation: "get_ib_network".to_string(),
-                                    error: e.into(),
-                                }),
+                                _ => Err(ufm_error("get_ib_network", e.into())),
                             }
                         } else {
                             Ok(StateHandlerOutcome::wait(
@@ -239,10 +235,7 @@ impl StateHandler for IBPartitionStateHandler {
                                     IbError::NotFoundError { .. } => {
                                         Ok(StateHandlerOutcome::do_nothing())
                                     }
-                                    _ => Err(StateHandlerError::IBFabricError {
-                                        operation: "get_ib_network".to_string(),
-                                        error: e.into(),
-                                    }),
+                                    _ => Err(ufm_error("get_ib_network", e.into())),
                                 }
                             }
                         }

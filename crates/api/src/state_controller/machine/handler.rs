@@ -100,6 +100,7 @@ use crate::redfish::{
     self, host_power_control, host_power_control_with_location, set_host_uefi_password,
 };
 use crate::state_controller::common_services::CommonStateHandlerServices;
+use crate::state_controller::external_service_error::redfish_error;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::{
     MeasuringOutcome, get_measuring_prerequisites, handle_measuring_state,
@@ -993,10 +994,7 @@ impl MachineStateHandler {
                             && let Some(boss_controller_id) = redfish_client
                                 .get_boss_controller()
                                 .await
-                                .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "get_boss_controller",
-                                    error: e,
-                                })?
+                                .map_err(|e| redfish_error("get_boss_controller", e))?
                         {
                             let next_state: ManagedHostState =
                                 ManagedHostState::WaitingForCleanup {
@@ -1033,10 +1031,7 @@ impl MachineStateHandler {
                                 redfish_client
                                     .set_idrac_lockdown(EnabledDisabled::Disabled)
                                     .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "set_idrac_lockdown",
-                                        error: e,
-                                    })?;
+                                    .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
 
                                 let next_state: ManagedHostState =
                                     ManagedHostState::WaitingForCleanup {
@@ -1059,9 +1054,8 @@ impl MachineStateHandler {
                                         &secure_erase_boss_context.boss_controller_id,
                                     )
                                     .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "decommission_storage_controller",
-                                        error: e,
+                                    .map_err(|e| {
+                                        redfish_error("decommission_storage_controller", e)
                                     })?;
 
                                 let next_state: ManagedHostState =
@@ -1156,10 +1150,7 @@ impl MachineStateHandler {
                                         "VD_0",
                                     )
                                     .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "create_storage_volume",
-                                        error: e,
-                                    })?;
+                                    .map_err(|e| redfish_error("create_storage_volume", e))?;
 
                                 let next_state: ManagedHostState =
                                     ManagedHostState::WaitingForCleanup {
@@ -1199,10 +1190,7 @@ impl MachineStateHandler {
                                 redfish_client
                                     .power(SystemPowerControl::ForceRestart)
                                     .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "ForceRestart",
-                                        error: e,
-                                    })?;
+                                    .map_err(|e| redfish_error("ForceRestart", e))?;
 
                                 let next_state: ManagedHostState =
                                     ManagedHostState::WaitingForCleanup {
@@ -1232,10 +1220,7 @@ impl MachineStateHandler {
                                 redfish_client
                                     .set_idrac_lockdown(EnabledDisabled::Enabled)
                                     .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "set_idrac_lockdown",
-                                        error: e,
-                                    })?;
+                                    .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
 
                                 let next_state: ManagedHostState =
                                     ManagedHostState::BomValidating {
@@ -1995,10 +1980,7 @@ async fn handle_restart_verification(
             host_redfish_client
                 .power(SystemPowerControl::ForceRestart)
                 .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "restart host",
-                    error: e,
-                })?;
+                .map_err(|e| redfish_error("restart host", e))?;
 
             ctx.pending_db_writes
                 .push(MachineWriteOp::UpdateRestartVerificationStatus {
@@ -2103,10 +2085,7 @@ async fn handle_restart_verification(
                 dpu_redfish_client
                     .power(SystemPowerControl::ForceRestart)
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "reboot dpu",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("reboot dpu", e))?;
 
                 ctx.pending_db_writes
                     .push(MachineWriteOp::UpdateRestartVerificationStatus {
@@ -2473,10 +2452,7 @@ async fn handle_bfb_install_state(
                     TransferProtocolType::HTTP,
                 )
                 .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "update_firmware_simple_update",
-                    error: e,
-                })?;
+                .map_err(|e| redfish_error("update_firmware_simple_update", e))?;
             tracing::info!(
                 "DPU {} OS install task {} submitted.",
                 dpu_snapshot.id,
@@ -2498,10 +2474,7 @@ async fn handle_bfb_install_state(
             let task = dpu_redfish_client
                 .get_task(task_id.as_str())
                 .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "get_task",
-                    error: e,
-                })?;
+                .map_err(|e| redfish_error("get_task", e))?;
 
             tracing::info!(
                 "DPU {} OS install task {}: {:#?}",
@@ -3124,10 +3097,7 @@ async fn check_fw_component_version(
     let inventories = redfish_client
         .get_software_inventories()
         .await
-        .map_err(|e| StateHandlerError::RedfishError {
-            operation: "get_software_inventories",
-            error: e,
-        })?;
+        .map_err(|e| redfish_error("get_software_inventories", e))?;
 
     for component in [
         FirmwareComponentType::Bmc,
@@ -3146,10 +3116,7 @@ async fn check_fw_component_version(
             Ok(inventory) => inventory,
             Err(e) => {
                 tracing::error!(machine_id=%dpu_snapshot.id, "redfish command get_firmware error {}", e.to_string());
-                return Err(StateHandlerError::RedfishError {
-                    operation: "get_firmware",
-                    error: e,
-                });
+                return Err(redfish_error("get_firmware", e));
             }
         };
 
@@ -3335,12 +3302,10 @@ impl DpuMachineStateHandler {
         dpu_machine_id: &MachineId,
         dpu_redfish_client: &dyn Redfish,
     ) -> Result<bool, StateHandlerError> {
-        let secure_boot_status = dpu_redfish_client.get_secure_boot().await.map_err(|e| {
-            StateHandlerError::RedfishError {
-                operation: "disable_secure_boot",
-                error: e,
-            }
-        })?;
+        let secure_boot_status = dpu_redfish_client
+            .get_secure_boot()
+            .await
+            .map_err(|e| redfish_error("disable_secure_boot", e))?;
 
         let secure_boot_enable =
             secure_boot_status
@@ -3478,10 +3443,7 @@ impl DpuMachineStateHandler {
                 //
                 dpu_redfish_client
                     .boot_once(Boot::UefiHttp)
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "boot_once",
-                        error: e,
-                    })
+                    .map_err(|e| redfish_error("boot_once", e))
                     .await?;
 
                 let next_state = DpuDiscoveringState::RebootAllDPUS
@@ -3696,17 +3658,11 @@ impl DpuMachineStateHandler {
                     dpu_redfish_client
                         .set_host_rshim(EnabledDisabled::Disabled)
                         .await
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "set_host_rshim",
-                            error: e,
-                        })?;
+                        .map_err(|e| redfish_error("set_host_rshim", e))?;
                     dpu_redfish_client
                         .set_host_privilege_level(HostPrivilegeLevel::Restricted)
                         .await
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "set_host_privilege_level",
-                            error: e,
-                        })?;
+                        .map_err(|e| redfish_error("set_host_privilege_level", e))?;
                 } else if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
                     dpu_redfish_client.as_ref(),
                     boot_interface_mac,
@@ -3790,12 +3746,12 @@ impl DpuMachineStateHandler {
                 {
                     Ok(client) => client,
                     Err(e) => {
-                        return Err(StateHandlerError::RedfishError {
-                            operation: "create_client_from_machine",
-                            error: RedfishError::GenericError {
+                        return Err(redfish_error(
+                            "create_client_from_machine",
+                            RedfishError::GenericError {
                                 error: e.to_string(),
                             },
-                        });
+                        ));
                     }
                 };
 
@@ -3901,10 +3857,7 @@ impl DpuMachineStateHandler {
             let (has_dpu_finished_booting, dpu_boot_progress) =
                 redfish::did_dpu_finish_booting(dpu_redfish_client)
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "did_dpu_finish_booting",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("did_dpu_finish_booting", e))?;
 
             if count > 0 && !has_dpu_finished_booting {
                 tracing::info!(
@@ -3921,10 +3874,7 @@ impl DpuMachineStateHandler {
                 let task = dpu_redfish_client
                     .get_task(task_id.as_str())
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "get_task",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("get_task", e))?;
                 match task.clone().task_state {
                     Some(TaskState::New)
                     | Some(TaskState::Starting)
@@ -3942,18 +3892,15 @@ impl DpuMachineStateHandler {
                         .next_state(&state.managed_state, dpu_machine_id)?;
                     }
                     None => {
-                        return Err(StateHandlerError::RedfishError {
-                            operation: "get_task",
-                            error: RedfishError::NoContent,
-                        });
+                        return Err(redfish_error("get_task", RedfishError::NoContent));
                     }
                     Some(e) => {
-                        return Err(StateHandlerError::RedfishError {
-                            operation: "get_task",
-                            error: RedfishError::GenericError {
+                        return Err(redfish_error(
+                            "get_task",
+                            RedfishError::GenericError {
                                 error: format!("Task {task:#?} error: {e:#?}"),
                             },
-                        });
+                        ));
                     }
                 }
             }
@@ -3989,40 +3936,30 @@ impl DpuMachineStateHandler {
                             let pk_certs = dpu_redfish_client
                                 .get_secure_boot_certificates("PK")
                                 .await
-                                .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "get_secure_boot_certificates",
-                                    error: e,
-                                })?;
+                                .map_err(|e| redfish_error("get_secure_boot_certificates", e))?;
 
                             if pk_certs.is_empty() {
-                                let mut cert_file = File::open("/forge-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem").await.map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "open_secure_boot_certificate_file",
-                                    error: RedfishError::FileError(format!("Error opening secure boot certificate file: {e}")),
-                                })?;
+                                let mut cert_file = File::open("/forge-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem").await.map_err(|e| redfish_error("open_secure_boot_certificate_file", RedfishError::FileError(format!("Error opening secure boot certificate file: {e}"))))?;
                                 let mut cert_string = String::new();
                                 cert_file
                                     .read_to_string(&mut cert_string)
                                     .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "read_secure_boot_certificate_file",
-                                        error: RedfishError::FileError(format!(
-                                            "Error reading secure boot certificate file: {e}"
-                                        )),
+                                    .map_err(|e| {
+                                        redfish_error(
+                                            "read_secure_boot_certificate_file",
+                                            RedfishError::FileError(format!(
+                                                "Error reading secure boot certificate file: {e}"
+                                            )),
+                                        )
                                     })?;
                                 let task = dpu_redfish_client
                                     .add_secure_boot_certificate(cert_string.as_str(), "PK")
                                     .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "add_secure_boot_certificate",
-                                        error: e,
-                                    })?;
+                                    .map_err(|e| redfish_error("add_secure_boot_certificate", e))?;
                                 dpu_redfish_client
                                     .power(SystemPowerControl::ForceRestart)
                                     .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "force_restart",
-                                        error: e,
-                                    })?;
+                                    .map_err(|e| redfish_error("force_restart", e))?;
                                 next_state = DpuDiscoveringState::EnableSecureBoot {
                                     enable_secure_boot_state:
                                         SetSecureBootState::WaitCertificateUpload {
@@ -4077,10 +4014,7 @@ impl DpuMachineStateHandler {
                             dpu_redfish_client
                                 .power(SystemPowerControl::ForceRestart)
                                 .await
-                                .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "force_restart",
-                                    error: e,
-                                })?;
+                                .map_err(|e| redfish_error("force_restart", e))?;
                             if enable_secure_boot {
                                 next_state = DpuDiscoveringState::EnableSecureBoot {
                                     enable_secure_boot_state: SetSecureBootState::RebootDPU {
@@ -4109,12 +4043,10 @@ impl DpuMachineStateHandler {
             }
             SetSecureBootState::DisableSecureBoot | SetSecureBootState::SetSecureBoot => {
                 if enable_secure_boot {
-                    dpu_redfish_client.enable_secure_boot().await.map_err(|e| {
-                        StateHandlerError::RedfishError {
-                            operation: "enable_secure_boot",
-                            error: e,
-                        }
-                    })?;
+                    dpu_redfish_client
+                        .enable_secure_boot()
+                        .await
+                        .map_err(|e| redfish_error("enable_secure_boot", e))?;
 
                     next_state = DpuDiscoveringState::EnableSecureBoot {
                         enable_secure_boot_state: SetSecureBootState::RebootDPU { reboot_count: 0 },
@@ -4125,10 +4057,7 @@ impl DpuMachineStateHandler {
                     dpu_redfish_client
                         .disable_secure_boot()
                         .await
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "disable_secure_boot",
-                            error: e,
-                        })?;
+                        .map_err(|e| redfish_error("disable_secure_boot", e))?;
 
                     next_state = DpuDiscoveringState::DisableSecureBoot {
                         disable_secure_boot_state: Some(SetSecureBootState::RebootDPU {
@@ -4191,10 +4120,7 @@ impl DpuMachineStateHandler {
                 dpu_redfish_client
                     .power(SystemPowerControl::ForceRestart)
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "force_restart",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("force_restart", e))?;
             }
         }
 
@@ -4658,10 +4584,7 @@ async fn handle_host_uefi_setup(
                 redfish_client
                     .lockdown_bmc(libredfish::EnabledDisabled::Disabled)
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "lockdown",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("lockdown", e))?;
             }
 
             Ok(StateHandlerOutcome::transition(
@@ -4727,12 +4650,10 @@ async fn handle_host_uefi_setup(
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
-                let job_state = redfish_client.get_job_state(&job_id).await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_job_state",
-                        error: e,
-                    }
-                })?;
+                let job_state = redfish_client
+                    .get_job_state(&job_id)
+                    .await
+                    .map_err(|e| redfish_error("get_job_state", e))?;
 
                 if !matches!(job_state, libredfish::JobState::Scheduled) {
                     return Ok(StateHandlerOutcome::wait(format!(
@@ -4773,12 +4694,10 @@ async fn handle_host_uefi_setup(
                     .create_redfish_client_from_machine(&state.host_snapshot)
                     .await?;
 
-                let job_state = redfish_client.get_job_state(&job_id).await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_job_state",
-                        error: e,
-                    }
-                })?;
+                let job_state = redfish_client
+                    .get_job_state(&job_id)
+                    .await
+                    .map_err(|e| redfish_error("get_job_state", e))?;
 
                 if !matches!(job_state, libredfish::JobState::Completed) {
                     return Ok(StateHandlerOutcome::wait(format!(
@@ -4852,10 +4771,7 @@ impl StateHandler for HostMachineStateHandler {
                     if !host_redfish_client
                         .is_ipmi_over_lan_enabled()
                         .await
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "enable_ipmi_over_lan",
-                            error: e,
-                        })?
+                        .map_err(|e| redfish_error("enable_ipmi_over_lan", e))?
                     {
                         tracing::info!(
                             machine_id = %host_machine_id,
@@ -4864,10 +4780,7 @@ impl StateHandler for HostMachineStateHandler {
                         host_redfish_client
                             .enable_ipmi_over_lan(libredfish::EnabledDisabled::Enabled)
                             .await
-                            .map_err(|e| StateHandlerError::RedfishError {
-                                operation: "enable_ipmi_over_lan",
-                                error: e,
-                            })?;
+                            .map_err(|e| redfish_error("enable_ipmi_over_lan", e))?;
                     }
 
                     let next_state = ManagedHostState::HostInit {
@@ -5189,12 +5102,10 @@ impl StateHandler for HostMachineStateHandler {
                                 LockdownMode::Disable => libredfish::EnabledDisabled::Disabled,
                             };
 
-                            redfish_client.lockdown(action).await.map_err(|e| {
-                                StateHandlerError::RedfishError {
-                                    operation: "lockdown",
-                                    error: e,
-                                }
-                            })?;
+                            redfish_client
+                                .lockdown(action)
+                                .await
+                                .map_err(|e| redfish_error("lockdown", e))?;
 
                             handler_host_power_control(
                                 mh_snapshot,
@@ -7681,10 +7592,7 @@ impl HostUpgradeState {
                 redfish_client
                     .power(SystemPowerControl::ForceOff)
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "power off",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("power off", e))?;
                 let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::Off {
                     return Err(StateHandlerError::GenericError(eyre!(
@@ -7695,10 +7603,7 @@ impl HostUpgradeState {
                 redfish_client
                     .bmc_reset()
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "BMC reset",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("BMC reset", e))?;
 
                 Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                     HostReprovisionState::InitialReset {
@@ -7716,10 +7621,7 @@ impl HostUpgradeState {
                 redfish_client
                     .power(SystemPowerControl::On)
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "power on",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("power on", e))?;
                 let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::On {
                     return Err(StateHandlerError::GenericError(eyre!(
@@ -8184,15 +8086,9 @@ impl HostUpgradeState {
                             )));
                         }
                     }
-                    Err(StateHandlerError::RedfishError {
-                        operation: "get_task",
-                        error: e,
-                    })
+                    Err(redfish_error("get_task", e))
                 }
-                _ => Err(StateHandlerError::RedfishError {
-                    operation: "get_task",
-                    error: e,
-                }),
+                _ => Err(redfish_error("get_task", e)),
             },
         }
     }
@@ -8639,10 +8535,7 @@ pub async fn host_power_state(
     redfish_client
         .get_power_state()
         .await
-        .map_err(|e| StateHandlerError::RedfishError {
-            operation: "get_power_state",
-            error: e,
-        })
+        .map_err(|e| redfish_error("get_power_state", e))
 }
 
 fn requires_manual_firmware_upgrade(
@@ -8893,10 +8786,7 @@ async fn wait_for_boss_controller_job_to_scheduled(
                 boss_controller_id,
                 iteration.unwrap_or_default(),
                 false,
-                StateHandlerError::RedfishError {
-                    operation: "get_job_state",
-                    error: e,
-                },
+                redfish_error("get_job_state", e),
                 mh_snapshot.host_snapshot.state.version.since_state_change(),
             );
         }
@@ -9023,10 +8913,7 @@ async fn wait_for_boss_controller_job_to_complete(
                 boss_controller_id,
                 iterations,
                 secure_erase_boss_controller,
-                StateHandlerError::RedfishError {
-                    operation: "get_job_state",
-                    error: e,
-                },
+                redfish_error("get_job_state", e),
                 mh_snapshot.host_snapshot.state.version.since_state_change(),
             );
         }
@@ -9082,14 +8969,10 @@ async fn handle_boss_job_failure(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let (next_state, expected_power_state) = get_next_state_boss_job_failure(mh_snapshot)?;
 
-    let current_power_state =
-        redfish_client
-            .get_power_state()
-            .await
-            .map_err(|e| StateHandlerError::RedfishError {
-                operation: "get_power_state",
-                error: e,
-            })?;
+    let current_power_state = redfish_client
+        .get_power_state()
+        .await
+        .map_err(|e| redfish_error("get_power_state", e))?;
 
     match expected_power_state {
         PowerState::Off => {
@@ -9105,10 +8988,7 @@ async fn handle_boss_job_failure(
             redfish_client
                 .bmc_reset()
                 .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "bmc_reset",
-                    error: e,
-                })?;
+                .map_err(|e| redfish_error("bmc_reset", e))?;
 
             Ok(StateHandlerOutcome::transition(next_state))
         }
@@ -9270,10 +9150,7 @@ async fn restart_dpu(
         .await
     {
         tracing::error!(%e, "Failed to reboot a DPU");
-        return Err(StateHandlerError::RedfishError {
-            operation: "reboot dpu",
-            error: e,
-        });
+        return Err(redfish_error("reboot dpu", e));
     }
 
     Ok(())
@@ -9738,10 +9615,7 @@ async fn handle_instance_host_platform_config(
                     redfish_client
                         .lockdown_bmc(EnabledDisabled::Disabled)
                         .await
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "lockdown_bmc",
-                            error: e,
-                        })?;
+                        .map_err(|e| redfish_error("lockdown_bmc", e))?;
 
                     let vendor = mh_snapshot.host_snapshot.bmc_vendor();
 
@@ -9845,10 +9719,8 @@ async fn handle_instance_host_platform_config(
             let configure_host_boot_order = if redfish_client
                 .is_boot_order_setup(&boot_interface_mac.to_string())
                 .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "is_boot_order_setup",
-                    error: e,
-                })? {
+                .map_err(|e| redfish_error("is_boot_order_setup", e))?
+            {
                 tracing::info!(
                     machine_id = %mh_snapshot.host_snapshot.id,
                     bmc_vendor = %vendor,
@@ -10032,10 +9904,7 @@ async fn handle_instance_host_platform_config(
                 redfish_client
                     .lockdown_bmc(EnabledDisabled::Enabled)
                     .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "lockdown_bmc",
-                        error: e,
-                    })?;
+                    .map_err(|e| redfish_error("lockdown_bmc", e))?;
             }
 
             InstanceState::WaitingForDpusToUp
@@ -10159,12 +10028,10 @@ async fn advance_bios_config_job(
     match info.bios_config_state {
         BiosConfigState::WaitForBiosJobScheduled => {
             if let Some(job_id) = &info.bios_job_id {
-                let job_state = redfish_client.get_job_state(job_id).await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_job_state",
-                        error: e,
-                    }
-                })?;
+                let job_state = redfish_client
+                    .get_job_state(job_id)
+                    .await
+                    .map_err(|e| redfish_error("get_job_state", e))?;
                 if matches!(
                     job_state,
                     libredfish::JobState::ScheduledWithErrors
@@ -10218,10 +10085,7 @@ async fn advance_bios_config_job(
                             .since_state_change()
                             .num_minutes();
                         if minutes_since_state_change < JOB_QUERY_WAIT_MINUTES {
-                            return Err(StateHandlerError::RedfishError {
-                                operation: "get_job_state",
-                                error: e,
-                            });
+                            return Err(redfish_error("get_job_state", e));
                         }
                         let failure = format!(
                             "BIOS config job {} lookup failed after {} min: {}",
@@ -10275,12 +10139,10 @@ async fn advance_bios_config_job(
             failure,
             power_state,
         } => {
-            let current_power_state = redfish_client.get_power_state().await.map_err(|e| {
-                StateHandlerError::RedfishError {
-                    operation: "get_power_state",
-                    error: e,
-                }
-            })?;
+            let current_power_state = redfish_client
+                .get_power_state()
+                .await
+                .map_err(|e| redfish_error("get_power_state", e))?;
 
             match power_state {
                 PowerState::Off => {
@@ -10297,12 +10159,10 @@ async fn advance_bios_config_job(
                         mh_snapshot.host_snapshot.id,
                         failure
                     );
-                    redfish_client.bmc_reset().await.map_err(|e| {
-                        StateHandlerError::RedfishError {
-                            operation: "bmc_reset",
-                            error: e,
-                        }
-                    })?;
+                    redfish_client
+                        .bmc_reset()
+                        .await
+                        .map_err(|e| redfish_error("bmc_reset", e))?;
                     Ok(BiosConfigJobAdvanceOutcome::Continue(BiosConfigInfo {
                         bios_job_id: info.bios_job_id.clone(),
                         bios_config_state: BiosConfigState::HandleBiosJobFailure {
@@ -10376,10 +10236,7 @@ async fn set_host_boot_order(
                     redfish_client
                         .boot_first(Boot::UefiHttp)
                         .await
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "boot_first",
-                            error: e,
-                        })?;
+                        .map_err(|e| redfish_error("boot_first", e))?;
                     return Ok(SetBootOrderOutcome::Done);
                 }
             }
@@ -10461,12 +10318,10 @@ async fn set_host_boot_order(
         }
         SetBootOrderState::WaitForSetBootOrderJobScheduled => {
             if let Some(job_id) = &set_boot_order_info.set_boot_order_jid {
-                let job_state = redfish_client.get_job_state(job_id).await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_job_state",
-                        error: e,
-                    }
-                })?;
+                let job_state = redfish_client
+                    .get_job_state(job_id)
+                    .await
+                    .map_err(|e| redfish_error("get_job_state", e))?;
 
                 if !matches!(job_state, libredfish::JobState::Scheduled) {
                     return Err(StateHandlerError::GenericError(eyre::eyre!(
@@ -10509,10 +10364,7 @@ async fn set_host_boot_order(
                             .num_minutes();
 
                         if minutes_since_state_change < JOB_QUERY_WAIT_MINUTES {
-                            return Err(StateHandlerError::RedfishError {
-                                operation: "get_job_state",
-                                error: e,
-                            });
+                            return Err(redfish_error("get_job_state", e));
                         }
 
                         tracing::warn!(
@@ -10580,12 +10432,10 @@ async fn set_host_boot_order(
             // 2. Reset the BMC
             // 3. Transition to CheckBootOrder to verify and retry if needed
 
-            let current_power_state = redfish_client.get_power_state().await.map_err(|e| {
-                StateHandlerError::RedfishError {
-                    operation: "get_power_state",
-                    error: e,
-                }
-            })?;
+            let current_power_state = redfish_client
+                .get_power_state()
+                .await
+                .map_err(|e| redfish_error("get_power_state", e))?;
 
             match power_state {
                 PowerState::Off => {
@@ -10606,12 +10456,10 @@ async fn set_host_boot_order(
                         failure
                     );
 
-                    redfish_client.bmc_reset().await.map_err(|e| {
-                        StateHandlerError::RedfishError {
-                            operation: "bmc_reset",
-                            error: e,
-                        }
-                    })?;
+                    redfish_client
+                        .bmc_reset()
+                        .await
+                        .map_err(|e| redfish_error("bmc_reset", e))?;
 
                     // Transition to PowerState::On to wait for BMC to come back
                     Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
@@ -10690,10 +10538,7 @@ async fn set_host_boot_order(
             let boot_order_configured = redfish_client
                 .is_boot_order_setup(&boot_interface_mac.to_string())
                 .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "is_boot_order_setup",
-                    error: e,
-                })?;
+                .map_err(|e| redfish_error("is_boot_order_setup", e))?;
 
             if boot_order_configured {
                 tracing::info!(
@@ -10748,10 +10593,7 @@ async fn get_power_state(redfish_client: &dyn Redfish) -> Result<PowerState, Sta
     redfish_client
         .get_power_state()
         .await
-        .map_err(|e| StateHandlerError::RedfishError {
-            operation: "get_power_state",
-            error: e,
-        })
+        .map_err(|e| redfish_error("get_power_state", e))
         .map(IntoModel::into_model)
 }
 

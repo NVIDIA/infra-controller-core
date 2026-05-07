@@ -30,6 +30,9 @@ use model::attestation::spdm::{
 use model::bmc_info::BmcInfo;
 use nras::{DeviceAttestationInfo, EvidenceCertificate, RawAttestationOutcome, VerifierClient};
 
+use crate::state_controller::external_service_error::{
+    redfish_client_creation_error, redfish_error,
+};
 use crate::state_controller::spdm::context::SpdmStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -71,7 +74,7 @@ async fn redfish_client(
             &ctx.services.db_pool,
         )
         .await
-        .map_err(StateHandlerError::from)
+        .map_err(redfish_client_creation_error)
 }
 
 #[async_trait::async_trait]
@@ -122,10 +125,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                         ));
                     }
                     Err(error) => {
-                        return Err(StateHandlerError::RedfishError {
-                            operation: "fetch firmware version",
-                            error,
-                        });
+                        return Err(redfish_error("fetch firmware version", error));
                     }
                 };
 
@@ -151,10 +151,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                 let ca_certificate = redfish_client
                     .get_component_ca_certificate(url.as_str())
                     .await
-                    .map_err(|error| StateHandlerError::RedfishError {
-                        operation: "fetch certificate",
-                        error,
-                    })?;
+                    .map_err(|error| redfish_error("fetch certificate", error))?;
 
                 let mut txn = ctx.services.db_pool.begin().await?;
                 db::attestation::spdm::update_certificate(
@@ -184,10 +181,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                 let task = redfish_client
                     .trigger_evidence_collection(url.as_str(), snapshot.nonce.to_string().as_str())
                     .await
-                    .map_err(|error| StateHandlerError::RedfishError {
-                        operation: "trigger measurement collection",
-                        error,
-                    })?;
+                    .map_err(|error| redfish_error("trigger measurement collection", error))?;
 
                 Ok(StateHandlerOutcome::transition(
                     SpdmAttestationState::PollEvidenceCollection {
@@ -201,12 +195,10 @@ impl StateHandler for SpdmAttestationStateHandler {
                 retry_count,
             } => {
                 let redfish_client = redfish_client(&snapshot.bmc_info, ctx).await?;
-                let task = redfish_client.get_task(task_id).await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_task_state",
-                        error: e,
-                    }
-                })?;
+                let task = redfish_client
+                    .get_task(task_id)
+                    .await
+                    .map_err(|e| redfish_error("get_task_state", e))?;
 
                 match task.task_state {
                     Some(TaskState::Completed) => {
@@ -219,12 +211,10 @@ impl StateHandler for SpdmAttestationStateHandler {
                                 ),
                             ));
                         };
-                        let evidence = redfish_client.get_evidence(url).await.map_err(|e| {
-                            StateHandlerError::RedfishError {
-                                operation: "get_task_state",
-                                error: e,
-                            }
-                        })?;
+                        let evidence = redfish_client
+                            .get_evidence(url)
+                            .await
+                            .map_err(|e| redfish_error("get_task_state", e))?;
                         let mut txn = ctx.services.db_pool.begin().await?;
                         db::attestation::spdm::update_evidence(
                             &mut txn,
