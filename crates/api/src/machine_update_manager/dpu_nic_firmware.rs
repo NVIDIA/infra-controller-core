@@ -22,13 +22,14 @@ use std::sync::atomic::Ordering;
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
 use db::dpu_machine_update;
-use model::dpu_machine_update::DpuMachineUpdate;
+use model::dpu_machine_update::{DpuMachineUpdate, OutdatedDpfDpu};
 use model::machine::ManagedHostStateSnapshot;
 use sqlx::PgConnection;
 
 use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
 use super::machine_update_module::MachineUpdateModule;
 use crate::cfg::file::CarbideConfig;
+use crate::dpf::DpfOperations;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::{CarbideResult, DatabaseError};
 
@@ -42,6 +43,9 @@ use crate::{CarbideResult, DatabaseError};
 pub struct DpuNicFirmwareUpdate {
     pub metrics: Option<DpuNicFirmwareUpdateMetrics>,
     pub config: Arc<CarbideConfig>,
+    /// DPF handle for discovering outdated DPF-managed DPUs. `None` when DPF
+    /// is disabled in config; in that case `find_outdated_dpus_dpf` is not called.
+    pub dpf: Option<Arc<dyn DpfOperations>>,
 }
 
 #[async_trait]
@@ -74,6 +78,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     ) -> CarbideResult<HashSet<MachineId>> {
         let machine_updates: Vec<DpuMachineUpdate> = self
             .check_for_updates(snapshots, available_updates)
+            .await
             .into_iter()
             .filter(|u| updating_host_machines.get(&u.host_machine_id).is_none())
             .collect();
@@ -168,10 +173,12 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         txn: &mut PgConnection,
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) {
+        let dpf_outdated = self.fetch_dpf_outdated().await;
         match DpuMachineUpdate::find_available_outdated_dpus(
             None,
             &self.config.dpu_config.dpu_nic_firmware_update_versions,
             snapshots,
+            &dpf_outdated,
         ) {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
@@ -210,7 +217,11 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 }
 
 impl DpuNicFirmwareUpdate {
-    pub fn new(config: Arc<CarbideConfig>, meter: opentelemetry::metrics::Meter) -> Option<Self> {
+    pub fn new(
+        config: Arc<CarbideConfig>,
+        meter: opentelemetry::metrics::Meter,
+        dpf: Option<Arc<dyn DpfOperations>>,
+    ) -> Option<Self> {
         if !config
             .dpu_config
             .dpu_nic_firmware_reprovision_update_enabled
@@ -223,22 +234,41 @@ impl DpuNicFirmwareUpdate {
         Some(DpuNicFirmwareUpdate {
             metrics: Some(metrics),
             config,
+            dpf,
         })
     }
 
-    pub fn check_for_updates(
+    pub async fn check_for_updates(
         &self,
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
         available_updates: i32,
     ) -> Vec<DpuMachineUpdate> {
+        let dpf_outdated = self.fetch_dpf_outdated().await;
         match DpuMachineUpdate::find_available_outdated_dpus(
             Some(available_updates),
             &self.config.dpu_config.dpu_nic_firmware_update_versions,
             snapshots,
+            &dpf_outdated,
         ) {
             Ok(machine_updates) => machine_updates,
             Err(e) => {
                 tracing::warn!("Failed to find machines needing updates: {}", e);
+                vec![]
+            }
+        }
+    }
+
+    /// Best-effort fetch of DPF-managed outdated DPUs. Returns an empty vec
+    /// when DPF is disabled or the query fails — callers should treat the
+    /// result as "what we know right now" rather than authoritative.
+    async fn fetch_dpf_outdated(&self) -> Vec<OutdatedDpfDpu> {
+        let Some(dpf) = self.dpf.as_ref() else {
+            return vec![];
+        };
+        match dpf.find_outdated_dpus_dpf().await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to fetch DPF outdated DPUs");
                 vec![]
             }
         }

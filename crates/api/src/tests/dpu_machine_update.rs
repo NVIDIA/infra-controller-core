@@ -116,6 +116,7 @@ async fn test_find_available_outdated_dpus(
         None,
         &env.config.dpu_config.dpu_nic_firmware_update_versions,
         &snapshots,
+        &[],
     )?;
 
     assert_eq!(dpus.len(), dpu_count);
@@ -174,6 +175,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         None,
         &env.config.dpu_config.dpu_nic_firmware_update_versions,
         &snapshots,
+        &[],
     )?;
 
     assert_eq!(dpus.len(), 9);
@@ -190,6 +192,7 @@ async fn test_find_available_outdated_dpus_limit(
         Some(1),
         &env.config.dpu_config.dpu_nic_firmware_update_versions,
         &snapshots,
+        &[],
     )?;
 
     assert_eq!(dpus.len(), 1);
@@ -215,6 +218,7 @@ async fn test_find_available_outdated_dpus_skips_dpf_ingested(
         None,
         &env.config.dpu_config.dpu_nic_firmware_update_versions,
         &snapshots,
+        &[],
     )?;
 
     assert_eq!(dpus.len(), 1);
@@ -297,6 +301,7 @@ async fn test_find_available_outdated_dpus_multidpu(
         None,
         &env.config.dpu_config.dpu_nic_firmware_update_versions,
         &snapshots,
+        &[],
     )?;
 
     assert_eq!(dpus.len(), all_dpus.len());
@@ -341,6 +346,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
         None,
         &env.config.dpu_config.dpu_nic_firmware_update_versions,
         &snapshots,
+        &[],
     )?;
 
     assert!(dpus.is_empty());
@@ -404,6 +410,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
         None,
         &env.config.dpu_config.dpu_nic_firmware_update_versions,
         &snapshots,
+        &[],
     )?;
 
     assert!(dpus.is_empty());

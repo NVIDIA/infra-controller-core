@@ -44,6 +44,7 @@ use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
+use crate::dpf::DpfOperations;
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:
@@ -93,10 +94,13 @@ impl MachineUpdateManager {
         config: Arc<CarbideConfig>,
         meter: opentelemetry::metrics::Meter,
         work_lock_manager_handle: WorkLockManagerHandle,
+        dpf: Option<Arc<dyn DpfOperations>>,
     ) -> Self {
         let mut update_modules = vec![];
 
-        if let Some(dpu_nic_firmware) = DpuNicFirmwareUpdate::new(config.clone(), meter.clone()) {
+        if let Some(dpu_nic_firmware) =
+            DpuNicFirmwareUpdate::new(config.clone(), meter.clone(), dpf)
+        {
             update_modules.push(Box::new(dpu_nic_firmware) as Box<dyn MachineUpdateModule>);
         }
 

@@ -1138,6 +1138,7 @@ pub async fn initialize_and_start_controllers(
         carbide_config.clone(),
         meter.clone(),
         work_lock_manager_handle.clone(),
+        dpf_sdk.clone(),
     )
     .start(join_set, cancel_token.clone())?;
 

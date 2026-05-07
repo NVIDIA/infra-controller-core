@@ -25,11 +25,21 @@ use carbide_dpf::{
     BmcPasswordProvider, DpfError, DpfSdk, DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher,
     KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
 };
+use carbide_uuid::machine::MachineId;
+use model::dpu_machine_update::OutdatedDpfDpu;
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 
 use crate::state_controller::controller::Enqueuer;
 use crate::state_controller::machine::io::MachineStateControllerIO;
+
+/// Label key used by [`CarbideDPFLabeler`] to stamp the carbide `MachineId` of
+/// the DPU onto its DPUDevice. Propagates to the DPU CR via DPF.
+const DPU_MACHINE_ID_LABEL: &str = "carbide.nvidia.com/dpu-machine-id";
+
+/// Label key used by [`CarbideDPFLabeler`] to mark a DPU device as
+/// carbide-controlled. Propagates to the DPU CR.
+const CONTROLLED_DEVICE_LABEL: &str = "carbide.nvidia.com/controlled.device";
 
 /// Trait for DPF SDK operations used by Carbide.
 ///
@@ -76,6 +86,14 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Check that a DPUNode's labels match the current expected labels.
     /// Returns `false` when the node exists but has stale labels.
     async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError>;
+
+    /// Return DPUs whose installed BFB or `spec.dpuFlavor` does not match
+    /// the namespace's ready DPUDeployment, mapped back to carbide
+    /// `MachineId` via the `carbide.nvidia.com/dpu-machine-id` label. The
+    /// expected BFB and flavor are read from the live DPUDeployment, not
+    /// from carbide config — see [`DpfSdk::find_outdated_dpus_dpf`] for
+    /// details.
+    async fn find_outdated_dpus_dpf(&self) -> Result<Vec<OutdatedDpfDpu>, DpfError>;
 }
 
 /// Applies carbide-specific labels to DPF resources.
@@ -99,10 +117,7 @@ impl CarbideDPFLabeler {
 impl ResourceLabeler for CarbideDPFLabeler {
     fn device_labels(&self, info: &DpuDeviceInfo) -> BTreeMap<String, String> {
         BTreeMap::from([
-            (
-                "carbide.nvidia.com/controlled.device".to_string(),
-                "true".to_string(),
-            ),
+            (CONTROLLED_DEVICE_LABEL.to_string(), "true".to_string()),
             (
                 "carbide.nvidia.com/host-bmc-ip".to_string(),
                 info.host_bmc_ip.clone(),
@@ -112,7 +127,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
                 info.is_primary.to_string(),
             ),
             (
-                "carbide.nvidia.com/dpu-machine-id".to_string(),
+                DPU_MACHINE_ID_LABEL.to_string(),
                 info.dpu_machine_id.clone(),
             ),
         ])
@@ -136,7 +151,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     }
 
     fn dpu_label_selector(&self) -> Option<String> {
-        Some("carbide.nvidia.com/controlled.device=true".to_string())
+        Some(format!("{CONTROLLED_DEVICE_LABEL}=true"))
     }
 }
 
@@ -369,5 +384,41 @@ impl DpfOperations for DpfSdkOps {
 
     async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError> {
         self.sdk.verify_node_labels(node_name).await
+    }
+
+    async fn find_outdated_dpus_dpf(&self) -> Result<Vec<OutdatedDpfDpu>, DpfError> {
+        let label_selector = format!("{CONTROLLED_DEVICE_LABEL}=true");
+        let mismatches = self
+            .sdk
+            .find_outdated_dpus_dpf(Some(label_selector.as_str()))
+            .await?;
+
+        let mut out = Vec::with_capacity(mismatches.len());
+        for m in mismatches {
+            let Some(machine_id_str) = m.dpu_labels.get(DPU_MACHINE_ID_LABEL) else {
+                tracing::warn!(
+                    dpu = %m.dpu_cr_name,
+                    "Outdated DPU missing {DPU_MACHINE_ID_LABEL} label; skipping"
+                );
+                continue;
+            };
+            let dpu_machine_id: MachineId = match machine_id_str.parse() {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::warn!(
+                        dpu = %m.dpu_cr_name,
+                        label_value = %machine_id_str,
+                        error = %e,
+                        "Outdated DPU has invalid {DPU_MACHINE_ID_LABEL} label; skipping"
+                    );
+                    continue;
+                }
+            };
+            out.push(OutdatedDpfDpu {
+                dpu_machine_id,
+                target_bfb: m.target_bfb,
+            });
+        }
+        Ok(out)
     }
 }
