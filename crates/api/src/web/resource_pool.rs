@@ -28,8 +28,10 @@ use rpc::forge::forge_server::Forge;
 use super::Base;
 
 mod filters {
+    #[askama::filter_fn]
     pub fn resource_pool_allocated_fmt(
         pool: &super::forgerpc::ResourcePool,
+        _env: &dyn askama::Values,
     ) -> askama::Result<String> {
         Ok(format!(
             "{} ({:.0}%)",
