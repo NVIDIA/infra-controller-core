@@ -121,9 +121,11 @@ impl NvidiaSwitchNd5200Ld<'_> {
                         "MGX_BMC_0",
                         redfish::sensor::Layout {
                             temperature: 1,
-                            voltage: 8,
                             ..Default::default()
                         },
+                    )),
+                    leak_detectors: Some(redfish::leak_detector::generate_chassis_leak_detectors(
+                        8,
                     )),
                     ..redfish::chassis::SingleChassisConfig::defaults()
                 },
