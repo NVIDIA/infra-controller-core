@@ -10,6 +10,8 @@ exposedPorts:
   ports: {}
 
 ### Service specific values ###
+# Prometheus receiver port; must match DPUServiceConfiguration configPorts (dpf_services).
+prometheusPort: 9999
 image:
   repository: ""
   pullPolicy: IfNotPresent

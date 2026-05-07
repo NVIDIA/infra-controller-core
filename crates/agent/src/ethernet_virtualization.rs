@@ -339,8 +339,18 @@ pub async fn update_nvue(
     };
 
     let hostname = hostname().wrap_err("gethostname error")?;
+    let is_dpu_os = matches!(update_flavor, NvueUpdateFlavor::StartupFile { .. });
     let conf = nvue::NvueConfig {
         is_fnn: false,
+        is_dpu_os,
+        fmds_gateway_vlan: if !is_dpu_os {
+            nc.tenant_interfaces
+                .iter()
+                .find(|i| i.function_type == rpc::InterfaceFunctionType::Physical as i32)
+                .map(|i| i.vlan_id as u16)
+        } else {
+            None
+        },
         vpc_virtualization_type,
         site_global_vpc_vni: nc.site_global_vpc_vni,
         use_admin_network: nc.use_admin_network,
@@ -454,6 +464,11 @@ pub async fn update_nvue(
                         asn: rt.asn,
                         vni: rt.vni,
                     })
+                    .collect(),
+                accepted_leaks_from_underlay: rp
+                    .accepted_leaks_from_underlay
+                    .iter()
+                    .map(|l| l.prefix.to_owned())
                     .collect(),
             })
         },
@@ -860,13 +875,13 @@ async fn update_dhcp_via_grpc(
             )
         })?;
 
-    let dhcp_config = carbide_utils::models::dhcp::DhcpConfig::from_forge_dhcp_config(
+    let dhcp_config = carbide_rpc_utils::dhcp::DhcpConfig::from_forge_dhcp_config(
         pxe_ip_v4,
         ntpservers_v4,
         nameservers_v4,
         loopback_ip,
     )?;
-    let mut host_config = carbide_utils::models::dhcp::HostConfig::try_from(
+    let mut host_config = carbide_rpc_utils::dhcp::HostConfig::try_from(
         network_config.clone(),
         hbn_device_names.reps[0],
         hbn_device_names.virt_rep_begin,
@@ -1702,7 +1717,7 @@ mod tests {
 
     use ::rpc::{common as rpc_common, forge as rpc};
     use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
-    use carbide_utils::models::dhcp::{DhcpConfig, HostConfig};
+    use carbide_rpc_utils::dhcp::{DhcpConfig, HostConfig};
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
 
@@ -2565,6 +2580,13 @@ mod tests {
                 leak_default_route_from_underlay: include_network_host_route_and_default_leaking,
                 leak_tenant_host_routes_to_underlay: include_network_host_route_and_default_leaking,
                 tenant_leak_communities_accepted: include_network_host_route_and_default_leaking,
+                accepted_leaks_from_underlay: if include_network_host_route_and_default_leaking {
+                    vec![rpc::PrefixFilterPolicyEntry {
+                        prefix: "10.255.0.0/24".to_string(),
+                    }]
+                } else {
+                    vec![]
+                },
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,
@@ -2818,6 +2840,7 @@ mod tests {
                 tenant_leak_communities_accepted: false,
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
+                accepted_leaks_from_underlay: vec![],
                 route_target_imports: vec![nvue::RouteTargetConfig {
                     asn: 44444,
                     vni: 55555,
@@ -2849,6 +2872,8 @@ mod tests {
             ct_vrf_loopback: "FNN".to_string(),
             l3_domains: vec![],
             network_security_groups,
+            is_dpu_os: true,
+            fmds_gateway_vlan: None,
         };
         let startup_yaml = nvue::build(conf)?;
 
@@ -3050,6 +3075,7 @@ mod tests {
                 tenant_leak_communities_accepted: false,
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
+                accepted_leaks_from_underlay: vec![],
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,

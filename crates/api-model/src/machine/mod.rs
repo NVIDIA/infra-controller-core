@@ -25,6 +25,7 @@ use base64::prelude::*;
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -34,10 +35,9 @@ use config_version::{ConfigVersion, Versioned};
 use duration_str::deserialize_duration_chrono;
 use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
-use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
 use rpc::forge::HealthSourceOrigin;
-use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use rpc::forge_agent_control_response as fac;
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -57,6 +57,7 @@ use super::sku::SkuStatus;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
 use crate::errors::{ModelError, ModelResult};
+use crate::expected_machine::ExpectedMachineData;
 use crate::firmware::FirmwareComponentType;
 use crate::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use crate::instance::config::network::DeviceLocator;
@@ -276,24 +277,6 @@ fn pick_boot_interface_mac(
         .map(|x| x.mac_address)
 }
 
-/// Derive a host-level `use_admin_network` from the per-DPU values for
-/// the host.
-///
-/// Split out from `ManagedHostStateSnapshot::use_admin_network` so it's
-/// more easily testable without building a full snapshot. The way this works is:
-/// - True when an empty slice (e.g. zero-DPU host or snapshots failed to load),
-///   because zero DPU hosts have no DPU to handle tenant overlay (and
-///   are always admin). In the snapshot failure case, it seemed more
-///   conservative to treat it as such.
-/// - Otherwise, walk across all of the use_admin_network values from the
-///   hosts DPU(s) and collect their values, defaulting to true otherwise.
-fn derive_use_admin_network(dpu_use_admin_network: &[Option<bool>]) -> bool {
-    dpu_use_admin_network.is_empty()
-        || dpu_use_admin_network
-            .iter()
-            .any(|flag| flag.unwrap_or(true))
-}
-
 impl ManagedHostStateSnapshot {
     /// Returns `true` if this managed host has no DPU snapshots attached.
     ///
@@ -330,28 +313,15 @@ impl ManagedHostStateSnapshot {
     /// Returns `true` if this managed host is currently operating on the
     /// admin network (rather than a tenant overlay).
     ///
-    /// The underlying `use_admin_network` flag is persisted per-DPU on
-    /// `ManagedHostNetworkConfig` (fwiw, the config is generic, but
-    /// site-explorer and the machine state controller only populate this
-    /// for DPUs. Default is true.
-    ///
     /// Zero-DPU hosts always return `true`, because there's no DPU to
     /// handle tenant overlay networking. This allows consumers like the
     /// IB and NVLink partition monitors to treat the host as admin-only
     /// and detach.
-    ///
-    /// Now, this helper doesn't change where the *flag* is stored. I'm
-    /// planning on doing that in a future PR, but it will be a bit more
-    /// disruptive. It may end up going into the host's network_config,
-    /// allowing us to drop the per-DPU copies, and then this helper can
-    /// just read the host's config value directly.
     pub fn use_admin_network(&self) -> bool {
-        let dpu_use_admin_network: Vec<_> = self
-            .dpu_snapshots
-            .iter()
-            .map(|dpu| dpu.network_config.use_admin_network)
-            .collect();
-        derive_use_admin_network(&dpu_use_admin_network)
+        self.host_snapshot
+            .network_config
+            .use_admin_network
+            .unwrap_or(true)
     }
 
     /// Returns the MAC address the host should boot from, if one can be
@@ -598,9 +568,13 @@ impl ManagedHostStateSnapshot {
 
     /// Returns true if the desired managedhost networking configuration had been synced
     /// to **all** DPUs.
+    ///
+    /// Each DPU's check compares the host-level `network_config.version`
+    /// against the version that DPU agent reported observing.
     pub fn managed_host_network_config_version_synced(&self) -> bool {
+        let host_version = self.host_snapshot.network_config.version;
         for dpu_snapshot in self.dpu_snapshots.iter() {
-            if !dpu_snapshot.managed_host_network_config_version_synced() {
+            if !dpu_snapshot.managed_host_network_config_version_synced(host_version) {
                 return false;
             }
         }
@@ -763,20 +737,6 @@ pub enum MachineLastRebootRequestedMode {
     GracefulShutdown,
 }
 
-impl From<SystemPowerControl> for MachineLastRebootRequestedMode {
-    fn from(value: SystemPowerControl) -> Self {
-        match value {
-            SystemPowerControl::On => Self::PowerOn,
-            SystemPowerControl::GracefulShutdown => Self::PowerOff,
-            SystemPowerControl::ForceOff => Self::PowerOff,
-            SystemPowerControl::GracefulRestart => Self::Reboot,
-            SystemPowerControl::ForceRestart => Self::Reboot,
-            SystemPowerControl::ACPowercycle => Self::Reboot,
-            SystemPowerControl::PowerCycle => Self::Reboot,
-        }
-    }
-}
-
 impl Display for MachineLastRebootRequestedMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
@@ -884,16 +844,16 @@ pub struct Machine {
     pub last_machine_validation_time: Option<DateTime<Utc>>,
 
     /// current discovery validation id.
-    pub discovery_machine_validation_id: Option<uuid::Uuid>,
+    pub discovery_machine_validation_id: Option<MachineValidationId>,
 
     /// current cleanup validation id.
-    pub cleanup_machine_validation_id: Option<uuid::Uuid>,
+    pub cleanup_machine_validation_id: Option<MachineValidationId>,
 
     /// Override to enable or disable firmware auto update
     pub firmware_autoupdate: Option<bool>,
 
     /// current on demand validation id.
-    pub on_demand_machine_validation_id: Option<uuid::Uuid>,
+    pub on_demand_machine_validation_id: Option<MachineValidationId>,
 
     pub on_demand_machine_validation_request: Option<bool>,
 
@@ -933,6 +893,11 @@ pub struct Machine {
     /// Whether the DPF is enabled for this machine
     pub dpf: Dpf,
 
+    /// Per-host profile for state-machine-affecting settings, seeded from the
+    /// expected-machine record. Future per-host knobs that influence ingestion
+    /// or state transitions should be added here.
+    pub host_profile: HostProfile,
+
     /// Timestamp when manual firmware upgrade was marked as completed
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
@@ -955,6 +920,36 @@ pub struct Dpf {
     pub enabled: bool,
     // If dpf is used for ingestion.
     pub used_for_ingestion: bool,
+}
+
+/// Per-host profile for settings that affect state-machine progression,
+/// seeded from the expected-machine record at discovery time. Add new
+/// per-host knobs here rather than creating separate JSONB columns.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HostProfile {
+    /// When `true` the ingestion state machine skips re-enabling lockdown
+    /// after BIOS/UEFI configuration.
+    pub disable_lockdown: bool,
+}
+
+impl HostProfile {
+    /// Resolve a runtime `HostProfile` from an optional expected-machine
+    /// record. When `None` (no expected-machine entry) every field falls
+    /// back to its default.
+    ///
+    /// New profile fields should be resolved here so the
+    /// expected-machine → machine conversion stays in one place.
+    pub fn from_expected_machine(data: Option<&ExpectedMachineData>) -> Self {
+        match data {
+            Some(d) => Self {
+                disable_lockdown: d
+                    .host_lifecycle_profile
+                    .disable_lockdown
+                    .unwrap_or_default(),
+            },
+            None => Self::default(),
+        }
+    }
 }
 
 impl From<Machine> for ::rpc::forge::dpf_state_response::DpfState {
@@ -990,10 +985,6 @@ impl Machine {
             Some(hw) => hw.bmc_vendor(),
             None => bmc_vendor::BMCVendor::Unknown,
         }
-    }
-
-    pub fn use_admin_network(&self) -> bool {
-        self.network_config.use_admin_network.unwrap_or(true)
     }
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
@@ -1083,10 +1074,11 @@ impl Machine {
             .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
     }
 
-    /// If this machine is a DPU, then this returns whether the desired ManagedHost
-    /// network configuration had been applied by forge-dpu-agent
-    pub fn managed_host_network_config_version_synced(&self) -> bool {
-        let dpu_expected_version = self.network_config.version;
+    /// If this machine is a DPU, returns whether the version of the
+    /// given ManagedHostNetworkConfig (which is a host-level versioned
+    /// config that is kept in sync across all DPUs on a host) has been
+    /// applied + reported back as same by the carbide-dpu-agent.
+    pub fn managed_host_network_config_version_synced(&self, host_version: ConfigVersion) -> bool {
         let dpu_observation = self.network_status_observation.as_ref();
 
         let dpu_observed_version: ConfigVersion = match dpu_observation {
@@ -1101,11 +1093,7 @@ impl Machine {
             },
         };
 
-        if dpu_expected_version != dpu_observed_version {
-            return false;
-        }
-
-        true
+        host_version == dpu_observed_version
     }
 
     pub fn instance_network_restrictions(&self) -> rpc::forge::InstanceNetworkRestrictions {
@@ -1478,23 +1466,42 @@ pub enum ManagedHostState {
         measuring_state: MeasuringState,
     },
 
+    // this includes MeasuredBoot and SPDM attestations
     PostAssignedMeasuring {
-        measuring_state: MeasuringState,
+        attestation_mode: AttestationMode,
     },
+
+    // Ready -> PreAssignedMeasuring -> StartAssignmentCycle -> Move into Assigned State(s)
+    PreAssignedMeasuring {
+        spdm_measuring_state: SpdmMeasuringState,
+    },
+
+    StartAssignmentCycle,
 
     BomValidating {
         bom_validating_state: BomValidating,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AttestationMode {
+    MeasuredBoot {
+        measuring_state: MeasuringState,
+    },
+    SpdmAttestation {
+        spdm_measuring_state: SpdmMeasuringState,
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum MachineValidatingState {
     RebootHost {
-        validation_id: uuid::Uuid,
+        validation_id: MachineValidationId,
     },
     MachineValidating {
         context: String,
-        id: uuid::Uuid,
+        id: MachineValidationId,
         completed: usize,
         total: usize,
         #[serde(default = "default_true")]
@@ -1668,6 +1675,13 @@ pub enum MeasuringState {
     PendingBundle,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SpdmMeasuringState {
+    TriggerMeasurements,
+    PollResult,
+}
+
 /// Tenant has requested network config update for the existing instance.
 /// At this point, instance config, instance network config version are already increased.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1738,8 +1752,10 @@ pub enum HostReprovisionState {
     WaitingForRackFirmwareUpgrade,
     WaitingForScoutUpgrade {
         upgrade_task_id: String,
-        component_type: FirmwareComponentType,
-        target_version: String,
+        firmware_type: FirmwareComponentType,
+        final_version: String,
+        #[serde(default)]
+        power_drains_needed: Option<u32>,
         started_at: DateTime<Utc>,
         /// Absolute deadline; the API declares failure past this time.
         /// Derived from scout's execution/download timeouts plus slack.
@@ -1815,6 +1831,8 @@ pub enum FailureCause {
     MeasurementsCAValidationFailed { err: String },
 
     DpfProvisioning { err: String },
+
+    SpdmAttestationFailed { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1976,6 +1994,9 @@ pub enum MachineState {
     Measuring {
         measuring_state: MeasuringState,
     },
+    SpdmMeasuring {
+        spdm_measuring_state: SpdmMeasuringState,
+    },
     WaitingForDiscovery,
     Discovered {
         #[serde(default)]
@@ -2030,7 +2051,7 @@ pub struct BiosConfigInfo {
     pub retry_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum BiosConfigState {
     WaitForBiosJobScheduled,
@@ -2054,7 +2075,7 @@ pub struct SetBootOrderInfo {
     pub retry_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
@@ -2079,7 +2100,7 @@ pub struct SecureEraseBossContext {
     pub secure_erase_boss_state: SecureEraseBossState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SecureEraseBossState {
     UnlockHost,
@@ -2102,7 +2123,7 @@ pub struct CreateBossVolumeContext {
     pub create_boss_volume_state: CreateBossVolumeState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum CreateBossVolumeState {
     CreateBossVolume,
@@ -2347,6 +2368,9 @@ impl Display for FailureCause {
                 write!(f, "MeasurementsCAValidationFailed")
             }
             FailureCause::DpfProvisioning { .. } => write!(f, "DpfProvisioning"),
+            FailureCause::SpdmAttestationFailed { .. } => {
+                write!(f, "SpdmAttestationFailed")
+            }
         }
     }
 }
@@ -2370,6 +2394,12 @@ impl Display for HostReprovisionState {
 }
 
 impl Display for MeasuringState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Display for SpdmMeasuringState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
@@ -2441,8 +2471,23 @@ impl Display for ManagedHostState {
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                write!(f, "PostAssignedMeasuring/{measuring_state}")
+            ManagedHostState::PostAssignedMeasuring { attestation_mode } => {
+                match attestation_mode {
+                    AttestationMode::MeasuredBoot { measuring_state } => {
+                        write!(f, "PostAssignedMeasuring/MeasuredBoot/{measuring_state}")
+                    }
+                    AttestationMode::SpdmAttestation {
+                        spdm_measuring_state,
+                    } => write!(
+                        f,
+                        "PostAssignedMeasuring/SpdmAttestation/{spdm_measuring_state}"
+                    ),
+                }
+            }
+            ManagedHostState::PreAssignedMeasuring {
+                spdm_measuring_state,
+            } => {
+                write!(f, "PreAssignedMeasuring/{spdm_measuring_state}")
             }
             ManagedHostState::Created => write!(f, "Created"),
             ManagedHostState::BomValidating {
@@ -2452,6 +2497,9 @@ impl Display for ManagedHostState {
             }
             ManagedHostState::Validation { validation_state } => {
                 write!(f, "{validation_state}")
+            }
+            ManagedHostState::StartAssignmentCycle => {
+                write!(f, "StartAssignmentCycle")
             }
         }
     }
@@ -2515,8 +2563,20 @@ impl ManagedHostState {
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                format!("PostAssignedMeasuring/{measuring_state}")
+            ManagedHostState::PostAssignedMeasuring { attestation_mode } => {
+                match attestation_mode {
+                    AttestationMode::MeasuredBoot { measuring_state } => {
+                        format!("PostAssignedMeasuring/MeasuredBoot/{measuring_state}")
+                    }
+                    AttestationMode::SpdmAttestation {
+                        spdm_measuring_state,
+                    } => format!("PostAssignedMeasuring/SpdmAttestation/{spdm_measuring_state}"),
+                }
+            }
+            ManagedHostState::PreAssignedMeasuring {
+                spdm_measuring_state,
+            } => {
+                format!("PreAssignedMeasuring/{spdm_measuring_state}")
             }
             ManagedHostState::Created => "Created".to_string(),
             ManagedHostState::BomValidating {
@@ -2525,6 +2585,7 @@ impl ManagedHostState {
             ManagedHostState::Validation { validation_state } => {
                 format!("{validation_state}")
             }
+            ManagedHostState::StartAssignmentCycle => "StartAssignmentCycle".to_string(),
         }
     }
 }
@@ -2607,7 +2668,7 @@ pub struct MachineNextStateResolver;
 pub fn get_action_for_dpu_state(
     state: &ManagedHostState,
     dpu_machine_id: &MachineId,
-) -> ModelResult<(Action, Option<ForgeAgentControlExtraInfo>)> {
+) -> ModelResult<fac::Action> {
     Ok(match state {
         ManagedHostState::DPUReprovision { .. }
         | ManagedHostState::Assigned {
@@ -2617,11 +2678,11 @@ pub fn get_action_for_dpu_state(
                 .as_reprovision_state(dpu_machine_id)
                 .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
             match dpu_state {
-                ReprovisionState::BufferTime => (Action::Retry, None),
+                ReprovisionState::BufferTime => fac::Action::retry(),
                 ReprovisionState::WaitingForNetworkInstall
                 | ReprovisionState::DpfStates {
                     substate: DpfState::WaitingForReady { .. },
-                } => (Action::Discovery, None),
+                } => fac::Action::Discovery(fac::Discovery {}),
                 _ => {
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
@@ -2629,7 +2690,7 @@ pub fn get_action_for_dpu_state(
                         %state,
                         "forge agent control",
                     );
-                    (Action::Noop, None)
+                    fac::Action::noop()
                 }
             }
         }
@@ -2643,7 +2704,7 @@ pub fn get_action_for_dpu_state(
                 DpuInitState::Init
                 | DpuInitState::DpfStates {
                     state: DpfState::WaitingForReady { .. },
-                } => (Action::Discovery, None),
+                } => fac::Action::Discovery(fac::Discovery {}),
                 _ => {
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
@@ -2651,7 +2712,7 @@ pub fn get_action_for_dpu_state(
                         %state,
                         "forge agent control",
                     );
-                    (Action::Noop, None)
+                    fac::Action::noop()
                 }
             }
         }
@@ -2663,7 +2724,7 @@ pub fn get_action_for_dpu_state(
                 %state,
                 "forge agent control",
             );
-            (Action::Noop, None)
+            fac::Action::noop()
         }
     })
 }
@@ -2785,20 +2846,45 @@ pub fn state_sla(
             // is sitting there).
             MeasuringState::PendingBundle => StateSla::no_sla(),
         },
-        ManagedHostState::PostAssignedMeasuring { measuring_state } => match measuring_state {
-            // The API shouldn't be waiting for measurements for long. As soon
-            // as it transitions into this state, Scout should get an Action::Measure
-            // action, and it should pretty quickly send measurements in (~seconds).
-            MeasuringState::WaitingForMeasurements => {
-                StateSla::with_sla(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT, time_in_state)
-            }
-            // If the machine is waiting for a matching bundle, this could
-            // take a bit, since it means either auto-bundle generation OR
-            // manual bundle generation needs to happen. In the case of new
-            // turn ups, this could take hours or even days (e.g. if new gear
-            // is sitting there).
-            MeasuringState::PendingBundle => StateSla::no_sla(),
+        ManagedHostState::PostAssignedMeasuring { attestation_mode } => match attestation_mode {
+            AttestationMode::MeasuredBoot { measuring_state } => match measuring_state {
+                // The API shouldn't be waiting for measurements for long. As soon
+                // as it transitions into this state, Scout should get an Action::Measure
+                // action, and it should pretty quickly send measurements in (~seconds).
+                MeasuringState::WaitingForMeasurements => {
+                    StateSla::with_sla(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT, time_in_state)
+                }
+                // If the machine is waiting for a matching bundle, this could
+                // take a bit, since it means either auto-bundle generation OR
+                // manual bundle generation needs to happen. In the case of new
+                // turn ups, this could take hours or even days (e.g. if new gear
+                // is sitting there).
+                MeasuringState::PendingBundle => StateSla::no_sla(),
+            },
+            AttestationMode::SpdmAttestation {
+                spdm_measuring_state,
+            } => match spdm_measuring_state {
+                SpdmMeasuringState::PollResult => {
+                    StateSla::with_sla(slas::SPDM_ATTESTATION_RESULT_POLL, time_in_state)
+                }
+                SpdmMeasuringState::TriggerMeasurements => {
+                    StateSla::with_sla(slas::SPDM_ATTESTATION_TRIGGER, time_in_state)
+                }
+            },
         },
+        ManagedHostState::PreAssignedMeasuring {
+            spdm_measuring_state,
+        } => match spdm_measuring_state {
+            SpdmMeasuringState::PollResult => {
+                StateSla::with_sla(slas::SPDM_ATTESTATION_RESULT_POLL, time_in_state)
+            }
+            SpdmMeasuringState::TriggerMeasurements => {
+                StateSla::with_sla(slas::SPDM_ATTESTATION_TRIGGER, time_in_state)
+            }
+        },
+        ManagedHostState::StartAssignmentCycle => {
+            StateSla::with_sla(slas::START_ASSIGNMENT_CYCLE, time_in_state)
+        }
         ManagedHostState::BomValidating {
             bom_validating_state,
         } => match bom_validating_state {
@@ -2849,6 +2935,30 @@ pub struct MachineValidationFilter {
     pub allowed_tests: Vec<String>,
     pub run_unverfied_tests: Option<bool>,
     pub contexts: Option<Vec<String>>,
+}
+
+impl From<rpc::forge_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
+    fn from(filter: rpc::forge_agent_control_response::MachineValidationFilter) -> Self {
+        Self {
+            tags: filter.tags,
+            allowed_tests: filter.allowed_tests,
+            run_unverfied_tests: filter.run_unverfied_tests,
+            contexts: filter.contexts.map(|c| c.items),
+        }
+    }
+}
+
+impl From<MachineValidationFilter> for fac::MachineValidationFilter {
+    fn from(filter: MachineValidationFilter) -> Self {
+        Self {
+            tags: filter.tags,
+            allowed_tests: filter.allowed_tests,
+            run_unverfied_tests: filter.run_unverfied_tests,
+            contexts: filter
+                .contexts
+                .map(|items| rpc::common::StringList { items }),
+        }
+    }
 }
 
 impl Display for MachineValidationFilter {
@@ -2908,6 +3018,25 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             switch_id: row.try_get("switch_id")?,
             association_type: row.try_get("association_type")?,
         })
+    }
+}
+
+// TODO: reconcile with site_explorer::PowerState. They are almost
+// identical but here we have Reset enum item.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum PowerState {
+    Off,
+    On,
+    PoweringOff,
+    PoweringOn,
+    Paused,
+    Reset,
+    Unknown,
+}
+
+impl Display for PowerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
 
@@ -3415,34 +3544,73 @@ mod tests {
         assert_eq!(pick_boot_interface_mac(&interfaces), None);
     }
 
-    // Zero-DPU hosts have no DPU snapshots at all. The helper must return
-    // `true` -- consumers (IB partition monitor, NVLink partition monitor)
-    // use this to decide whether to detach tenant partitions, and zero-DPU
-    // hosts never have a tenant overlay to protect.
     #[test]
-    fn derive_use_admin_network_returns_true_for_empty_dpu_snapshots() {
-        assert!(derive_use_admin_network(&[]));
+    fn host_profile_defaults_to_lockdown_enabled() {
+        let profile = HostProfile::default();
+        assert!(!profile.disable_lockdown);
     }
 
-    // Make sure the legacy default still works; when a DPU snapshot has no
-    // explicit value, treat it as admin-network. All or any "None" should
-    // therefore resolve to true.
     #[test]
-    fn derive_use_admin_network_treats_none_as_true() {
-        assert!(derive_use_admin_network(&[None]));
-        assert!(derive_use_admin_network(&[None, None]));
+    fn host_profile_serde_round_trip_lockdown_true() {
+        let profile = HostProfile {
+            disable_lockdown: true,
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        assert_eq!(json, r#"{"disable_lockdown":true}"#);
+        let back: HostProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, profile);
     }
 
-    // ...aand check OR semantics across DPUs: if any single DPU says admin,
-    // the whole host is treated as admin. Only "all DPUs explicitly say false"
-    // flips the host to tenant-network mode.
     #[test]
-    fn derive_use_admin_network_ors_across_dpus() {
-        assert!(derive_use_admin_network(&[Some(false), Some(true)]));
-        assert!(derive_use_admin_network(&[Some(true), Some(true)]));
-        assert!(derive_use_admin_network(&[Some(false), None]));
-        assert!(!derive_use_admin_network(&[Some(false)]));
-        assert!(!derive_use_admin_network(&[Some(false), Some(false)]));
+    fn host_profile_serde_round_trip_lockdown_false() {
+        let profile = HostProfile {
+            disable_lockdown: false,
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        assert_eq!(json, r#"{"disable_lockdown":false}"#);
+        let back: HostProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, profile);
+    }
+
+    #[test]
+    fn host_profile_deserializes_from_db_default() {
+        let db_default = r#"{"disable_lockdown": false}"#;
+        let profile: HostProfile = serde_json::from_str(db_default).unwrap();
+        assert!(!profile.disable_lockdown);
+    }
+
+    #[test]
+    fn host_profile_default_used_when_parent_field_missing() {
+        assert_eq!(
+            HostProfile::default(),
+            HostProfile {
+                disable_lockdown: false
+            }
+        );
+    }
+
+    #[test]
+    fn host_profile_from_expected_none_uses_defaults() {
+        let profile = HostProfile::from_expected_machine(None);
+        assert_eq!(profile, HostProfile::default());
+    }
+
+    #[test]
+    fn host_profile_from_expected_empty_profile_uses_defaults() {
+        let data = ExpectedMachineData::default();
+        let profile = HostProfile::from_expected_machine(Some(&data));
+        assert!(!profile.disable_lockdown);
+    }
+
+    #[test]
+    fn host_profile_from_expected_resolves_disable_lockdown() {
+        let mut data = ExpectedMachineData::default();
+
+        data.host_lifecycle_profile.disable_lockdown = Some(true);
+        assert!(HostProfile::from_expected_machine(Some(&data)).disable_lockdown);
+
+        data.host_lifecycle_profile.disable_lockdown = Some(false);
+        assert!(!HostProfile::from_expected_machine(Some(&data)).disable_lockdown);
     }
 }
 

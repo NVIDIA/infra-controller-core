@@ -198,8 +198,8 @@ async fn test_register_devices_node_and_force_delete() {
             dpu_bmc_ip: format!("192.168.1.{}", 100 + i),
             host_bmc_ip: "192.168.1.1".to_string(),
             serial_number: format!("SN-{}", i),
-            host_machine_id: "host-001-id".to_string(),
             dpu_machine_id: format!("dpu-{}-id", i),
+            is_primary: true,
         };
         sdk.register_dpu_device(info).await.unwrap();
     }
@@ -209,7 +209,6 @@ async fn test_register_devices_node_and_force_delete() {
         node_id: "host-001".to_string(),
         host_bmc_ip: "192.168.1.1".to_string(),
         device_ids: vec!["dpu-1".to_string(), "dpu-2".to_string()],
-        host_machine_id: "host-001-id".to_string(),
     };
     sdk.register_dpu_node(node_info).await.unwrap();
 
@@ -227,9 +226,7 @@ async fn test_register_devices_node_and_force_delete() {
 
     // Force delete
     let dpu_ids = vec!["dpu-1".to_string(), "dpu-2".to_string()];
-    sdk.force_delete_host("node-host-001", &dpu_ids)
-        .await
-        .unwrap();
+    sdk.force_delete_host("host-001", &dpu_ids).await.unwrap();
 
     assert_eq!(
         DpuDeviceRepository::list(&mock, TEST_NS)

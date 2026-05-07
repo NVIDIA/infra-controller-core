@@ -1,3 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 use std::net::IpAddr;
 
 use async_trait::async_trait;
@@ -78,7 +95,7 @@ pub enum MachineWriteOp {
         machine_id: MachineId,
         requested: bool,
     },
-    InsertHealthReportOverride {
+    InsertMachineHealthReport {
         machine_id: MachineId,
         mode: HealthReportApplyMode,
         health_report: HealthReport,
@@ -178,19 +195,13 @@ impl WriteOp for MachineWriteOp {
                 machine_id,
                 requested,
             } => db::instance::set_custom_pxe_reboot_requested(&machine_id, requested, txn).await?,
-            InsertHealthReportOverride {
+            InsertMachineHealthReport {
                 machine_id,
                 mode,
                 health_report,
             } => {
-                db::machine::insert_health_report_override(
-                    txn,
-                    &machine_id,
-                    mode,
-                    &health_report,
-                    false,
-                )
-                .await?
+                db::machine::insert_health_report(txn, &machine_id, mode, &health_report, false)
+                    .await?
             }
             ReExploreIfVersionMatches { address, version } => {
                 db::explored_endpoints::re_explore_if_version_matches(address, version, txn)

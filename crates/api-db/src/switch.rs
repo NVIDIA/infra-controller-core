@@ -265,9 +265,20 @@ pub async fn set_switch_reprovisioning_requested(
     switch_id: SwitchId,
     initiator: &str,
 ) -> DatabaseResult<()> {
+    set_switch_reprovisioning_requested_with_firmware_continuation(txn, switch_id, initiator, true)
+        .await
+}
+
+pub async fn set_switch_reprovisioning_requested_with_firmware_continuation(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    initiator: &str,
+    continue_after_firmware_upgrade: bool,
+) -> DatabaseResult<()> {
     let req = SwitchReprovisionRequest {
         requested_at: Utc::now(),
         initiator: initiator.to_string(),
+        continue_after_firmware_upgrade,
     };
     let query =
         "UPDATE switches SET switch_reprovisioning_requested = $1 WHERE id = $2 RETURNING id";

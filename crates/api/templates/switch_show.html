@@ -35,15 +35,7 @@
                             <tr>
                                 <td>{{ switch.id|switch_id_link|safe }}</td>
                                 <td>{{ switch.name }}</td>
-                                <td>
-                                    {% if switch.state == "Ready" %}
-                                        <span class="bubble success">{{ switch.state }}</span>
-                                    {% else if switch.state.to_lowercase().contains("error") || switch.state.to_lowercase().contains("failed") %}
-                                        <span class="bubble error">{{ switch.state }}</span>
-                                    {% else %}
-                                        <span class="bubble">{{ switch.state }}</span>
-                                    {% endif %}
-                                </td>
+                                <td>{{ switch.state_display|safe }}</td>
                                 <td>{{ switch.slot_number }}</td>
                                 <td>{{ switch.tray_index }}</td>
                                 <td>

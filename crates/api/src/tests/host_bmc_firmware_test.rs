@@ -20,7 +20,6 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 use std::os::unix::fs::PermissionsExt;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_preingestion_manager::PreingestionManager;
@@ -42,6 +41,7 @@ use model::site_explorer::{
 };
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
+use rpc::forge_agent_control_response::{Action, LegacyAction};
 use sqlx::PgConnection;
 use temp_dir::TempDir;
 use tokio::time::sleep;
@@ -52,7 +52,6 @@ use crate::cfg::file::{CarbideConfig, FirmwareGlobal, TimePeriod};
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::state_controller::machine::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::api_fixtures::managed_host::HardwareInfoTemplate;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_hardware_info_template, create_test_env,
@@ -74,7 +73,6 @@ async fn test_preingestion_bmc_upgrade(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -265,7 +263,6 @@ async fn test_preingestion_upgrade_script(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let response = env
@@ -966,7 +963,6 @@ async fn test_preingestion_preupdate_powercycling(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -2175,7 +2171,6 @@ async fn test_preingestion_time_sync_ok(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -2227,7 +2222,6 @@ async fn test_preingestion_time_sync_reset_flow(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let response = env
@@ -2352,7 +2346,6 @@ async fn test_preingestion_time_sync_check_error_fails(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let response = env
@@ -2409,7 +2402,6 @@ async fn test_preingestion_time_sync_retry_logic(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let response = env
@@ -2646,6 +2638,128 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
 }
 
 #[crate::sqlx_test]
+async fn test_forge_agent_control_waiting_for_scout_upgrade_returns_typed_and_legacy_task(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let upgrade_task_id = uuid::Uuid::new_v4().to_string();
+    let task_json = serde_json::json!({
+        "upgrade_task_id": &upgrade_task_id,
+        "component_type": "bmc",
+        "target_version": "1.2.3",
+        "script": {
+            "url": "http://pxe/scripts/upgrade.sh",
+            "sha256": "script-sha",
+        },
+        "execution_timeout_seconds": 30,
+        "artifact_download_timeout_seconds": 10,
+        "file_artifacts": [{
+            "url": "http://pxe/firmware.bin",
+            "sha256": "firmware-sha",
+        }],
+    })
+    .to_string();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let waiting_state = ManagedHostState::HostReprovision {
+        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
+            upgrade_task_id: upgrade_task_id.clone(),
+            firmware_type: FirmwareComponentType::Bmc,
+            final_version: "1.2.3".to_string(),
+            power_drains_needed: None,
+            started_at: chrono::Utc::now(),
+            deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
+            task_json: task_json.clone(),
+            result: None,
+        },
+        retry_count: 0,
+    };
+    db::machine::advance(&host, &mut txn, &waiting_state, None).await?;
+    txn.commit().await.unwrap();
+
+    let response = env
+        .api
+        .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
+            machine_id: Some(mh.host().id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let Some(Action::FirmwareUpgrade(firmware_upgrade)) = response.action.as_ref() else {
+        panic!("expected typed firmware upgrade action");
+    };
+    let task = firmware_upgrade.task.as_ref().expect("typed task");
+    let legacy_pair = response
+        .data
+        .as_ref()
+        .expect("legacy data")
+        .pair
+        .iter()
+        .find(|pair| pair.key == "firmware_upgrade_task")
+        .expect("legacy firmware_upgrade_task");
+
+    assert_eq!(response.legacy_action, LegacyAction::FirmwareUpgrade as i32);
+    assert_eq!(task.component_type, "bmc");
+    assert_eq!(task.target_version, "1.2.3");
+    assert_eq!(task.upgrade_task_id, upgrade_task_id);
+    assert_eq!(
+        task.script.as_ref().expect("script").url,
+        "http://pxe/scripts/upgrade.sh"
+    );
+    assert_eq!(task.file_artifacts[0].sha256, "firmware-sha");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&legacy_pair.value).unwrap(),
+        serde_json::from_str::<serde_json::Value>(&task_json).unwrap()
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_forge_agent_control_invalid_json_falls_back_to_noop(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let task_json = "{not valid json".to_string();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let waiting_state = ManagedHostState::HostReprovision {
+        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
+            upgrade_task_id: uuid::Uuid::new_v4().to_string(),
+            firmware_type: FirmwareComponentType::Bmc,
+            final_version: "1.2.3".to_string(),
+            power_drains_needed: None,
+            started_at: chrono::Utc::now(),
+            deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
+            task_json: task_json.clone(),
+            result: None,
+        },
+        retry_count: 0,
+    };
+    db::machine::advance(&host, &mut txn, &waiting_state, None).await?;
+    txn.commit().await.unwrap();
+
+    let response = env
+        .api
+        .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
+            machine_id: Some(mh.host().id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(matches!(response.action, Some(Action::Noop(_))));
+    assert_eq!(response.legacy_action(), LegacyAction::Noop);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_report_scout_firmware_upgrade_status(pool: sqlx::PgPool) -> CarbideResult<()> {
     const UPGRADE_TASK_ID: &str = "scout-upgrade-task-id";
 
@@ -2658,8 +2772,9 @@ async fn test_report_scout_firmware_upgrade_status(pool: sqlx::PgPool) -> Carbid
     let waiting_state = ManagedHostState::HostReprovision {
         reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
             upgrade_task_id: UPGRADE_TASK_ID.to_string(),
-            component_type: FirmwareComponentType::Bmc,
-            target_version: "1.2.3".to_string(),
+            firmware_type: FirmwareComponentType::Bmc,
+            final_version: "1.2.3".to_string(),
+            power_drains_needed: None,
             started_at: chrono::Utc::now(),
             deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
             task_json: String::new(),
@@ -2724,8 +2839,9 @@ async fn test_report_scout_firmware_upgrade_status_failure(
     let waiting_state = ManagedHostState::HostReprovision {
         reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
             upgrade_task_id: UPGRADE_TASK_ID.to_string(),
-            component_type: FirmwareComponentType::Bmc,
-            target_version: "1.2.3".to_string(),
+            firmware_type: FirmwareComponentType::Bmc,
+            final_version: "1.2.3".to_string(),
+            power_drains_needed: None,
             started_at: chrono::Utc::now(),
             deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
             task_json: String::new(),
@@ -2820,8 +2936,9 @@ async fn test_report_scout_firmware_upgrade_status_rejects_stale_task_id(
     let waiting_state = ManagedHostState::HostReprovision {
         reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
             upgrade_task_id: CURRENT_TASK_ID.to_string(),
-            component_type: FirmwareComponentType::Bmc,
-            target_version: "1.2.3".to_string(),
+            firmware_type: FirmwareComponentType::Bmc,
+            final_version: "1.2.3".to_string(),
+            power_drains_needed: None,
             started_at: chrono::Utc::now(),
             deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
             task_json: String::new(),
@@ -2890,8 +3007,9 @@ async fn test_report_scout_firmware_upgrade_status_truncates_output(
     let waiting_state = ManagedHostState::HostReprovision {
         reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
             upgrade_task_id: UPGRADE_TASK_ID.to_string(),
-            component_type: FirmwareComponentType::Bmc,
-            target_version: "1.2.3".to_string(),
+            firmware_type: FirmwareComponentType::Bmc,
+            final_version: "1.2.3".to_string(),
+            power_drains_needed: None,
             started_at: chrono::Utc::now(),
             deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
             task_json: String::new(),
@@ -2947,6 +3065,7 @@ async fn put_in_waiting_for_scout_upgrade(
     env: &common::api_fixtures::TestEnv,
     host: &common::api_fixtures::test_machine::TestMachine,
     deadline: chrono::DateTime<chrono::Utc>,
+    power_drains_needed: Option<u32>,
     result: Option<model::machine::ScoutUpgradeResult>,
 ) {
     let mut txn = env.pool.begin().await.unwrap();
@@ -2954,8 +3073,9 @@ async fn put_in_waiting_for_scout_upgrade(
     let state = ManagedHostState::HostReprovision {
         reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
             upgrade_task_id: "scout-upgrade-task-id".to_string(),
-            component_type: FirmwareComponentType::Bmc,
-            target_version: "1.2.3".to_string(),
+            firmware_type: FirmwareComponentType::Bmc,
+            final_version: "1.2.3".to_string(),
+            power_drains_needed,
             started_at: chrono::Utc::now(),
             deadline,
             task_json: String::new(),
@@ -2970,7 +3090,7 @@ async fn put_in_waiting_for_scout_upgrade(
 }
 
 #[crate::sqlx_test]
-async fn test_waiting_for_scout_upgrade_success_transitions_to_repeat_check(
+async fn test_waiting_for_scout_upgrade_success_transitions_to_reset_for_new_firmware(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {
     let env = create_test_env(pool).await;
@@ -2980,6 +3100,7 @@ async fn test_waiting_for_scout_upgrade_success_transitions_to_repeat_check(
         &env,
         &mh.host(),
         chrono::Utc::now() + chrono::TimeDelta::minutes(60),
+        Some(1),
         Some(model::machine::ScoutUpgradeResult {
             success: true,
             exit_code: 0,
@@ -3000,13 +3121,14 @@ async fn test_waiting_for_scout_upgrade_success_transitions_to_repeat_check(
     else {
         panic!("Not in HostReprovision");
     };
-    assert!(
-        matches!(
-            reprovision_state,
-            HostReprovisionState::CheckingFirmwareRepeatV2 { .. }
-        ),
-        "expected CheckingFirmwareRepeatV2, got {reprovision_state:?}",
-    );
+    let HostReprovisionState::ResetForNewFirmware {
+        power_drains_needed,
+        ..
+    } = reprovision_state
+    else {
+        panic!("expected ResetForNewFirmware, got {reprovision_state:?}");
+    };
+    assert_eq!(*power_drains_needed, Some(1));
 
     Ok(())
 }
@@ -3022,6 +3144,7 @@ async fn test_waiting_for_scout_upgrade_failure_uses_error_as_reason(
         &env,
         &mh.host(),
         chrono::Utc::now() + chrono::TimeDelta::minutes(60),
+        None,
         Some(model::machine::ScoutUpgradeResult {
             success: false,
             exit_code: 1,
@@ -3061,6 +3184,7 @@ async fn test_waiting_for_scout_upgrade_failure_without_error_uses_exit_code(
         &env,
         &mh.host(),
         chrono::Utc::now() + chrono::TimeDelta::minutes(60),
+        None,
         Some(model::machine::ScoutUpgradeResult {
             success: false,
             exit_code: 7,
@@ -3104,6 +3228,7 @@ async fn test_waiting_for_scout_upgrade_past_deadline_times_out(
         &mh.host(),
         chrono::Utc::now() - chrono::TimeDelta::minutes(1),
         None,
+        None,
     )
     .await;
 
@@ -3141,6 +3266,7 @@ async fn test_waiting_for_scout_upgrade_before_deadline_waits(
         &env,
         &mh.host(),
         chrono::Utc::now() + chrono::TimeDelta::minutes(60),
+        None,
         None,
     )
     .await;

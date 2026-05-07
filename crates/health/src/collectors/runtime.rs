@@ -24,9 +24,9 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::{StreamExt, TryStreamExt};
 use http::header::InvalidHeaderValue;
-use http::{HeaderMap, StatusCode, header};
+use http::{HeaderMap, header};
 use nv_redfish::ServiceRoot;
-use nv_redfish::bmc_http::reqwest::{BmcError, Client as ReqwestClient};
+use nv_redfish::bmc_http::reqwest::Client as ReqwestClient;
 use nv_redfish::bmc_http::{CacheSettings, HttpBmc};
 use nv_redfish::core::Bmc;
 use nv_redfish::event_service::EventStreamPayload;
@@ -36,6 +36,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::HealthError;
+use crate::bmc::AuthRefreshingBmc;
 use crate::config::Config as AppConfig;
 use crate::discovery::BmcClient;
 use crate::endpoint::BmcEndpoint;
@@ -73,6 +74,10 @@ pub trait PeriodicCollector<B: Bmc>: Send + 'static {
 
     /// Returns the type identifier for this collector
     fn collector_type(&self) -> &'static str;
+
+    fn stop(&mut self) -> impl std::future::Future<Output = ()> + Send {
+        async {}
+    }
 }
 
 pub type EventStream<'a> = BoxStream<'a, Result<CollectorEvent, HealthError>>;
@@ -254,7 +259,7 @@ pub struct Collector {
 
 fn create_bmc(
     client: ReqwestClient,
-    endpoint: &BmcEndpoint,
+    endpoint: Arc<BmcEndpoint>,
     health_options: &AppConfig,
 ) -> Result<Arc<BmcClient>, HealthError> {
     let bmc_url = match &health_options.bmc_proxy_url {
@@ -279,13 +284,15 @@ fn create_bmc(
     };
 
     let initial_credentials = endpoint.credentials();
-    Ok(Arc::new(HttpBmc::with_custom_headers(
+    let inner = HttpBmc::with_custom_headers(
         client,
         bmc_url,
         initial_credentials.into(),
         CacheSettings::with_capacity(health_options.cache_size),
         headers,
-    )))
+    );
+
+    Ok(Arc::new(AuthRefreshingBmc::new(inner, endpoint)))
 }
 
 pub struct CollectorStartContext {
@@ -322,9 +329,9 @@ impl Collector {
         let cancel_token = CancellationToken::new();
         let cancel_token_clone = cancel_token.clone();
 
-        let bmc = create_bmc(client, &endpoint, &health_options)?;
+        let bmc = create_bmc(client, Arc::clone(&endpoint), &health_options)?;
 
-        let mut runner = C::new_runner(bmc.clone(), endpoint.clone(), config)?;
+        let mut runner = C::new_runner(bmc, endpoint.clone(), config)?;
 
         let endpoint_key = endpoint.hash_key().to_string();
         let const_labels = HashMap::from([
@@ -389,17 +396,14 @@ impl Collector {
                 tokio::select! {
                     _ = cancel_token_clone.cancelled() => {
                         tracing::info!(endpoint = ?endpoint.addr, "collector cancelled");
+                        runner.stop().await;
                         break;
                     }
                     _ = async {
                         limiter.acquire().await;
 
                         let start = Instant::now();
-                        let iteration_result = run_iteration_with_auth_refresh(
-                            &mut runner,
-                            &endpoint,
-                            &bmc,
-                        ).await;
+                        let iteration_result = runner.run_iteration().await;
                         let duration = start.elapsed();
 
                         iteration_histogram.observe(duration.as_secs_f64());
@@ -464,9 +468,9 @@ impl Collector {
         let cancel_token = CancellationToken::new();
         let cancel_clone = cancel_token.clone();
 
-        let bmc = create_bmc(client, &endpoint, &health_options)?;
+        let bmc = create_bmc(client, Arc::clone(&endpoint), &health_options)?;
 
-        let mut collector = S::new_runner(bmc, endpoint.clone(), config)?;
+        let mut collector = S::new_runner(Arc::clone(&bmc), endpoint.clone(), config)?;
         let event_context = EventContext::from_endpoint(&endpoint, collector.collector_type());
 
         let endpoint_key = endpoint.hash_key().to_string();
@@ -581,60 +585,4 @@ impl Collector {
         self.cancel_token.cancel();
         let _ = self.handle.await;
     }
-}
-
-async fn run_iteration_with_auth_refresh<C: PeriodicCollector<BmcClient>>(
-    runner: &mut C,
-    endpoint: &Arc<BmcEndpoint>,
-    bmc: &Arc<BmcClient>,
-) -> Result<IterationResult, HealthError> {
-    match runner.run_iteration().await {
-        Ok(result) => Ok(result),
-        Err(error) if is_auth_error(&error) => {
-            tracing::warn!(
-                error = ?error,
-                endpoint = ?endpoint.addr,
-                "Authentication failed, refreshing BMC credentials and retrying once"
-            );
-
-            let credentials = endpoint.refresh().await.map_err(|refresh_error| {
-                HealthError::GenericError(format!(
-                    "Failed to refresh credentials after auth error: {refresh_error}"
-                ))
-            })?;
-
-            // We set credentials and wait till next iteration, to avoid credential fetch loop.
-            bmc.set_credentials(credentials.into());
-            Err(error)
-        }
-        Err(error) => Err(error),
-    }
-}
-
-fn is_auth_error(error: &HealthError) -> bool {
-    match error {
-        HealthError::HttpError(message) => {
-            message.contains("HTTP 401") || message.contains("HTTP 403")
-        }
-        HealthError::BmcError(inner) => {
-            inner
-                .downcast_ref::<BmcError>()
-                .is_some_and(is_auth_bmc_error)
-                || inner
-                    .downcast_ref::<nv_redfish::Error<BmcClient>>()
-                    .is_some_and(|err| match err {
-                        nv_redfish::Error::Bmc(bmc_error) => is_auth_bmc_error(bmc_error),
-                        _ => false,
-                    })
-        }
-        _ => false,
-    }
-}
-
-fn is_auth_bmc_error(error: &BmcError) -> bool {
-    matches!(
-        error,
-        BmcError::InvalidResponse { status, .. }
-            if *status == StatusCode::UNAUTHORIZED || *status == StatusCode::FORBIDDEN
-    )
 }

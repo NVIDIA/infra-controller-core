@@ -19,6 +19,7 @@ use std::iter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use carbide_redfish::libredfish::conv::IntoModel;
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
@@ -302,7 +303,10 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 serial_number: Some(value.serial.clone()),
                 ethernet_interfaces: systems_ethernet_interfaces,
                 attributes: ComputerSystemAttributes::default(),
-                pcie_devices: pcie_devices.into_iter().map(Into::into).collect(),
+                pcie_devices: pcie_devices
+                    .into_iter()
+                    .map(IntoModel::into_model)
+                    .collect(),
                 base_mac: None,
                 power_state: PowerState::On,
                 sku: None,

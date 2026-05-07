@@ -140,6 +140,8 @@ pub async fn handle_show_version(
 
         r!(table, config, dpu_secure_boot_enabled);
         r!(table, config, dpf_enabled);
+        r!(table, config, compile_time_helm_version);
+        r!(table, config, compile_time_docker_version);
 
         _ = table.print_tty(true);
     }

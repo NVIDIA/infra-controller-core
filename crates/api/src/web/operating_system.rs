@@ -25,6 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
 use crate::api::Api;
 
 fn sanitize_os(os: &mut forgerpc::OperatingSystem) {
@@ -267,3 +268,6 @@ pub async fn detail(
     let detail: OsDetail = os.into();
     (StatusCode::OK, Html(detail.render().unwrap())).into_response()
 }
+
+impl super::Base for OperatingSystemShow {}
+impl super::Base for OsDetail {}

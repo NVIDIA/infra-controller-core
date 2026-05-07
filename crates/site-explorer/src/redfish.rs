@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_network::deserialize_input_mac_to_address;
+use carbide_redfish::libredfish::conv::{IntoModel, bmc_vendor};
 use carbide_redfish::libredfish::{
     RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password,
 };
@@ -116,7 +117,7 @@ impl RedfishClient {
             .await
     }
 
-    pub async fn probe_redfish_endpoint(
+    pub async fn get_redfish_vendor(
         &self,
         bmc_ip_address: SocketAddr,
     ) -> Result<RedfishVendor, EndpointExplorationError> {
@@ -135,6 +136,21 @@ impl RedfishClient {
         Ok(vendor)
     }
 
+    pub async fn validate_bmc_credentials(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_direct_redfish_client(bmc_ip_address, credentials, Some(RedfishVendor::Unknown))
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.get_systems().await.map_err(map_redfish_error)?;
+
+        Ok(())
+    }
+
     pub async fn set_bmc_root_password(
         &self,
         bmc_ip_address: SocketAddr,
@@ -145,19 +161,28 @@ impl RedfishClient {
         let (curr_user, curr_password) = match &current_bmc_root_credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
-        // Create a vendor-specific client based on the provided
-        // vendor hardware attempting to set the BMC root password.
-        // NOTE(chet): This used to use a "standard"/Unknown client,
-        // but after adding support for vendored clients, I was able
-        // to change it. If this ends up causing problems in some
-        // way, presumably the "fix" should end up being a libredfish
-        // (or eventually nv-redfish) vendor implementation change (I
-        // would think).
+        // We're about to PATCH /AccountService to rotate the BMC password.
+        // That's the only Redfish endpoint we need at this stage, so use an
+        // uninitialized "Unknown" client to skip libredfish's full init
+        // path (which fetches /Systems, /Managers, /Chassis up front).
+        //
+        // Those fetches are unnecessary here, and they actively break
+        // rotation on factory BMCs that refuse reads until the password
+        // has been changed. Notably, NVIDIA GBx00 in factory state
+        // authenticates the supplied creds just fine, but returns HTTP 403
+        // with "Base.1.18.1.PasswordChangeRequired" on /Systems -- so if
+        // we let libredfish initialize first, we never reach the PATCH
+        // that would actually unblock us.
+        //
+        // The vendor-specific client is created below, *after* the rotation
+        // has succeeded, so set_machine_password_policy gets the right
+        // vendor impl (e.g. Lite-On's, which omits
+        // AccountLockoutCounterResetAfter).
         let client = self
             .create_direct_redfish_client(
                 bmc_ip_address,
                 current_bmc_root_credentials.clone(),
-                Some(vendor),
+                Some(RedfishVendor::Unknown),
             )
             .await
             .map_err(|e| {
@@ -262,7 +287,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
-        let vendor = service_root.vendor().map(|v| v.into());
+        let vendor = service_root.vendor().map(bmc_vendor);
 
         let manager = fetch_manager(client.as_ref())
             .await
@@ -761,12 +786,12 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
         model: system.model,
         serial_number: system.serial_number,
         attributes: ComputerSystemAttributes {
-            nic_mode,
+            nic_mode: nic_mode.map(IntoModel::into_model),
             is_infinite_boot_enabled,
         },
         pcie_devices,
         base_mac,
-        power_state: system.power_state.into(),
+        power_state: system.power_state.into_model(),
         sku: system.sku,
         boot_order,
     })
@@ -833,7 +858,8 @@ async fn fetch_ethernet_interfaces(
         }?;
 
         let uefi_device_path = if let Some(uefi_device_path) = iface.uefi_device_path {
-            let path_as_version_string = UefiDevicePath::from_str(&uefi_device_path)?;
+            let path_as_version_string = UefiDevicePath::from_str(&uefi_device_path)
+                .map_err(|error| RedfishError::GenericError { error })?;
             Some(path_as_version_string)
         } else {
             None
@@ -1053,7 +1079,7 @@ async fn fetch_boot_order(
                 .iter()
                 .find(|opt| opt.boot_option_reference == *ref_id)
                 .cloned()
-                .map(Into::into)
+                .map(IntoModel::into_model)
         })
         .collect();
 
@@ -1074,7 +1100,7 @@ async fn fetch_pcie_devices(client: &dyn Redfish) -> Result<Vec<PCIeDevice>, Red
             name: pci_device.name,
             part_number: pci_device.part_number,
             serial_number: pci_device.serial_number,
-            status: pci_device.status.map(|s| s.into()),
+            status: pci_device.status.map(IntoModel::into_model),
         });
     }
     Ok(pci_devices)
@@ -1275,10 +1301,13 @@ fn nv_error_classifier(
 ) -> Option<bmc_explorer::ErrorClass> {
     type BmcError = carbide_redfish::nv_redfish::BmcError;
     match err {
-        BmcError::InvalidResponse {
-            status: http::StatusCode::NOT_FOUND,
-            ..
-        } => Some(bmc_explorer::ErrorClass::HttpNotFound),
+        BmcError::InvalidResponse { status, .. } => match *status {
+            http::StatusCode::NOT_FOUND => Some(bmc_explorer::ErrorClass::NotFound),
+            http::StatusCode::INTERNAL_SERVER_ERROR => {
+                Some(bmc_explorer::ErrorClass::InternalServerError)
+            }
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -1375,5 +1404,126 @@ fn map_nv_redfish_explore_error(
         err => EndpointExplorationError::Other {
             details: err.to_string(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::sync::Arc;
+
+    use arc_swap::ArcSwap;
+    use carbide_redfish::libredfish::test_support::RedfishSim;
+    use carbide_redfish::nv_redfish::NvRedfishClientPool;
+    use forge_secrets::credentials::Credentials;
+    use libredfish::model::service_root::RedfishVendor;
+
+    use super::RedfishClient;
+
+    fn test_addr() -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 443)
+    }
+
+    fn build_redfish_client(sim: Arc<RedfishSim>) -> RedfishClient {
+        let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
+        let nv_pool = Arc::new(NvRedfishClientPool::new(proxy_address));
+        RedfishClient::new(sim, nv_pool)
+    }
+
+    /// Test to check that when site-explorer rotates a BMC's root password,
+    /// it first uses an uninitialized client (`Some(RedfishVendor::Unknown)`)
+    /// to make the actual `change_password_by_id` call, and NOT a
+    /// vendor-specific client.
+    ///
+    /// The vendor-specific client triggers libredfish's full init path
+    /// (fetches `/Systems`, `/Managers`, `/Chassis`) which is unnecessary
+    /// just to PATCH `/AccountService`. Worse, factory BMCs like NVIDIA
+    /// GBx00 authenticate the supplied creds but return HTTP 403
+    /// `Base.1.18.1.PasswordChangeRequired` on `/Systems` until the
+    /// password is rotated -- so an init-first flow blocks the very PATCH
+    /// that would unblock it.
+    ///
+    /// Only the SECOND client (used to set the password policy after the
+    /// rotation has succeeded) should be vendor-specific so we get the right
+    /// `set_machine_password_policy` impl (e.g. Lite-On omits
+    /// `AccountLockoutCounterResetAfter`).
+    #[tokio::test]
+    async fn set_bmc_root_password_uses_unknown_vendor_for_password_change_client() {
+        let sim = Arc::new(RedfishSim::default());
+        sim.seed_user("root", "factory_pass");
+
+        let redfish = build_redfish_client(sim.clone());
+
+        let factory_creds = Credentials::UsernamePassword {
+            username: "root".to_string(),
+            password: "factory_pass".to_string(),
+        };
+
+        redfish
+            .set_bmc_root_password(
+                test_addr(),
+                RedfishVendor::LiteOnPowerShelf,
+                factory_creds,
+                "site_pass".to_string(),
+            )
+            .await
+            .expect("set_bmc_root_password should succeed against the sim");
+
+        let calls = sim.create_client_calls();
+        assert_eq!(
+            calls.len(),
+            2,
+            "expected exactly two create_client calls (one for password change, one for policy), got {calls:?}"
+        );
+        assert_eq!(
+            calls[0].vendor,
+            Some(RedfishVendor::Unknown),
+            "the FIRST client (password change) must be uninitialized (Unknown) so \
+             libredfish skips its /Systems, /Managers, /Chassis fetches. Passing the \
+             real vendor regresses to those fetches, which factory BMCs (e.g. NVIDIA \
+             GBx00) reject with HTTP 403 PasswordChangeRequired -- blocking the very \
+             PATCH that would unblock them. got: {:?}",
+            calls[0].vendor,
+        );
+        assert_eq!(
+            calls[1].vendor,
+            Some(RedfishVendor::LiteOnPowerShelf),
+            "the SECOND client (set_machine_password_policy) must use the real vendor \
+             so vendor-specific impls (e.g. Lite-On omitting AccountLockoutCounterResetAfter) \
+             are dispatched. got: {:?}",
+            calls[1].vendor,
+        );
+    }
+
+    /// Same regression guard, but for a non-Lite-On vendor that also needs
+    /// vendor dispatch on the second client (NvidiaDpu uses
+    /// `change_password_by_id`). Locks in that the Unknown-vs-vendor split
+    /// is consistent across vendors.
+    #[tokio::test]
+    async fn set_bmc_root_password_uses_unknown_vendor_for_nvidia_dpu_too() {
+        let sim = Arc::new(RedfishSim::default());
+        sim.seed_user("root", "factory_pass");
+
+        let redfish = build_redfish_client(sim.clone());
+
+        let factory_creds = Credentials::UsernamePassword {
+            username: "root".to_string(),
+            password: "factory_pass".to_string(),
+        };
+
+        redfish
+            .set_bmc_root_password(
+                test_addr(),
+                RedfishVendor::NvidiaDpu,
+                factory_creds,
+                "site_pass".to_string(),
+            )
+            .await
+            .expect("set_bmc_root_password should succeed against the sim");
+
+        let calls = sim.create_client_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].vendor, Some(RedfishVendor::Unknown));
+        assert_eq!(calls[1].vendor, Some(RedfishVendor::NvidiaDpu));
     }
 }

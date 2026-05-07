@@ -87,10 +87,11 @@ struct EncryptionEnvelopeV1 {
 }
 
 fn envelope_json_bytes(
-    key_id: &str,
+    key_id: impl AsRef<str>,
     nonce: &[u8; 12],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, KeyEncryptionError> {
+    let key_id = key_id.as_ref();
     let kid = key_id.as_bytes();
     if kid.is_empty() || kid.len() > 255 {
         return Err(KeyEncryptionError::Encrypt(
@@ -119,14 +120,15 @@ fn parse_envelope_json(data: &[u8]) -> Result<([u8; 12], Vec<u8>), KeyEncryption
 
 /// Encrypts plaintext with AES-256-GCM using envelope v1.
 ///
-/// `encryption_secret` is raw 32-byte key material
+/// `encryption_secret` is raw 32-byte key material.
 /// `encryption_key_id` must match the entry under `machine_identity.encryption_keys` and site
-/// `current_encryption_key_id`.
+/// `current_encryption_key_id` (1..=255 UTF-8 bytes). Callers may pass any `T: AsRef<str>` (e.g. a
+/// non-empty encryption-key id newtype from the API model).
 /// Returns standard base64 of the UTF-8 JSON envelope (safe for `TEXT` columns).
 pub fn encrypt(
     plaintext: &[u8],
     encryption_secret: &Aes256Key,
-    encryption_key_id: &str,
+    encryption_key_id: impl AsRef<str>,
 ) -> Result<String, KeyEncryptionError> {
     let cipher = Aes256Gcm::new_from_slice(encryption_secret)
         .map_err(|e| KeyEncryptionError::Encrypt(e.to_string()))?;
@@ -137,7 +139,7 @@ pub fn encrypt(
     let ciphertext = cipher
         .encrypt(&nonce.into(), plaintext)
         .map_err(|e| KeyEncryptionError::Encrypt(e.to_string()))?;
-    let envelope = envelope_json_bytes(encryption_key_id, &nonce, &ciphertext)?;
+    let envelope = envelope_json_bytes(encryption_key_id.as_ref(), &nonce, &ciphertext)?;
     Ok(BASE64.encode(&envelope))
 }
 
@@ -161,6 +163,9 @@ pub fn decrypt(
 
 /// Computes key_id as hex(sha256(public_key)).
 /// Works with any public key representation (PEM, DER, etc.).
+///
+/// API domain code should prefer `KeyId::from_public_key_material` in `carbide-api-model`, which
+/// delegates to this function (one implementation).
 pub fn key_id_from_public_key(public_key: &str) -> String {
     let hash = Sha256::digest(public_key.as_bytes());
     hex::encode(hash)

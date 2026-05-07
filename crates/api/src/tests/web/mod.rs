@@ -21,7 +21,7 @@ use hyper::http::request::Builder;
 
 use crate::tests::common;
 use crate::web::routes;
-mod machine_health;
+mod health;
 mod managed_host;
 mod vpc;
 

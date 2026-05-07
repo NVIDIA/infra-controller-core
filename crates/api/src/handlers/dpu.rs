@@ -22,7 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
@@ -51,6 +51,20 @@ use crate::{CarbideError, cfg, ethernet_virtualization};
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
+
+/// Consolidates host-level and DPU-level `ManagedHostNetworkConfig` into
+/// the single proto sent to `carbide-dpu-agent`. The host layer
+/// contributes shared fields (e.g. `use_admin_network`); the DPU layer
+/// contributes per-DPU fields (e.g. `loopback_ip`).
+fn build_consolidated_network_config(
+    host_network_config: &model::machine::network::ManagedHostNetworkConfig,
+    dpu_loopback_ip: IpAddr,
+) -> rpc::ManagedHostNetworkConfig {
+    rpc::ManagedHostNetworkConfig {
+        loopback_ip: dpu_loopback_ip.to_string(),
+        quarantine_state: host_network_config.quarantine_state.clone().map(Into::into),
+    }
+}
 
 pub(crate) async fn get_managed_host_network_config_inner(
     api: &Api,
@@ -149,10 +163,10 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     })
             });
 
-    // If there is an instance, the state machine sets all DPUs to be on the tenant network.  But if there are
-    // no interfaces configured for this DPU, then override and put it back on the admin network.  This will
-    // prevent the host from using the DPU at all.
-    let use_admin_network = dpu_snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
+    // If there is an instance, the state machine sets the host to tenant
+    // network. But if no interfaces are configured for this DPU, override
+    // and keep it on admin. This prevents the host from using the DPU at all.
+    let use_admin_network = snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
 
     let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
 
@@ -439,15 +453,10 @@ pub(crate) async fn get_managed_host_network_config_inner(
         }
     };
 
-    let network_config = rpc::ManagedHostNetworkConfig {
-        loopback_ip: loopback_ip.to_string(),
-        quarantine_state: snapshot
-            .host_snapshot
-            .network_config
-            .quarantine_state
-            .clone()
-            .map(Into::into),
-    };
+    let network_config = build_consolidated_network_config(
+        &snapshot.host_snapshot.network_config.value,
+        loopback_ip,
+    );
 
     let asn = if network_virtualization_type == VpcVirtualizationType::Fnn {
         dpu_snapshot.asn.ok_or_else(|| {
@@ -612,7 +621,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
         },
         site_global_vpc_vni: api.runtime_config.site_global_vpc_vni,
         managed_host_config: Some(network_config),
-        managed_host_config_version: dpu_snapshot.network_config.version.version_string(),
+        managed_host_config_version: snapshot
+            .host_snapshot
+            .network_config
+            .version
+            .version_string(),
         use_admin_network,
         admin_interface: Some(admin_interface_rpc),
         tenant_interfaces,
@@ -637,17 +650,9 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 .version_string()
         },
         remote_id: dpu_machine_id.remote_id(),
-        // TODO(chet): Once all agents are upgraded past the ETV cleanup PRs, this can
-        // use rpc::VpcVirtualizationType::from(network_virtualization_type).into() instead.
-        // For now, force ETV to proto value 2 (ETHERNET_VIRTUALIZER_WITH_NVUE) so that
-        // older agents that reject proto value 0 (ETHERNET_VIRTUALIZER) continue to work.
-        network_virtualization_type: Some(match network_virtualization_type {
-            VpcVirtualizationType::EthernetVirtualizer
-            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into()
-            }
-            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn.into(),
-        }),
+        network_virtualization_type: Some(
+            rpc::VpcVirtualizationType::from(network_virtualization_type).into(),
+        ),
         vpc_vni,
         // Deprecated: this field is always true now.
         // This should be removed in future version.
@@ -669,6 +674,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
             tenant_leak_communities_accepted: p.tenant_leak_communities_accepted,
             leak_default_route_from_underlay: p.leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
+            accepted_leaks_from_underlay: p
+                .accepted_leaks_from_underlay
+                .iter()
+                .map(|l| rpc::PrefixFilterPolicyEntry {
+                    prefix: l.prefix.to_string(),
+                })
+                .collect(),
             route_target_imports: p
                 .route_target_imports
                 .iter()
@@ -1276,4 +1288,72 @@ pub(crate) async fn get_bgp_password(
             });
         }
     })
+}
+
+#[cfg(test)]
+mod consolidated_network_config_tests {
+    use std::net::Ipv4Addr;
+
+    use model::machine::network::{
+        ManagedHostNetworkConfig, ManagedHostQuarantineMode, ManagedHostQuarantineState,
+    };
+
+    use super::*;
+
+    fn dpu_ip() -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))
+    }
+
+    // The DPU layer contributes loopback_ip; an empty host layer leaves
+    // quarantine_state absent.
+    #[test]
+    fn dpu_loopback_ip_carries_through_with_empty_host_layer() {
+        let host = ManagedHostNetworkConfig::default();
+        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        assert_eq!(consolidated.loopback_ip, "10.0.0.1");
+        assert!(consolidated.quarantine_state.is_none());
+    }
+
+    // The host layer contributes quarantine_state when set; the DPU layer
+    // still owns loopback_ip independently.
+    #[test]
+    fn host_quarantine_state_carries_through_alongside_dpu_loopback() {
+        let host = ManagedHostNetworkConfig {
+            quarantine_state: Some(ManagedHostQuarantineState {
+                reason: Some("test".to_string()),
+                mode: ManagedHostQuarantineMode::BlockAllTraffic,
+            }),
+            ..ManagedHostNetworkConfig::default()
+        };
+        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        assert_eq!(consolidated.loopback_ip, "10.0.0.1");
+        let qs = consolidated.quarantine_state.expect("quarantine_state");
+        assert_eq!(qs.reason.as_deref(), Some("test"));
+    }
+
+    // Host-layer fields that aren't part of the consolidated proto shape
+    // (loopback_ip on the host, secondary_overlay_vtep_ip, use_admin_network)
+    // do NOT leak into the response -- the consolidator deliberately picks
+    // only quarantine_state from the host layer. Catches accidental changes
+    // to that contract.
+    #[test]
+    fn host_layer_fields_outside_the_consolidated_shape_are_ignored() {
+        let host = ManagedHostNetworkConfig {
+            // loopback_ip on the host's row is meaningless and shouldn't
+            // be served to the DPU agent -- the DPU's own loopback_ip
+            // (passed separately) is what matters.
+            loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 99))),
+            secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 100))),
+            // The host-level use_admin_network is reported in a separate
+            // top-level response field, not in this consolidated struct.
+            use_admin_network: Some(false),
+            quarantine_state: None,
+        };
+        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        assert_eq!(
+            consolidated.loopback_ip, "10.0.0.1",
+            "consolidator must use the dpu_loopback_ip arg, not host.loopback_ip"
+        );
+        assert!(consolidated.quarantine_state.is_none());
+    }
 }

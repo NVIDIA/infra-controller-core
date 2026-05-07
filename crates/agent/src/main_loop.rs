@@ -29,8 +29,8 @@ use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
-use carbide_utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
@@ -120,7 +120,9 @@ pub async fn setup_and_run(
             machine_id,
             forge_api_server.clone(),
             Arc::clone(&forge_client_config),
-        ),
+            agent_config.machine_identity.clone(),
+        )
+        .map_err(|e| eyre::eyre!("failed to initialize instance metadata router state: {e}"))?,
     );
 
     let agent_meter = get_dpu_agent_meter();
@@ -135,8 +137,13 @@ pub async fn setup_and_run(
             fmds_address = fmds_addr,
             "Using FmdsUpdater::External FMDS service"
         );
-        match crate::fmds_client::FmdsGrpcClient::connect(fmds_addr).await {
-            Ok(fmds_client) => FmdsUpdater::External(fmds_client),
+        match crate::fmds_client::FmdsGrpcClient::connect(
+            fmds_addr,
+            agent_config.machine_identity.clone(),
+        )
+        .await
+        {
+            Ok(fmds_client) => FmdsUpdater::External(Box::new(fmds_client)),
             Err(e) => {
                 tracing::warn!(
                     "Failed to connect to external FMDS service: {e:#}, falling back to embedded"
@@ -1040,7 +1047,7 @@ fn effective_virtualization_type(
     // table for the VPC this DPU is in).
     //
     // This may be unset, which means to just use
-    // EthernetVirtualizerWithNvue.
+    // EthernetVirtualizer.
     let virtualization_type_from_remote = conf
         .network_virtualization_type
         .map(rpc::VpcVirtualizationType::try_from)
@@ -1049,7 +1056,7 @@ fn effective_virtualization_type(
 
     // And now see if the remote virtualization type should be overwritten
     // by runtime options. If it's not, and the remote value was also unset,
-    // then just use EthernetVirtualizerWithNvue.
+    // then just use EthernetVirtualizer.
     let virtualization_type = options
         .override_network_virtualization_type // dev
         .or(virtualization_type_from_remote)

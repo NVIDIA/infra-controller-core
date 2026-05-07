@@ -26,7 +26,8 @@ use carbide_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::state_history::StateHistoryTable;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -35,11 +36,11 @@ struct SwitchShow {
     switches: Vec<SwitchRecord>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug)]
 struct SwitchRecord {
     id: String,
     name: String,
-    state: String,
+    state_display: super::StateDisplay,
     slot_number: String,
     tray_index: String,
 }
@@ -58,18 +59,15 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
         .switches
         .into_iter()
         .map(|switch| {
-            let state = switch
-                .status
-                .as_ref()
-                .and_then(|status| status.lifecycle.as_ref())
-                .map(|lifecycle| super::filters::normalize_state_label(&lifecycle.state))
-                .unwrap_or_else(|| "Unknown".to_string());
+            let status = switch.status.as_ref();
+            let lifecycle = status.and_then(|status| status.lifecycle.as_ref());
+            let state_display = super::StateDisplay::from_lifecycle(lifecycle);
 
             let config = switch.config.unwrap_or_default();
             SwitchRecord {
                 id: switch.id.map(|id| id.to_string()).unwrap_or_default(),
                 name: config.name,
-                state,
+                state_display,
                 slot_number: switch
                     .placement_in_rack
                     .as_ref()
@@ -151,23 +149,28 @@ struct SwitchDetail {
     health_status: Option<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
     metadata_detail: super::MetadataDetail,
+    health_detail: super::HealthDetail,
+    history: StateHistoryTable,
 }
 
 impl SwitchDetail {
-    fn new(switch: rpc::forge::Switch) -> Self {
+    fn new(switch: rpc::forge::Switch, history: StateHistoryTable) -> Self {
         let id = switch
             .id
             .as_ref()
             .map(|id| id.to_string())
             .unwrap_or_default();
         let config = switch.config.unwrap_or_default();
-        let lifecycle = switch
-            .status
-            .as_ref()
-            .and_then(|s| s.lifecycle.clone())
-            .unwrap_or_default();
-        let power_state = switch.status.as_ref().and_then(|s| s.power_state.clone());
-        let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
+        let status = switch.status.as_ref();
+        let lifecycle = status.and_then(|s| s.lifecycle.clone()).unwrap_or_default();
+        let power_state = status.and_then(|s| s.power_state.clone());
+        let health_status = status.and_then(|s| s.health_status.clone());
+        let health_detail = super::HealthDetail::new(
+            format!("/admin/switch/{id}/health"),
+            "Go to Switch health reports",
+            status.and_then(|s| s.health.clone()),
+            status.map(|s| s.health_sources.clone()).unwrap_or_default(),
+        );
         let metadata_detail = super::MetadataDetail {
             metadata: switch.metadata.unwrap_or_default(),
             metadata_version: switch.version,
@@ -194,6 +197,8 @@ impl SwitchDetail {
             health_status,
             bmc_info: switch.bmc_info,
             metadata_detail,
+            health_detail,
+            history,
         }
     }
 }
@@ -220,7 +225,18 @@ pub async fn detail(
         return (StatusCode::OK, Json(switch)).into_response();
     }
 
-    let detail = SwitchDetail::new(switch);
+    let history =
+        match super::state_history::fetch_switch_state_history_records(&api, &switch_id).await {
+            Ok((_switch_id, records)) => StateHistoryTable {
+                records: records.into_iter().map(Into::into).collect(),
+            },
+            Err((code, err)) => {
+                tracing::error!(%code, %err, %switch_id, "fetch_switch_state_history_records");
+                StateHistoryTable { records: vec![] }
+            }
+        };
+
+    let detail = SwitchDetail::new(switch, history);
     (StatusCode::OK, Html(detail.render().unwrap())).into_response()
 }
 
@@ -247,3 +263,6 @@ async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<rpc::forge::S
 
     Ok(response.switches.into_iter().next())
 }
+
+impl super::Base for SwitchShow {}
+impl super::Base for SwitchDetail {}

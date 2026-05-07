@@ -26,8 +26,8 @@ use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
-use super::filters;
 use super::state_history::StateHistoryTable;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -168,3 +168,6 @@ pub async fn detail(
     let tmpl: DpaDetail = dpa.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for DpaShow {}
+impl super::Base for DpaDetail {}

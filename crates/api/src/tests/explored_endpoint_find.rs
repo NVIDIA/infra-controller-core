@@ -262,6 +262,7 @@ async fn test_find_explored_endpoint_firmware_versions(
         (FirmwareComponentType::Bmc, "25.06-2_NV_WW_02".to_string()),
         (FirmwareComponentType::Uefi, "00000083".to_string()),
         (FirmwareComponentType::HGXBmc, "97.00.B9.00.76".to_string()),
+        (FirmwareComponentType::Cx7, "28.47.2682".to_string()),
     ]);
 
     let mut txn = env.pool.begin().await?;
@@ -297,10 +298,42 @@ async fn test_find_explored_endpoint_firmware_versions(
 
     let report = endpoint_list.endpoints[0].report.as_ref().unwrap();
     let fw_versions = &report.firmware_versions;
-    assert_eq!(fw_versions.len(), 3);
+    assert_eq!(fw_versions.len(), 4);
     assert_eq!(fw_versions.get("bmc").unwrap(), "25.06-2_NV_WW_02");
     assert_eq!(fw_versions.get("uefi").unwrap(), "00000083");
     assert_eq!(fw_versions.get("hgxbmc").unwrap(), "97.00.B9.00.76");
+    assert_eq!(fw_versions.get("cx7").unwrap(), "28.47.2682");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_admin_bmc_reset_rejects_malformed_ip_address(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+        bmc_endpoint_request: Some(rpc::BmcEndpointRequest {
+            ip_address: "not-an-ip".to_string(),
+            mac_address: None,
+        }),
+        machine_id: None,
+        use_ipmitool: false,
+    });
+
+    let err = env
+        .api
+        .admin_bmc_reset(req)
+        .await
+        .expect_err("expected malformed ip_address to be rejected");
+
+    assert_eq!(err.code(), Code::InvalidArgument);
+    assert!(
+        err.message().contains("invalid ip_address"),
+        "message was: {}",
+        err.message()
+    );
 
     Ok(())
 }

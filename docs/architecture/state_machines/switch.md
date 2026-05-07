@@ -6,46 +6,37 @@ This document describes the Finite State Machine (FSM) for Switches in NICo: lif
 
 The main flow shows the primary states and transitions:
 
-<div style="width: 180%; background: white; margin-left: -40%;">
+```mermaid
+stateDiagram-v2
+    state "Created" as Created
+    state "Initializing (WaitForOsMachineInterface)" as Initializing
+    state "Configuring (RotateOsPassword)" as Configuring
+    state "Validating" as Validating
+    state "BomValidating" as BomValidating
+    state "Ready" as Ready
+    state "ReProvisioning (Start to WaitFirmware)" as ReProvisioning
+    state "Error" as Error
+    state "Deleting" as Deleting
 
-```plantuml
-@startuml
-skinparam state {
-  BackgroundColor White
-}
+    [*] --> Created : Switch created
 
-state "Created" as Created
-state "Initializing\n(WaitForOsMachineInterface)" as Initializing
-state "Configuring\n(RotateOsPassword)" as Configuring
-state "Validating" as Validating
-state "BomValidating" as BomValidating
-state "Ready" as Ready
-state "ReProvisioning\n(Start → WaitFirmware)" as ReProvisioning
-state "Error" as Error
-state "Deleting" as Deleting
+    Created --> Initializing : controller processes switch
+    Initializing --> Configuring : all NVOS interfaces associated
+    Initializing --> Error : no NVOS MACs or MAC conflict
+    Configuring --> Validating : rotate password done
+    Validating --> BomValidating : validation complete
+    BomValidating --> Ready : BOM validation complete
 
-[*] --> Created : Switch created
+    Ready --> Deleting : marked for deletion
+    Ready --> ReProvisioning : reprovision requested
 
-Created --> Initializing : controller processes switch
-Initializing --> Configuring : all NVOS interfaces associated
-Initializing --> Error : no NVOS MACs or MAC conflict
-Configuring --> Validating : rotate password done
-Validating --> BomValidating : validation complete
-BomValidating --> Ready : BOM validation complete
+    ReProvisioning --> Ready : firmware upgrade Completed
+    ReProvisioning --> Error : firmware upgrade Failed
 
-Ready --> Deleting : marked for deletion
-Ready --> ReProvisioning : reprovision requested
+    Error --> Deleting : marked for deletion or wait for manual intervention
 
-ReProvisioning --> Ready : firmware upgrade Completed
-ReProvisioning --> Error : firmware upgrade Failed
-
-Error --> Deleting : marked for deletion or wait for manual intervention
-
-Deleting --> [*] : final delete
-@enduml
+    Deleting --> [*] : final delete
 ```
-
-</div>
 
 ## States
 

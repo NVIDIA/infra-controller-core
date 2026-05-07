@@ -17,6 +17,7 @@
 use std::backtrace::{Backtrace, BacktraceStatus};
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_ib_fabric::errors::IbError;
 use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
@@ -232,6 +233,9 @@ pub enum CarbideError {
 
     #[error("Permission denied: {0}")]
     PermissionDeniedError(String),
+
+    #[error("Attestation Error: {0}")]
+    AttestationError(String),
 }
 
 impl From<ModelError> for CarbideError {
@@ -287,6 +291,20 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::TryAgain => Internal {
                 message: DatabaseError::TryAgain.to_string(),
             },
+        }
+    }
+}
+
+impl From<IbError> for CarbideError {
+    fn from(e: IbError) -> Self {
+        match e {
+            IbError::DatabaseError(e) => e.into(),
+            IbError::ModelError(e) => e.into(),
+            IbError::IBFabricError(msg) => Self::IBFabricError(msg),
+            IbError::NotFoundError { kind, id } => Self::NotFoundError { kind, id },
+            IbError::InvalidArgument(e) => Self::InvalidArgument(e),
+            IbError::NotImplemented => Self::NotImplemented,
+            IbError::Internal { message } => Self::Internal { message },
         }
     }
 }

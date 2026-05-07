@@ -25,7 +25,7 @@ use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
 use carbide_host_support::cpu::aggregate_cpus;
 use carbide_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
@@ -812,7 +812,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
 
         let machine_arch = match info.machine_arch {
             // new
-            Some(arch) => arch.into(),
+            Some(arch) => rpc::utils::cpu_architecture_from_rpc(arch),
             // old
             None => {
                 tracing::warn!("DiscoveryInfo missing machine_arch.");
@@ -870,7 +870,7 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
             cpu_info: try_convert_vec(info.cpu_info)?,
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: info.machine_type.to_string(),
-            machine_arch: Some(info.machine_type.into()),
+            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(info.machine_type)),
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_data: info
                 .dmi_data

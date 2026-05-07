@@ -1,15 +1,18 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 //! The DPF operator manages all provisioning logic. Carbide's role is:
@@ -28,6 +31,7 @@ use model::machine::{
 use super::helpers::{DpuInitStateHelper, ManagedHostStateHelper, ReprovisionStateHelper};
 use super::{handler_host_power_control, host_power_state};
 use crate::dpf::DpfOperations;
+use crate::state_controller::external_service_error::dpf_error;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -153,7 +157,7 @@ fn waiting_for_ready_exit_state(
             instance_state: InstanceState::DPUReprovision { .. },
         } => {
             let all_dpu_ids = state.dpu_snapshots.iter().map(|x| &x.id).collect();
-            ReprovisionState::PoweringOffHost.next_state_with_all_dpus_updated(
+            ReprovisionState::WaitingForNetworkConfig.next_state_with_all_dpus_updated(
                 &state.managed_state,
                 &state.dpu_snapshots,
                 all_dpu_ids,
@@ -171,6 +175,17 @@ async fn handle_dpf_provisioning(
     state: &ManagedHostStateSnapshot,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let primary_dpu_id = state
+        .host_snapshot
+        .interfaces
+        .iter()
+        .find(|iface| iface.primary_interface)
+        .and_then(|iface| iface.attached_dpu_machine_id)
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: state.host_snapshot.id.to_string(),
+            missing: "primary_dpu",
+        })?;
+
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
             .hardware_info
@@ -183,10 +198,24 @@ async fn handle_dpf_provisioning(
             dpu_bmc_ip: bmc_ip(dpu)?.to_string(),
             host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
             serial_number: serial_number.to_string(),
-            host_machine_id: state.host_snapshot.id.to_string(),
             dpu_machine_id: dpu.id.to_string(),
+            is_primary: dpu.id == primary_dpu_id,
         };
-        dpf_sdk.register_dpu_device(device_info).await?;
+        if let Err(err) = dpf_sdk.register_dpu_device(device_info).await {
+            return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::DpfProvisioning {
+                        err: format!(
+                            "DPUDevice creation failed. Force-delete again to clean old values. Wait until DPU CR are deleted. {err}"
+                        ),
+                    },
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+                },
+                machine_id: dpu.id,
+                retry_count: 0,
+            }));
+        }
     }
 
     let device_ids: Vec<String> = state
@@ -198,9 +227,22 @@ async fn handle_dpf_provisioning(
         node_id: dpf_id(&state.host_snapshot)?,
         host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
         device_ids,
-        host_machine_id: state.host_snapshot.id.to_string(),
     };
-    dpf_sdk.register_dpu_node(node_info).await?;
+    if let Err(err) = dpf_sdk.register_dpu_node(node_info).await {
+        return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning {
+                    err: format!(
+                        "DPUNode creation failed. Force-delete again to clean old values. Wait until DPU CR are deleted. {err}"
+                    ),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+            machine_id: state.host_snapshot.id,
+            retry_count: 0,
+        }));
+    }
 
     let next =
         transition_all_dpus_to_dpf_state(DpfState::WaitingForReady { phase_detail: None }, state)?;
@@ -218,30 +260,6 @@ async fn handle_dpf_reboot(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    // Custom BFB: wait for all DPU agents to complete discovery before rebooting
-    // the host. This indicates cloud-init has completed on every DPU.
-    // Remove when switching to a vanilla BFB.
-
-    // BUG ALERT: This is a bug. This might work fine for M1 for initial ingestion, but will fail for reprovisioning.
-    // Quickest fix might be clearing discovery_time on reprovisioning.
-    if !ctx.services.site_config.dpf.v2
-        && let Some(pending) = state
-            .dpu_snapshots
-            .iter()
-            .find(|d| d.last_discovery_time.is_none())
-    {
-        return update_phase_detail_or_wait(
-            state,
-            &dpu_snapshot.id,
-            waiting_phase_detail,
-            current_phase,
-            &format!(
-                "Waiting for DPU {} scout discovery to complete before reboot",
-                pending.id
-            ),
-        );
-    }
-
     let reboot_already_requested = state
         .host_snapshot
         .last_reboot_requested
@@ -260,7 +278,10 @@ async fn handle_dpf_reboot(
         handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
     } else if power_state == libredfish::PowerState::Off {
         handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
-        dpf_sdk.reboot_complete(node_name).await?;
+        dpf_sdk
+            .reboot_complete(node_name)
+            .await
+            .map_err(dpf_error)?;
     }
 
     update_phase_detail_or_wait(
@@ -283,11 +304,21 @@ async fn handle_dpf_waiting_for_ready(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     let dpu_device_name = dpf_id(dpu_snapshot)?;
-    let current_phase = dpf_sdk.get_dpu_phase(&dpu_device_name, &node_name).await?;
+    let current_phase = dpf_sdk
+        .get_dpu_phase(&dpu_device_name, &node_name)
+        .await
+        .map_err(dpf_error)?;
 
-    dpf_sdk.release_maintenance_hold(&node_name).await?;
+    dpf_sdk
+        .release_maintenance_hold(&node_name)
+        .await
+        .map_err(dpf_error)?;
 
-    if dpf_sdk.is_reboot_required(&node_name).await? {
+    if dpf_sdk
+        .is_reboot_required(&node_name)
+        .await
+        .map_err(dpf_error)?
+    {
         return handle_dpf_reboot(
             state,
             dpu_snapshot,
@@ -331,16 +362,6 @@ async fn handle_dpf_waiting_for_ready(
             "Waiting for DPU to reach Ready phase",
         );
     }
-    // also wait for dpu scout discovery to complete
-    if !ctx.services.site_config.dpf.v2 && dpu_snapshot.last_discovery_time.is_none() {
-        return update_phase_detail_or_wait(
-            state,
-            &dpu_snapshot.id,
-            waiting_phase_detail,
-            &current_phase,
-            "Waiting for DPU scout discovery to complete",
-        );
-    }
 
     let next = set_one_dpu_dpf_state(state, &dpu_snapshot.id, DpfState::DeviceReady)?;
     Ok(StateHandlerOutcome::transition(next))
@@ -371,7 +392,8 @@ async fn handle_dpf_reprovisioning(
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     dpf_sdk
         .reprovision_dpu(&dpf_id(dpu_snapshot)?, &node_name)
-        .await?;
+        .await
+        .map_err(dpf_error)?;
     let next = set_one_dpu_dpf_state(
         state,
         &dpu_snapshot.id,
@@ -394,7 +416,11 @@ pub async fn handle_dpf_state(
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
-    if !dpf_sdk.verify_node_labels(&node_name).await? {
+    if !dpf_sdk
+        .verify_node_labels(&node_name)
+        .await
+        .map_err(dpf_error)?
+    {
         tracing::error!(
             host = %state.host_snapshot.id,
             node = %node_name,

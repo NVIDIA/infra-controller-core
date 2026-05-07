@@ -108,6 +108,11 @@ ilog "=== Installing debs from $forge_path_chroot_debs:"
 chroot /mnt chown -R root:root "$forge_path_chroot_debs"
 chroot /mnt dpkg -R -i "$forge_path_chroot_debs" 2>&1 | while read -r log_line; do ilog "dpkg: $log_line"; done
 
+cat << \EOF > /mnt/etc/NetworkManager/conf.d/99-carbide.conf
+[main]
+dns=systemd-resolved
+EOF
+
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
 timezone: "Etc/UTC"

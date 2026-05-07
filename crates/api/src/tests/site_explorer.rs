@@ -345,6 +345,91 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
 }
 
 #[crate::sqlx_test]
+async fn test_handle_redfish_error_powers_on_machine(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mut machine = FakeMachine::new("6a:6b:6c:6d:6e:70", "Vendor1", &env.underlay_segment);
+    machine.discover_dhcp(&env).await?;
+    let bmc_ip: IpAddr = machine.ip.parse()?;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: machine.mac,
+            data: ExpectedMachineData {
+                serial_number: "host-needs-power-on".to_string(),
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    endpoint_explorer.insert_endpoint_result(
+        bmc_ip,
+        Err(EndpointExplorationError::RedfishError {
+            details: "transient redfish failure".to_string(),
+            response_body: None,
+            response_code: Some(500),
+        }),
+    );
+    endpoint_explorer
+        .power_states
+        .lock()
+        .unwrap()
+        .insert(bmc_ip, libredfish::PowerState::Off);
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        allow_zero_dpu_hosts: true,
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
+    );
+
+    explorer.run_single_iteration().await?;
+
+    {
+        let calls = endpoint_explorer
+            .redfish_power_control_calls
+            .lock()
+            .unwrap();
+        assert_eq!(
+            calls.as_slice(),
+            &[(
+                std::net::SocketAddr::new(bmc_ip, 443),
+                libredfish::SystemPowerControl::On
+            )]
+        );
+    }
+
+    let mut txn = env.pool.begin().await?;
+    let endpoints = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    assert_eq!(endpoints.len(), 1, "expected one explored endpoint");
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -1440,6 +1525,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: Default::default(),
+                host_lifecycle_profile: Default::default(),
             },
         },
     )
@@ -1491,6 +1577,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         bmc_ip_address: None,
         bmc_retain_credentials: None,
         dpu_mode: Default::default(),
+        host_lifecycle_profile: Default::default(),
     };
     db::expected_machine::update(&mut txn, &host1_expected_machine).await?;
     txn.commit().await?;
@@ -2460,6 +2547,7 @@ async fn test_machine_creation_with_sku(
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: Default::default(),
+                host_lifecycle_profile: Default::default(),
             },
         },
     )
@@ -2596,6 +2684,7 @@ async fn test_expected_machine_device_type_metrics(
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: Default::default(),
+                host_lifecycle_profile: Default::default(),
             },
         },
     )
@@ -2620,6 +2709,7 @@ async fn test_expected_machine_device_type_metrics(
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: Default::default(),
+                host_lifecycle_profile: Default::default(),
             },
         },
     )
@@ -2644,6 +2734,7 @@ async fn test_expected_machine_device_type_metrics(
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: Default::default(),
+                host_lifecycle_profile: Default::default(),
             },
         },
     )
@@ -4821,8 +4912,8 @@ async fn test_get_machine_position_info_no_endpoint(
 async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use libredfish::model::oem::nvidia_dpu::NicMode;
     use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
+    use model::site_explorer::NicMode;
 
     let env = common::api_fixtures::create_test_env(pool).await;
 

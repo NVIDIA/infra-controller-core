@@ -22,7 +22,6 @@ carbide-ipmi = { path = "../ipmi" }
 carbide-network = { path = "../network" }
 carbide-redfish = { path = "../redfish" }
 carbide-secrets = { path = "../secrets" }
-carbide-ssh = { path = "../ssh" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 config-version = { path = "../config-version" }
@@ -49,6 +48,10 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 version-compare = { workspace = true }
+
+[dev-dependencies]
+carbide-redfish = { path = "../redfish", features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true

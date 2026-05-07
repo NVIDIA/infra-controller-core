@@ -1,8 +1,6 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,21 +22,26 @@ use std::default::Default;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_ib_fabric::IbFabricMonitor;
+use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
+use carbide_ib_fabric::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
 use carbide_ipmi::IPMITool;
 use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_nvlink_manager::nvlink::NmxmClientPool;
 use carbide_nvlink_manager::nvlink::test_support::NmxmSimClient;
-use carbide_redfish::libredfish::test_support::RedfishSim;
+use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
@@ -78,7 +81,7 @@ use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportEntry, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
+    HealthReportEntry, InsertMachineHealthReportRequest, RemoveMachineHealthReportRequest,
     VpcVirtualizationType,
 };
 use rpc_instance::RpcInstance;
@@ -96,17 +99,15 @@ use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, ComputeAllocationEnforcement, DpaConfig,
     DpaInterfaceStateControllerConfig, DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig,
-    IBFabricConfig, IbFabricDefinition, IbPartitionStateControllerConfig, ListenMode,
-    MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
-    MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, PowerManagerOptions, PowerShelfStateControllerConfig,
-    RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
-    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
+    IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
+    MachineValidationConfig, MeasuredBootMetricsCollectorConfig, MqttAuthConfig,
+    NetworkSecurityGroupConfig, NetworkSegmentStateControllerConfig, PowerManagerOptions,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SpdmConfig,
+    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
+    VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::dpf::DpfOperations;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
-use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
-use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
 use crate::rack::rms_client::test_support::RmsSim;
@@ -256,6 +257,15 @@ pub struct TestEnvOverrides {
     // After n create_requests succeed, they will start failing.
     pub nmxm_fail_after_n_creates: Option<usize>,
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
+    pub redfish_overrides: Option<RedfishOverrides>,
+    pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RedfishOverrides {
+    pub no_component_integrities: bool,
+    pub firmware_for_component_error: bool,
+    pub get_task_trigger_evidence_returns_interrupted: bool,
 }
 
 impl TestEnvOverrides {
@@ -288,6 +298,7 @@ impl TestEnvOverrides {
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
                             tenant_leak_communities_accepted: false,
+                            accepted_leaks_from_underlay: vec![],
                         },
                     ),
                     (
@@ -300,6 +311,7 @@ impl TestEnvOverrides {
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
                             tenant_leak_communities_accepted: false,
+                            accepted_leaks_from_underlay: vec![],
                         },
                     ),
                 ]),
@@ -417,6 +429,7 @@ impl TestEnv {
                     model::machine::MachineState::Discovered { .. } => machine_state,
                     model::machine::MachineState::WaitingForLockdown { .. } => machine_state,
                     model::machine::MachineState::Measuring { .. } => machine_state,
+                    model::machine::MachineState::SpdmMeasuring { .. } => machine_state,
 
                     model::machine::MachineState::EnableIpmiOverLan => machine_state,
                     model::machine::MachineState::WaitingForBiosJob { .. } => machine_state,
@@ -444,6 +457,8 @@ impl TestEnv {
             ManagedHostState::DPUReprovision { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
+            ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),
+            ManagedHostState::StartAssignmentCycle => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
@@ -1056,6 +1071,7 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
         default_tenant_routing_profile_type: "EXTERNAL".to_string(),
+        web_ui_sidebar_tools: vec![],
         bgp_leaf_session_password: None,
         rack_validation_config: crate::cfg::file::RackValidationConfig {
             enabled: true,
@@ -1222,7 +1238,7 @@ pub fn get_config() -> CarbideConfig {
             controller: StateControllerConfig::default(),
         },
         spdm: SpdmConfig {
-            enabled: true,
+            enabled: false,
             nras_config: Some(nras::Config::default()),
         },
         machine_identity: crate::cfg::file::MachineIdentityConfig {
@@ -1240,6 +1256,8 @@ pub fn get_config() -> CarbideConfig {
         external_static_pxe_url: None,
         supernic_firmware_profiles: HashMap::default(),
         component_manager: None,
+        initial_objects_file: None,
+        config_ctx: None,
     }
 }
 
@@ -1277,7 +1295,9 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
 }
 
 #[derive(Debug, Default)]
-pub struct VerifierSimImpl {}
+pub struct VerifierSimImpl {
+    should_fail_parsing: Arc<AtomicBool>,
+}
 
 #[async_trait::async_trait]
 impl Verifier for VerifierSimImpl {
@@ -1289,10 +1309,17 @@ impl Verifier for VerifierSimImpl {
         _nras_config: &nras::Config,
         _state: &RawAttestationOutcome,
     ) -> Result<ProcessedAttestationOutcome, NrasError> {
-        Ok(ProcessedAttestationOutcome {
-            attestation_passed: true,
-            devices: HashMap::new(),
-        })
+        if self.should_fail_parsing.load(Ordering::Relaxed) {
+            Ok(ProcessedAttestationOutcome {
+                attestation_passed: false,
+                devices: HashMap::new(),
+            })
+        } else {
+            Ok(ProcessedAttestationOutcome {
+                attestation_passed: true,
+                devices: HashMap::new(),
+            })
+        }
     }
 }
 
@@ -1355,7 +1382,18 @@ pub async fn create_test_env_with_overrides(
     ));
 
     let certificate_provider = Arc::new(TestCertificateProvider::new());
-    let redfish_sim = Arc::new(RedfishSim::default());
+
+    let redfish_sim = if let Some(redfish_overrides) = overrides.redfish_overrides {
+        Arc::new(RedfishSim::with_test_overrides(RedfishSimTestOverrides {
+            no_component_integrities: redfish_overrides.no_component_integrities,
+            firmware_for_component_error: redfish_overrides.firmware_for_component_error,
+            get_task_trigger_evidence_returns_interrupted: redfish_overrides
+                .get_task_trigger_evidence_returns_interrupted,
+        }))
+    } else {
+        Arc::new(RedfishSim::default())
+    };
+
     let nmxm_sim: Arc<dyn NmxmClientPool> =
         Arc::new(if let Some(n) = overrides.nmxm_fail_after_n_creates {
             NmxmSimClient::with_fail_after_n_creates(n)
@@ -1424,7 +1462,7 @@ pub async fn create_test_env_with_overrides(
         config.ib_fabrics.clone(),
         test_meter.meter(),
         ib_fabric_manager.clone(),
-        config.clone(),
+        config.host_health,
         work_lock_manager_handle.clone(),
     );
 
@@ -1558,9 +1596,15 @@ pub async fn create_test_env_with_overrides(
         )),
     };
 
+    let verifier = VerifierSimImpl {
+        should_fail_parsing: overrides
+            .nras_should_fail_parsing
+            .unwrap_or(Arc::new(AtomicBool::new(false))),
+    };
+
     let spdm_swap = SwapHandler {
         inner: Arc::new(Mutex::new(SpdmAttestationStateHandler::new(
-            Arc::new(VerifierSimImpl::default()),
+            Arc::new(verifier),
             nras::Config::default(),
         ))),
     };
@@ -1658,6 +1702,8 @@ pub async fn create_test_env_with_overrides(
 
     let fake_endpoint_explorer = MockEndpointExplorer {
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
+        power_states: Arc::new(std::sync::Mutex::new(Default::default())),
+        redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
         set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
 
@@ -2270,12 +2316,12 @@ pub async fn simulate_hardware_health_report(
     health_report: health_report::HealthReport,
 ) {
     use rpc::forge::forge_server::Forge;
-    use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest};
+    use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest};
     use tonic::Request;
 
     let _ = env
         .api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             machine_id: Some(*host_machine_id),
             health_report_entry: Some(HealthReportEntry {
                 report: Some(health_report.into()),
@@ -2296,7 +2342,7 @@ pub async fn send_health_report_entry(
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             health_report_entry: Some(HealthReportEntry {
                 report: Some(entry.0.into()),
@@ -2313,7 +2359,7 @@ pub async fn remove_health_report_entry(env: &TestEnv, machine_id: &MachineId, s
     use tonic::Request;
     let _ = env
         .api
-        .remove_health_report_override(Request::new(RemoveHealthReportOverrideRequest {
+        .remove_machine_health_report(Request::new(RemoveMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             source,
         }))
@@ -2496,6 +2542,7 @@ pub async fn machine_validation_completed(
 ) {
     let response = forge_agent_control(env, *machine_id).await;
     let uuid = &response.data.unwrap().pair[1].value;
+    let validation_id: MachineValidationId = uuid.parse().unwrap();
 
     let _response = env
         .api
@@ -2503,9 +2550,7 @@ pub async fn machine_validation_completed(
             rpc::forge::MachineValidationCompletedRequest {
                 machine_id: Some(*machine_id),
                 machine_validation_error,
-                validation_id: Some(rpc::Uuid {
-                    value: uuid.to_owned(),
-                }),
+                validation_id: Some(validation_id),
             },
         ))
         .await
@@ -2580,7 +2625,7 @@ pub async fn get_machine_validation_results(
     env: &TestEnv,
     machine_id: Option<&MachineId>,
     include_history: bool,
-    validation_id: Option<rpc::common::Uuid>,
+    validation_id: Option<MachineValidationId>,
 ) -> rpc::forge::MachineValidationResultList {
     env.api
         .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
@@ -2636,7 +2681,7 @@ pub async fn on_demand_machine_validation(
 
 pub async fn update_machine_validation_run(
     env: &TestEnv,
-    validation_id: Option<rpc::common::Uuid>,
+    validation_id: Option<MachineValidationId>,
     duration_to_complete: Option<rpc::Duration>,
     total: u32,
 ) -> rpc::forge::MachineValidationRunResponse {

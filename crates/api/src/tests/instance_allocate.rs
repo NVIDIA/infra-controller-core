@@ -975,3 +975,202 @@ async fn test_reject_zero_dpu_instance_with_tenant_network_segment(
 
     Ok(())
 }
+
+// A zero-DPU instance must surface its underlay IP, MAC, and gateway/prefix
+// to the tenant via the standard `Instance::status::network::interfaces`
+// path.
+//
+// This works because, behind the scenes, instance allocation auto-populates
+// `config.network.interfaces` with the host's HostInband segment when the
+// tenant submits no network config (`add_inband_interfaces_to_config`) and
+// allocates IPs into `ip_addrs` (`with_allocated_ips`). When the Instance
+// is read, `InstanceNetworkStatus::from_config_and_observations` sees no
+// DPU observations + `config.is_host_inband()` and falls into
+// `synchronized_from_host_interfaces`, which synthesizes per-interface
+// status from the config. So the same `status.network.interfaces[i]`
+// tenant machines with DPUs read from also carries the underlay IP for
+// zero-DPU tenants.
+#[crate::sqlx_test]
+async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let config = ManagedHostConfig::with_dpus(vec![]);
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+
+    let host_inband_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
+            .await?;
+
+    crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                network_security_group_id: None,
+                os: Some(forge::InstanceOperatingSystemConfig {
+                    phone_home_enabled: false,
+                    run_provisioning_instructions_on_every_boot: false,
+                    user_data: None,
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
+                        forge::InlineIpxe {
+                            ipxe_script: "exit".to_string(),
+                            user_data: None,
+                        },
+                    )),
+                }),
+                // Tenant submits no network config -- server auto-fills with
+                // the HostInband interface for the zero-DPU host.
+                network: None,
+                infiniband: None,
+                dpu_extension_services: None,
+                nvlink: None,
+            }),
+            instance_id: None,
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }),
+    )
+    .await
+    .expect("instance allocation should have succeeded")
+    .into_inner();
+
+    let response = env
+        .api
+        .find_instance_by_machine_id(tonic::Request::new(zero_dpu_host.host_snapshot.id))
+        .await?
+        .into_inner();
+    let instance = response
+        .instances
+        .first()
+        .expect("zero-DPU host should have one allocated instance");
+
+    let status = instance
+        .status
+        .as_ref()
+        .expect("instance.status should be set");
+    let net_status = status
+        .network
+        .as_ref()
+        .expect("status.network should be set");
+
+    assert_eq!(
+        net_status.configs_synced,
+        forge::SyncState::Synced as i32,
+        "host-inband interfaces don't need DPU-agent observations, so the status should be synthesized from config and report Synced immediately"
+    );
+
+    assert_eq!(
+        net_status.interfaces.len(),
+        1,
+        "expected one synthesized interface mirroring the auto-filled HostInband config entry",
+    );
+    let iface = &net_status.interfaces[0];
+    assert!(
+        !iface.addresses.is_empty(),
+        "underlay IP must be visible to the tenant via status.network.interfaces[0].addresses; got: {iface:?}",
+    );
+    assert!(
+        iface.mac_address.is_some(),
+        "underlay MAC must be visible to the tenant via status.network.interfaces[0].mac_address; got: {iface:?}",
+    );
+    assert_eq!(
+        iface.gateways.len(),
+        iface.addresses.len(),
+        "one gateway should be reported per address; got: {iface:?}",
+    );
+    assert_eq!(
+        iface.prefixes.len(),
+        iface.addresses.len(),
+        "one prefix should be reported per address; got: {iface:?}",
+    );
+
+    // The synthesized status should mirror the (auto-filled) config side.
+    let cfg_interfaces = instance
+        .config
+        .as_ref()
+        .and_then(|c| c.network.as_ref())
+        .map(|n| n.interfaces.as_slice())
+        .unwrap_or(&[]);
+    assert_eq!(
+        cfg_interfaces.len(),
+        net_status.interfaces.len(),
+        "config.network.interfaces and status.network.interfaces must have the same length",
+    );
+    assert_eq!(
+        cfg_interfaces[0].network_segment_id,
+        Some(host_inband_segment.id),
+        "auto-filled config interface should be on the HostInband segment",
+    );
+
+    Ok(())
+}
+
+// Extension services run on the DPU agent; on a zero-DPU host there's no DPU
+// to schedule them on, so the allocation should be rejected up front (rather
+// than letting the instance get stuck reporting "Unknown" extension service
+// status forever).
+#[crate::sqlx_test]
+async fn test_reject_zero_dpu_instance_with_extension_services(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let config = ManagedHostConfig::with_dpus(vec![]);
+
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+
+    let result = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                network_security_group_id: None,
+                os: Some(forge::InstanceOperatingSystemConfig {
+                    phone_home_enabled: false,
+                    run_provisioning_instructions_on_every_boot: false,
+                    user_data: None,
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
+                        forge::InlineIpxe {
+                            ipxe_script: "exit".to_string(),
+                            user_data: None,
+                        },
+                    )),
+                }),
+                network: None,
+                infiniband: None,
+                dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
+                    service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
+                        service_id: "test-service".to_string(),
+                        version: "1.0.0".to_string(),
+                    }],
+                }),
+                nvlink: None,
+            }),
+            instance_id: None,
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }),
+    )
+    .await;
+
+    match result {
+        Err(e) if e.code() == tonic::Code::InvalidArgument => {}
+        _ => panic!(
+            "Expected zero-DPU host to reject instance allocation with dpu_extension_services (no DPU to schedule them on), got: {result:?}"
+        ),
+    };
+
+    Ok(())
+}

@@ -88,6 +88,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: Default::default(),
+                host_lifecycle_profile: Default::default(),
             },
         },
     )
@@ -728,6 +729,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         bmc_ip_address: None,
         bmc_retain_credentials: None,
         dpu_mode: None,
+        host_lifecycle_profile: None,
         #[allow(deprecated)]
         dpf_enabled: true,
     };
@@ -2537,6 +2539,75 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
         retrieved.dpu_mode, None,
         "default DpuMode should not be emitted on the wire for stable round-trips"
     );
+
+    Ok(())
+}
+
+/// Make sure expected_machines.json, which uses create_missing_from,
+/// follows the shared codepath for handling interface allocation.
+#[crate::sqlx_test]
+async fn test_create_missing_from_preallocates_interfaces(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:01".parse().unwrap();
+    let nic_mac: MacAddress = "AA:BB:CC:DD:EE:02".parse().unwrap();
+    let bmc_ip: std::net::IpAddr = "192.0.2.240".parse().unwrap();
+    let host_ip: std::net::IpAddr = "192.0.2.241".parse().unwrap();
+
+    let machine = ExpectedMachine {
+        id: None,
+        bmc_mac_address: bmc_mac,
+        data: ExpectedMachineData {
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            serial_number: "EM-JSON-SEED-001".into(),
+            bmc_ip_address: Some(bmc_ip),
+            host_nics: vec![model::expected_machine::ExpectedHostNic {
+                mac_address: nic_mac,
+                nic_type: Some("onboard".into()),
+                fixed_ip: Some(host_ip.to_string()),
+                fixed_mask: None,
+                fixed_gateway: None,
+                primary: Some(true),
+            }],
+            ..Default::default()
+        },
+    };
+
+    let mut txn = env.pool.begin().await?;
+    crate::handlers::expected_machine::create_missing_from(
+        &mut txn,
+        std::slice::from_ref(&machine),
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Both the BMC interface and the host NIC interface should now exist
+    // with their static IPs assigned.
+    let mut txn = env.pool.begin().await?;
+    for (mac, expected_ip) in [(bmc_mac, bmc_ip), (nic_mac, host_ip)] {
+        let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, mac).await?;
+        assert_eq!(
+            interfaces.len(),
+            1,
+            "expected one machine_interface for MAC {mac}"
+        );
+        assert!(
+            interfaces[0].addresses.contains(&expected_ip),
+            "machine_interface for MAC {mac} should carry static IP {expected_ip}, got {:?}",
+            interfaces[0].addresses,
+        );
+    }
+
+    // Re-running with the same input must be a no-op (i.e. idempotent).
+    let mut txn = env.pool.begin().await?;
+    crate::handlers::expected_machine::create_missing_from(
+        &mut txn,
+        std::slice::from_ref(&machine),
+    )
+    .await?;
+    txn.commit().await?;
 
     Ok(())
 }
