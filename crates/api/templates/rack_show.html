@@ -29,7 +29,7 @@
                             <tbody>
                             {% for rack in racks %}
                             <tr>
-                                <td>{{ rack.id|option_fmt|rack_id_link|safe }}</td>
+                                <td>{{ rack.id|rack_id_link|safe }}</td>
                                 <td>{{ rack.state_display|safe }}</td>
                             </tr>
                             {% endfor %}
