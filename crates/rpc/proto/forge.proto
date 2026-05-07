@@ -4238,6 +4238,8 @@ message AdminRebootResponse {
 message AdminBmcResetRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
+  // When true, reset the BMC via ipmitool instead of Redfish.
+  // ipmitool bmc reset requests may be silently ignored if the BMC is in lockdown mode.
   bool use_ipmitool = 3;
 }
 
