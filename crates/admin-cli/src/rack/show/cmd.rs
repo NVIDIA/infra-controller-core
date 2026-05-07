@@ -274,6 +274,7 @@ fn show_table_csv(outputs: &[RackOutput]) {
 #[cfg(test)]
 mod tests {
 
+    use rpc::admin_cli::OutputFormat;
     use rpc::forge::{Metadata, Rack};
     use super::*;
 
@@ -290,23 +291,205 @@ mod tests {
         }
     }
 
-    /// Test that the RackOutput maps the fields from the Rack correctly,
-    /// and the current compute trays, power shelves, and nvlink switches are empty.
+    fn make_output(
+        id: &str,
+        name: &str,
+        state: &str,
+        version: &str,
+        compute_trays: Vec<&str>,
+        power_shelves: Vec<&str>,
+        nvlink_switches: Vec<&str>,
+    ) -> RackOutput {
+        RackOutput {
+            id: id.to_string(),
+            name: name.to_string(),
+            state: state.to_string(),
+            version: version.to_string(),
+            current_compute_trays: compute_trays.into_iter().map(str::to_string).collect(),
+            current_power_shelves: power_shelves.into_iter().map(str::to_string).collect(),
+            current_nvlink_switches: nvlink_switches.into_iter().map(str::to_string).collect(),
+        }
+    }
+
+    /////////////////////////////////////////////////////////////////////////////
+    // From<&Rack> for RackOutput
+
+    /// RackOutput maps basic fields from Rack; component lists start empty.
     #[test]
     fn rack_output_maps_fields_from_rack() {
-        let id = "Rack1";
-        let rack_state = "Created";
-        let metadata_name = "NVL72";
-        let version= "V1-T1777407111818648";
-        let rack = make_rack(id, rack_state, metadata_name, version);
+        let rack = make_rack("Rack1", "Created", "NVL72", "V1-T1777407111818648");
         let output = RackOutput::from(&rack);
-        assert_eq!(output.id, id);
-        assert_eq!(output.name, metadata_name);
-        assert_eq!(output.state, rack_state);
-        assert_eq!(output.version, version);
-
+        assert_eq!(output.id, "Rack1");
+        assert_eq!(output.name, "NVL72");
+        assert_eq!(output.state, "Created");
+        assert_eq!(output.version, "V1-T1777407111818648");
         assert!(output.current_compute_trays.is_empty());
         assert!(output.current_power_shelves.is_empty());
         assert!(output.current_nvlink_switches.is_empty());
+    }
+
+    /// A Rack with no ID falls back to an empty string in RackOutput.
+    #[test]
+    fn rack_output_defaults_when_id_missing() {
+        let rack = Rack {
+            id: None,
+            rack_state: "Created".to_string(),
+            ..Default::default()
+        };
+        let output = RackOutput::from(&rack);
+        assert_eq!(output.id, "");
+    }
+
+    /// A Rack with no metadata falls back to an empty name in RackOutput.
+    #[test]
+    fn rack_output_defaults_when_metadata_missing() {
+        let rack = Rack {
+            id: Some("Rack1".parse().unwrap()),
+            metadata: None,
+            ..Default::default()
+        };
+        let output = RackOutput::from(&rack);
+        assert_eq!(output.name, "");
+    }
+
+    /////////////////////////////////////////////////////////////////////////////
+    // JSON / YAML serialization shape
+
+    /// RackOutput serializes to JSON with the expected field names and no
+    /// 'expected_*' fields (regression guard against re-introducing removed fields).
+    #[test]
+    fn rack_output_json_serializes_expected_fields() {
+        let output = make_output("Rack1", "NVL72", "Created", "V1-T1777407111818648", vec![], vec![], vec![]);
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string_pretty(&output).unwrap()).unwrap();
+
+        assert_eq!(json["id"], "Rack1");
+        assert_eq!(json["name"], "NVL72");
+        assert_eq!(json["state"], "Created");
+        assert_eq!(json["version"], "V1-T1777407111818648");
+        assert_eq!(json["current_compute_trays"], serde_json::json!([]));
+        assert_eq!(json["current_power_shelves"], serde_json::json!([]));
+        assert_eq!(json["current_nvlink_switches"], serde_json::json!([]));
+
+        assert!(json.get("expected_compute_tray_bmcs").is_none());
+        assert!(json.get("expected_power_shelf_bmcs").is_none());
+        assert!(json.get("expected_nvlink_switch_bmcs").is_none());
+    }
+
+    /// Component lists serialize correctly as JSON arrays.
+    #[test]
+    fn rack_output_json_with_populated_components() {
+        let output = make_output(
+            "Rack1",
+            "NVL72",
+            "Created",
+            "V1",
+            vec!["tray-a", "tray-b"],
+            vec!["shelf-1"],
+            vec!["switch-x"],
+        );
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string_pretty(&output).unwrap()).unwrap();
+
+        assert_eq!(json["current_compute_trays"], serde_json::json!(["tray-a", "tray-b"]));
+        assert_eq!(json["current_power_shelves"], serde_json::json!(["shelf-1"]));
+        assert_eq!(json["current_nvlink_switches"], serde_json::json!(["switch-x"]));
+    }
+
+    /// RackOutput serializes to YAML with the expected field names and no
+    /// 'expected_*' fields (regression guard against re-introducing removed fields).
+    #[test]
+    fn rack_output_yaml_serializes_expected_fields() {
+        let output = make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
+        let yaml = serde_yaml::to_string(&output).unwrap();
+
+        assert!(yaml.contains("id:"));
+        assert!(yaml.contains("name:"));
+        assert!(yaml.contains("state:"));
+        assert!(yaml.contains("version:"));
+        assert!(yaml.contains("current_compute_trays:"));
+        assert!(yaml.contains("current_power_shelves:"));
+        assert!(yaml.contains("current_nvlink_switches:"));
+
+        assert!(!yaml.contains("expected_compute_tray_bmcs"));
+        assert!(!yaml.contains("expected_power_shelf_bmcs"));
+        assert!(!yaml.contains("expected_nvlink_switch_bmcs"));
+    }
+
+    /////////////////////////////////////////////////////////////////////////////
+    // Rendering functions
+
+    /// show_single renders JSON without errors.
+    #[test]
+    fn show_single_json_returns_ok() {
+        let output = make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
+        assert!(show_single(&output, OutputFormat::Json).is_ok());
+    }
+
+    /// show_single renders YAML without errors.
+    #[test]
+    fn show_single_yaml_returns_ok() {
+        let output = make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
+        assert!(show_single(&output, OutputFormat::Yaml).is_ok());
+    }
+
+    /// show_list renders JSON without errors.
+    #[test]
+    fn show_list_json_returns_ok() {
+        let outputs = vec![
+            make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]),
+            make_output("Rack2", "NVL36", "Provisioned", "V2", vec!["t-1"], vec![], vec![]),
+        ];
+        assert!(show_list(&outputs, OutputFormat::Json).is_ok());
+    }
+
+    /// show_list renders YAML without errors.
+    #[test]
+    fn show_list_yaml_returns_ok() {
+        let outputs = vec![
+            make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]),
+        ];
+        assert!(show_list(&outputs, OutputFormat::Yaml).is_ok());
+    }
+
+    /// show_detail with all-empty component lists renders "N/A" paths without panicking.
+    #[test]
+    fn show_detail_with_empty_components_does_not_panic() {
+        let output = make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
+        show_detail(&output);
+    }
+
+    /// show_detail with populated component lists renders join paths without panicking.
+    #[test]
+    fn show_detail_with_populated_components_does_not_panic() {
+        let output = make_output(
+            "Rack1",
+            "NVL72",
+            "Created",
+            "V1",
+            vec!["tray-a", "tray-b"],
+            vec!["shelf-1"],
+            vec!["switch-x"],
+        );
+        show_detail(&output);
+    }
+
+    /// show_table with multiple outputs does not panic.
+    #[test]
+    fn show_table_does_not_panic() {
+        let outputs = vec![
+            make_output("Rack1", "NVL72", "Created", "V1", vec!["t-1", "t-2"], vec!["s-1"], vec![]),
+            make_output("Rack2", "NVL36", "Provisioned", "V2", vec![], vec![], vec!["sw-1"]),
+        ];
+        show_table(&outputs);
+    }
+
+    /// show_table_csv with multiple outputs does not panic.
+    #[test]
+    fn show_table_csv_does_not_panic() {
+        let outputs = vec![
+            make_output("Rack1", "NVL72", "Created", "V1", vec!["t-1"], vec![], vec![]),
+        ];
+        show_table_csv(&outputs);
     }
 }
