@@ -224,6 +224,13 @@ pub struct MachineATronConfig {
     /// Set this to true to delete created machines from the API on quit
     pub cleanup_on_quit: bool,
 
+    /// When true (default), machine-a-tron auto-registers each mock host as an
+    /// expected machine on startup. Set to false to skip auto-registration so
+    /// expected machines can be added manually (e.g. via the admin CLI's
+    /// `expected-machine add`) for testing alternative registration flows.
+    #[serde(default = "default_true")]
+    pub register_expected_machines: bool,
+
     /// How often to refresh the API state from the server. Longer durations are appropriate for
     /// mocking lots of hosts, shorter durations are appropriate for integration tests where the
     /// interval should be shorter than the state controller update interval
