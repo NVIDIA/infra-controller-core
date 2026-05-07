@@ -21,7 +21,10 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use carbide_dpf::sdk::build_dpu_interfaces_vec;
-use carbide_dpf::types::{DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, FMDS_SERVICE_NAME};
+use carbide_dpf::types::{
+    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, FMDS_SERVICE_NAME,
+    OTEL_COLLECTOR_SERVICE_NAME,
+};
 use carbide_dpf::{
     ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
     ServiceInterface, ServiceNAD, ServiceNADResourceType,
@@ -60,7 +63,6 @@ pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
 pub const DTS_SERVICE_HELM_VERSION: &str = "1.22.1";
 
 // DPU Agent Service Definitions
-pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
 pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
 
@@ -71,7 +73,6 @@ pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
 pub const FMDS_SERVICE_MTU: i64 = 1500;
 
 /// OTel Collector Service Definitions
-pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "carbide-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
@@ -394,7 +395,6 @@ pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
-            "exposedPorts": { "ports": { "prometheus": true } },
             "image": {
                 "repository": cfg.docker_repo_url,
                 "tag": cfg.docker_image_tag,
@@ -406,13 +406,11 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             ]
         })),
         service_daemon_set_annotations: Some(BTreeMap::new()),
-        config_ports: Some(vec![ServiceConfigPort {
-            name: "prometheus".to_string(),
-            port: 9999,
-            protocol: ServiceConfigPortProtocol::Tcp,
-            node_port: None,
-        }]),
-        config_ports_service_type: Some(ConfigPortsServiceType::None),
+        config_values: Some(serde_json::json!({
+            "carbide_dpu_agent": "{{ (index .Services \"carbide-dpu-agent\").Name }}",
+            "carbide_fmds": "{{ (index .Services \"carbide-fmds\").Name }}"
+        })),
+
         ..ServiceDefinition::new(
             &cfg.name,
             &cfg.helm_repo_url,

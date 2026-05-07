@@ -22,7 +22,7 @@ use forge::forge_server::Forge;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::machine::{ManagedHostState, ManagedHostStateSnapshot};
-use rpc::forge;
+use rpc::{Metadata, forge};
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
@@ -101,7 +101,11 @@ async fn create_test_env_for_instance_allocation(
     let vpc_1 = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
                 .tonic_request(),
         )
         .await
@@ -111,7 +115,11 @@ async fn create_test_env_for_instance_allocation(
     let vpc_2 = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("test vpc 2", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 2".to_string(),
+                    ..Default::default()
+                })
                 .tonic_request(),
         )
         .await

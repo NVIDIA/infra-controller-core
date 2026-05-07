@@ -256,7 +256,8 @@ async fn convert_instance_to_nice_format(
                 (
                     "VPC NAME",
                     vpc.as_ref()
-                        .map(|v| v.name.as_str().into())
+                        .and_then(|v| v.metadata.as_ref())
+                        .map(|v| Cow::Borrowed(v.name.as_str()))
                         .unwrap_or("<not found>".into()),
                 ),
             ];

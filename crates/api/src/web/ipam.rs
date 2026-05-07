@@ -601,7 +601,19 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
         offset += page_size;
     }
 
-    vpcs.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    vpcs.sort_unstable_by(|a, b| {
+        let vpc1_name = a
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("<no name>");
+        let vpc2_name = b
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("<no name>");
+        vpc1_name.cmp(vpc2_name)
+    });
     Ok(vpcs)
 }
 

@@ -128,6 +128,15 @@ pub async fn setup_and_run(
     let agent_meter = get_dpu_agent_meter();
     let metrics = create_metrics(agent_meter);
 
+    if let Err(e) = crate::metadata_service::spawn_prometheus_metrics_server(
+        agent_config.telemetry.metrics_address.clone(),
+    ) {
+        tracing::warn!(
+            error = format!("{e:#}"),
+            "Failed to start Prometheus /metrics endpoint"
+        );
+    }
+
     // And now set up our FMDS updater, which will either be our original
     // embedded server (which spins up a local listener within the DPU agent)
     // or will talk to an external FMDS server via gRPC (which is colocated
@@ -155,7 +164,6 @@ pub async fn setup_and_run(
         if options.enable_metadata_service {
             crate::metadata_service::spawn_metadata_service(
                 agent_config.metadata_service.address.clone(),
-                agent_config.telemetry.metrics_address.clone(),
                 metrics.clone(),
                 instance_metadata_state.clone(),
             )

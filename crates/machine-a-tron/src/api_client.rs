@@ -406,7 +406,6 @@ impl ApiClient {
         self.0
             .create_vpc(rpc::forge::VpcCreationRequest {
                 id: None,
-                name: "".to_string(),
                 tenant_organization_id: "Forge-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
                 network_security_group_id: None,

@@ -2703,7 +2703,11 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
                 .tonic_request(),
         )
         .await

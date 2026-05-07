@@ -80,13 +80,7 @@ pub async fn attach(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> 
         // Submit the VPC details back to the system but change the
         // NSG ID value.
         let _vpc = api_client
-            .update_vpc_config(
-                v,
-                vpc.version,
-                vpc.name,
-                vpc.metadata,
-                Some(args.id.clone()),
-            )
+            .update_vpc_config(v, vpc.version, vpc.metadata, Some(args.id.clone()))
             .await?;
 
         println!(

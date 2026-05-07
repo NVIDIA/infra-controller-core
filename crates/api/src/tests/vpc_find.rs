@@ -238,7 +238,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     for i in 0..=3 {
         env.api
             .create_vpc(
-                VpcCreationRequest::builder("", "Forge_unit_tests")
+                VpcCreationRequest::builder("")
                     .metadata(rpc::Metadata {
                         name: format!("VPC_{i}{i}{i}").to_string(),
                         description: format!("VPC_{i}{i}{i} have labels").to_string(),

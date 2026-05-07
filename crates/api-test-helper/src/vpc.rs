@@ -23,7 +23,7 @@ pub async fn create(carbide_api_addrs: &[SocketAddr], tenant_org_id: &str) -> ey
     tracing::info!("Creating VPC");
 
     let data = serde_json::json!({
-        "name": "tenant_vpc",
+        "metadata": { "name": "tenant_vpc" },
         "tenantOrganizationId": tenant_org_id,
         "routing_profile_type": "EXTERNAL".to_string(),
     });
@@ -39,7 +39,7 @@ pub async fn create_fnn(
     tracing::info!("Creating FNN VPC");
 
     let data = serde_json::json!({
-        "name": "tenant_vpc_fnn",
+        "metadata": { "name": "tenant_vpc_fnn" },
         "tenantOrganizationId": tenant_org_id,
         "routing_profile_type": "EXTERNAL".to_string(),
         "network_virtualization_type": 5, // FNN

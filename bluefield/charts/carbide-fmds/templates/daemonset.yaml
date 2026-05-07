@@ -65,6 +65,10 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          ports:
+            - name: metrics
+              containerPort: 8888
+              protocol: TCP
           args:
             - "--grpc-address=$(POD_IP):50052"
             - "--root-ca=/opt/forge/forge_root.pem"
