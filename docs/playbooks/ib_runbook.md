@@ -57,6 +57,19 @@ sa_etm_max_num_event_subs 32
 …
 ```
 
+##### Initial OpenSM settings during UFM configuration
+
+As part of UFM configuration, set these initial parameters in `$UFM_HOME/ufm/files/conf/opensm/opensm.conf` to help reduce congestion:
+
+```
+max_op_vls 2
+ar_tree_asymmetric_flow 3
+```
+
+On an existing deployment, if either parameter is already present with a different value, change it to the values above so new and existing setups match this guideline.
+
+After editing OpenSM configuration, restart the UFM subnet manager (or UFM services) so the changes take effect.
+
 ##### Static Topology configuration
 
 Static network configuration can be applied to enhance security of Infiniband cluster.
