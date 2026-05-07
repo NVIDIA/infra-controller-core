@@ -41,7 +41,7 @@ impl WiwynnGB200Nvl<'_> {
             fan: 10,
             power: 10,
             current: 10,
-            leak: 4,
+            voltage: 4,
         }
     }
 
@@ -183,6 +183,7 @@ impl WiwynnGB200Nvl<'_> {
                     "Chassis_0",
                     Self::sensor_layout(),
                 )),
+                leak_detectors: Some(redfish::leak_detector::generate_chassis_leak_detectors(4)),
                 assembly: Some(
                     redfish::assembly::builder(&redfish::assembly::chassis_resource("Chassis_0"))
                         .add_data(

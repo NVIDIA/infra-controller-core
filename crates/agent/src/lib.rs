@@ -201,7 +201,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // Output path is fixed (HW_CACHE_PATH) so the main container can always find it.
         Some(AgentCommand::InitContainer) => {
             download_cert().await?;
-            enumerate_and_save_hardware()?;
+            enumerate_and_save_hardware().await?;
             util::save_host_nameservers()?;
         }
 
