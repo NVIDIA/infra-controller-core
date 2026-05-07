@@ -19,7 +19,7 @@ use carbide_uuid::rack::RackId;
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::{MachineSearchConfig, SwitchSearchFilter, PowerShelfSearchFilter, Rack};
+use rpc::forge::{MachineSearchConfig, PowerShelfSearchFilter, Rack, SwitchSearchFilter};
 use serde::Serialize;
 
 use super::args::Args;
@@ -65,10 +65,7 @@ async fn get_compute_trays(api_client: &ApiClient, rack_id: &RackId) -> Result<V
     let machine_ids = api_client.0.find_machine_ids(request).await?.machine_ids;
 
     // Convert these to a vector of Strings and return them in a Result.
-    let compute_trays = machine_ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect();
+    let compute_trays = machine_ids.iter().map(|id| id.to_string()).collect();
     Ok(compute_trays)
 }
 
@@ -82,10 +79,7 @@ async fn get_power_shelves(api_client: &ApiClient, rack_id: &RackId) -> Result<V
     let power_shelf_ids = api_client.0.find_power_shelf_ids(request).await?.ids;
 
     // Convert these to a vector of Strings and return them in a Result.
-    let power_shelves = power_shelf_ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect();
+    let power_shelves = power_shelf_ids.iter().map(|id| id.to_string()).collect();
     Ok(power_shelves)
 }
 
@@ -99,10 +93,7 @@ async fn get_nvlink_switches(api_client: &ApiClient, rack_id: &RackId) -> Result
     let switch_ids = api_client.0.find_switch_ids(request).await?.ids;
 
     // Convert these to a vector of Strings and return them in a Result.
-    let switches = switch_ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect();
+    let switches = switch_ids.iter().map(|id| id.to_string()).collect();
     Ok(switches)
 }
 
@@ -132,9 +123,7 @@ pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfi
             let racks = api_client.get_one_rack(rack_id).await?.racks;
             let outputs = get_rack_outputs(api_client, &racks).await?;
             match outputs.first() {
-                Some(output) => {
-                    show_single(output, format)?
-                }
+                Some(output) => show_single(output, format)?,
                 None => println!("No rack found"),
             }
         }
@@ -276,6 +265,7 @@ mod tests {
 
     use rpc::admin_cli::OutputFormat;
     use rpc::forge::{Metadata, Rack};
+
     use super::*;
 
     fn make_rack(id: &str, state: &str, name: &str, version: &str) -> Rack {
@@ -359,7 +349,15 @@ mod tests {
     /// 'expected_*' fields (regression guard against re-introducing removed fields).
     #[test]
     fn rack_output_json_serializes_expected_fields() {
-        let output = make_output("Rack1", "NVL72", "Created", "V1-T1777407111818648", vec![], vec![], vec![]);
+        let output = make_output(
+            "Rack1",
+            "NVL72",
+            "Created",
+            "V1-T1777407111818648",
+            vec![],
+            vec![],
+            vec![],
+        );
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string_pretty(&output).unwrap()).unwrap();
 
@@ -391,9 +389,18 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string_pretty(&output).unwrap()).unwrap();
 
-        assert_eq!(json["current_compute_trays"], serde_json::json!(["tray-a", "tray-b"]));
-        assert_eq!(json["current_power_shelves"], serde_json::json!(["shelf-1"]));
-        assert_eq!(json["current_nvlink_switches"], serde_json::json!(["switch-x"]));
+        assert_eq!(
+            json["current_compute_trays"],
+            serde_json::json!(["tray-a", "tray-b"])
+        );
+        assert_eq!(
+            json["current_power_shelves"],
+            serde_json::json!(["shelf-1"])
+        );
+        assert_eq!(
+            json["current_nvlink_switches"],
+            serde_json::json!(["switch-x"])
+        );
     }
 
     /// RackOutput serializes to YAML with the expected field names and no
@@ -438,7 +445,15 @@ mod tests {
     fn show_list_json_returns_ok() {
         let outputs = vec![
             make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]),
-            make_output("Rack2", "NVL36", "Provisioned", "V2", vec!["t-1"], vec![], vec![]),
+            make_output(
+                "Rack2",
+                "NVL36",
+                "Provisioned",
+                "V2",
+                vec!["t-1"],
+                vec![],
+                vec![],
+            ),
         ];
         assert!(show_list(&outputs, OutputFormat::Json).is_ok());
     }
@@ -446,9 +461,15 @@ mod tests {
     /// show_list renders YAML without errors.
     #[test]
     fn show_list_yaml_returns_ok() {
-        let outputs = vec![
-            make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]),
-        ];
+        let outputs = vec![make_output(
+            "Rack1",
+            "NVL72",
+            "Created",
+            "V1",
+            vec![],
+            vec![],
+            vec![],
+        )];
         assert!(show_list(&outputs, OutputFormat::Yaml).is_ok());
     }
 
@@ -478,8 +499,24 @@ mod tests {
     #[test]
     fn show_table_does_not_panic() {
         let outputs = vec![
-            make_output("Rack1", "NVL72", "Created", "V1", vec!["t-1", "t-2"], vec!["s-1"], vec![]),
-            make_output("Rack2", "NVL36", "Provisioned", "V2", vec![], vec![], vec!["sw-1"]),
+            make_output(
+                "Rack1",
+                "NVL72",
+                "Created",
+                "V1",
+                vec!["t-1", "t-2"],
+                vec!["s-1"],
+                vec![],
+            ),
+            make_output(
+                "Rack2",
+                "NVL36",
+                "Provisioned",
+                "V2",
+                vec![],
+                vec![],
+                vec!["sw-1"],
+            ),
         ];
         show_table(&outputs);
     }
@@ -487,9 +524,15 @@ mod tests {
     /// show_table_csv with multiple outputs does not panic.
     #[test]
     fn show_table_csv_does_not_panic() {
-        let outputs = vec![
-            make_output("Rack1", "NVL72", "Created", "V1", vec!["t-1"], vec![], vec![]),
-        ];
+        let outputs = vec![make_output(
+            "Rack1",
+            "NVL72",
+            "Created",
+            "V1",
+            vec!["t-1"],
+            vec![],
+            vec![],
+        )];
         show_table_csv(&outputs);
     }
 }

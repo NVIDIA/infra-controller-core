@@ -63,13 +63,17 @@ pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Resul
 #[cfg(test)]
 mod tests {
     use rpc::forge::{Metadata, Rack};
+
     use super::*;
 
     fn make_rack(id: Option<&str>, state: &str) -> Rack {
         Rack {
             id: id.map(|s| s.parse().unwrap()),
             rack_state: state.to_string(),
-            metadata: Some(Metadata { name: "NVL72".to_string(), ..Default::default() }),
+            metadata: Some(Metadata {
+                name: "NVL72".to_string(),
+                ..Default::default()
+            }),
             ..Default::default()
         }
     }
@@ -90,7 +94,10 @@ mod tests {
         let racks = vec![make_rack(Some("Rack1"), "Created")];
         let rendered = table_to_string(&build_rack_table(&racks));
         assert!(rendered.contains("Rack ID"), "expected 'Rack ID' header");
-        assert!(rendered.contains("Rack State"), "expected 'Rack State' header");
+        assert!(
+            rendered.contains("Rack State"),
+            "expected 'Rack State' header"
+        );
         assert!(!rendered.contains("Compute"), "unexpected 'Compute' column");
         assert!(!rendered.contains("Power"), "unexpected 'Power' column");
         assert!(!rendered.contains("Switch"), "unexpected 'Switch' column");

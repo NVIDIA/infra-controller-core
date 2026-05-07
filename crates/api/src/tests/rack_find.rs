@@ -64,7 +64,17 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
     assert_eq!(racks.len(), 1);
     assert_eq!(racks[0].id, Some(rack_id1));
     assert_eq!(racks[0].rack_state, "Created");
-    assert_eq!(racks[0].status.as_ref().unwrap().lifecycle.as_ref().unwrap().state, r#"{"state":"created"}"#);
+    assert_eq!(
+        racks[0]
+            .status
+            .as_ref()
+            .unwrap()
+            .lifecycle
+            .as_ref()
+            .unwrap()
+            .state,
+        r#"{"state":"created"}"#
+    );
     assert!(racks[0].updated.is_some());
     assert!(racks[0].created.is_some());
     assert!(racks[0].deleted.is_none());
@@ -83,7 +93,17 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
     assert_eq!(racks.len(), 1);
     assert_eq!(racks[0].id, Some(rack_id2));
     assert_eq!(racks[0].rack_state, "Created");
-    assert_eq!(racks[0].status.as_ref().unwrap().lifecycle.as_ref().unwrap().state, r#"{"state":"created"}"#);
+    assert_eq!(
+        racks[0]
+            .status
+            .as_ref()
+            .unwrap()
+            .lifecycle
+            .as_ref()
+            .unwrap()
+            .state,
+        r#"{"state":"created"}"#
+    );
     assert!(racks[0].updated.is_some());
     assert!(racks[0].created.is_some());
     assert!(racks[0].deleted.is_none());
