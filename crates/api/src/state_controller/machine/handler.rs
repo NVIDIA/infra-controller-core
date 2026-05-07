@@ -1882,19 +1882,26 @@ fn need_host_fw_upgrade(
 ) -> Option<FirmwareEntry> {
     // Determining if we've disabled upgrades for this host is determined in machine_update_manager, not here; if it was disabled, nothing kicks it out of Ready.
 
-    // First, find the current version.
-    let Some(current_version) = endpoint.report.versions.get(&firmware_type) else {
+    // First, find all current versions for this component. Some component types,
+    // such as CX7, have several firmware inventory entries.
+    let current_versions = endpoint.find_all_versions(fw_info, firmware_type);
+    if current_versions.is_empty() {
         // Not listed, so we couldn't do an upgrade
         return None;
-    };
+    }
 
-    // Now find the desired version, if it's not the version that is currently installed
+    // Now find the desired version, if any matching inventory is not already on it.
     fw_info
         .components
         .get(&firmware_type)?
         .known_firmware
         .iter()
-        .find(|x| x.default && x.version != *current_version)
+        .find(|firmware| {
+            firmware.default
+                && current_versions
+                    .iter()
+                    .any(|v| v.as_str() != firmware.version)
+        })
         .cloned()
 }
 
@@ -10601,6 +10608,12 @@ async fn get_power_state(redfish_client: &dyn Redfish) -> Result<PowerState, Sta
 mod tests {
     use std::str::FromStr;
 
+    use model::firmware::FirmwareComponent;
+    use model::site_explorer::{
+        EndpointExplorationReport, EndpointType, Inventory, PreingestionState, Service,
+    };
+    use regex::Regex;
+
     use super::*;
 
     #[test]
@@ -10626,6 +10639,71 @@ mod tests {
         let deadline = scout_firmware_upgrade_deadline(started_at, u32::MAX, u32::MAX, usize::MAX);
 
         assert_eq!(deadline, started_at + Duration::hours(5));
+    }
+
+    #[test]
+    fn need_host_fw_upgrade_checks_all_matching_cx7_inventories() {
+        let firmware_type = FirmwareComponentType::Cx7;
+        let target_version = "28.47.2682";
+        let old_version = "28.46.1000";
+        let fw_info = Firmware {
+            vendor: bmc_vendor::BMCVendor::Nvidia,
+            model: "DGXH100".to_string(),
+            components: HashMap::from([(
+                firmware_type,
+                FirmwareComponent {
+                    current_version_reported_as: Some(Regex::new(r"^CX7_[0-9]+$").unwrap()),
+                    preingest_upgrade_when_below: None,
+                    known_firmware: vec![FirmwareEntry::standard_filename(
+                        target_version,
+                        "/opt/carbide/firmware/cx7.bin",
+                    )],
+                },
+            )]),
+            explicit_start_needed: false,
+            ordering: vec![firmware_type],
+        };
+        let endpoint = ExploredEndpoint {
+            address: "192.0.2.10".parse().unwrap(),
+            report: EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                service: vec![Service {
+                    id: "FirmwareInventory".to_string(),
+                    inventories: vec![
+                        Inventory {
+                            id: "CX7_0".to_string(),
+                            description: None,
+                            version: Some(target_version.to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "CX7_1".to_string(),
+                            description: None,
+                            version: Some(old_version.to_string()),
+                            release_date: None,
+                        },
+                    ],
+                }],
+                versions: HashMap::from([(firmware_type, target_version.to_string())]),
+                ..Default::default()
+            },
+            report_version: ConfigVersion::new(1),
+            preingestion_state: PreingestionState::Initial,
+            waiting_for_explorer_refresh: false,
+            exploration_requested: false,
+            last_redfish_bmc_reset: None,
+            last_ipmitool_bmc_reset: None,
+            last_redfish_reboot: None,
+            last_redfish_powercycle: None,
+            pause_ingestion_and_poweron: false,
+            pause_remediation: false,
+            boot_interface_mac: None,
+        };
+
+        let to_install = need_host_fw_upgrade(&endpoint, &fw_info, firmware_type)
+            .expect("stale CX7 inventory should require upgrade");
+
+        assert_eq!(to_install.version, target_version);
     }
 
     /// Verify that `oem_manager_profiles` from the site config is forwarded to `machine_setup`.
