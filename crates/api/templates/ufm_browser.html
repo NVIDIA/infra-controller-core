@@ -16,7 +16,7 @@ For valid Path, please refer to the <a href="https://docs.nvidia.com/networking/
 		<label for="fabric_id_input">Fabric to query:</label>
 		<select name="fabric_id" id="fabric_id_input">
 			{% for id in fabric_ids %}
-				{% if id == fabric_id|as_ref %}
+				{% if id == fabric_id|ref %}
 					<option value="{{ id }}" selected>{{ id }}</option>
 				{% else %}
 					<option value="{{ id }}">{{ id }}</option>

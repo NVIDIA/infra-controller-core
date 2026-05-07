@@ -28,12 +28,13 @@ use askama_escape::Escaper;
 use carbide_uuid::machine::MachineId;
 
 /// Generates HTML links for Machine IDs
-pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
+#[askama::filter_fn]
+pub fn machine_id_link(id: impl Display, _env: &dyn askama::Values) -> ::askama::Result<String> {
     machine_link(id, "machine")
 }
 
 /// Generates a formatted link for Machine IDs to a predefined path
-fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
+pub fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
     let id = id.to_string();
     let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
 
@@ -83,20 +84,31 @@ fn escaped_shortened_id_link(id: impl Display, path: impl Display) -> ::askama::
     Ok(formatted)
 }
 
-pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
+#[askama::filter_fn]
+pub fn rack_id_link(id: impl Display, _env: &dyn askama::Values) -> ::askama::Result<String> {
     escaped_shortened_id_link(id, "rack")
 }
 
-pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
+#[askama::filter_fn]
+pub fn power_shelf_id_link(
+    id: impl Display,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
     escaped_shortened_id_link(id, "power-shelf")
 }
 
-pub fn switch_id_link(id: impl Display) -> ::askama::Result<String> {
+#[askama::filter_fn]
+pub fn switch_id_link(id: impl Display, _env: &dyn askama::Values) -> ::askama::Result<String> {
     escaped_shortened_id_link(id, "switch")
 }
 
 /// Formats labels into HTML
-pub fn label_list_fmt(labels: &[rpc::forge::Label], truncate: bool) -> ::askama::Result<String> {
+#[askama::filter_fn]
+pub fn label_list_fmt(
+    labels: &[rpc::forge::Label],
+    _env: &dyn askama::Values,
+    truncate: bool,
+) -> ::askama::Result<String> {
     const MAX_LABEL_LENGTH: usize = 32;
 
     // Format labels by key to get a consistent order
@@ -139,8 +151,10 @@ pub fn label_list_fmt(labels: &[rpc::forge::Label], truncate: bool) -> ::askama:
 /// Formats a list of Health Probe Alerts
 /// If there is no alert, generates a green "None" bubble
 /// Generates HTML using the unified bubble system
+#[askama::filter_fn]
 pub fn health_alerts_fmt(
-    alerts: &[health_report::HealthProbeAlert],
+    alerts: &Vec<health_report::HealthProbeAlert>,
+    _env: &dyn askama::Values,
     include_message: bool,
     include_target: bool,
 ) -> ::askama::Result<String> {
@@ -173,7 +187,27 @@ pub fn health_alerts_fmt(
 
 /// Formats a list of Health Alert Classifications
 /// If there is no alert, the generated String will be empty
-pub fn health_alert_classifications_fmt<'a, T, AlertRef>(alerts: T) -> ::askama::Result<String>
+#[askama::filter_fn]
+pub fn health_alert_classifications_fmt(
+    alerts: &Vec<health_report::HealthProbeAlert>,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
+    health_alert_classifications_generic(alerts)
+}
+
+/// Formats a single Health Alert Classification
+#[askama::filter_fn]
+pub fn health_alert_classification_fmt(
+    alert: &health_report::HealthProbeAlert,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
+    health_alert_classifications_generic(&[alert])
+}
+
+// Note, we can't call generic functions like these directly from templates as of askama 0.15, so
+// this is the "inner" function called by both health_alert_classifications_fmt and
+// health_alert_classification_fmt
+fn health_alert_classifications_generic<'a, T, AlertRef>(alerts: T) -> ::askama::Result<String>
 where
     T: IntoIterator<Item = AlertRef>,
     AlertRef: std::borrow::Borrow<&'a health_report::HealthProbeAlert> + 'a,
@@ -181,9 +215,8 @@ where
     let mut result = String::new();
     let mut classifications = BTreeSet::<health_report::HealthAlertClassification>::new();
 
-    for alert_ref in alerts.into_iter() {
-        let alert: &health_report::HealthProbeAlert = alert_ref.borrow();
-        classifications.extend(alert.classifications.iter().cloned());
+    for alert in alerts.into_iter() {
+        classifications.extend(alert.borrow().classifications.iter().cloned());
     }
 
     for classification in classifications.iter() {
@@ -200,9 +233,13 @@ where
 
 /// Renders version strings including timestamps
 /// Also shows the localized timestamp on Mouseover
-pub fn config_version(version: impl Display) -> ::askama::Result<String> {
+#[askama::filter_fn]
+pub fn config_version(
+    version: impl Display,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
     let string_version = version.to_string();
-    let version = match string_version.parse::<config_version::ConfigVersion>() {
+    let version = match string_version.parse::<::config_version::ConfigVersion>() {
         Ok(version) => version,
         Err(_) => return Ok(string_version),
     };
@@ -215,14 +252,23 @@ pub fn config_version(version: impl Display) -> ::askama::Result<String> {
 }
 
 /// Prints the value of the `Option` in case it's `Some(x)`, and otherwise an empty string
-pub fn option_fmt(value: &Option<impl Display>) -> askama::Result<String> {
+#[askama::filter_fn]
+pub fn option_fmt(
+    value: &Option<impl Display>,
+    _env: &dyn askama::Values,
+) -> askama::Result<String> {
     Ok(match value {
         Some(value) => value.to_string(),
         None => String::new(),
     })
 }
 
-pub fn option_fmt_or(value: &Option<impl Display>, default: &str) -> askama::Result<String> {
+#[askama::filter_fn]
+pub fn option_fmt_or(
+    value: &Option<impl Display>,
+    _env: &dyn askama::Values,
+    default: &str,
+) -> askama::Result<String> {
     Ok(match value {
         Some(value) => value.to_string(),
         None => default.to_string(),
@@ -256,7 +302,11 @@ pub(crate) fn state_and_substate_labels(state_json: impl Display) -> (String, St
     (capitalize_state(state), substate)
 }
 
-pub fn state_with_substate_label(state: impl Display) -> ::askama::Result<String> {
+#[askama::filter_fn]
+pub fn state_with_substate_label(
+    state: impl Display,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
     let (state, substate) = state_and_substate_labels(state);
     Ok(if substate.is_empty() {
         state
@@ -282,8 +332,10 @@ fn capitalize_state(state: &str) -> String {
 }
 
 /// Formats the boot order list
+#[askama::filter_fn]
 pub fn boot_order_fmt(
     boot_order: &Option<rpc::site_explorer::BootOrder>,
+    _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
     let json_result = boot_order
         .as_ref()
@@ -296,7 +348,8 @@ pub fn boot_order_fmt(
         .to_string())
 }
 
-pub fn colorize_output(ansi_text: &str) -> ::askama::Result<String> {
+#[askama::filter_fn]
+pub fn colorize_output(ansi_text: &str, _env: &dyn askama::Values) -> ::askama::Result<String> {
     let html = ansi_to_html::Converter::new()
         .convert(ansi_text)
         .unwrap_or_default();
@@ -304,8 +357,10 @@ pub fn colorize_output(ansi_text: &str) -> ::askama::Result<String> {
 }
 
 /// Formats a state handler outcome
+#[askama::filter_fn]
 pub fn controller_state_reason_fmt(
     reason: &Option<::rpc::forge::ControllerStateReason>,
+    _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
     let Some(reason) = reason else {
         return Ok(String::new());
