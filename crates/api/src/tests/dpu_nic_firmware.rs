@@ -41,6 +41,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         metrics: None,
         config: env.config.clone(),
+        dpf: None,
     };
 
     let snapshots = get_all_snapshots(&env).await;
@@ -89,6 +90,7 @@ async fn test_start_updates_with_multidpu(
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         metrics: None,
         config: env.config.clone(),
+        dpf: None,
     };
 
     let snapshots = get_all_snapshots(&env).await;
@@ -131,6 +133,7 @@ async fn test_get_updates_in_progress(
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         metrics: None,
         config: env.config.clone(),
+        dpf: None,
     };
 
     let snapshots = get_all_snapshots(&env).await;
@@ -178,6 +181,7 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         metrics: None,
         config: env.config.clone(),
+        dpf: None,
     };
 
     let snapshots = machines
@@ -191,7 +195,9 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         )
         .await;
 
-    let machine_updates = dpu_nic_firmware_update.check_for_updates(&snapshots, 10);
+    let machine_updates = dpu_nic_firmware_update
+        .check_for_updates(&snapshots, 10)
+        .await;
     assert_eq!(machine_updates.len(), 2);
 
     Ok(())
@@ -210,6 +216,7 @@ async fn test_clear_completed_updates(
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         metrics: None,
         config: env.config.clone(),
+        dpf: None,
     };
 
     let snapshots = get_all_snapshots(&env).await;
