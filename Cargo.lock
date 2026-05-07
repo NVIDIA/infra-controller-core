@@ -1273,7 +1273,6 @@ dependencies = [
  "mockito",
  "mqttea",
  "nras",
- "num-bigint-dig",
  "num_cpus",
  "oauth2",
  "oid-registry",
