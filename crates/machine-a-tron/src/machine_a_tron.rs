@@ -304,6 +304,7 @@ impl MachineATron {
 fn parse_network_virtualization_type(s: Option<&str>) -> Option<VpcVirtualizationType> {
     match s {
         Some("etv") => Some(VpcVirtualizationType::EthernetVirtualizer),
+        #[allow(deprecated)]
         Some("etv_nvue") => Some(VpcVirtualizationType::EthernetVirtualizerWithNvue),
         Some("fnn") => Some(VpcVirtualizationType::Fnn),
         Some(other) => {

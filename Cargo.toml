@@ -174,9 +174,9 @@ prettytable-rs = { default-features = false, version = "0.10" }
 procfs = "0.17"
 proc-macro2 = { default-features = false, version = "1.0.92" }
 prometheus = "0.13.4"
-prost = "0.14.1"
-prost-build = "0.14"
-prost-types = "0.14.1"
+prost = "0.14.3"
+prost-build = "0.14.3"
+prost-types = "0.14.3"
 pwhash = "1.0.0"
 quick-xml = "0.31"
 quote = { default-features = false, version = "1.0" }
