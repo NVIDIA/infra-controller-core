@@ -73,7 +73,6 @@ async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
         .create_vpc_prefix(tonic::Request::new(forge::VpcPrefixCreationRequest {
             id: None,
             prefix: String::new(),
-            name: String::new(),
             vpc_id: Some(vpc_id),
             config: Some(forge::VpcPrefixConfig {
                 prefix: "192.0.2.0/25".to_string(),

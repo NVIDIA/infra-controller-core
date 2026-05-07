@@ -612,7 +612,6 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -746,7 +745,6 @@ async fn test_update_instance_config_vpc_prefix_network_update(
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -948,7 +946,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -1101,7 +1098,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -1267,7 +1263,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -1293,7 +1288,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
     let new_vpc_prefix1 = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix1.into(),
@@ -1460,7 +1454,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -1653,7 +1646,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
     let new_vpc_prefix1 = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix1.into(),
