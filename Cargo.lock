@@ -2565,6 +2565,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-rvs"
+version = "0.0.1"
+dependencies = [
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "figment",
+ "logfmt",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "carbide-scout"
 version = "0.0.1"
 dependencies = [
@@ -2592,26 +2612,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
-]
-
-[[package]]
-name = "carbide-rvs"
-version = "0.0.1"
-dependencies = [
- "carbide-rpc",
- "carbide-tls",
- "carbide-uuid",
- "figment",
- "logfmt",
- "serde",
- "thiserror 2.0.17",
- "tokio",
- "tokio-util",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "uuid",
  "smbios-lib",
  "tempfile",
  "thiserror 2.0.18",

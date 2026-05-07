@@ -7,7 +7,9 @@ use rpc::forge::{
 };
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::ApiConfig;
-use rpc::protos::forge::{InstancesByIdsRequest, OperatingSystem, operating_system};
+use rpc::protos::forge::{
+    InstanceOperatingSystemConfig, InstancesByIdsRequest, instance_operating_system_config,
+};
 
 use super::{RackData, TrayData};
 use crate::error::RvsError;
@@ -88,13 +90,15 @@ impl NiccClient {
             .allocate_instance(InstanceAllocationRequest {
                 machine_id: Some(machine_id),
                 config: Some(InstanceConfig {
-                    os: Some(OperatingSystem {
+                    os: Some(InstanceOperatingSystemConfig {
                         // TODO[#416]: resolve os_uri to a NICC OS image UUID via ListOsImage /
                         //       an external registry lookup. For now, nil UUID is a known
                         //       stub that will be replaced once image resolution is wired.
-                        variant: Some(operating_system::Variant::OsImageId(rpc::common::Uuid {
-                            value: "00000000-0000-0000-0000-000000000000".to_string(),
-                        })),
+                        variant: Some(instance_operating_system_config::Variant::OsImageId(
+                            rpc::common::Uuid {
+                                value: "00000000-0000-0000-0000-000000000000".to_string(),
+                            },
+                        )),
                         phone_home_enabled: false,
                         run_provisioning_instructions_on_every_boot: false,
                         user_data: None,
