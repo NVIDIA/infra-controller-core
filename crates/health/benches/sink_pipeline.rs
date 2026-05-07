@@ -179,6 +179,7 @@ fn bench_composite_sink(c: &mut Criterion) {
 fn health_report_with_alerts(alert_count: usize) -> HealthReport {
     let mut report = HealthReport {
         source: carbide_health::sink::ReportSource::BmcSensors,
+        target: Some(carbide_health::sink::HealthReportTarget::Machine),
         observed_at: Some(chrono::Utc::now()),
         successes: Vec::new(),
         alerts: Vec::new(),
@@ -213,6 +214,7 @@ impl HealthReportBenchState {
         let sensor_event = CollectorEvent::HealthReport(Arc::new(health_report_with_alerts(256)));
         let leak_event = CollectorEvent::HealthReport(Arc::new(HealthReport {
             source: ReportSource::TrayLeakDetection,
+            target: Some(carbide_health::sink::HealthReportTarget::Machine),
             observed_at: Some(chrono::Utc::now()),
             successes: Vec::new(),
             alerts: vec![carbide_health::sink::HealthReportAlert {

@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::switch::SwitchId;
 
 use super::dedup_queue::DedupQueue;
 use super::{
@@ -25,23 +25,23 @@ use super::{
 };
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
-use crate::config::RackHealthReportSinkConfig;
+use crate::config::SwitchHealthReportSinkConfig;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct RackHealthReportKey {
-    id: RackId,
+struct SwitchHealthReportKey {
+    id: SwitchId,
     source: ReportSource,
 }
 
-pub struct RackHealthReportSink {
-    queue: Arc<DedupQueue<RackHealthReportKey, Arc<HealthReport>>>,
+pub struct SwitchHealthReportSink {
+    queue: Arc<DedupQueue<SwitchHealthReportKey, Arc<HealthReport>>>,
 }
 
-impl RackHealthReportSink {
-    pub fn new(config: &RackHealthReportSinkConfig) -> Result<Self, HealthError> {
+impl SwitchHealthReportSink {
+    pub fn new(config: &SwitchHealthReportSinkConfig) -> Result<Self, HealthError> {
         let handle = tokio::runtime::Handle::try_current().map_err(|error| {
             HealthError::GenericError(format!(
-                "rack health report sink requires active Tokio runtime: {error}"
+                "switch health report sink requires active Tokio runtime: {error}"
             ))
         })?;
 
@@ -52,7 +52,7 @@ impl RackHealthReportSink {
             &config.connection.api_url,
         ));
 
-        let queue: Arc<DedupQueue<RackHealthReportKey, Arc<HealthReport>>> =
+        let queue: Arc<DedupQueue<SwitchHealthReportKey, Arc<HealthReport>>> =
             Arc::new(DedupQueue::new());
 
         for worker_id in 0..config.workers {
@@ -65,14 +65,14 @@ impl RackHealthReportSink {
                     match report.as_ref().try_into() {
                         Ok(converted) => {
                             if let Err(error) = worker_client
-                                .submit_rack_health_report(&key.id, converted)
+                                .submit_switch_health_report(&key.id, converted)
                                 .await
                             {
                                 tracing::warn!(
                                     ?error,
                                     worker_id,
-                                    rack_id = %key.id,
-                                    "Failed to submit rack health report"
+                                    switch_id = %key.id,
+                                    "Failed to submit switch health report"
                                 );
                             }
                         }
@@ -80,8 +80,8 @@ impl RackHealthReportSink {
                             tracing::warn!(
                                 ?error,
                                 worker_id,
-                                rack_id = %key.id,
-                                "Failed to convert rack health report"
+                                switch_id = %key.id,
+                                "Failed to convert switch health report"
                             );
                         }
                     }
@@ -93,9 +93,9 @@ impl RackHealthReportSink {
     }
 }
 
-impl DataSink for RackHealthReportSink {
+impl DataSink for SwitchHealthReportSink {
     fn sink_type(&self) -> &'static str {
-        "rack_health_report_sink"
+        "switch_health_report_sink"
     }
 
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
@@ -103,20 +103,22 @@ impl DataSink for RackHealthReportSink {
             return;
         };
 
-        if report.target != Some(HealthReportTarget::Rack) {
+        if report.target != Some(HealthReportTarget::Switch) {
             return;
         }
 
-        let Some(rack_id) = context.rack_id() else {
+        let switch_id = if let Some(switch_id) = context.switch_id() {
+            switch_id
+        } else {
             tracing::warn!(
                 endpoint_key = context.endpoint_key(),
-                "Received rack-target HealthReport event without rack_id context"
+                "Received switch-target HealthReport event without switch_id context"
             );
             return;
         };
 
-        let key = RackHealthReportKey {
-            id: rack_id.clone(),
+        let key = SwitchHealthReportKey {
+            id: switch_id,
             source: report.source,
         };
         self.queue.save_latest(key, Arc::clone(report));

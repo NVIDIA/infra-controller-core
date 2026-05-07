@@ -22,7 +22,9 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::switch::SwitchId;
 use mac_address::MacAddress;
 use url::Url;
 
@@ -93,6 +95,7 @@ impl BmcEndpoint {
     pub fn log_identity(&self) -> Cow<'_, str> {
         match &self.metadata {
             Some(EndpointMetadata::Machine(machine)) => Cow::Owned(machine.machine_id.to_string()),
+            Some(EndpointMetadata::PowerShelf(power_shelf)) => Cow::Borrowed(&power_shelf.serial),
             Some(EndpointMetadata::Switch(switch)) => Cow::Borrowed(&switch.serial),
             None => Cow::Owned(self.addr.mac.to_string()),
         }
@@ -115,6 +118,7 @@ impl BmcEndpoint {
 #[derive(Clone, Debug)]
 pub enum EndpointMetadata {
     Machine(MachineData),
+    PowerShelf(PowerShelfData),
     Switch(SwitchData),
 }
 
@@ -122,6 +126,7 @@ impl EndpointMetadata {
     pub fn serial_number(&self) -> Option<&str> {
         match self {
             EndpointMetadata::Machine(machine) => machine.machine_serial.as_deref(),
+            EndpointMetadata::PowerShelf(power_shelf) => Some(power_shelf.serial.as_str()),
             EndpointMetadata::Switch(switch) => Some(switch.serial.as_str()),
         }
     }
@@ -134,7 +139,14 @@ pub struct MachineData {
 }
 
 #[derive(Clone, Debug)]
+pub struct PowerShelfData {
+    pub id: Option<PowerShelfId>,
+    pub serial: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct SwitchData {
+    pub id: Option<SwitchId>,
     pub serial: String,
 }
 

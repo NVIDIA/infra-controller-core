@@ -20,8 +20,8 @@ use std::sync::Arc;
 
 use super::{EventContext, EventProcessor};
 use crate::sink::{
-    Classification, CollectorEvent, HealthReport, HealthReportAlert, HealthReportSuccess, Probe,
-    ReportSource,
+    Classification, CollectorEvent, HealthReport, HealthReportAlert, HealthReportSuccess,
+    HealthReportTarget, Probe, ReportSource,
 };
 
 const LEAK_DETECTOR_MARKER: &str = Classification::LeakDetector.as_str();
@@ -76,6 +76,10 @@ impl EventProcessor for LeakEventProcessor {
             return Vec::new();
         };
 
+        if report.target != Some(HealthReportTarget::Machine) {
+            return Vec::new();
+        }
+
         let leak_alerts: Vec<&HealthReportAlert> = report
             .alerts
             .iter()
@@ -111,6 +115,7 @@ impl EventProcessor for LeakEventProcessor {
 
         let leak_report = HealthReport {
             source: ReportSource::TrayLeakDetection,
+            target: Some(HealthReportTarget::Machine),
             observed_at: Some(chrono::Utc::now()),
             successes,
             alerts,
@@ -158,6 +163,7 @@ mod tests {
         let processor = LeakEventProcessor::new(2);
         let report = HealthReport {
             source: ReportSource::BmcSensors,
+            target: Some(HealthReportTarget::Machine),
             observed_at: Some(chrono::Utc::now()),
             successes: Vec::new(),
             alerts: vec![leak_alert("LeakDetector_Probe")],
@@ -171,6 +177,7 @@ mod tests {
             panic!("expected derived health report");
         };
 
+        assert_eq!(derived.target, Some(HealthReportTarget::Machine));
         assert_eq!(derived.alerts.len(), 0);
         assert_eq!(derived.successes.len(), 1);
         assert_eq!(derived.successes[0].probe_id, Probe::LeakDetection);
@@ -181,6 +188,7 @@ mod tests {
         let processor = LeakEventProcessor::new(1);
         let report = HealthReport {
             source: ReportSource::BmcSensors,
+            target: Some(HealthReportTarget::Machine),
             observed_at: Some(chrono::Utc::now()),
             successes: Vec::new(),
             alerts: vec![leak_alert("LeakDetector_Probe")],
@@ -194,6 +202,7 @@ mod tests {
             panic!("expected derived health report");
         };
         assert_eq!(derived.source, ReportSource::TrayLeakDetection);
+        assert_eq!(derived.target, Some(HealthReportTarget::Machine));
         assert_eq!(derived.alerts.len(), 1);
         assert_eq!(derived.alerts[0].probe_id, Probe::LeakDetection);
         assert!(
