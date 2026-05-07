@@ -1912,6 +1912,7 @@ dependencies = [
  "libudev",
  "logfmt",
  "procfs",
+ "rcgen",
  "regex",
  "rustls-pemfile",
  "serde",
@@ -1929,6 +1930,7 @@ dependencies = [
  "uname",
  "url",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]

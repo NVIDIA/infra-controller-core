@@ -2168,6 +2168,40 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
     );
 }
 
+#[crate::sqlx_test]
+async fn test_host_discovery_without_tpm_cert_does_not_downgrade_existing_tpm_identity(
+    pool: sqlx::PgPool,
+) {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
+
+    let machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
+
+    host_discover_machine(&env, &host_config, machine_interface_id).await;
+
+    let mut discovery_info =
+        DiscoveryInfo::try_from(model::hardware_info::HardwareInfo::from(&host_config)).unwrap();
+    discovery_info.tpm_ek_certificate = None;
+
+    let result = env
+        .api
+        .discover_machine(Request::new(MachineDiscoveryInfo {
+            machine_interface_id: Some(machine_interface_id),
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+            create_machine: false,
+        }))
+        .await;
+
+    let err = result.expect_err("Expected serial fallback to be rejected");
+    assert_eq!(err.code(), Code::FailedPrecondition);
+    assert!(
+        err.message().contains("TPM EK certificate missing"),
+        "Expected missing TPM EK certificate error, got: {}",
+        err.message()
+    );
+}
+
 /// Spins up a test env configured for zero-DPU hosts plus a zero-DPU
 /// managed host, and inserts a bare `instances` row attached to it,
 /// which is the minimal state needed to exercise the state controller
