@@ -153,7 +153,7 @@ pub fn label_list_fmt(
 /// Generates HTML using the unified bubble system
 #[askama::filter_fn]
 pub fn health_alerts_fmt(
-    alerts: &Vec<health_report::HealthProbeAlert>,
+    alerts: &[health_report::HealthProbeAlert],
     _env: &dyn askama::Values,
     include_message: bool,
     include_target: bool,
@@ -201,7 +201,7 @@ pub fn health_alert_classification_fmt(
     alert: &health_report::HealthProbeAlert,
     _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
-    health_alert_classifications_generic(&[alert])
+    health_alert_classifications_generic([alert])
 }
 
 // Note, we can't call generic functions like these directly from templates as of askama 0.15, so
