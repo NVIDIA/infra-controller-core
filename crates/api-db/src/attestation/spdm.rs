@@ -221,7 +221,10 @@ pub async fn get_attestation_status_for_machine_id(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     if attestation_status_rows.is_empty() {
-        return Ok(rpc::forge::SpdmAttestationStatus::SpdmAttNotFound);
+        return Err(DatabaseError::NotFoundError {
+            kind: "SPDM Attestation Record",
+            id: machine_id.to_string(),
+        });
     }
 
     // if all passed - PASSED
