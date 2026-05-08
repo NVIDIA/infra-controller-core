@@ -25,8 +25,8 @@ use measured_boot::records::MeasurementReportRecord;
 use measured_boot::report::MeasurementReport;
 use serde::Serialize;
 
-use crate::measurement::global;
-use crate::measurement::report::args::{
+use crate::attestation::measured_boot::global;
+use crate::attestation::measured_boot::report::args::{
     CmdReport, Create, Delete, List, ListMachines, Match, Promote, Revoke, ShowFor, ShowForId,
     ShowForMachine,
 };

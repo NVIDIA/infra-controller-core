@@ -27,10 +27,10 @@ use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementJournalRecord;
 use serde::Serialize;
 
-use crate::measurement::global;
-use crate::measurement::journal::args::{CmdJournal, Delete, List, Promote, Show};
-use crate::measurement::report::args::Promote as ReportPromoteArgs;
-use crate::measurement::report::cmds::promote as report_promote;
+use crate::attestation::measured_boot::global;
+use crate::attestation::measured_boot::journal::args::{CmdJournal, Delete, List, Promote, Show};
+use crate::attestation::measured_boot::report::args::Promote as ReportPromoteArgs;
+use crate::attestation::measured_boot::report::cmds::promote as report_promote;
 use crate::rpc::ApiClient;
 
 /// dispatch matches + dispatches the correct command for
