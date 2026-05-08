@@ -94,22 +94,21 @@ async fn fetch_expected_racks(
             let profile = api.runtime_config.rack_profiles.get(&rack_profile_id);
 
             // Expected rack profile capabilities for compute trays, switches, and power shelves
-            let mut compute_trays: String = "0".to_string();
-            let mut switches: String = "0".to_string();
-            let mut power_shelves: String = "0".to_string();
-
-            if let Some(rack_profile) = profile {
-                compute_trays = rack_profile.rack_capabilities.compute.count.to_string();
-                switches = rack_profile.rack_capabilities.switch.count.to_string();
-                power_shelves = rack_profile.rack_capabilities.power_shelf.count.to_string();
-            }
+            let (compute_trays, switches, power_shelves) = match profile {
+                Some(rack_profile) => (
+                    rack_profile.rack_capabilities.compute.count,
+                    rack_profile.rack_capabilities.switch.count,
+                    rack_profile.rack_capabilities.power_shelf.count,
+                ),
+                None => (0, 0, 0),
+            };
 
             ExpectedRackRow {
                 rack_id,
                 rack_profile_id,
-                compute_trays,
-                switches,
-                power_shelves,
+                compute_trays: compute_trays.to_string(),
+                switches: switches.to_string(),
+                power_shelves: power_shelves.to_string(),
             }
         })
         .collect();
