@@ -27,10 +27,13 @@ use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
 use db::{self, WithTransaction};
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::component_manager::{PowerAction, PowerShelfComponent};
-use model::firmware::DesiredFirmwareVersions;
+use model::firmware::FirmwareComponentType;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use tonic::{Code, Request, Response, Status};
@@ -268,11 +271,34 @@ fn map_compute_tray_component_names(raw: &[i32]) -> Result<Vec<String>, Status> 
         .map(|&v| match rpc::ComputeTrayComponent::try_from(v) {
             Ok(rpc::ComputeTrayComponent::Bmc) => Ok("BMC".to_string()),
             Ok(rpc::ComputeTrayComponent::Bios) => Ok("BIOS".to_string()),
+            Ok(rpc::ComputeTrayComponent::Cec) => Ok("CEC".to_string()),
+            Ok(rpc::ComputeTrayComponent::Nic) => Ok("NIC".to_string()),
+            Ok(rpc::ComputeTrayComponent::CpldMb) => Ok("CPLD_MB".to_string()),
+            Ok(rpc::ComputeTrayComponent::CpldPdb) => Ok("CPLD_PDB".to_string()),
+            Ok(rpc::ComputeTrayComponent::HgxBmc) => Ok("HGX_BMC".to_string()),
+            Ok(rpc::ComputeTrayComponent::CombinedBmcUefi) => Ok("COMBINED_BMC_UEFI".to_string()),
+            Ok(rpc::ComputeTrayComponent::Gpu) => Ok("GPU".to_string()),
             _ => Err(Status::invalid_argument(format!(
                 "unknown compute tray component: {v}"
             ))),
         })
         .collect()
+}
+
+fn firmware_component_type_to_proto(fct: &FirmwareComponentType) -> rpc::ComputeTrayComponent {
+    match fct {
+        FirmwareComponentType::Bmc => rpc::ComputeTrayComponent::Bmc,
+        FirmwareComponentType::Uefi => rpc::ComputeTrayComponent::Bios,
+        FirmwareComponentType::Cec => rpc::ComputeTrayComponent::Cec,
+        FirmwareComponentType::Nic => rpc::ComputeTrayComponent::Nic,
+        FirmwareComponentType::Cx7 => rpc::ComputeTrayComponent::Cx7,
+        FirmwareComponentType::CpldMb => rpc::ComputeTrayComponent::CpldMb,
+        FirmwareComponentType::CpldPdb => rpc::ComputeTrayComponent::CpldPdb,
+        FirmwareComponentType::HGXBmc => rpc::ComputeTrayComponent::HgxBmc,
+        FirmwareComponentType::CombinedBmcUefi => rpc::ComputeTrayComponent::CombinedBmcUefi,
+        FirmwareComponentType::Gpu => rpc::ComputeTrayComponent::Gpu,
+        FirmwareComponentType::Unknown => rpc::ComputeTrayComponent::Unknown,
+    }
 }
 
 fn map_nv_switch_component_names(raw: &[i32]) -> Result<Vec<String>, Status> {
@@ -315,6 +341,45 @@ struct SwitchEndpoints {
     unresolved: Vec<SwitchId>,
 }
 
+async fn fetch_switch_bmc_credentials(
+    credential_manager: &dyn CredentialManager,
+    bmc_mac: MacAddress,
+) -> Result<Credentials, ComponentManagerError> {
+    let key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::BmcRoot {
+            bmc_mac_address: bmc_mac,
+        },
+    };
+
+    match credential_manager.get_credentials(&key).await {
+        Ok(Some(c)) => Ok(c),
+        Ok(None) => Err(ComponentManagerError::NotFound(format!(
+            "no BMC credentials found for {bmc_mac}"
+        ))),
+        Err(e) => Err(ComponentManagerError::Internal(format!(
+            "failed to fetch BMC credentials for {bmc_mac}: {e}"
+        ))),
+    }
+}
+
+async fn fetch_switch_nvos_credentials(
+    credential_manager: &dyn CredentialManager,
+    bmc_mac: MacAddress,
+) -> Result<Credentials, ComponentManagerError> {
+    let key = CredentialKey::SwitchNvosAdmin {
+        bmc_mac_address: bmc_mac,
+    };
+    match credential_manager.get_credentials(&key).await {
+        Ok(Some(c)) => Ok(c),
+        Ok(None) => Err(ComponentManagerError::NotFound(format!(
+            "no NVOS credentials found for {bmc_mac}"
+        ))),
+        Err(e) => Err(ComponentManagerError::Internal(format!(
+            "failed to fetch NVOS credentials for {bmc_mac}: {e}"
+        ))),
+    }
+}
+
 async fn resolve_switch_endpoints(
     api: &Api,
     switch_ids: &[SwitchId],
@@ -339,12 +404,43 @@ async fn resolve_switch_endpoints(
             continue;
         };
         resolved_ids.insert(row.switch_id);
+
+        let bmc_credentials = match fetch_switch_bmc_credentials(
+            api.credential_manager.as_ref(),
+            row.bmc_mac,
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(switch_id = %row.switch_id, error = %e, "skipping switch: BMC credentials unavailable");
+                unresolved.push(row.switch_id);
+                continue;
+            }
+        };
+
+        let nvos_credentials = match fetch_switch_nvos_credentials(
+            api.credential_manager.as_ref(),
+            row.bmc_mac,
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(switch_id = %row.switch_id, error = %e, "skipping switch: NVOS credentials unavailable");
+                unresolved.push(row.switch_id);
+                continue;
+            }
+        };
+
         mac_to_id.insert(row.bmc_mac, row.switch_id);
         endpoints.push(SwitchEndpoint {
             bmc_ip: row.bmc_ip,
             bmc_mac: row.bmc_mac,
             nvos_ip,
             nvos_mac,
+            bmc_credentials,
+            nvos_credentials,
         });
     }
 
@@ -371,6 +467,27 @@ async fn resolve_switch_endpoints(
     })
 }
 
+async fn fetch_powershelf_pmc_credentials(
+    credential_manager: &dyn CredentialManager,
+    pmc_mac: MacAddress,
+) -> Result<Credentials, ComponentManagerError> {
+    let key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::BmcRoot {
+            bmc_mac_address: pmc_mac,
+        },
+    };
+
+    match credential_manager.get_credentials(&key).await {
+        Ok(Some(c)) => Ok(c),
+        Ok(None) => Err(ComponentManagerError::NotFound(format!(
+            "no PMC credentials found for {pmc_mac}"
+        ))),
+        Err(e) => Err(ComponentManagerError::Internal(format!(
+            "failed to fetch PMC credentials for {pmc_mac}: {e}"
+        ))),
+    }
+}
+
 struct ResolvedPowerShelfEndpoints {
     endpoints: Vec<PowerShelfEndpoint>,
     mac_to_id: HashMap<MacAddress, PowerShelfId>,
@@ -394,20 +511,36 @@ async fn resolve_power_shelf_endpoints(
 
     let mut endpoints = Vec::with_capacity(rows.len());
     let mut mac_to_id = HashMap::with_capacity(rows.len());
+    let mut unresolved = Vec::new();
     let mut resolved_ids = HashSet::with_capacity(rows.len());
 
     for row in rows {
         resolved_ids.insert(row.power_shelf_id);
+
+        let pmc_credentials = match fetch_powershelf_pmc_credentials(
+            api.credential_manager.as_ref(),
+            row.pmc_mac,
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(power_shelf_id = %row.power_shelf_id, error = %e, "skipping power shelf: PMC credentials unavailable");
+                unresolved.push(row.power_shelf_id);
+                continue;
+            }
+        };
+
         mac_to_id.insert(row.pmc_mac, row.power_shelf_id);
         endpoints.push(PowerShelfEndpoint {
             pmc_ip: row.pmc_ip,
             pmc_mac: row.pmc_mac,
             // TODO: retrieve vendor from DB instead of using a hardcoded default
             pmc_vendor: PowerShelfVendor::DEFAULT,
+            pmc_credentials,
         });
     }
 
-    let mut unresolved = Vec::new();
     for id in power_shelf_ids {
         if !resolved_ids.contains(id) {
             tracing::warn!(power_shelf_id = %id, "power shelf not found in expected_power_shelves");
@@ -1260,6 +1393,7 @@ pub(crate) async fn list_component_firmware_versions(
                         "could not resolve endpoint for switch".into(),
                     )),
                     versions: vec![],
+                    compute_fw_versions: vec![],
                 })
                 .collect();
 
@@ -1279,6 +1413,7 @@ pub(crate) async fn list_component_firmware_versions(
                 devices.push(rpc::DeviceFirmwareVersions {
                     result: Some(success_result(&id)),
                     versions: versions.clone(),
+                    compute_fw_versions: vec![],
                 });
             }
 
@@ -1299,6 +1434,7 @@ pub(crate) async fn list_component_firmware_versions(
                         "could not resolve endpoint for power shelf".into(),
                     )),
                     versions: vec![],
+                    compute_fw_versions: vec![],
                 })
                 .collect();
 
@@ -1323,6 +1459,7 @@ pub(crate) async fn list_component_firmware_versions(
                 devices.push(rpc::DeviceFirmwareVersions {
                     result: Some(result),
                     versions: fv.versions,
+                    compute_fw_versions: vec![],
                 });
             }
 
@@ -1331,6 +1468,10 @@ pub(crate) async fn list_component_firmware_versions(
             }))
         }
         rpc::list_component_firmware_versions_request::Target::MachineIds(list) => {
+            if list.machine_ids.is_empty() {
+                return Err(Status::invalid_argument("machine_ids must not be empty"));
+            }
+
             let fw_snapshot = api.runtime_config.get_firmware_config().create_snapshot();
 
             let machines = db::machine::find(
@@ -1363,28 +1504,105 @@ pub(crate) async fn list_component_firmware_versions(
                 .map(|machine_id| {
                     let id_str = machine_id.to_string();
 
-                    let versions: Vec<String> = machine_by_id
-                        .get(machine_id)
-                        .and_then(|m| m.bmc_info.ip.as_ref()?.parse::<IpAddr>().ok())
-                        .and_then(|ip| endpoint_by_ip.get(&ip))
-                        .and_then(|ep| fw_snapshot.find_fw_info_for_host(ep))
-                        .map(|fw| {
-                            DesiredFirmwareVersions::from(fw)
-                                .versions
-                                .into_values()
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    let result = if versions.is_empty() {
-                        error_result(&id_str, "no firmware config found for machine".into())
-                    } else {
-                        success_result(&id_str)
+                    let Some(machine) = machine_by_id.get(machine_id) else {
+                        return rpc::DeviceFirmwareVersions {
+                            result: Some(not_found_component_result(
+                                &id_str,
+                                format!("machine {machine_id} not found"),
+                            )),
+                            versions: vec![],
+                            compute_fw_versions: vec![],
+                        };
                     };
 
+                    let Some(ip_str) = machine.bmc_info.ip.as_ref() else {
+                        return rpc::DeviceFirmwareVersions {
+                            result: Some(invalid_argument_component_result(
+                                &id_str,
+                                format!("machine {machine_id} has no BMC IP configured"),
+                            )),
+                            versions: vec![],
+                            compute_fw_versions: vec![],
+                        };
+                    };
+
+                    let Ok(ip) = ip_str.parse::<IpAddr>() else {
+                        tracing::warn!(
+                            machine_id = %machine_id,
+                            bmc_ip = %ip_str,
+                            "BMC IP failed to parse as a valid address"
+                        );
+                        return rpc::DeviceFirmwareVersions {
+                            result: Some(invalid_argument_component_result(
+                                &id_str,
+                                format!(
+                                    "machine {machine_id} has unparseable BMC IP: {ip_str}"
+                                ),
+                            )),
+                            versions: vec![],
+                            compute_fw_versions: vec![],
+                        };
+                    };
+
+                    let Some(endpoint) = endpoint_by_ip.get(&ip) else {
+                        return rpc::DeviceFirmwareVersions {
+                            result: Some(not_found_component_result(
+                                &id_str,
+                                format!(
+                                    "no explored endpoint found for machine {machine_id} (BMC IP {ip})"
+                                ),
+                            )),
+                            versions: vec![],
+                            compute_fw_versions: vec![],
+                        };
+                    };
+
+                    let Some(fw) = fw_snapshot.find_fw_info_for_host(endpoint) else {
+                        return rpc::DeviceFirmwareVersions {
+                            result: Some(not_found_component_result(
+                                &id_str,
+                                format!(
+                                    "no firmware config matches endpoint for machine {machine_id}"
+                                ),
+                            )),
+                            versions: vec![],
+                            compute_fw_versions: vec![],
+                        };
+                    };
+
+                    let compute_fw_versions: Vec<rpc::ComputeTrayFirmwareVersions> = fw
+                        .components
+                        .iter()
+                        .map(|(component_type, component)| {
+                            let versions = component
+                                .known_firmware
+                                .iter()
+                                .map(|entry| entry.version.clone())
+                                .collect();
+                            rpc::ComputeTrayFirmwareVersions {
+                                component: firmware_component_type_to_proto(component_type).into(),
+                                versions,
+                            }
+                        })
+                        .collect();
+
+                    if compute_fw_versions.is_empty() {
+                        return rpc::DeviceFirmwareVersions {
+                            result: Some(not_found_component_result(
+                                &id_str,
+                                format!(
+                                    "firmware config for machine {machine_id} has no component entries"
+                                ),
+                            )),
+                            versions: vec![],
+                            compute_fw_versions: vec![],
+                        };
+                    }
+
                     rpc::DeviceFirmwareVersions {
-                        result: Some(result),
-                        versions,
+                        result: Some(success_result(&id_str)),
+                        versions: vec![],
+                        compute_fw_versions,
                     }
                 })
                 .collect();
@@ -1438,6 +1656,7 @@ pub(crate) async fn list_component_firmware_versions(
                                 format!("rack {rack_id} not found"),
                             )),
                             versions: vec![],
+                            compute_fw_versions: vec![],
                         };
                     };
 
@@ -1448,6 +1667,7 @@ pub(crate) async fn list_component_firmware_versions(
                                 format!("rack {rack_id} has no rack_profile_id"),
                             )),
                             versions: vec![],
+                            compute_fw_versions: vec![],
                         };
                     };
 
@@ -1459,6 +1679,7 @@ pub(crate) async fn list_component_firmware_versions(
                                 format!("rack profile {profile_id} not found"),
                             )),
                             versions: vec![],
+                            compute_fw_versions: vec![],
                         };
                     };
 
@@ -1471,6 +1692,7 @@ pub(crate) async fn list_component_firmware_versions(
                                 ),
                             )),
                             versions: vec![],
+                            compute_fw_versions: vec![],
                         };
                     };
 
@@ -1486,6 +1708,7 @@ pub(crate) async fn list_component_firmware_versions(
                     rpc::DeviceFirmwareVersions {
                         result: Some(success_result(rack_id.as_ref())),
                         versions,
+                        compute_fw_versions: vec![],
                     }
                 })
                 .collect();
@@ -1818,6 +2041,47 @@ mod tests {
         ];
         for (input, expected) in cases {
             assert_eq!(map_fw_state(input), expected, "mismatch for {input:?}");
+        }
+    }
+
+    #[test]
+    fn firmware_component_type_to_proto_round_trip() {
+        use model::firmware::FirmwareComponentType;
+
+        let cases = [
+            (FirmwareComponentType::Bmc, rpc::ComputeTrayComponent::Bmc),
+            (FirmwareComponentType::Uefi, rpc::ComputeTrayComponent::Bios),
+            (FirmwareComponentType::Cec, rpc::ComputeTrayComponent::Cec),
+            (FirmwareComponentType::Nic, rpc::ComputeTrayComponent::Nic),
+            (
+                FirmwareComponentType::CpldMb,
+                rpc::ComputeTrayComponent::CpldMb,
+            ),
+            (
+                FirmwareComponentType::CpldPdb,
+                rpc::ComputeTrayComponent::CpldPdb,
+            ),
+            (
+                FirmwareComponentType::HGXBmc,
+                rpc::ComputeTrayComponent::HgxBmc,
+            ),
+            (
+                FirmwareComponentType::CombinedBmcUefi,
+                rpc::ComputeTrayComponent::CombinedBmcUefi,
+            ),
+            (FirmwareComponentType::Gpu, rpc::ComputeTrayComponent::Gpu),
+            (FirmwareComponentType::Cx7, rpc::ComputeTrayComponent::Cx7),
+            (
+                FirmwareComponentType::Unknown,
+                rpc::ComputeTrayComponent::Unknown,
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                firmware_component_type_to_proto(&input),
+                expected,
+                "mismatch for {input:?}"
+            );
         }
     }
 
