@@ -15,24 +15,13 @@
  * limitations under the License.
  */
 
-use std::net::{SocketAddr, TcpListener};
+use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use std::{env, fs};
 
-use axum::http::header;
-use axum::response::IntoResponse;
-use axum_server::tls_rustls::RustlsConfig;
-use rustls::ServerConfig;
-use rustls_pemfile::Item;
-use rustls_pki_types::PrivateKeyDer;
 use tempfile::{NamedTempFile, TempDir};
 
 use crate::Options;
-
-const TLS_CERT: &[u8] = include_bytes!("../../../test-certs/tls.crt");
-const TLS_KEY: &[u8] = include_bytes!("../../../test-certs/tls.key");
 
 // TODO: Add settings to config file and switch this to true
 // Then assert that it works
@@ -122,99 +111,4 @@ pub fn setup_agent_run_env(
     };
 
     Ok(Some(opts))
-}
-
-pub async fn run_grpc_server(
-    app: axum::Router<()>,
-) -> eyre::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
-    let listener = TcpListener::bind("127.0.0.1:0")?; // 0 let OS choose available port
-    listener.set_nonblocking(true)?;
-    let addr = listener.local_addr()?;
-    let server_config = make_rustls_server_config()?;
-    let join_handle = tokio::spawn(async move {
-        let config = RustlsConfig::from_config(Arc::new(server_config));
-        axum_server::from_tcp_rustls(listener, config)
-            // Safety: This only happens if the socket is nonblocking, and we already did set_nonblocking above.
-            .expect("BUG: Could not bind to listener")
-            .serve(app.into_make_service())
-            .await
-            .unwrap();
-    });
-    wait_for_server_to_start(addr).await?;
-
-    Ok((addr, join_handle))
-}
-
-// Note: Axum has a simple RustlsConfig::from_pem we could use, but it constructs a rustls
-// ServerConfig without a default crypto provider. So we have to make our own rustls::ServerConfig
-// and pass that to RustlsConfig::from.
-fn make_rustls_server_config() -> eyre::Result<ServerConfig> {
-    let certs =
-        rustls_pemfile::certs(&mut TLS_CERT.to_vec().as_ref()).collect::<Result<Vec<_>, _>>()?;
-
-    // Check the entire PEM file for the key in case it is not first section
-    let key = rustls_pemfile::read_all(&mut TLS_KEY.to_vec().as_ref())
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .filter_map(|i| match i {
-            Item::Sec1Key(key) => Some(key.secret_sec1_der().to_vec()),
-            Item::Pkcs1Key(key) => Some(key.secret_pkcs1_der().to_vec()),
-            Item::Pkcs8Key(key) => Some(key.secret_pkcs8_der().to_vec()),
-            _ => None,
-        })
-        .map(|data| PrivateKeyDer::try_from(data).map_err(|s| eyre::eyre!("{s}")))
-        .next()
-        .ok_or(eyre::eyre!("No keys in key file"))??;
-
-    let mut server_config = ServerConfig::builder_with_provider(Arc::new(
-        rustls::crypto::aws_lc_rs::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_no_client_auth()
-    .with_single_cert(certs, key)?;
-    // This is what axum is normally doing for you
-    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    Ok(server_config)
-}
-
-async fn wait_for_server_to_start(addr: SocketAddr) -> eyre::Result<()> {
-    let url = format!("https://{addr}/up");
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let client = reqwest::ClientBuilder::new()
-        .danger_accept_invalid_certs(true)
-        .build()?;
-    while Instant::now() < deadline {
-        match client.get(&url).send().await {
-            Ok(resp) if resp.status() == reqwest::StatusCode::OK => {
-                break;
-            }
-            Ok(resp) => {
-                eyre::bail!(
-                    "Invalid status code from /up on mock grpc server: {}",
-                    resp.status(),
-                );
-            }
-            Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
-        }
-    }
-    if Instant::now() >= deadline {
-        eyre::bail!("Timed out waiting for mock grpc server to start");
-    }
-    Ok(())
-}
-
-/// Takes an rpc object (built from rpc/proto/forge.proto) and turns into into a gRPC axum response
-pub fn respond(out: impl prost::Message) -> impl IntoResponse {
-    let msg_len = out.encoded_len() as u32;
-    let mut body = Vec::with_capacity(1 + 4 + msg_len as usize);
-    // first byte is compression: 0 means none
-    body.push(0u8);
-    // next four bytes are length as bigendian u32
-    body.extend_from_slice(&msg_len.to_be_bytes());
-    // and finally the message
-    out.encode(&mut body).unwrap();
-
-    let headers = [(header::CONTENT_TYPE, "application/grpc+tonic")];
-    (headers, body)
 }

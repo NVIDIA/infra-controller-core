@@ -16,23 +16,18 @@
  */
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::ForgeClientConfig;
-use axum::Router;
-use axum::extract::State as AxumState;
-use axum::http::{StatusCode, Uri};
-use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use carbide_agent_mock_api_server::MockApiServer;
 use carbide_host_support::agent_config::AgentConfig;
 use eyre::{Context, Result};
 use forge_tls::client_config::ClientCert;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics;
 use prometheus::{Encoder, TextEncoder};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::watch;
+use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tonic::async_trait;
 use tracing::info;
@@ -45,29 +40,13 @@ use crate::tests::common;
 const DPU_ID: &str = "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg";
 const DEST_DPU_ID: &str = "fm100dsjd1vuk6gklgvh0ao8t7r7tk1pt101ub5ck0g3j7lqcm8h3rf1p8g";
 
-#[derive(Default, Debug)]
-struct State {
-    num_get_dpu_ips: AtomicUsize,
-}
-
 #[tokio::test]
 pub async fn test_network_monitor() -> eyre::Result<()> {
     carbide_host_support::init_logging()?;
 
-    let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
-
-    // Start carbide API
-    let app = Router::new()
-        .route("/up", get(handle_up))
-        .route(
-            "/forge.Forge/GetDpuInfoList",
-            post(handle_get_dpu_info_list),
-        )
-        // ForgeApiClient needs a working Version route for connection retrying
-        .route("/forge.Forge/Version", post(handle_version))
-        .fallback(handler)
-        .with_state(state.clone());
-    let (addr, join_handle) = common::run_grpc_server(app).await?;
+    let mut join_set = JoinSet::new();
+    let mock_server_handle = MockApiServer::new().spawn(&mut join_set).await?;
+    let addr = mock_server_handle.addr;
 
     let td = tempfile::tempdir()?;
     let agent_config_file = tempfile::NamedTempFile::new()?;
@@ -141,47 +120,11 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     info!("Sending close signal");
     let _ = close_sender.send(true);
 
-    join_handle.abort();
+    std::mem::drop(mock_server_handle);
+    join_set.join_all().await;
 
     verify_metrics(&test_meter);
     Ok(())
-}
-
-async fn handle_up() -> &'static str {
-    "OK"
-}
-
-async fn handle_get_dpu_info_list(
-    AxumState(state): AxumState<Arc<Mutex<State>>>,
-) -> impl axum::response::IntoResponse {
-    {
-        state
-            .lock()
-            .await
-            .num_get_dpu_ips
-            .fetch_add(1, Ordering::SeqCst);
-    }
-    common::respond(rpc::GetDpuInfoListResponse {
-        dpu_list: vec![
-            rpc::DpuInfo {
-                id: DPU_ID.to_string(),
-                loopback_ip: "172.20.0.119".to_string(),
-            },
-            rpc::DpuInfo {
-                id: DEST_DPU_ID.to_string(),
-                loopback_ip: "172.20.0.200".to_string(),
-            },
-        ],
-    })
-}
-
-async fn handle_version() -> impl IntoResponse {
-    common::respond(rpc::BuildInfo::default())
-}
-
-async fn handler(uri: Uri) -> impl IntoResponse {
-    tracing::debug!("general handler: {:?}", uri);
-    StatusCode::NOT_FOUND
 }
 
 fn verify_metrics(test_meter: &TestMeter) {

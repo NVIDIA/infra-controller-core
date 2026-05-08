@@ -91,10 +91,10 @@ nonzero_ext = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true, features = [
-  "semconv_experimental",
+    "semconv_experimental",
 ] }
 opentelemetry_sdk = { workspace = true, features = [
-  "spec_unstable_metrics_views",
+    "spec_unstable_metrics_views",
 ] }
 prometheus = { workspace = true }
 rand = { workspace = true }
@@ -114,8 +114,8 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 prost = { workspace = true }
 reqwest = { default-features = false, features = [
-  "rustls",
-  "stream",
+    "rustls",
+    "stream",
 ], workspace = true }
 tower = { workspace = true }
 tower-http = { features = ["trace"], workspace = true }
@@ -132,9 +132,7 @@ tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 ctor = { workspace = true }
-prost = { workspace = true }
-rustls-pemfile = { workspace = true }
-rustls-pki-types = { workspace = true }
+carbide-agent-mock-api-server = { path = "../agent-mock-api-server" }
 
 [lints]
 workspace = true
