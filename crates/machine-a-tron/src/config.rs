@@ -231,6 +231,16 @@ pub struct MachineATronConfig {
     #[serde(default = "default_true")]
     pub register_expected_machines: bool,
 
+    /// If set, host BMC mocks start with this password instead of the factory default
+    /// (`DUMMY_FACTORY_PASSWORD`). Emulates a BMC that was already rotated by an operator.
+    #[serde(default)]
+    pub host_bmc_password: Option<String>,
+
+    /// Same as `host_bmc_password`, for DPU BMC mocks
+    /// (factory default `DUMMY_FACTORY_DPU_PASSWORD`).
+    #[serde(default)]
+    pub dpu_bmc_password: Option<String>,
+
     /// How often to refresh the API state from the server. Longer durations are appropriate for
     /// mocking lots of hosts, shorter durations are appropriate for integration tests where the
     /// interval should be shorter than the state controller update interval
