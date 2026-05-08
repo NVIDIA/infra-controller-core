@@ -16,7 +16,9 @@
  */
 use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState};
+use model::power_shelf::{
+    PowerShelf, PowerShelfControllerState, derive_power_shelf_aggregate_health,
+};
 
 use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
@@ -26,6 +28,21 @@ use crate::state_controller::state_handler::{
 /// The actual PowerShelf State handler
 #[derive(Debug, Default, Clone)]
 pub struct PowerShelfStateHandler {}
+
+impl PowerShelfStateHandler {
+    fn record_metrics(
+        &self,
+        state: &PowerShelf,
+        ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
+    ) {
+        let aggregate_health = derive_power_shelf_aggregate_health(&state.health_reports);
+        ctx.metrics.health.populate(
+            state.id.to_string(),
+            &aggregate_health,
+            &state.health_reports,
+        );
+    }
+}
 
 #[async_trait::async_trait]
 impl StateHandler for PowerShelfStateHandler {
@@ -41,6 +58,7 @@ impl StateHandler for PowerShelfStateHandler {
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
+        self.record_metrics(state, ctx);
         match controller_state {
             PowerShelfControllerState::Initializing => {
                 // TODO: Implement PowerShelf initialization logic

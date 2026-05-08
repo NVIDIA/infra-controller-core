@@ -157,7 +157,7 @@ impl TryFrom<rpc::PowerShelfConfig> for PowerShelfConfig {
     }
 }
 
-fn derive_power_shelf_aggregate_health(
+pub fn derive_power_shelf_aggregate_health(
     sources: &HealthReportSources,
 ) -> health_report::HealthReport {
     if let Some(replace) = &sources.replace {

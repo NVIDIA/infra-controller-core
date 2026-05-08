@@ -29,8 +29,8 @@ use model::rack::{
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
-use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
+use crate::state_controller::rack::metrics::RackMetricsEmitter;
 
 /// State Controller IO implementation for Racks
 #[derive(Default, Debug)]
@@ -41,7 +41,7 @@ impl StateControllerIO for RackStateControllerIO {
     type ObjectId = RackId;
     type State = Rack;
     type ControllerState = RackState;
-    type MetricsEmitter = NoopMetricsEmitter;
+    type MetricsEmitter = RackMetricsEmitter;
     type ContextObjects = RackStateHandlerContextObjects;
 
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "rack_controller_iteration_ids";
