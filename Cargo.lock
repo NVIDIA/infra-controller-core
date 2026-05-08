@@ -1067,7 +1067,6 @@ dependencies = [
  "axum-server",
  "backon",
  "blake3",
- "carbide-agent-mock-api-server",
  "carbide-certs",
  "carbide-dpu-agent-utils",
  "carbide-dpu-fmds-shared",
@@ -1127,6 +1126,8 @@ dependencies = [
  "resolv-conf",
  "rtnetlink",
  "rustls",
+ "rustls-pemfile",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1145,28 +1146,6 @@ dependencies = [
  "uuid",
  "uzers",
  "version-compare 0.2.1",
-]
-
-[[package]]
-name = "carbide-agent-mock-api-server"
-version = "0.0.0"
-dependencies = [
- "carbide-api-test-helper",
- "carbide-network",
- "carbide-rpc",
- "carbide-uuid",
- "carbide-version",
- "eyre",
- "prost",
- "prost-types",
- "rustls",
- "rustls-pemfile",
- "tokio",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "uuid",
 ]
 
 [[package]]

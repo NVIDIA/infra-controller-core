@@ -18,8 +18,12 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
+use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
-use tokio::task::JoinSet;
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
+
+use crate::tests::common;
 
 const ROOT_CERT_PATH: &str = "dev/certs/forge_developer_local_only_root_cert_pem";
 
@@ -36,10 +40,15 @@ async fn test_upgrade_check() -> eyre::Result<()> {
 
     let marker = tempfile::NamedTempFile::new()?;
 
-    let mut join_set = JoinSet::new();
-    let mock_server = carbide_agent_mock_api_server::MockApiServer::new();
-    let mock_server_handle = mock_server.spawn(&mut join_set).await?;
-    let addr = mock_server_handle.addr;
+    let app = axum::Router::new()
+        .route("/up", get(handle_up))
+        .route(
+            "/forge.Forge/DpuAgentUpgradeCheck",
+            post(dpu_agent_upgrade_check),
+        )
+        // ForgeApiClient needs a working Version route for connection retrying
+        .route("/forge.Forge/Version", post(handle_version));
+    let (addr, join_handle) = common::run_grpc_server(app).await?;
 
     let client_config =
         ForgeClientConfig::new(root_dir.join(ROOT_CERT_PATH).display().to_string(), None)
@@ -63,8 +72,23 @@ async fn test_upgrade_check() -> eyre::Result<()> {
         "Upgrade command should have run"
     );
 
-    std::mem::drop(mock_server_handle);
-    join_set.join_all().await;
+    join_handle.abort();
 
     Ok(())
+}
+
+async fn dpu_agent_upgrade_check() -> impl IntoResponse {
+    common::respond(rpc::DpuAgentUpgradeCheckResponse {
+        should_upgrade: true,
+        package_version: "2024.05-rc3-0".to_string(),
+        server_version: "v2024.05-rc3-0".to_string(),
+    })
+}
+
+/// Health check. When this responds we know the mock server is ready.
+async fn handle_up() -> &'static str {
+    "OK"
+}
+async fn handle_version() -> impl IntoResponse {
+    common::respond(rpc::BuildInfo::default())
 }
