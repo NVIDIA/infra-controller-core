@@ -2367,7 +2367,7 @@ impl Display for FailureCause {
             FailureCause::MeasurementsCAValidationFailed { .. } => {
                 write!(f, "MeasurementsCAValidationFailed")
             }
-            FailureCause::DpfProvisioning { .. } => write!(f, "DpfProvisioning"),
+            FailureCause::DpfProvisioning { err } => write!(f, "DpfProvisioning {err}"),
             FailureCause::SpdmAttestationFailed { .. } => {
                 write!(f, "SpdmAttestationFailed")
             }
