@@ -939,6 +939,7 @@ enum SpdmAttestationStatus{
   SPDM_ATT_CANCELLED = 1;
   SPDM_ATT_PASSED = 2;
   SPDM_ATT_FAILED = 3;
+  SPDM_ATT_NOT_FOUND = 4;
 }
 
 message AttestationIdsRequest {

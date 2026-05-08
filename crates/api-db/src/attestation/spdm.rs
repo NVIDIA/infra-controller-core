@@ -220,6 +220,10 @@ pub async fn get_attestation_status_for_machine_id(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
+    if attestation_status_rows.is_empty() {
+        return Ok(rpc::forge::SpdmAttestationStatus::SpdmAttNotFound);
+    }
+
     // if all passed - PASSED
     // if all cancelled - CANCELLED
     // if any failed && none not in progress - FAILED
