@@ -2,7 +2,7 @@
 
 This document contains release notes for the NVIDIA Infra Controller (NICo) project.
 
-## Infra Controller 0.8
+## Infra Controller v0.8
 
 ### Highlights
 

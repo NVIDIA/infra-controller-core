@@ -74,7 +74,7 @@ products:
     slug: /
     path: ../docs/index.yml
     versions:
-      - display-name: v0.7
+      - display-name: v0.8
         path: ../docs/index.yml
 
 redirects:
