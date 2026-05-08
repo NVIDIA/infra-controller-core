@@ -186,12 +186,12 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `dpu_wait_time` | `Duration` | `5m` | Time before a DPU is considered definitively down. |
-| `power_down_wait` | `Duration` | `2m` | Wait after power-down before powering on. |
-| `failure_retry_time` | `Duration` | `30m` | Time before re-triggering reboot if machine hasn't called back. |
-| `dpu_up_threshold` | `Duration` | `5m` | Max time without DPU health report before assuming it's down. |
-| `scout_reporting_timeout` | `Duration` | `5m` | Duration without scout report before host is unhealthy. |
-| `uefi_boot_wait` | `Duration` | `5m` | Wait time for UEFI boot completion after host reboot. |
+| `dpu_wait_time` | `Duration` | `5m`    | Time before a DPU is considered definitively down. |
+| `power_down_wait` | `Duration` | `2m`    | Wait after power-down before powering on. |
+| `failure_retry_time` | `Duration` | `90m`   | Time before re-triggering reboot if machine hasn't called back. |
+| `dpu_up_threshold` | `Duration` | `5m`    | Max time without DPU health report before assuming it's down. |
+| `scout_reporting_timeout` | `Duration` | `5m`    | Duration without scout report before host is unhealthy. |
+| `uefi_boot_wait` | `Duration` | `5m`    | Wait time for UEFI boot completion after host reboot. |
 
 ### `NetworkSegmentStateControllerConfig`
 
