@@ -32,10 +32,10 @@ use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::MeasurementSystemProfileRecord;
 use serde::Serialize;
 
-use crate::measurement::profile::args::{
+use crate::attestation::measured_boot::profile::args::{
     CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
 };
-use crate::measurement::{MachineIdList, global};
+use crate::attestation::measured_boot::{MachineIdList, global};
 use crate::rpc::ApiClient;
 
 /// dispatch matches + dispatches the correct command for
