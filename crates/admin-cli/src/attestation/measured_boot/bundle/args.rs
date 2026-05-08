@@ -46,8 +46,10 @@ use clap::Parser;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 
+use crate::attestation::measured_boot::global::cmds::{
+    IdNameIdentifier, IdentifierType, get_identifier,
+};
 use crate::cfg::measurement::parse_pcr_register_values;
-use crate::measurement::global::cmds::{IdNameIdentifier, IdentifierType, get_identifier};
 
 /// CmdBundle provides a container for the `bundle` subcommand, which itself
 /// contains other subcommands for working with profiles.

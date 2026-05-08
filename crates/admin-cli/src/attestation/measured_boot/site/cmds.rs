@@ -27,8 +27,8 @@ use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprov
 use measured_boot::site::{ImportResult, SiteModel};
 use serde::Serialize;
 
-use crate::measurement::global;
-use crate::measurement::site::args::{
+use crate::attestation::measured_boot::global;
+use crate::attestation::measured_boot::site::args::{
     ApproveMachine, ApproveProfile, CmdSite, Export, Import, RemoveMachine,
     RemoveMachineByApprovalId, RemoveMachineByMachineId, RemoveProfile, RemoveProfileByApprovalId,
     RemoveProfileByProfileId, TrustedMachine, TrustedProfile,

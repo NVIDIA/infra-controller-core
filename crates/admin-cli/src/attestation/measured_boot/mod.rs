@@ -16,8 +16,8 @@
  */
 
 //!
-//! `measurement` subcommand module, containing other subcommands,
-//! dispatchers, args, and backing functions.
+//! Measured Boot attestation (`attestation/measured_boot`): subcommand dispatchers,
+//! args, and backing functions for `... attestation measured-boot` (alias `mb`).
 
 pub mod bundle;
 pub mod global;
