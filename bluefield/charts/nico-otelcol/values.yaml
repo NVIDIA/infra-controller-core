@@ -1,0 +1,33 @@
+### DPF contract ###
+serviceDaemonSet:
+  nodeSelector:
+  labels: {}
+  annotations: {}
+  updateStrategy: {}
+  resources: {}
+exposedPorts:
+  labels: {}
+  ports: {}
+
+### Service specific values ###
+# Prometheus receiver port; must match DPUServiceConfiguration configPorts (dpf_services).
+prometheusPort: 9999
+# Host:port for prometheus/fmds scrape targets (see otel_config.yaml). DPF sets these via nico-api.
+nico_dpu_agent: ""
+nico_fmds: ""
+image:
+  repository: ""
+  pullPolicy: IfNotPresent
+  tag: ""
+imagePullSecrets: []
+podSecurityContext: {}
+securityContext:
+  privileged: true
+  runAsUser: 0
+  runAsGroup: 0
+  capabilities:
+    add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BIND_SERVICE
+tolerations: []
