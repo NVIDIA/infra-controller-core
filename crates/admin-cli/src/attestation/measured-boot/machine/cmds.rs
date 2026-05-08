@@ -25,8 +25,8 @@ use measured_boot::records::CandidateMachineSummary;
 use measured_boot::report::MeasurementReport;
 use serde::Serialize;
 
-use crate::measurement::global;
-use crate::measurement::machine::args::{Attest, CmdMachine, Show};
+use crate::attestation::measured_boot::global;
+use crate::attestation::measured_boot::machine::args::{Attest, CmdMachine, Show};
 use crate::rpc::ApiClient;
 
 /// dispatch matches + dispatches the correct command

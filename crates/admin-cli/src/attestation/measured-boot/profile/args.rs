@@ -42,8 +42,10 @@ use ::rpc::protos::measured_boot::{
 use carbide_uuid::measured_boot::MeasurementSystemProfileId;
 use clap::Parser;
 
+use crate::attestation::measured_boot::global::cmds::{
+    IdNameIdentifier, IdentifierType, get_identifier,
+};
 use crate::cfg::measurement::{KvPair as CfgKvPair, parse_colon_pairs};
-use crate::measurement::global::cmds::{IdNameIdentifier, IdentifierType, get_identifier};
 
 // CmdProfile provides a container for the `profile`
 // subcommand, which itself contains other subcommands
