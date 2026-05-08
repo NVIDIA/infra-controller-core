@@ -112,7 +112,6 @@ impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
         let rpc::forge::VpcPrefixCreationRequest {
             id,
             prefix,
-            name,
             vpc_id,
             config,
             metadata,
@@ -120,25 +119,30 @@ impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
 
         let id = id.unwrap_or_else(VpcPrefixId::new);
         let vpc_id = vpc_id.ok_or(RpcDataConversionError::MissingArgument("vpc_id"))?;
-        // let id = VpcPrefixId::new();
+
+        let metadata = match metadata {
+            Some(metadata) => metadata.try_into()?,
+            None => Metadata::new_with_default_name(),
+        };
+
+        metadata.validate(true).map_err(|e| {
+            RpcDataConversionError::InvalidArgument(format!(
+                "VPCPrefix metadata is not valid: {}",
+                e
+            ))
+        })?;
+
+        let config = match config {
+            Some(config) => VpcPrefixConfig::try_from(config)?,
+            None => VpcPrefixConfig {
+                prefix: IpNetwork::try_from(prefix.as_str())?,
+            },
+        };
 
         Ok(Self {
             id,
-            config: match config {
-                Some(c) => VpcPrefixConfig::try_from(c)?,
-                // Deprecated fields support
-                None => VpcPrefixConfig {
-                    prefix: IpNetwork::try_from(prefix.as_str())?,
-                },
-            },
-            metadata: match metadata {
-                Some(m) => Metadata::try_from(m)?,
-                // Deprecated fields support
-                None => Metadata {
-                    name,
-                    ..Default::default()
-                },
-            },
+            config,
+            metadata,
             vpc_id,
         })
     }
@@ -165,7 +169,6 @@ impl TryFrom<rpc::forge::VpcPrefixUpdateRequest> for UpdateVpcPrefix {
         let rpc::forge::VpcPrefixUpdateRequest {
             id,
             prefix,
-            name,
             config,
             metadata,
         } = rpc_update_prefix;
@@ -180,24 +183,19 @@ impl TryFrom<rpc::forge::VpcPrefixUpdateRequest> for UpdateVpcPrefix {
                 "Resizing VPC prefixes is currently unsupported".to_owned(),
             ));
         }
-
         let id = id.ok_or(RpcDataConversionError::MissingArgument("id"))?;
 
-        // At least one update field must be set
-        if metadata.is_none() && name.is_none() {
-            return Err(RpcDataConversionError::InvalidArgument(
-                "At least one updated field must be set".to_owned(),
-            ));
-        }
-
         let metadata = match metadata {
-            Some(m) => Metadata::try_from(m)?,
-            // Deprecated field handling
-            None => Metadata {
-                name: name.unwrap_or_default(),
-                ..Default::default()
-            },
+            Some(metadata) => metadata.try_into()?,
+            None => Metadata::new_with_default_name(),
         };
+
+        metadata.validate(true).map_err(|e| {
+            RpcDataConversionError::InvalidArgument(format!(
+                "VPC prefix metadata is not valid: {}",
+                e
+            ))
+        })?;
 
         Ok(Self { id, metadata })
     }
@@ -252,8 +250,7 @@ impl From<VpcPrefix> for rpc::forge::VpcPrefix {
 
         Self {
             id,
-            prefix: prefix.clone(),      // Deprecated
-            name: metadata.name.clone(), // Deprecated
+            prefix: prefix.clone(), // Deprecated
             vpc_id,
             total_31_segments: status.total_31_segments, // Deprecated
             available_31_segments: status.available_31_segments, // Deprecated
