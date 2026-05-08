@@ -3401,7 +3401,6 @@ async fn test_network_details_migration(
         .create_vpc_prefix(tonic::Request::new(rpc::forge::VpcPrefixCreationRequest {
             id: None,
             prefix: String::new(),
-            name: String::new(),
             vpc_id: Some(vpc_id),
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: ip_prefix.into(),
@@ -3900,7 +3899,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -4303,7 +4301,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),

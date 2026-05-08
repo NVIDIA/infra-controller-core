@@ -30,10 +30,10 @@ use measured_boot::bundle::MeasurementBundle;
 use measured_boot::records::MeasurementBundleRecord;
 use serde::Serialize;
 
-use crate::measurement::bundle::args::{
+use crate::attestation::measured_boot::bundle::args::{
     CmdBundle, Create, Delete, FindClosestMatch, List, ListMachines, Rename, SetState, Show,
 };
-use crate::measurement::{MachineIdList, global};
+use crate::attestation::measured_boot::{MachineIdList, global};
 use crate::rpc::ApiClient;
 
 /// dispatch matches + dispatches the correct command for

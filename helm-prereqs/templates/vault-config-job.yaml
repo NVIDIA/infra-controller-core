@@ -9,6 +9,7 @@
 ##   container:     wait for site-root Secret, then:
 ##     - Import site-root CA into Vault PKI engine (forgeca)
 ##     - Configure PKI role (forge-cluster) with SPIFFE URI SANs
+##     - Optionally configure PKI role for NICo CLI client certificates
 ##     - Enable Kubernetes auth, bind cert-manager SA
 ##     - Create cert-manager-forge-policy + forge-vault-policy
 ##     - Enable KV v2 at secrets/
@@ -184,6 +185,23 @@ spec:
                 key_bits=256 \
                 require_cn=false \
                 use_csr_common_name=true
+
+              {{ if .Values.vault.nicoCliClientRole.enabled }}
+              # ---- Create NICo CLI client PKI role ----
+              echo "Creating PKI role {{ .Values.vault.nicoCliClientRole.name }}..."
+              vault write {{ .Values.vault.pkiMount }}/roles/{{ .Values.vault.nicoCliClientRole.name }} \
+                allow_any_name=true \
+                enforce_hostnames=false \
+                cn_validations=disabled \
+                client_flag=true \
+                server_flag=false \
+                key_type=ec \
+                key_bits=256 \
+                ttl=1h \
+                max_ttl=12h \
+                ou={{ .Values.vault.nicoCliClientRole.name | quote }}{{ if .Values.vault.nicoCliClientRole.organization }} \
+                organization={{ .Values.vault.nicoCliClientRole.organization | quote }}{{ end }}
+              {{ end }}
 
               # ---- Enable K8s auth ----
               echo "Configuring Kubernetes auth..."

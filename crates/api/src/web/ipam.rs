@@ -535,13 +535,6 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
             .metadata
             .as_ref()
             .map(|m| m.name.clone())
-            .or_else(|| {
-                if p.name.is_empty() {
-                    None
-                } else {
-                    Some(p.name.clone())
-                }
-            })
             .unwrap_or_default();
         prefixes_by_vpc
             .entry(vpc_id)
@@ -685,7 +678,7 @@ pub async fn overlay_prefix_html(
         .metadata
         .as_ref()
         .map(|m| m.name.clone())
-        .unwrap_or_else(|| prefix.name.clone());
+        .unwrap_or_else(|| "<no name>".to_string());
     let vpc_id = prefix.vpc_id.map(|id| id.to_string()).unwrap_or_default();
 
     // Fetch the parent VPC for name/VNI.

@@ -389,6 +389,7 @@ mod tests {
                 password: Some("pass".to_string()),
             },
             Some(EndpointMetadata::Switch(SwitchData {
+                id: None,
                 serial: "switch-serial-1".to_string(),
             })),
             None,

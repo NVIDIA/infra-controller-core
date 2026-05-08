@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 use std::collections::{HashMap, HashSet};
 
 use ::rpc::machine_discovery as rpc_discovery;
@@ -83,12 +84,12 @@ pub fn aggregate_cpus(cpus: &[rpc_discovery::Cpu]) -> Vec<rpc_discovery::CpuInfo
 }
 
 // Same as rpc_discovery::CpuInfo but with total thread count before computing threads per socket
-pub(crate) struct CpuAccumulator {
-    model: String,
-    vendor: String,
-    sockets: u32,
-    cores: u32,
-    threads: u32,
+pub struct CpuAccumulator {
+    pub model: String,
+    pub vendor: String,
+    pub sockets: u32,
+    pub cores: u32,
+    pub threads: u32,
 }
 
 impl From<&CpuAccumulator> for rpc_discovery::CpuInfo {

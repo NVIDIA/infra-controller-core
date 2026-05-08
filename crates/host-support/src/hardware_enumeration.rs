@@ -23,6 +23,7 @@ use std::path::Path;
 use std::process::Command;
 use std::str::Utf8Error;
 
+use ::carbide_rpc_utils::machine_discovery::aggregate_cpus;
 use ::carbide_utils::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use ::carbide_utils::cmd::CmdError;
 use ::rpc::machine_discovery as rpc_discovery;
@@ -33,8 +34,6 @@ use procfs::{CpuInfo, FromRead};
 use rpc::machine_discovery::MemoryDevice;
 use tracing::warn;
 use uname::uname;
-
-use crate::cpu::aggregate_cpus;
 
 pub mod dpu;
 mod gpu;
