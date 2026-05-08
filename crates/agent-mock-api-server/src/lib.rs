@@ -32,7 +32,7 @@ use tonic::transport::{Identity, Server, ServerTlsConfig};
 
 use crate::generated::forge::forge_server::ForgeServer;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MockApiServer {
     config: MockApiServerConfig,
     state: Arc<MockApiServerState>,
@@ -65,15 +65,6 @@ pub struct MockApiServerHandle {
     pub addr: SocketAddr,
     _shutdown_tx: oneshot::Sender<()>,
     state: Arc<MockApiServerState>,
-}
-
-impl Default for MockApiServer {
-    fn default() -> Self {
-        Self {
-            config: Default::default(),
-            state: Default::default(),
-        }
-    }
 }
 
 impl Default for MockApiServerConfig {
