@@ -607,9 +607,9 @@ pub(crate) async fn component_power_control(
     };
 
     // request re-exploration for the BMC/PMC endpoints that had power control initiated against them
-    // so that site explorer refreshes its data for the device. RLA will query the power state shortly
-    // after initiating power control via this path. RLA queries the power state of a device via the site
-    // exploration report data
+    // so that site explorer refreshes its data for the device. NICo Flow will query the power state
+    // shortly after initiating power control via this path. NICo Flow queries the power state of a
+    // device via the site exploration report data.
     request_re_exploration(api, &exploration_ips).await;
 
     Ok(Response::new(rpc::ComponentPowerControlResponse {
