@@ -140,7 +140,7 @@ Once machines are approved, NICo's Site Explorer begins automatically ingesting 
 
 The high-level flow is:
 
-1. **DHCP discovery**: the host BMC sends a DHCP request; NICo assigns an IP and Site Explorer probes the BMC over Redfish to collect a full inventory. See [Redfish Workflow](../architecture/redfish_workflow.md) for details.
+1. **DHCP discovery**: the host BMC sends a DHCP request; NICo assigns an IP and Site Explorer probes the BMC over Redfish to collect a full inventory. Site Explorer authenticates using the factory default credentials from the expected machines table, then rotates the BMC password to the site-wide credential. See [Redfish Workflow](../architecture/redfish_workflow.md) for details.
 2. **Preingestion**: before pairing, NICo runs a preingestion state machine against each discovered BMC endpoint (both host and DPU). It checks that the BMC clock is within an acceptable drift of the site time, resetting the BMC if not. For host endpoints, firmware components are upgraded if they are below the minimum version required for ingestion.
 3. **DPU-host pairing**: Site Explorer correlates host and DPU serial numbers to form matched pairs. Once all DPUs are validated and matched, the `ManagedHost` object is created and the state machine starts.
 4. **`DpuDiscoveringState` / `DPUInit`**: NICo configures Secure Boot on the DPU, installs the DPU OS (BFB image), and power-cycles the host to apply the new DPU configuration.
@@ -148,7 +148,7 @@ The high-level flow is:
 6. **`BomValidating` / `Validation`**: NICo validates the discovered hardware against the expected SKU. If hardware validation is enabled, the host is rebooted and tested before proceeding.
 7. **`Ready`**: the host transitions through `HostInit/Discovered` and enters the available pool, ready for an instance to be assigned to it.
 
-For the complete state transitions, including substates, retry logic, and the `Measuring`, `WaitingForCleanup`, and reprovision paths, see the [Managed Host State Diagrams](../architecture/state_machines/managedhost.md).
+For the complete state transitions, including substates, retry logic, and reprovision paths, see the [Managed Host State Diagrams](../architecture/state_machines/managedhost.md).
 
 ---
 
