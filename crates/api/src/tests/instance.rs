@@ -2872,6 +2872,14 @@ async fn create_tenant_overlay_prefix(
     vpc_id: carbide_uuid::vpc::VpcId,
 ) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
+    let vpcs = db::vpc::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
+    )
+    .await
+    .unwrap();
+    let expected_vpc_version = vpcs[0].version;
+
     let vpc_prefix_id = db::vpc_prefix::persist(
         model::vpc_prefix::NewVpcPrefix {
             id: uuid::Uuid::new_v4().into(),
@@ -2887,6 +2895,7 @@ async fn create_tenant_overlay_prefix(
                 labels: HashMap::new(),
             },
         },
+        expected_vpc_version,
         &mut txn,
     )
     .await
