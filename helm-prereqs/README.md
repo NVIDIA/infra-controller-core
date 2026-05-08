@@ -69,6 +69,9 @@ Before running `setup.sh`, the following values files must be configured for you
 |-----|---------|-------------|-------------|
 | `siteName` | `"TMP_SITE"` | **Yes** | Site identifier, injected into postgres pods as `TMP_SITE` |
 | `imagePullSecrets.ngcCarbidePull` | `""` | No (auto) | NGC API key for pulling NCX Core images. Set automatically by `setup.sh` from `REGISTRY_PULL_SECRET`. |
+| `vault.nicoCliClientRole.enabled` | `false` | No | Create an optional Vault PKI role for short-lived NICo CLI client certificates. This only defines the certificate profile; issuance access must be granted separately. |
+| `vault.nicoCliClientRole.name` | `"nico-cli-client"` | No | Vault role name and certificate `SubjectOU` used to identify NICo CLI client certificates. |
+| `vault.nicoCliClientRole.organization` | `""` | No | Optional certificate `SubjectO` value for deployments that want an additional identity marker. |
 | `postgresql.instances` | `3` | No | Number of PostgreSQL replicas |
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
 
