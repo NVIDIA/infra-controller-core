@@ -8,10 +8,12 @@
 
 ### Installation
 
-UFM 6.19.0 and up is recommended for configuring UFM in more security mode.
+UFM `6.23.1-6` or later is the minimum supported version for this configuration.
+The InfiniBand switches must be updated accordingly before enabling these settings.
 
 * Follow the [prerequisites](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest/installing+ufm+server+software) guidance to install all required packages, including the HA part.
 * Follow the [HA installation](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest/installing+ufm+on+bare+metal+server+-+high+availability+mode) guidance to install the UFM in HA mode.
+* See the [NVIDIA UFM Enterprise REST API Guide v6.23.1](https://docs.nvidia.com/networking/display/ufmenterpriserestapiv6231) for REST API documentation.
 
 ### Configuration
 
@@ -463,7 +465,7 @@ curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  h
 { [34 bytes data]
 * Connection #0 to host carbide-api.forge left intact
 {
-  "ufm_release_version": "6.14.5-2"
+  "ufm_release_version": "6.23.1-6"
 }
 ```
 
@@ -637,4 +639,4 @@ Did not support updating pool.pkey after configuration.
 ## Reference
 
 * [NVIDIA UFM Enterprise Quick Start Guide](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest)
-* [NVIDIA UFM Enterprise REST API](https://docs.nvidia.com/networking/display/ufmenterpriserestapilatest)
+* [NVIDIA UFM Enterprise REST API Guide v6.23.1](https://docs.nvidia.com/networking/display/ufmenterpriserestapiv6231)
