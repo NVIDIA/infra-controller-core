@@ -26,7 +26,8 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
 use crate::state_controller::health_metrics::{
-    HealthIterationMetrics, HealthMetricDimension, HealthObjectMetrics, register_health_gauges,
+    HealthIterationMetrics, HealthMetricDimension, HealthObjectMetrics,
+    register_alerts_suppressed_gauge, register_health_gauges,
 };
 use crate::state_controller::metrics::MetricsEmitter;
 
@@ -98,6 +99,10 @@ pub struct IsInUseByTenant(pub bool);
 impl HealthMetricDimension for IsInUseByTenant {
     fn key_values(&self) -> Vec<KeyValue> {
         vec![KeyValue::new("in_use", self.0.to_string())]
+    }
+
+    fn all_values() -> Vec<Self> {
+        vec![IsInUseByTenant(true), IsInUseByTenant(false)]
     }
 }
 
@@ -265,6 +270,18 @@ impl MetricsEmitter for MachineMetricsEmitter {
             meter,
             shared_metrics.clone(),
             |m| &m.health,
+        );
+
+        // Deprecation warning:
+        // `carbide_alerts_suppressed_count` before the metric was renamed to
+        // `carbide_hosts_alerts_suppressed_count`.
+        // Will be remvoed in future
+        register_alerts_suppressed_gauge(
+            "carbide_alerts_suppressed_count",
+            "machine_id",
+            meter,
+            shared_metrics.clone(),
+            |m| &m.health.alerts_suppressed_by_object_id,
         );
 
         {

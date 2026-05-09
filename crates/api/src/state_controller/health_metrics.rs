@@ -30,11 +30,17 @@ pub trait HealthMetricDimension:
     Hash + Eq + Clone + Default + Debug + Send + Sync + 'static
 {
     fn key_values(&self) -> Vec<KeyValue>;
+
+    fn all_values() -> Vec<Self>;
 }
 
 impl HealthMetricDimension for () {
     fn key_values(&self) -> Vec<KeyValue> {
         Vec::new()
+    }
+
+    fn all_values() -> Vec<Self> {
+        vec![()]
     }
 }
 
@@ -146,10 +152,17 @@ pub fn register_health_gauges<T, D, F>(
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     let health = project(metrics);
-                    for ((healthy, dimension), count) in &health.healthy {
-                        let mut labels = vec![KeyValue::new("healthy", healthy.to_string())];
-                        labels.extend(dimension.key_values());
-                        observer.observe(*count as u64, &[attrs, &labels].concat());
+                    for healthy in [true, false] {
+                        for dimension in D::all_values() {
+                            let count = health
+                                .healthy
+                                .get(&(healthy, dimension.clone()))
+                                .copied()
+                                .unwrap_or_default();
+                            let mut labels = vec![KeyValue::new("healthy", healthy.to_string())];
+                            labels.extend(dimension.key_values());
+                            observer.observe(count as u64, &[attrs, &labels].concat());
+                        }
                     }
                 })
             })
@@ -166,11 +179,18 @@ pub fn register_health_gauges<T, D, F>(
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     let health = project(metrics);
-                    for ((override_type, dimension), count) in &health.num_overrides {
-                        let mut labels =
-                            vec![KeyValue::new("override_type", override_type.to_string())];
-                        labels.extend(dimension.key_values());
-                        observer.observe(*count as u64, &[attrs, &labels].concat());
+                    for override_type in ["merge", "replace"] {
+                        for dimension in D::all_values() {
+                            let count = health
+                                .num_overrides
+                                .get(&(override_type, dimension.clone()))
+                                .copied()
+                                .unwrap_or_default();
+                            let mut labels =
+                                vec![KeyValue::new("override_type", override_type.to_string())];
+                            labels.extend(dimension.key_values());
+                            observer.observe(count as u64, &[attrs, &labels].concat());
+                        }
                     }
                 })
             })
@@ -226,30 +246,45 @@ pub fn register_health_gauges<T, D, F>(
     }
 
     // {prefix}_alerts_suppressed_count
-    {
-        let metrics = shared;
-        meter
-            .u64_observable_gauge(format!("{metric_prefix}_alerts_suppressed_count"))
-            .with_description(
-                "Whether external metrics based alerting is suppressed for a specific object",
-            )
-            .with_callback(move |observer| {
-                metrics.if_available(|metrics, attrs| {
-                    let health = project(metrics);
-                    for object_id in &health.alerts_suppressed_by_object_id {
-                        observer.observe(
-                            1u64,
-                            &[
-                                attrs,
-                                &[KeyValue::new(suppressed_label_key, object_id.clone())],
-                            ]
-                            .concat(),
-                        );
-                    }
-                })
+    register_alerts_suppressed_gauge(
+        &format!("{metric_prefix}_alerts_suppressed_count"),
+        suppressed_label_key,
+        meter,
+        shared,
+        move |m| &project(m).alerts_suppressed_by_object_id,
+    );
+}
+
+pub fn register_alerts_suppressed_gauge<T, F>(
+    metric_name: &str,
+    suppressed_label_key: &'static str,
+    meter: &Meter,
+    shared: SharedMetricsHolder<T>,
+    project: F,
+) where
+    T: Debug + Send + Sync + 'static,
+    F: Fn(&T) -> &HashSet<String> + Send + Sync + 'static,
+{
+    meter
+        .u64_observable_gauge(metric_name.to_string())
+        .with_description(
+            "Whether external metrics based alerting is suppressed for a specific object",
+        )
+        .with_callback(move |observer| {
+            shared.if_available(|metrics, attrs| {
+                for object_id in project(metrics) {
+                    observer.observe(
+                        1u64,
+                        &[
+                            attrs,
+                            &[KeyValue::new(suppressed_label_key, object_id.clone())],
+                        ]
+                        .concat(),
+                    );
+                }
             })
-            .build();
-    }
+        })
+        .build();
 }
 
 #[cfg(test)]
