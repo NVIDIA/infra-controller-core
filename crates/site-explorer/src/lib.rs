@@ -1697,14 +1697,11 @@ impl SiteExplorer {
                         Err(e) => {
                             // If an endpoint can not be explored we don't delete the known information, since it's
                             // still helpful. The failure might just be intermittent.
-                            let mut old_report = old_report.clone();
-                            old_report.last_exploration_error = Some(e);
-                            old_report.last_exploration_latency = Some(exploration_duration);
-                            db::explored_endpoints::try_update(
+                            db::explored_endpoints::try_update_last_exploration_error(
                                 address,
                                 old_version,
-                                &old_report,
-                                true,
+                                &e,
+                                exploration_duration,
                                 &mut txn,
                             )
                             .await?;
