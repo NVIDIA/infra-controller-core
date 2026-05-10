@@ -51,12 +51,14 @@ struct NetworkSegmentRowDisplay {
     version: String,
 }
 
-impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
-    fn from(segment: forgerpc::NetworkSegment) -> Self {
-        let config = segment.config.expect("network segment must have config");
-        let status = segment.status.expect("network segment must have status");
+impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
+    type Error = &'static str;
 
-        Self {
+    fn try_from(segment: forgerpc::NetworkSegment) -> Result<Self, Self::Error> {
+        let config = segment.config.ok_or("network segment missing config")?;
+        let status = segment.status.unwrap_or_default();
+
+        Ok(Self {
             id: segment.id.unwrap_or_default().to_string(),
             name: config.name,
             vpc_id: config.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
@@ -79,7 +81,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
                 .collect::<Vec<String>>()
                 .join(", "),
             version: segment.version,
-        }
+        })
     }
 }
 
@@ -113,7 +115,13 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
             .as_ref()
             .map(|c| c.segment_type)
             .unwrap_or_default();
-        let mut display: NetworkSegmentRowDisplay = n.into();
+        let mut display: NetworkSegmentRowDisplay = match n.try_into() {
+            Ok(d) => d,
+            Err(err) => {
+                tracing::error!(err, "skipping malformed network segment");
+                continue;
+            }
+        };
         display.sub_domain = domain_name;
         match forgerpc::NetworkSegmentType::try_from(segment_type) {
             Ok(forgerpc::NetworkSegmentType::Admin) => admin.push(display),
@@ -238,10 +246,15 @@ struct NetworkSegmentHistory {
     version: String,
 }
 
-impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
-    fn from(segment: forgerpc::NetworkSegment) -> Self {
-        let config = segment.config.expect("network segment must have config");
-        let status = segment.status.expect("network segment must have status");
+impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
+    type Error = &'static str;
+
+    fn try_from(segment: forgerpc::NetworkSegment) -> Result<Self, Self::Error> {
+        // The config field must be `Some`.
+        let config = segment.config.ok_or("network segment missing config")?;
+
+        // The status field may be `None` and default is used.
+        let status = segment.status.unwrap_or_default();
 
         let mut prefixes = Vec::new();
 
@@ -250,11 +263,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 index: i,
                 id: p.id.unwrap_or_default().to_string(),
                 prefix: p.prefix,
-                gateway: p
-                    .gateway
-                    .clone()
-                    .unwrap_or_else(|| "Unknown".to_string())
-                    .to_string(),
+                gateway: p.gateway.unwrap_or_else(|| "Unknown".to_string()),
                 reserve_first: p.reserve_first,
             });
         }
@@ -269,8 +278,10 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             "{:?}",
             forgerpc::TenantState::try_from(status.state).unwrap_or_default()
         );
+
         let version = segment.version;
-        Self {
+
+        Ok(Self {
             id: segment.id.unwrap_or_default().to_string(),
             name: config.name,
             version: version.clone(),
@@ -297,7 +308,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             ),
             prefixes,
             history,
-        }
+        })
     }
 }
 
@@ -369,7 +380,14 @@ pub async fn detail(
     {
         domain_name = name;
     };
-    let mut tmpl: NetworkSegmentDetail = segment.into();
+    let mut tmpl: NetworkSegmentDetail = match segment.try_into() {
+        Ok(t) => t,
+        Err(err) => {
+            tracing::error!(err, "malformed network segment");
+            return (StatusCode::INTERNAL_SERVER_ERROR, err).into_response();
+        }
+    };
+
     tmpl.domain_name = domain_name;
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
