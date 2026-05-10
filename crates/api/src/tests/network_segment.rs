@@ -1037,10 +1037,10 @@ async fn test_update_svi_ip_admin_segment(
 
     let mut txn = env.pool.begin().await?;
     let admin_segment = db::network_segment::admin(&mut txn).await?;
-    assert!(admin_segment.vpc_id.is_some());
+    assert!(admin_segment.config.vpc_id.is_some());
     let admin_vpc = db::vpc::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
+        ObjectColumnFilter::One(IdColumn, &admin_segment.config.vpc_id.unwrap()),
     )
     .await?;
     assert_eq!(
@@ -1112,7 +1112,7 @@ async fn test_update_svi_ip_post_instance_allocation(
     .await?;
     let segment = segment.remove(0);
     let update_request = UpdateVpcVirtualization {
-        id: segment.vpc_id.unwrap(),
+        id: segment.config.vpc_id.unwrap(),
         if_version_match: None,
         network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };

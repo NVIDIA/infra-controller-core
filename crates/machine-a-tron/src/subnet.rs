@@ -57,7 +57,7 @@ impl Subnet {
             .ok_or_else(|| Status::internal("network segment missing config"))?;
         let new_subnet = Subnet {
             segment_id: network_segment.id.expect("Segment must have an ID."),
-            vpc_id: network_segment.vpc_id.expect("Segment must have a VPC_ID."),
+            vpc_id: config.vpc_id.expect("Segment must have a VPC_ID."),
             prefixes: config.prefixes.iter().map(|s| s.prefix.clone()).collect(),
             logs: Vec::default(),
             _created: network_segment.created,

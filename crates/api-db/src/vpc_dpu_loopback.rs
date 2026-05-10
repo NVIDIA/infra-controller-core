@@ -47,7 +47,7 @@ pub async fn delete_and_deallocate(
     let mut admin_vpc = None;
     let query = if !delete_admin_loopback_also {
         let admin_segment = crate::network_segment::admin(txn).await?;
-        admin_vpc = admin_segment.vpc_id;
+        admin_vpc = admin_segment.config.vpc_id;
         if admin_vpc.is_some() {
             "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 AND vpc_id != $2 RETURNING *"
         } else {

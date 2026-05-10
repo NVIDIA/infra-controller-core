@@ -330,6 +330,7 @@ pub struct NetworkSegmentConfig {
     pub mtu: i32,
     pub segment_type: NetworkSegmentType,
     pub allocation_strategy: AllocationStrategy,
+    pub vpc_id: Option<VpcId>,
 }
 
 /// System-observed status for a network segment.
@@ -348,7 +349,6 @@ pub struct NetworkSegmentStatus {
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
     pub id: NetworkSegmentId,
-    pub vpc_id: Option<VpcId>,
     pub version: ConfigVersion,
     pub config: NetworkSegmentConfig,
     pub status: NetworkSegmentStatus,
@@ -494,7 +494,6 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
 
         Ok(NetworkSegment {
             id: row.try_get("id")?,
-            vpc_id: row.try_get("vpc_id")?,
             version: row.try_get("version")?,
             config: NetworkSegmentConfig {
                 name: row.try_get("name")?,
@@ -502,6 +501,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
                 mtu: row.try_get("mtu")?,
                 segment_type: row.try_get("network_segment_type")?,
                 allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
+                vpc_id: row.try_get("vpc_id")?,
             },
             status: NetworkSegmentStatus {
                 controller_state: Versioned::new(
@@ -646,7 +646,6 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
 
         Ok(rpc::NetworkSegment {
             id: Some(src.id),
-            vpc_id: src.vpc_id,
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
@@ -657,6 +656,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                 mtu: Some(src.config.mtu),
                 prefixes,
                 segment_type: src.config.segment_type as i32,
+                vpc_id: src.config.vpc_id,
             }),
             status: Some(rpc::forge::NetworkSegmentStatus {
                 state: state as i32,

@@ -848,7 +848,7 @@ pub async fn overlay_segment_html(
         .unwrap_or_default();
 
     // Fetch VPC name if available.
-    let vpc_name = if let Some(vpc_id) = segment.vpc_id {
+    let vpc_name = if let Some(vpc_id) = config.vpc_id {
         match state
             .find_vpcs_by_ids(tonic::Request::new(forgerpc::VpcsByIdsRequest {
                 vpc_ids: vec![vpc_id],

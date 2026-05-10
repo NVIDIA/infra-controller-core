@@ -2246,6 +2246,8 @@ message NetworkSegmentConfig {
 
   reserved 6;
   reserved "flags";
+
+  common.VpcId vpc_id = 7;
 }
 
 message NetworkSegmentStatus {
@@ -2265,11 +2267,10 @@ message NetworkSegmentStatus {
 
 message NetworkSegment {
   common.NetworkSegmentId id = 1;
-  common.VpcId vpc_id = 2;
 
-  // Fields 3–6, 14 moved into config; 15, 100–103 moved into status.
-  reserved 3, 4, 5, 6, 14, 15, 100, 101, 102, 103;
-  reserved "name", "subdomain_id", "mtu", "prefixes",
+  // Fields 2–6, 14 moved into config; 15, 100–103 moved into status.
+  reserved 2, 3, 4, 5, 6, 14, 15, 100, 101, 102, 103;
+  reserved "vpc_id", "name", "subdomain_id", "mtu", "prefixes",
            "segment_type", "flags",
            "state", "history", "state_reason", "state_sla";
 

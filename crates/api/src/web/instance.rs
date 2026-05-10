@@ -491,7 +491,7 @@ async fn get_vpc_map_for_instance(
 ) -> Result<HashMap<VpcId, forgerpc::Vpc>, tonic::Status> {
     let vpc_ids: Vec<VpcId> = network_segments_map
         .values()
-        .filter_map(|ns| ns.vpc_id)
+        .filter_map(|ns| ns.config.as_ref().and_then(|c| c.vpc_id))
         .collect();
 
     let vpc_req = tonic::Request::new(forgerpc::VpcsByIdsRequest { vpc_ids });
@@ -539,7 +539,7 @@ async fn get_interfaces_for_instance_detail(
 
         if let Some(ns_id) = interface.network_segment_id
             && let Some(ns) = network_segments_map.get(&ns_id)
-            && let Some(vpc_id_val) = ns.vpc_id
+            && let Some(vpc_id_val) = ns.config.as_ref().and_then(|c| c.vpc_id)
             && let Some(vpc) = vpc_map.get(&vpc_id_val)
         {
             vpc_id = vpc.id.map(|id| id.to_string()).unwrap_or_default();

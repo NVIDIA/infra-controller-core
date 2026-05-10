@@ -159,7 +159,10 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
         .filter(|x| x.status.can_stretch.is_some_and(|x| x))
         .collect::<Vec<_>>();
 
-    let all_vpcs_ids = all_segments.iter().filter_map(|x| x.vpc_id).collect_vec();
+    let all_vpcs_ids = all_segments
+        .iter()
+        .filter_map(|x| x.config.vpc_id)
+        .collect_vec();
     let all_vpcs = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::List(vpc::IdColumn, &all_vpcs_ids),
@@ -175,7 +178,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
 
     // Allocate SVI IP for the segments attached to a FNN VPC.
     for segment in all_segments {
-        let Some(vpc_id) = segment.vpc_id else {
+        let Some(vpc_id) = segment.config.vpc_id else {
             continue;
         };
 
@@ -249,7 +252,7 @@ pub(crate) async fn create_admin_vpc(
     let admin_segment = db::network_segment::admin(&mut txn).await?;
     let existing_vpc = db::vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
     if let Some(existing_vpc) = existing_vpc.first() {
-        if let Some(vpc_id) = admin_segment.vpc_id {
+        if let Some(vpc_id) = admin_segment.config.vpc_id {
             if vpc_id != existing_vpc.id {
                 return Err(CarbideError::internal(format!(
                     "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",

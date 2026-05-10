@@ -284,7 +284,7 @@ pub async fn admin_network(
     let (vpc_vni, tenant_vrf_loopback_ip) = if !fnn_enabled_on_admin {
         (0, None)
     } else {
-        match admin_segment.vpc_id {
+        match admin_segment.config.vpc_id {
             Some(vpc_id) => {
                 let mut vpcs =
                     db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
@@ -401,7 +401,7 @@ pub async fn tenant_network(
     let v6_address = ds.v6_address(iface);
     let v6_interface_prefix = ds.v6_interface_prefix(iface);
 
-    let vpc_prefixes: Vec<String> = match segment.vpc_id {
+    let vpc_prefixes: Vec<String> = match segment.config.vpc_id {
         Some(vpc_id) => {
             let vpc_prefixes = db::vpc_prefix::find_by_vpc(txn, vpc_id)
                 .await?
@@ -422,7 +422,7 @@ pub async fn tenant_network(
     let mut vpc_peer_vnis = vec![];
     let mut vpc_peer_prefixes = vec![];
     if let Some(policy) = vpc_peering_policy_on_existing
-        && let Some(vpc_id) = segment.vpc_id
+        && let Some(vpc_id) = segment.config.vpc_id
     {
         match policy {
             VpcPeeringPolicy::Exclusive => {
@@ -466,7 +466,7 @@ pub async fn tenant_network(
     vpc_peer_vnis.sort_unstable();
     vpc_peer_prefixes.sort_unstable();
 
-    let vpc = match segment.vpc_id {
+    let vpc = match segment.config.vpc_id {
         Some(vpc_id) => {
             let mut vpcs =
                 db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))

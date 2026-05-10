@@ -571,7 +571,7 @@ async fn get_vpc_for_interface_network_segment(
         && let Some(vpc_id) = network_segments
             .network_segments
             .first()
-            .and_then(|s| s.vpc_id)
+            .and_then(|s| s.config.as_ref().and_then(|c| c.vpc_id))
     {
         let vpc_ids: Vec<VpcId> = vec![vpc_id];
         Ok(api_client

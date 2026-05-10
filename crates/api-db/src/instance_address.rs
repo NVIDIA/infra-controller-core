@@ -163,7 +163,7 @@ fn validate(
             }
         }
 
-        match segment.vpc_id {
+        match segment.config.vpc_id {
             Some(x) => {
                 vpc_ids.insert(x);
             }

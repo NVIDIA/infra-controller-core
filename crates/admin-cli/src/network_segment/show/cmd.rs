@@ -36,13 +36,20 @@ async fn convert_network_to_nice_format(
     segment: forgerpc::NetworkSegment,
     api_client: &ApiClient,
 ) -> CarbideCliResult<String> {
+    // The `config` field  must be not `None` and no default should be used when it's `None`.
     let config = segment.config.ok_or_else(|| {
         CarbideCliError::GenericError("network segment missing config".to_string())
     })?;
 
-    let status = segment.status.ok_or_else(|| {
-        CarbideCliError::GenericError("network segment missing status".to_string())
-    })?;
+    // The `status` field _may_ be `None`. The use of it in the table below is reading the
+    // `TenantState`.
+    //
+    // The behavior may be a little too implicit though as `prost::Enumeration` automatically sets
+    // the first variant `TenantState::Provisioning` as the default. While being correct, it may be
+    // under-specified. For now, it is consistent with the behavior when `NetworkSegment` object was
+    // flat: the state is updated internally, and by default, its value is `0` when the
+    // `NetworkSegment` is created.
+    let status = segment.status.unwrap_or_default();
 
     let width = 10;
     let mut lines = String::new();
@@ -69,7 +76,7 @@ async fn convert_network_to_nice_format(
                 forgerpc::TenantState::try_from(status.state).unwrap_or_default()
             ),
         ),
-        ("VPC", segment.vpc_id.unwrap_or_default().to_string()),
+        ("VPC", config.vpc_id.unwrap_or_default().to_string()),
         (
             "DOMAIN",
             format!(
@@ -194,7 +201,7 @@ fn convert_network_to_nice_table(
                 "{:?}",
                 forgerpc::TenantState::try_from(status.state).unwrap_or_default()
             ),
-            segment.vpc_id.unwrap_or_default(),
+            config.vpc_id.unwrap_or_default(),
             config.mtu.unwrap_or(-1),
             config
                 .prefixes
