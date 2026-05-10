@@ -20,9 +20,9 @@ use std::sync::Arc;
 
 use bmc_mock::HostnameQuerying;
 use eyre::Context;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use russh::keys::PublicKeyBase64;
-use russh::keys::signature::digest::common::getrandom::SysRng;
-use russh::keys::ssh_key::rand_core::UnwrapErr;
 use russh::server::{Auth, Config, Msg, Server as _, Session, run_stream};
 use russh::{Channel, ChannelId, MethodKind, MethodSet, Pty, server};
 use tokio::net::TcpListener;

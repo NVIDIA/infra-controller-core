@@ -24,6 +24,7 @@ use model::resource_pool::common::VPC_VNI;
 use model::resource_pool::{
     OwnerType, ResourcePool, ResourcePoolError, ResourcePoolStats as St, ValueType,
 };
+use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 use sqlx::migrate::MigrateDatabase;
 
@@ -387,7 +388,11 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     txn.commit().await?;
 
     // CreateVpc rpc call
-    let vpc_req = VpcCreationRequest::builder("test_vpc_assign_after_delete_1", "test")
+    let vpc_req = VpcCreationRequest::builder("test")
+        .metadata(Metadata {
+            name: "test_vpc_assign_after_delete_1".to_string(),
+            ..Default::default()
+        })
         .network_virtualization_type(rpc::forge::VpcVirtualizationType::EthernetVirtualizer)
         .tonic_request();
     let vpc1 = env.api.create_vpc(vpc_req).await.unwrap().into_inner();
@@ -430,7 +435,12 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     txn.commit().await?;
 
     // CreateVpc
-    let vpc_req = VpcCreationRequest::builder("test_vpc_assign_after_delete_2", "test")
+    let vpc_req = VpcCreationRequest::builder("test")
+        .metadata(Metadata {
+            name: "test_vpc_assign_after_delete_2".to_string(),
+            description: "".to_string(),
+            labels: vec![],
+        })
         .network_virtualization_type(rpc::forge::VpcVirtualizationType::EthernetVirtualizer)
         .tonic_request();
     let vpc2 = env.api.create_vpc(vpc_req).await.unwrap().into_inner();

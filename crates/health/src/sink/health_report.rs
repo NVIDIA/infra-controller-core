@@ -20,7 +20,9 @@ use std::sync::Arc;
 use carbide_uuid::machine::MachineId;
 
 use super::dedup_queue::DedupQueue;
-use super::{CollectorEvent, DataSink, EventContext, HealthReport, ReportSource};
+use super::{
+    CollectorEvent, DataSink, EventContext, HealthReport, HealthReportTarget, ReportSource,
+};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::HealthReportSinkConfig;
@@ -103,19 +105,24 @@ impl DataSink for HealthReportSink {
     }
 
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        if let CollectorEvent::HealthReport(report) = event {
-            if let Some(machine_id) = context.machine_id() {
-                let key = HealthReportKey {
-                    id: machine_id,
-                    source: report.source,
-                };
-                self.queue.save_latest(key, Arc::clone(report));
-            } else {
-                tracing::warn!(
-                    report = ?report,
-                    "Received HealthReport event without machine_id context"
-                );
-            }
+        let CollectorEvent::HealthReport(report) = event else {
+            return;
+        };
+        if report.target != Some(HealthReportTarget::Machine) {
+            return;
+        }
+
+        if let Some(machine_id) = context.machine_id() {
+            let key = HealthReportKey {
+                id: machine_id,
+                source: report.source,
+            };
+            self.queue.save_latest(key, Arc::clone(report));
+        } else {
+            tracing::warn!(
+                report = ?report,
+                "Received machine-target HealthReport event without machine_id context"
+            );
         }
     }
 }
@@ -137,6 +144,7 @@ mod tests {
     fn report(source: ReportSource) -> Arc<HealthReport> {
         Arc::new(HealthReport {
             source,
+            target: None,
             observed_at: None,
             successes: Vec::new(),
             alerts: Vec::new(),

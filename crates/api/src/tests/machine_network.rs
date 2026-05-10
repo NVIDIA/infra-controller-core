@@ -26,6 +26,7 @@ use ::rpc::forge::{
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
 use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use model::machine::network::ManagedHostQuarantineMode;
+use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 
 use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
@@ -149,7 +150,11 @@ async fn test_managed_host_network_config_includes_routing_profile_accepted_leak
 
     let segment_id = env
         .create_vpc_and_tenant_segment_with_vpc_details(
-            VpcCreationRequest::builder("route leak vpc", tenant.organization_id.as_str())
+            VpcCreationRequest::builder(tenant.organization_id.as_str())
+                .metadata(Metadata {
+                    name: "route leak vpc".to_string(),
+                    ..Default::default()
+                })
                 .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
                 .routing_profile_type(profile_type.to_string())
                 .rpc(),

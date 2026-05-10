@@ -25,7 +25,7 @@ use crate::HealthError;
 use crate::config::StaticBmcEndpoint;
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
-    SwitchData,
+    PowerShelfData, SwitchData,
 };
 
 pub struct StaticEndpointSource {
@@ -53,18 +53,63 @@ impl StaticEndpointSource {
 
                 let mac = MacAddress::from_str(&cfg.mac).ok()?;
 
-                let metadata = if let Some(serial) = &cfg.switch_serial {
-                    Some(EndpointMetadata::Switch(SwitchData {
-                        serial: serial.clone(),
+                let metadata = if let Some(power_shelf) = &cfg.power_shelf {
+                    let id = power_shelf.id.as_ref().and_then(|id| match id.parse() {
+                        Ok(id) => Some(id),
+                        Err(error) => {
+                            tracing::warn!(
+                                ?error,
+                                power_shelf_id = ?id,
+                                "Invalid power_shelf.id in static endpoint config"
+                            );
+                            None
+                        }
+                    });
+                    let serial = power_shelf
+                        .serial
+                        .clone()
+                        .or_else(|| power_shelf.id.clone())
+                        .unwrap_or_else(|| cfg.mac.clone());
+
+                    Some(EndpointMetadata::PowerShelf(PowerShelfData {
+                        id,
+                        serial,
                     }))
-                } else if let Some(machine_id_str) = &cfg.machine_id {
-                    match machine_id_str.parse() {
+                } else if let Some(switch) = &cfg.switch {
+                    let id = switch.id.as_ref().and_then(|id| match id.parse() {
+                        Ok(id) => Some(id),
+                        Err(error) => {
+                            tracing::warn!(
+                                ?error,
+                                switch_id = ?id,
+                                "Invalid switch.id in static endpoint config"
+                            );
+                            None
+                        }
+                    });
+                    let serial = switch
+                        .serial
+                        .clone()
+                        .or_else(|| switch.id.clone())
+                        .unwrap_or_else(|| cfg.mac.clone());
+
+                    Some(EndpointMetadata::Switch(SwitchData {
+                        id,
+                        serial,
+                    }))
+                } else if let Some(machine) = &cfg.machine {
+                    let machine_id = &machine.id;
+                    match machine_id.parse() {
                         Ok(machine_id) => Some(EndpointMetadata::Machine(MachineData {
                             machine_id,
-                            machine_serial: None,
+                            machine_serial: machine.serial.clone(),
                         })),
                         Err(error) => {
-                            tracing::warn!(?error, machine_id = ?machine_id_str, "Invalid machine_id in static endpoint config");
+                            tracing::warn!(
+                                ?error,
+                                ?machine_id,
+                                "Invalid machine.id in static endpoint config"
+                            );
                             None
                         }
                     }

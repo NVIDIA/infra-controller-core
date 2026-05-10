@@ -23,8 +23,8 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
-use carbide_host_support::cpu::aggregate_cpus;
 use carbide_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
+use carbide_rpc_utils::machine_discovery::aggregate_cpus;
 use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use mac_address::{MacAddress, MacParseError};

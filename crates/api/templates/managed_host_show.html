@@ -90,7 +90,7 @@
 			<select id="mem-filter" name="mem-filter">
 				<option value="-1">All</option>
 				{% for (val, display) in mems %}
-				<option value="{{ val }}" {% if active_mem_filter|as_ref == val %}selected{% endif %}>{{ display }}</option>
+				<option value="{{ val }}" {% if active_mem_filter|ref == val %}selected{% endif %}>{{ display }}</option>
 				{% endfor %}
 			</select>
 		</div>

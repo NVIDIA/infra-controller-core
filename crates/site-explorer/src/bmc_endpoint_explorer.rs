@@ -513,15 +513,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         expected: Option<&ExpectedEntity>,
-        last_report: Option<&EndpointExplorationReport>,
+        last_exploration_error: Option<&EndpointExplorationError>,
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         // If the site explorer was previously unable to login to the root BMC account using
         // the expected credentials, wait for an operator to manually intervene.
         // This will avoid locking us out of BMCs.
-        if let Some(report) = last_report
-            && report.cannot_login()
-        {
+        if last_exploration_error.is_some_and(|e| e.is_unauthorized()) {
             return Err(EndpointExplorationError::AvoidLockout);
         }
 
@@ -599,8 +597,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     }) if vendor == RedfishVendor::Hpe => {
                         const MAX_AUTH_RETRIES: u32 = 5;
 
-                        let previous_count = last_report
-                            .and_then(|r| r.last_exploration_error.as_ref())
+                        let previous_count = last_exploration_error
                             .and_then(|e| e.intermittent_unauthorized_count())
                             .unwrap_or(0);
                         let consecutive_count = previous_count + 1;

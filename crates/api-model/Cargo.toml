@@ -31,7 +31,6 @@ name = "model"
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-dpf = { path = "../dpf" }
 config-version = { path = "../config-version", features = ["sqlx"] }
-carbide-host-support = { path = "../host-support", default-features = false }
 carbide-libmlx = { path = "../libmlx" }
 carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-version = { path = "../version" }
@@ -40,6 +39,7 @@ carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
+carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }

@@ -708,7 +708,8 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         assert_eq!(report.report.endpoint_type, EndpointType::Bmc);
         match report.address.to_string() {
             a if a == machines[0].ip => {
-                // The original report is retained. But the error gets stored
+                // The original successful report is retained, while only the latest
+                // exploration failure details are updated.
                 assert_eq!(report.report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
                 assert_eq!(
                     report.report.last_exploration_error.clone().unwrap(),
@@ -716,6 +717,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                         details: Some("test_unreachable_detail".to_string())
                     }
                 );
+                assert!(report.report.last_exploration_latency.is_some());
             }
             a if a == machines[1].ip => {
                 assert_eq!(report.report.vendor, Some(bmc_vendor::BMCVendor::Dell));

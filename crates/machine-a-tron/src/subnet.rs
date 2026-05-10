@@ -45,7 +45,7 @@ impl Subnet {
     ) -> Result<Subnet, Status> {
         let network_segment = app_context
             .api_client()
-            .create_network_segment(&vpc.vpc_name, vpc.network_virtualization_type)
+            .create_network_segment(&vpc.metadata.name, vpc.network_virtualization_type)
             .await
             .map_err(|e| {
                 tracing::error!("Error creating network segment: {}", e);

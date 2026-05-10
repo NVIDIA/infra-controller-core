@@ -2703,7 +2703,11 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
                 .tonic_request(),
         )
         .await
@@ -3397,7 +3401,6 @@ async fn test_network_details_migration(
         .create_vpc_prefix(tonic::Request::new(rpc::forge::VpcPrefixCreationRequest {
             id: None,
             prefix: String::new(),
-            name: String::new(),
             vpc_id: Some(vpc_id),
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: ip_prefix.into(),
@@ -3896,7 +3899,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -4299,7 +4301,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),

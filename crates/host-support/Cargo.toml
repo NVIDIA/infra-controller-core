@@ -35,6 +35,7 @@ carbide-tls = { path = "../tls" }
 carbide-libmlx = { path = "../libmlx" }
 logfmt = { path = "../logfmt" }
 carbide-rpc = { path = "../rpc" }
+carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 

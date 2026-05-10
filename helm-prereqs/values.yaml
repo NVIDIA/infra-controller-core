@@ -47,6 +47,10 @@ vault:
     create: true
   pkiMount: "forgeca"
   pkiRole: "forge-cluster"
+  nicoCliClientRole:
+    enabled: false
+    name: "nico-cli-client"
+    organization: ""
   kvMount: "secrets"
 
 certManager:

@@ -1566,7 +1566,7 @@ impl SiteExplorer {
                             bmc_target_addr,
                             endpoint.iface,
                             endpoint.expected,
-                            endpoint.last_explored.map(|e| &e.report),
+                            endpoint.last_explored.and_then(|e| e.report.last_exploration_error.as_ref()),
                             endpoint.last_explored.and_then(|e| e.boot_interface_mac),
                         )
                         .await;
@@ -1697,14 +1697,11 @@ impl SiteExplorer {
                         Err(e) => {
                             // If an endpoint can not be explored we don't delete the known information, since it's
                             // still helpful. The failure might just be intermittent.
-                            let mut old_report = old_report.clone();
-                            old_report.last_exploration_error = Some(e);
-                            old_report.last_exploration_latency = Some(exploration_duration);
-                            db::explored_endpoints::try_update(
+                            db::explored_endpoints::try_update_last_exploration_error(
                                 address,
                                 old_version,
-                                &old_report,
-                                true,
+                                &e,
+                                exploration_duration,
                                 &mut txn,
                             )
                             .await?;

@@ -431,6 +431,9 @@ impl prost::Message for PowerShelfId {
         let mut legacy_message = legacy_rpc::PowerShelfId::from(*self);
         legacy_message.merge_field(tag, wire_type, buf, ctx)?;
         *self = PowerShelfId::from_str(&legacy_message.id).map_err(|_| {
+            // Deprecation: if they remove DecodeError::new, they hopefully will provide some other way
+            // to impl prost::Message.
+            #[allow(deprecated)]
             DecodeError::new(format!("Invalid power shelf id: {}", legacy_message.id))
         })?;
         Ok(())
