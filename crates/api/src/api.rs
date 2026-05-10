@@ -55,7 +55,6 @@ use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
-use crate::nvlink::NmxmClientPool;
 use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::state_controller::controller::Enqueuer;
@@ -77,8 +76,6 @@ pub struct Api {
     pub(crate) scout_stream_registry: ConnectionRegistry,
     #[allow(unused)]
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
-    #[allow(dead_code)]
-    pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) nmxc_client_pool: Arc<dyn NmxcPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
     pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,

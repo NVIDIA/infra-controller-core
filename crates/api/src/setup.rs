@@ -73,7 +73,6 @@ use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
-use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::state_controller::common_services::CommonStateHandlerServices;
@@ -392,12 +391,6 @@ pub async fn start_api(
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
 
-    let nmxm_client_pool =
-        libnmxm::NmxmClientPool::builder(nvlink_config.allow_insecure).build()?;
-    let nmxm_pool = NmxmClientPoolImpl::new(credential_manager.clone(), nmxm_client_pool);
-
-    let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
-
     let mut nmxc_builder = libnmxc::NmxcClientPool::builder();
     if let Some(tls) = nmxc_tls_config_from_nvlink(&nvlink_config) {
         nmxc_builder = nmxc_builder.tls(tls);
@@ -538,7 +531,6 @@ pub async fn start_api(
         runtime_config: carbide_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
         rms_client: rms_client.clone(),
-        nmxm_pool: shared_nmxm_pool,
         nmxc_client_pool: shared_nmxc_pool.clone(),
         work_lock_manager_handle,
         dpf_sdk: dpf_sdk.clone(),
@@ -604,7 +596,6 @@ pub async fn initialize_and_start_controllers(
         database_connection: db_pool,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
-        nmxm_pool: _,
         work_lock_manager_handle,
         rms_client,
         dpf_sdk,

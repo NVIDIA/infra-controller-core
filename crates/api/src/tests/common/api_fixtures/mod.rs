@@ -253,13 +253,12 @@ pub struct TestEnvOverrides {
     pub power_manager_enabled: Option<bool>,
     pub dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub fnn_config: Option<FnnConfig>,
-    pub nmxm_default_partition: Option<bool>,
-    pub nmxm_unknown_partition: Option<bool>,
     pub nmxc_default_partition: Option<bool>,
     pub nmxc_unknown_partition: Option<bool>,
     // After n create_requests succeed, they will start failing.
     pub nmxm_fail_after_n_creates: Option<usize>,
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
+    pub nmxc_simulator: Option<bool>,
 }
 
 impl TestEnvOverrides {
@@ -354,7 +353,7 @@ pub struct TestEnv {
     pub test_meter: TestMeter,
     pub attestation_enabled: bool,
     pub site_explorer: SiteExplorer,
-    pub nmxm_sim: Arc<dyn NmxmClientPool>,
+    pub nmxm_pool: Arc<dyn NmxmClientPool>,
     pub nmxc_sim: Arc<dyn NmxcPool>,
     pub endpoint_explorer: MockEndpointExplorer,
     pub admin_segment: Option<NetworkSegmentId>,
@@ -1358,27 +1357,29 @@ pub async fn create_test_env_with_overrides(
 
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
-    let nmxm_sim: Arc<dyn NmxmClientPool> =
+
+    let nmxm_pool: Arc<dyn NmxmClientPool> =
         Arc::new(if let Some(n) = overrides.nmxm_fail_after_n_creates {
             NmxmSimClient::with_fail_after_n_creates(n)
-        } else if overrides.nmxm_default_partition == Some(true) {
+        } else if overrides.nmxc_default_partition == Some(true) {
             NmxmSimClient::with_default_partition()
-        } else if overrides.nmxm_unknown_partition == Some(true) {
+        } else if overrides.nmxc_unknown_partition == Some(true) {
             NmxmSimClient::with_unknown_partition()
         } else {
             NmxmSimClient::default()
         });
 
-    let nmxc_sim: Arc<dyn NmxcPool> =
-        Arc::new(if let Some(n) = overrides.nmxm_fail_after_n_creates {
-            NmxcSimClient::with_fail_after_n_creates(n)
-        } else if overrides.nmxc_default_partition == Some(true) {
-            NmxcSimClient::with_default_partition()
-        } else if overrides.nmxc_unknown_partition == Some(true) {
-            NmxcSimClient::with_unknown_partition()
-        } else {
-            NmxcSimClient::default()
-        });
+    let nmxc_sim: Arc<dyn NmxcPool> = if overrides.nmxc_simulator == Some(true) {
+        Arc::new(NmxcSimClient::simulator())
+    } else if let Some(n) = overrides.nmxm_fail_after_n_creates {
+        Arc::new(NmxcSimClient::with_fail_after_n_creates(n))
+    } else if overrides.nmxc_default_partition == Some(true) {
+        Arc::new(NmxcSimClient::with_default_partition())
+    } else if overrides.nmxc_unknown_partition == Some(true) {
+        Arc::new(NmxcSimClient::with_unknown_partition())
+    } else {
+        Arc::new(NmxcSimClient::default())
+    };
 
     let mut config = overrides.config.unwrap_or(get_config());
     if let Some(threshold) = overrides.dpu_agent_version_staleness_threshold {
@@ -1532,7 +1533,6 @@ pub async fn create_test_env_with_overrides(
         dpu_health_log_limiter: LogLimiter::default(),
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
         rms_client: rms_sim.as_rms_client(),
-        nmxm_pool: nmxm_sim.clone(),
         nmxc_client_pool: nmxc_sim.clone(),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
@@ -1799,7 +1799,7 @@ pub async fn create_test_env_with_overrides(
         attestation_enabled,
         test_meter,
         site_explorer,
-        nmxm_sim,
+        nmxm_pool,
         nmxc_sim,
         endpoint_explorer: fake_endpoint_explorer,
         admin_segment,

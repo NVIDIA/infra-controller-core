@@ -291,7 +291,7 @@ async fn execute_command(
                     for g in &response.gpu_info_list {
                         println!(
                             "  gpu_uid={} index={} health={:?}",
-                            g.gpu_uid, g.gpu_index, g.gpu_health
+                            g.gpu_uid, g.gpu_id, g.gpu_health
                         );
                     }
                 }

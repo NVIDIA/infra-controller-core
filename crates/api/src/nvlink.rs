@@ -59,6 +59,8 @@ pub struct NmxmClientPoolImpl<C> {
 }
 
 impl<C: CredentialReader> NmxmClientPoolImpl<C> {
+    /// Used by production `setup` when NMX-M is wired back into the API service.
+    #[allow(dead_code)]
     pub fn new(credential_reader: C, pool: libnmxm::NmxmClientPool) -> Self {
         NmxmClientPoolImpl {
             credential_reader,
@@ -770,6 +772,8 @@ pub mod test_support {
         _partitions: Arc<Mutex<Vec<SimPartition>>>,
         _next_partition_id: Arc<Mutex<u32>>,
         _fail_after_n_creates: Option<Arc<Mutex<usize>>>,
+        _grpc_pool: Option<NmxcClientPool>,
+        _simulator_endpoint: Option<Endpoint>,
     }
 
     impl Default for NmxcSimClient {
@@ -778,11 +782,34 @@ pub mod test_support {
                 _partitions: Arc::new(Mutex::new(Vec::new())),
                 _next_partition_id: Arc::new(Mutex::new(1)),
                 _fail_after_n_creates: None,
+                _grpc_pool: None,
+                _simulator_endpoint: None,
             }
         }
     }
 
     impl NmxcSimClient {
+        /// Default simulator URL: plain gRPC on port 9601 (`http://localhost:9601`).
+        pub const SIMULATOR_URL: &'static str = "http://localhost:9601";
+
+        /// Creates a pool that proxies to the NMX-C gRPC simulator.
+        pub fn simulator() -> Self {
+            Self::with_simulator_url(Self::SIMULATOR_URL)
+        }
+
+        /// Creates a pool that proxies to an NMX-C gRPC simulator URL.
+        pub fn with_simulator_url(url: impl Into<String>) -> Self {
+            NmxcSimClient {
+                _grpc_pool: Some(
+                    NmxcClientPool::builder()
+                        .build()
+                        .expect("NmxcClientPool::builder default"),
+                ),
+                _simulator_endpoint: Some(Endpoint::new(url)),
+                ..Self::default()
+            }
+        }
+
         /// After n successful [`Nmxc::create_partition`] calls, further creates fail.
         pub fn with_fail_after_n_creates(n: usize) -> Self {
             NmxcSimClient {
@@ -870,6 +897,7 @@ pub mod test_support {
             })
         }
 
+        #[allow(deprecated)]
         async fn get_domain_properties(
             &self,
             _context: Option<nmxc_model::Context>,
@@ -882,7 +910,7 @@ pub mod test_support {
                 max_compute_nodes_per_chassis: 0,
                 max_gpus_per_compute_node: 0,
                 max_gpu_nv_links: 0,
-                line_rate_mbps: 0,
+                line_rate_m_bps: 0,
                 max_switch_nodes: 0,
                 max_switch_nodes_per_chassis: 0,
                 max_switches_per_switch_node: 0,
@@ -1138,86 +1166,54 @@ pub mod test_support {
     #[async_trait]
     impl NmxcPool for NmxcSimClient {
         async fn create_client(&self, _endpoint: Endpoint) -> Result<Box<dyn Nmxc>, NmxcError> {
+            if let Some(pool) = &self._grpc_pool {
+                return pool.create_client(Endpoint::new(Self::SIMULATOR_URL)).await;
+            }
             Ok(Box::new(NmxcSimClient {
                 _partitions: self._partitions.clone(),
                 _next_partition_id: self._next_partition_id.clone(),
                 _fail_after_n_creates: self._fail_after_n_creates.clone(),
+                _grpc_pool: self._grpc_pool.clone(),
+                _simulator_endpoint: self._simulator_endpoint.clone(),
             }))
         }
     }
-
-    /// [`NmxcPool`] that dials the NMX-C gRPC **simulator** on localhost (default port 9601).
-    ///
-    /// Ignores the `endpoint` argument on [`NmxcPool::create_client`] and always connects to
-    /// [`Self::simulator_endpoint`], so configured endpoints do not need to match the simulator
-    /// when using this pool in tests.
-    #[derive(Debug, Clone)]
-    pub struct NmxcSimClient2 {
-        pool: NmxcClientPool,
-        simulator_endpoint: Endpoint,
-    }
-
-    impl NmxcSimClient2 {
-        /// Default simulator URL: plain gRPC on port 9601 (`http://localhost:9601`).
-        pub const SIMULATOR_URL: &'static str = "http://localhost:9601";
-
-        pub fn new() -> Self {
-            Self {
-                pool: NmxcClientPool::builder()
-                    .build()
-                    .expect("NmxcClientPool::builder default"),
-                simulator_endpoint: Endpoint::new(Self::SIMULATOR_URL),
-            }
-        }
-
-        /// Same as [`Self::new`] but uses a custom base URL (scheme/host/port).
-        pub fn with_simulator_url(url: impl Into<String>) -> Self {
-            Self {
-                pool: NmxcClientPool::builder()
-                    .build()
-                    .expect("NmxcClientPool::builder default"),
-                simulator_endpoint: Endpoint::new(url),
-            }
-        }
-
-        pub fn simulator_endpoint(&self) -> &Endpoint {
-            &self.simulator_endpoint
-        }
-    }
-
-    #[async_trait]
-    impl NmxcPool for NmxcSimClient2 {
-        async fn create_client(&self, _endpoint: Endpoint) -> Result<Box<dyn Nmxc>, NmxcError> {
-            self.pool
-                .create_client(self.simulator_endpoint.clone())
-                .await
-        }
-    }
-
     #[cfg(test)]
-    mod nmxc_sim_client2_tests {
+    mod nmxc_sim_client_tests {
         use std::sync::Arc;
 
         use libnmxc::NmxcPool;
 
-        use super::NmxcSimClient2;
+        use super::NmxcSimClient;
 
         #[test]
         fn default_simulator_url_is_localhost_9601() {
-            let s = NmxcSimClient2::new();
-            assert_eq!(NmxcSimClient2::SIMULATOR_URL, "http://localhost:9601");
-            assert_eq!(s.simulator_endpoint().url, NmxcSimClient2::SIMULATOR_URL);
+            let s = NmxcSimClient::simulator();
+            assert_eq!(NmxcSimClient::SIMULATOR_URL, "http://localhost:9601");
+            assert_eq!(
+                s._simulator_endpoint
+                    .as_ref()
+                    .expect("simulator endpoint should be set")
+                    .url,
+                NmxcSimClient::SIMULATOR_URL
+            );
         }
 
         #[test]
         fn with_simulator_url_overrides_endpoint() {
-            let s = NmxcSimClient2::with_simulator_url("http://127.0.0.1:19999");
-            assert_eq!(s.simulator_endpoint().url, "http://127.0.0.1:19999");
+            let s = NmxcSimClient::with_simulator_url("http://127.0.0.1:19999");
+            assert_eq!(
+                s._simulator_endpoint
+                    .as_ref()
+                    .expect("simulator endpoint should be set")
+                    .url,
+                "http://127.0.0.1:19999"
+            );
         }
 
         #[test]
         fn implements_nmxc_pool() {
-            let _pool: Arc<dyn NmxcPool> = Arc::new(NmxcSimClient2::new());
+            let _pool: Arc<dyn NmxcPool> = Arc::new(NmxcSimClient::simulator());
         }
     }
 }

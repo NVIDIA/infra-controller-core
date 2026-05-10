@@ -489,6 +489,7 @@ async fn get_nvlink_info_from_nmx_c(
                 "Failed to parse domain UUID from NMX-C hello response: {hello:?}"
             ))
         })?;
+
     let domain_uuid = NvLinkDomainId::from(domain_uuid);
 
     let gpus = platform_infos

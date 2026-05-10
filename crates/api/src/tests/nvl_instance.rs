@@ -64,8 +64,6 @@ async fn test_create_instance_with_nvl_config(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(logical_ids_list.partition_ids.len(), 1);
 
-    print!("XXXXXXXXXXXXXXXXXX\n\n\n");
-
     let mh = create_managed_host_with_hardware_info_template(
         &env,
         HardwareInfoTemplate::Custom(
@@ -295,7 +293,7 @@ async fn test_detach_gpus_from_partition_by_clearing_nvlink_config(pool: sqlx::P
 
     // Check that NMX-M was updated.
     let nmxm_sim_client = env
-        .nmxm_sim
+        .nmxm_pool
         .create_client("localhost:4010", None)
         .await
         .unwrap();
@@ -1251,7 +1249,7 @@ async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) 
     }
 
     let mut test_overrides = TestEnvOverrides::with_config(config);
-    test_overrides.nmxm_default_partition = Some(true);
+    test_overrides.nmxc_default_partition = Some(true);
 
     let env =
         common::api_fixtures::create_test_env_with_overrides(pool.clone(), test_overrides).await;
@@ -1302,7 +1300,7 @@ async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) 
     assert_eq!(ids_all.partition_ids.len(), 0);
 
     let nmxm_sim_client = env
-        .nmxm_sim
+        .nmxm_pool
         .create_client("localhost:4010", None)
         .await
         .unwrap();
@@ -1874,4 +1872,299 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
         .gpu_uid_list
         .len();
     assert_eq!(gpu_uid_count, 4);
+}
+
+/// `*_use_nmxc_simulator` integration tests only run when environment variable RUN_NMXC_SIMULATOR_TESTS is set (any value).
+/// Before running these tests, need to have nmx_simulator running on port 9601.
+/// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true"
+/// Also nmxc_uid_start in simulator_config.json should be set to 1000 so that GPU UIDs are assinged starting from 1000.
+
+const RUN_NMXC_SIMULATOR_TESTS: &str = "RUN_NMXC_SIMULATOR_TESTS";
+
+fn nmxc_simulator_tests_enabled() -> bool {
+    std::env::var_os(RUN_NMXC_SIMULATOR_TESTS).is_some()
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_create_instance_with_nvl_config_use_nmxc_simulator as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    let mut overrides = TestEnvOverrides::with_config(config);
+    overrides.nmxc_simulator = Some(true);
+
+    let env = common::api_fixtures::create_test_env_with_overrides(pool.clone(), overrides).await;
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id,
+        logical_partition: _logical_partition,
+    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
+
+    let request_logical_ids =
+        tonic::Request::new(rpc::forge::NvLinkLogicalPartitionSearchFilter { name: None });
+
+    let logical_ids_list = env
+        .api
+        .find_nv_link_logical_partition_ids(request_logical_ids)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(logical_ids_list.partition_ids.len(), 1);
+
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_4_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine = mh.host().rpc_machine().await;
+
+    assert_eq!(&machine.state, "Ready");
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+
+    assert_eq!(discovery_info.gpus.len(), 4);
+
+    let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
+
+    println!("{gpus:?}");
+
+    let mut nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id - 1,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh, nvl_config.clone(), segment_id).await;
+
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(&machine.state, "Assigned/Ready");
+
+    let check_instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.machine_id(), mh.id);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance, check_instance);
+
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_all.partition_ids.len(), 1);
+
+    nvl_config.gpu_configs.iter_mut().for_each(|gpu| {
+        gpu.logical_partition_id = None;
+    });
+    let mut txn = pool.begin().await.unwrap();
+    update_instance_nvlink_config(
+        &mut txn,
+        &instance.id(),
+        &InstanceNvLinkConfig::try_from(nvl_config).unwrap(),
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_all.partition_ids.len(), 0);
+
+    env.api
+        .delete_nv_link_logical_partition(tonic::Request::new(
+            rpc::forge::NvLinkLogicalPartitionDeletionRequest {
+                id: Some(logical_partition_id),
+            },
+        ))
+        .await
+        .expect("expect deletion to succeed");
+
+    let request_partitions = tonic::Request::new(rpc::forge::NvLinkLogicalPartitionsByIdsRequest {
+        partition_ids: logical_ids_list.partition_ids,
+        include_history: false,
+    });
+
+    let logical_partition_list = env
+        .api
+        .find_nv_link_logical_partitions_by_ids(request_partitions)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(logical_partition_list.partitions.len(), 1);
+
+    let clone3 = logical_partition_list.partitions[0].clone();
+    assert_eq!(logical_partition_id, clone3.id.unwrap());
+    assert_eq!(
+        _logical_partition.config.unwrap().metadata.unwrap().name,
+        clone3.config.unwrap().metadata.unwrap().name
+    );
+    let status = clone3.status.unwrap();
+    assert_eq!(
+        TenantState::try_from(status.state).unwrap(),
+        TenantState::Terminating
+    );
+
+    env.run_nvl_partition_monitor_iteration().await;
+    let request_all =
+        tonic::Request::new(rpc::forge::NvLinkLogicalPartitionSearchFilter { name: None });
+
+    let logical_partition_list = env
+        .api
+        .find_nv_link_logical_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(logical_partition_list.partition_ids.len(), 0);
+}
+
+#[crate::sqlx_test]
+async fn test_instance_delete_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_instance_delete_with_nvl_config_use_nmxc_simulator as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    let mut test_overrides = TestEnvOverrides::with_config(config);
+    test_overrides.nmxc_simulator = Some(true);
+
+    let env =
+        common::api_fixtures::create_test_env_with_overrides(pool.clone(), test_overrides).await;
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id,
+        logical_partition: _logical_partition,
+    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
+
+    let request_logical_ids =
+        tonic::Request::new(rpc::forge::NvLinkLogicalPartitionSearchFilter { name: None });
+
+    let logical_ids_list = env
+        .api
+        .find_nv_link_logical_partition_ids(request_logical_ids)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(logical_ids_list.partition_ids.len(), 1);
+
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_4_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine = mh.host().rpc_machine().await;
+
+    assert_eq!(&machine.state, "Ready");
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+
+    assert_eq!(discovery_info.gpus.len(), 4);
+
+    let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
+
+    println!("{gpus:?}");
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id - 1,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh, nvl_config.clone(), segment_id).await;
+
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(&machine.state, "Assigned/Ready");
+
+    let check_instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.machine_id(), mh.id);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance, check_instance);
+
+    // test getting all ids
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_all.partition_ids.len(), 1);
+
+    // delete the instance. This should force the partition monitor to remove gpus
+    // from that instance from physical nvlink partition
+    tinstance.delete().await;
+
+    // Run twice to record observation.
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_all.partition_ids.len(), 0);
 }

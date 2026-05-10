@@ -784,6 +784,15 @@ impl NvlPartitionMonitor {
                     continue;
                 }
             };
+            if let Err(e) = nmxc_client.hello(NMX_C_GATEWAY_ID).await {
+                tracing::warn!(
+                    %chassis_serial,
+                    endpoint = %endpoint_url,
+                    error = %e,
+                    "NMX-C hello failed; skipping partition monitor work for this chassis"
+                );
+                continue;
+            }
 
             // Filter managed host snapshots, nvlink info, and DB partitions for this chassis.
             let managed_host_snapshots_domain: HashMap<MachineId, ManagedHostStateSnapshot> =

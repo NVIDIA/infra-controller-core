@@ -94,7 +94,7 @@ async fn compute_node_info_list_json(
         nodes.push(json!({
             "LocationInfo": {
                 "ChassisSerialNumber": li.chassis_serial_number,
-                "TrayIndex": li.slot_index as i64,
+                "TrayIndex": li.tray_index as i64,
             },
             "DomainUUID": domain_uuid,
             "GpuIDList": gpu_id_list,
@@ -134,7 +134,7 @@ async fn gpu_info_json(
         .loc
         .as_ref()
         .map(|l| {
-            let tray = l.slot_index as i64;
+            let tray = l.tray_index as i64;
             let slot = l
                 .location
                 .as_ref()
@@ -146,7 +146,7 @@ async fn gpu_info_json(
 
     let body = serde_json::to_string(&json!({
         "ID": gpu.gpu_uid.to_string(),
-        "DeviceID": gpu.gpu_index as i64,
+        "DeviceID": gpu.gpu_id as i64,
         "DeviceUID": gpu.gpu_uid,
         "LocationInfo": {
             "TrayIndex": tray_index,
@@ -186,7 +186,7 @@ async fn gpu_info_list_json(
             .loc
             .as_ref()
             .map(|l| {
-                let tray = l.slot_index as i64;
+                let tray = l.tray_index as i64;
                 let slot = l
                     .location
                     .as_ref()
@@ -197,7 +197,7 @@ async fn gpu_info_list_json(
             .unwrap_or((0, 0));
 
         gpus.push(json!({
-            "DeviceID": gpu.gpu_index as i64,
+            "DeviceID": gpu.gpu_id as i64,
             "DeviceUID": gpu.gpu_uid,
             "LocationInfo": {
                 "TrayIndex": tray_index,
