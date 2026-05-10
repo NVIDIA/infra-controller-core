@@ -395,37 +395,38 @@ where
                 busy_ips.push(svi_ip);
             }
         }
-        let dhcp_handler: Box<dyn UsedIpResolver<DB> + Send> = if record.segment_type.is_tenant() {
-            // Note on UsedOverlayNetworkIpResolver:
-            // In this case, the IpAllocator isn't being used to iterate to get
-            // the next available prefix_length allocation -- it's actually just
-            // being used to get the number of free IPs left in a given tenant
-            // network segment, so just hard-code a /32 prefix_length. NOW.. on
-            // one hand, you could say the prefix_length doesn't matter here,
-            // because this is really just here to get the number of free IPs left
-            // in a network segment. BUT, on the other hand, do we care about the
-            // number of free IPs left, or the number of free instance allocations
-            // left? For example, if we're allocating /30's, we might be more
-            // interested in knowing we can allocate 4 more machines (and not 16
-            // more IPs).
-            Box::new(UsedOverlayNetworkIpResolver {
-                segment_id: record.id,
-                busy_ips,
-            })
-        } else {
-            // Note on UsedAdminNetworkIpResolver:
-            // In this case, the IpAllocator isn't being used to iterate to get
-            // the next available prefix_length allocation -- it's actually just
-            // being used to get the number of free IPs left in a given admin
-            // network segment, so just hard-code a /32 prefix_length. Unlike the
-            // tenant segments, the admin segments are always (at least for the
-            // foreseeable future) just going to allocate a /32 for the machine
-            // interface.
-            Box::new(UsedAdminNetworkIpResolver {
-                segment_id: record.id,
-                busy_ips,
-            })
-        };
+        let dhcp_handler: Box<dyn UsedIpResolver<DB> + Send> =
+            if record.config.segment_type.is_tenant() {
+                // Note on UsedOverlayNetworkIpResolver:
+                // In this case, the IpAllocator isn't being used to iterate to get
+                // the next available prefix_length allocation -- it's actually just
+                // being used to get the number of free IPs left in a given tenant
+                // network segment, so just hard-code a /32 prefix_length. NOW.. on
+                // one hand, you could say the prefix_length doesn't matter here,
+                // because this is really just here to get the number of free IPs left
+                // in a network segment. BUT, on the other hand, do we care about the
+                // number of free IPs left, or the number of free instance allocations
+                // left? For example, if we're allocating /30's, we might be more
+                // interested in knowing we can allocate 4 more machines (and not 16
+                // more IPs).
+                Box::new(UsedOverlayNetworkIpResolver {
+                    segment_id: record.id,
+                    busy_ips,
+                })
+            } else {
+                // Note on UsedAdminNetworkIpResolver:
+                // In this case, the IpAllocator isn't being used to iterate to get
+                // the next available prefix_length allocation -- it's actually just
+                // being used to get the number of free IPs left in a given admin
+                // network segment, so just hard-code a /32 prefix_length. Unlike the
+                // tenant segments, the admin segments are always (at least for the
+                // foreseeable future) just going to allocate a /32 for the machine
+                // interface.
+                Box::new(UsedAdminNetworkIpResolver {
+                    segment_id: record.id,
+                    busy_ips,
+                })
+            };
 
         let mut allocated_addresses = IpAllocator::new(
             &mut *conn,
@@ -621,7 +622,7 @@ where
 
     Ok(!segments
         .iter()
-        .any(|x| x.controller_state.value != NetworkSegmentControllerState::Ready))
+        .any(|x| x.status.controller_state.value != NetworkSegmentControllerState::Ready))
 }
 
 /// This function is different from `mark_as_deleted` as no validation is checked here and it
@@ -680,7 +681,7 @@ pub async fn allocate_svi_ip(
                 prefixes: vec![prefix.clone()],
                 ..value.clone()
             };
-            let (_, svi_ip) = if !value.segment_type.is_tenant() {
+            let (_, svi_ip) = if !value.config.segment_type.is_tenant() {
                 crate::machine_interface::allocate_svi_ip(txn, &single_prefix_segment).await?
             } else {
                 crate::instance_address::allocate_svi_ip(txn, &single_prefix_segment).await?

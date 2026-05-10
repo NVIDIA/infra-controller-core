@@ -116,7 +116,11 @@ pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::
         .into_inner()
         .network_segments
         .remove(0);
-    segment.state()
+    segment
+        .status
+        .as_ref()
+        .map(|s| s.state())
+        .unwrap_or_default()
 }
 
 pub async fn get_segments(

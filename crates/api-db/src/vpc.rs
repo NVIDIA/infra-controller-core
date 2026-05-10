@@ -332,7 +332,7 @@ pub async fn update_virtualization(
     .await?;
 
     for network_segment in network_segments {
-        if !network_segment.can_stretch.unwrap_or_default() {
+        if !network_segment.status.can_stretch.unwrap_or_default() {
             continue;
         }
 

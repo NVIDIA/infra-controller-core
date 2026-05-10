@@ -388,10 +388,10 @@ pub async fn validate_existing_mac_and_create(
                 // If the segment only allows static reservations, reject
                 // dynamic allocation. The device must have a pre-existing
                 // static reservation to get an IP on this segment.
-                if segment.allocation_strategy == AllocationStrategy::Reserved {
+                if segment.config.allocation_strategy == AllocationStrategy::Reserved {
                     return Err(DatabaseError::internal(format!(
                         "segment {} configured for static DHCP leases only; no static reservation for MAC {mac_address}",
-                        segment.name,
+                        segment.config.name,
                     )));
                 }
 
@@ -414,7 +414,7 @@ pub async fn validate_existing_mac_and_create(
                     txn,
                     &segment,
                     &mac_address,
-                    segment.subdomain_id,
+                    segment.config.subdomain_id,
                     true,
                     strategy,
                 )
@@ -1031,7 +1031,9 @@ pub async fn move_predicted_machine_interface_to_machine(
         )));
     };
 
-    if network_segment.segment_type != predicted_machine_interface.expected_network_segment_type {
+    if network_segment.config.segment_type
+        != predicted_machine_interface.expected_network_segment_type
+    {
         return Err(DatabaseError::internal(format!(
             "Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}",
             predicted_machine_interface.mac_address,
@@ -1080,7 +1082,7 @@ pub async fn move_predicted_machine_interface_to_machine(
                 txn,
                 &network_segment,
                 &predicted_machine_interface.mac_address,
-                network_segment.subdomain_id,
+                network_segment.config.subdomain_id,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
             )
@@ -1235,7 +1237,7 @@ async fn reconcile_interface_segment(
             txn,
             existing_interface.id,
             relay_segment.id,
-            relay_segment.subdomain_id,
+            relay_segment.config.subdomain_id,
         )
         .await?;
         existing_interface.segment_id = relay_segment.id;

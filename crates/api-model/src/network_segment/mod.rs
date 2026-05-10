@@ -322,36 +322,45 @@ impl From<rpc::forge::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig
     }
 }
 
+/// User-controlled configuration for a network segment.
+#[derive(Debug, Clone)]
+pub struct NetworkSegmentConfig {
+    pub name: String,
+    pub subdomain_id: Option<DomainId>,
+    pub mtu: i32,
+    pub segment_type: NetworkSegmentType,
+    pub allocation_strategy: AllocationStrategy,
+}
+
+/// System-observed status for a network segment.
+#[derive(Debug, Clone)]
+pub struct NetworkSegmentStatus {
+    pub controller_state: Versioned<NetworkSegmentControllerState>,
+    /// The result of the last attempt to change state
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    /// History of state changes.
+    pub history: Vec<StateHistoryRecord>,
+    pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
+    pub vni: Option<i32>,
+    pub can_stretch: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
     pub id: NetworkSegmentId,
-    pub version: ConfigVersion,
-    pub name: String,
-    pub subdomain_id: Option<DomainId>,
     pub vpc_id: Option<VpcId>,
-    pub mtu: i32,
+    pub version: ConfigVersion,
+    pub config: NetworkSegmentConfig,
+    pub status: NetworkSegmentStatus,
 
-    pub controller_state: Versioned<NetworkSegmentControllerState>,
-
-    /// The result of the last attempt to change state
-    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    /// Prefixes are kept top-level because each NetworkPrefix contains both
+    /// user-specified fields (CIDR, gateway, reserve_first) and system-populated
+    /// fields (id, svi_ip, free_ip_count).
+    pub prefixes: Vec<NetworkPrefix>,
 
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
-
-    pub prefixes: Vec<NetworkPrefix>,
-    /// History of state changes.
-    pub history: Vec<StateHistoryRecord>,
-
-    pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
-    pub vni: Option<i32>,
-
-    pub segment_type: NetworkSegmentType,
-
-    pub can_stretch: Option<bool>,
-
-    pub allocation_strategy: AllocationStrategy,
 }
 
 impl NetworkSegment {
@@ -485,26 +494,30 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
 
         Ok(NetworkSegment {
             id: row.try_get("id")?,
-            version: row.try_get("version")?,
-            name: row.try_get("name")?,
-            subdomain_id: row.try_get("subdomain_id")?,
             vpc_id: row.try_get("vpc_id")?,
-            controller_state: Versioned::new(
-                controller_state.0,
-                row.try_get("controller_state_version")?,
-            ),
-            controller_state_outcome: state_outcome.map(|x| x.0),
+            version: row.try_get("version")?,
+            config: NetworkSegmentConfig {
+                name: row.try_get("name")?,
+                subdomain_id: row.try_get("subdomain_id")?,
+                mtu: row.try_get("mtu")?,
+                segment_type: row.try_get("network_segment_type")?,
+                allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
+            },
+            status: NetworkSegmentStatus {
+                controller_state: Versioned::new(
+                    controller_state.0,
+                    row.try_get("controller_state_version")?,
+                ),
+                controller_state_outcome: state_outcome.map(|x| x.0),
+                history,
+                vlan_id: row.try_get("vlan_id").unwrap_or_default(),
+                vni: row.try_get("vni_id").unwrap_or_default(),
+                can_stretch: row.try_get("can_stretch")?,
+            },
+            prefixes,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
-            mtu: row.try_get("mtu")?,
-            prefixes,
-            history,
-            vlan_id: row.try_get("vlan_id").unwrap_or_default(),
-            vni: row.try_get("vni_id").unwrap_or_default(),
-            segment_type: row.try_get("network_segment_type")?,
-            can_stretch: row.try_get("can_stretch")?,
-            allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
         })
     }
 }
@@ -575,40 +588,43 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
 impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
     type Error = RpcDataConversionError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
-        // Note that even thought the segment might already be ready,
-        // we only return `Ready` after
-        // the state machine also noticed that. Otherwise we would need to also
-        // allow address allocation before the controller state is ready, which
-        // spreads out the state mismatch to a lot more places.
-        let mut state = match &src.controller_state.value {
+        // Note that even though the segment might already be ready,
+        // we only return `Ready` after the state machine also noticed that.
+        // Otherwise we would need to allow address allocation before the
+        // controller state is ready, which spreads out the state mismatch.
+        let state = match &src.status.controller_state.value {
             NetworkSegmentControllerState::Provisioning => TenantState::Provisioning,
             NetworkSegmentControllerState::Ready => TenantState::Ready,
             NetworkSegmentControllerState::Deleting { .. } => TenantState::Terminating,
         };
-        // If deletion is requested, we immediately overwrite the state to terminating.
-        // Even though the state controller hasn't caught up - it eventually will
-        if src.is_marked_as_deleted() {
-            state = TenantState::Terminating;
-        }
+        // If deletion is requested, immediately overwrite the state to terminating.
+        // The state controller will eventually catch up.
+        let state = if src.is_marked_as_deleted() {
+            TenantState::Terminating
+        } else {
+            state
+        };
 
-        let mut history = Vec::with_capacity(src.history.len());
-
-        for state in src.history {
-            history.push(state.into());
-        }
+        let history = src
+            .status
+            .history
+            .into_iter()
+            .map(|s| s.into())
+            .collect::<Vec<_>>();
 
         let flags: Vec<i32> = {
             use rpc::forge::NetworkSegmentFlag::*;
 
             let mut flags = vec![];
 
-            let can_stretch = src.can_stretch.unwrap_or_else(|| {
+            let can_stretch = src.status.can_stretch.unwrap_or_else(|| {
                 // If the segment's can_stretch flag is NULL in the database,
                 // we're going to have to go off of what an FNN-created
                 // segment's prefixes would look like, and then assume any such
                 // FNN segment is _not_ stretchable.
                 src.prefixes.iter().all(|p| !p.smells_like_fnn())
             });
+
             if can_stretch {
                 flags.push(CanStretch);
             }
@@ -622,29 +638,39 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             flags.into_iter().map(|flag| flag as i32).collect()
         };
 
+        let prefixes = src
+            .prefixes
+            .into_iter()
+            .map(rpc::forge::NetworkPrefix::from)
+            .collect_vec();
+
         Ok(rpc::NetworkSegment {
             id: Some(src.id),
-            version: src.version.version_string(),
-            name: src.name,
-            subdomain_id: src.subdomain_id,
-            mtu: Some(src.mtu),
+            vpc_id: src.vpc_id,
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
-            prefixes: src
-                .prefixes
-                .into_iter()
-                .map(rpc::forge::NetworkPrefix::from)
-                .collect_vec(),
-            vpc_id: src.vpc_id,
-            state: state as i32,
-            state_reason: src.controller_state_outcome.map(|r| r.into()),
-            state_sla: Some(
-                state_sla(&src.controller_state.value, &src.controller_state.version).into(),
-            ),
-            history,
-            segment_type: src.segment_type as i32,
-            flags,
+            version: src.version.version_string(),
+            config: Some(rpc::forge::NetworkSegmentConfig {
+                name: src.config.name,
+                subdomain_id: src.config.subdomain_id,
+                mtu: Some(src.config.mtu),
+                prefixes,
+                segment_type: src.config.segment_type as i32,
+            }),
+            status: Some(rpc::forge::NetworkSegmentStatus {
+                state: state as i32,
+                history,
+                state_reason: src.status.controller_state_outcome.map(|r| r.into()),
+                state_sla: Some(
+                    state_sla(
+                        &src.status.controller_state.value,
+                        &src.status.controller_state.version,
+                    )
+                    .into(),
+                ),
+                flags,
+            }),
         })
     }
 }

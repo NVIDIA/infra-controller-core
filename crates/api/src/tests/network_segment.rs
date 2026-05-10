@@ -281,7 +281,14 @@ async fn test_network_segment_max_history_length(
         },
     )
     .await;
-    assert!(!segment.network_segments[0].history.is_empty());
+    assert!(
+        !segment.network_segments[0]
+            .status
+            .as_ref()
+            .expect("segment status must be present")
+            .history
+            .is_empty()
+    );
 
     let segment = get_segments(
         &env.api,
@@ -292,7 +299,14 @@ async fn test_network_segment_max_history_length(
         },
     )
     .await;
-    assert!(segment.network_segments[0].history.is_empty());
+    assert!(
+        segment.network_segments[0]
+            .status
+            .as_ref()
+            .expect("segment status must be present")
+            .history
+            .is_empty()
+    );
 
     let segment = get_segments(
         &env.api,
@@ -303,7 +317,14 @@ async fn test_network_segment_max_history_length(
         },
     )
     .await;
-    assert!(segment.network_segments[0].history.is_empty());
+    assert!(
+        segment.network_segments[0]
+            .status
+            .as_ref()
+            .expect("segment status must be present")
+            .history
+            .is_empty()
+    );
 
     // Now insert a lot of state changes, and see if the history limit is kept
     const HISTORY_LIMIT: usize = 250;
@@ -316,6 +337,7 @@ async fn test_network_segment_max_history_length(
     )
     .await
     .unwrap()[0]
+        .status
         .controller_state
         .version;
     txn.commit().await.unwrap();
@@ -353,6 +375,7 @@ async fn test_network_segment_max_history_length(
         )
         .await
         .unwrap()[0]
+            .status
             .controller_state
             .version;
         txn.commit().await.unwrap();
@@ -518,12 +541,12 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
 
     let mut txn = db_pool.begin().await?;
     let admin = db::network_segment::find_by_name(&mut txn, "admin").await?;
-    assert_eq!(admin.mtu, 9000);
-    assert_eq!(admin.segment_type, NetworkSegmentType::Admin);
+    assert_eq!(admin.config.mtu, 9000);
+    assert_eq!(admin.config.segment_type, NetworkSegmentType::Admin);
 
     let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
-    assert_eq!(underlay.mtu, 1500);
-    assert_eq!(underlay.segment_type, NetworkSegmentType::Underlay);
+    assert_eq!(underlay.config.mtu, 1500);
+    assert_eq!(underlay.config.segment_type, NetworkSegmentType::Underlay);
     txn.commit().await?;
 
     // Now create them again. It should succeed but not create any more
@@ -676,7 +699,8 @@ async fn test_segment_prefix_in_unconfigured_address_space(
             }
         }
         Ok(segment) => {
-            let prefixes = segment.prefixes.iter().map(|p| p.prefix.as_str());
+            let config = segment.config.unwrap_or_default();
+            let prefixes = config.prefixes.iter().map(|p| p.prefix.as_str());
             let prefixes = itertools::join(prefixes, ", ");
             Err(eyre::format_err!(
                 "The API did not reject our request to create a segment using \
@@ -1145,10 +1169,11 @@ async fn test_create_network_segment_with_ipv6_prefix(
         .await?
         .into_inner();
 
-    assert_eq!(response.name, "IPV6_SEGMENT");
-    assert_eq!(response.prefixes.len(), 1);
-    assert_eq!(response.prefixes[0].prefix, "2001:db8::/64");
-    assert!(response.prefixes[0].gateway.is_none());
+    let config = response.config.as_ref().unwrap();
+    assert_eq!(config.name, "IPV6_SEGMENT");
+    assert_eq!(config.prefixes.len(), 1);
+    assert_eq!(config.prefixes[0].prefix, "2001:db8::/64");
+    assert!(config.prefixes[0].gateway.is_none());
 
     Ok(())
 }
@@ -1218,15 +1243,12 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         .await?
         .into_inner();
 
-    assert_eq!(response.name, "DUAL_STACK_SEGMENT");
-    assert_eq!(response.prefixes.len(), 2);
+    let config = response.config.as_ref().unwrap();
+    assert_eq!(config.name, "DUAL_STACK_SEGMENT");
+    assert_eq!(config.prefixes.len(), 2);
 
     // Verify both prefixes are present (order may vary)
-    let prefix_strs: Vec<&str> = response
-        .prefixes
-        .iter()
-        .map(|p| p.prefix.as_str())
-        .collect();
+    let prefix_strs: Vec<&str> = config.prefixes.iter().map(|p| p.prefix.as_str()).collect();
     assert!(prefix_strs.contains(&"192.0.2.0/24"), "IPv4 prefix missing");
     assert!(
         prefix_strs.contains(&"2001:db8::/64"),

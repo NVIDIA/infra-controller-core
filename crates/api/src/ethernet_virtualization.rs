@@ -220,7 +220,7 @@ pub async fn admin_network(
         }
     };
 
-    let domain = match admin_segment.subdomain_id {
+    let domain = match admin_segment.config.subdomain_id {
         Some(domain_id) => {
             db::dns::domain::find_by_uuid(&mut *txn, domain_id)
                 .await
@@ -328,9 +328,9 @@ pub async fn admin_network(
     let cfg = rpc::FlatInterfaceConfig {
         function_type: rpc::InterfaceFunctionType::Physical.into(),
         virtual_function_id: None,
-        vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
+        vlan_id: admin_segment.status.vlan_id.unwrap_or_default() as u32,
         vni: if fnn_enabled_on_admin {
-            admin_segment.vni.unwrap_or_default() as u32
+            admin_segment.status.vni.unwrap_or_default() as u32
         } else {
             0
         },
@@ -353,7 +353,7 @@ pub async fn admin_network(
         vpc_peer_vnis: vec![],
         network_security_group: None,
         internal_uuid: None,
-        mtu: u32::try_from(admin_segment.mtu).ok(),
+        mtu: u32::try_from(admin_segment.config.mtu).ok(),
         ipv6_interface_config: None,
     };
     Ok((cfg, interface.id))
@@ -374,7 +374,7 @@ pub async fn tenant_network(
     booturl: &Option<String>,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     // Any stretchable segment is treated as L2 segment by FNN.
-    let is_l2_segment = segment.can_stretch.unwrap_or(true);
+    let is_l2_segment = segment.status.can_stretch.unwrap_or(true);
 
     let ds = PrefixPair::from_segment_prefixes(&segment.prefixes, instance_id, segment.id)?;
     let address = ds.v4_address(iface).ok_or_else(|| CarbideError::Internal {
@@ -540,8 +540,8 @@ pub async fn tenant_network(
             InterfaceFunctionId::Physical {} => None,
             InterfaceFunctionId::Virtual { id } => Some(id.into()),
         },
-        vlan_id: segment.vlan_id.unwrap_or_default() as u32,
-        vni: segment.vni.unwrap_or_default() as u32,
+        vlan_id: segment.status.vlan_id.unwrap_or_default() as u32,
+        vni: segment.status.vni.unwrap_or_default() as u32,
         vpc_vni,
         gateway: ds
             .v4()
@@ -586,7 +586,7 @@ pub async fn tenant_network(
                 ),
             })?,
         internal_uuid: Some(iface.internal_uuid.into()),
-        mtu: u32::try_from(segment.mtu).ok(),
+        mtu: u32::try_from(segment.config.mtu).ok(),
         ipv6_interface_config: v6_address.map(|a| rpc::FlatInterfaceIpv6Config {
             ip: a.to_string(),
             interface_prefix: v6_interface_prefix

@@ -53,23 +53,26 @@ struct NetworkSegmentRowDisplay {
 
 impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
     fn from(segment: forgerpc::NetworkSegment) -> Self {
+        let config = segment.config.expect("network segment must have config");
+        let status = segment.status.expect("network segment must have status");
+
         Self {
             id: segment.id.unwrap_or_default().to_string(),
-            name: segment.name,
+            name: config.name,
             vpc_id: segment.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
             state: format!(
                 "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                forgerpc::TenantState::try_from(status.state).unwrap_or_default()
             ),
-            time_in_state_above_sla: segment
+            time_in_state_above_sla: status
                 .state_sla
                 .as_ref()
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
             sub_domain: String::new(), // filled in later
-            mtu: segment.mtu.unwrap_or(-1),
-            prefixes: segment
+            mtu: config.mtu.unwrap_or(-1),
+            prefixes: config
                 .prefixes
                 .iter()
                 .map(|x| x.prefix.to_string())
@@ -99,12 +102,17 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut tenant = Vec::new();
     for n in networks.into_iter() {
         let mut domain_name = String::new();
-        if let Some(domain_id) = n.subdomain_id.as_ref()
+        if let Some(config) = n.config.as_ref()
+            && let Some(domain_id) = config.subdomain_id.as_ref()
             && let Ok(name) = get_domain_name(state.clone(), domain_id).await
         {
             domain_name = name;
         };
-        let segment_type = n.segment_type;
+        let segment_type = n
+            .config
+            .as_ref()
+            .map(|c| c.segment_type)
+            .unwrap_or_default();
         let mut display: NetworkSegmentRowDisplay = n.into();
         display.sub_domain = domain_name;
         match forgerpc::NetworkSegmentType::try_from(segment_type) {
@@ -172,7 +180,11 @@ async fn fetch_network_segments(
         offset += page_size;
     }
 
-    segments.sort_unstable_by(|ns1, ns2| ns1.name.cmp(&ns2.name));
+    segments.sort_unstable_by(|ns1, ns2| {
+        let n1 = ns1.config.as_ref().map(|c| c.name.as_str()).unwrap_or("");
+        let n2 = ns2.config.as_ref().map(|c| c.name.as_str()).unwrap_or("");
+        n1.cmp(n2)
+    });
     Ok(segments)
 }
 
@@ -228,8 +240,12 @@ struct NetworkSegmentHistory {
 
 impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
     fn from(segment: forgerpc::NetworkSegment) -> Self {
+        let config = segment.config.expect("network segment must have config");
+        let status = segment.status.expect("network segment must have status");
+
         let mut prefixes = Vec::new();
-        for (i, p) in segment.prefixes.into_iter().enumerate() {
+
+        for (i, p) in config.prefixes.into_iter().enumerate() {
             prefixes.push(NetworkSegmentPrefix {
                 index: i,
                 id: p.id.unwrap_or_default().to_string(),
@@ -243,7 +259,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             });
         }
         let mut history = Vec::new();
-        for h in segment.history.into_iter() {
+        for h in status.history.into_iter() {
             history.push(NetworkSegmentHistory {
                 state: h.state,
                 version: h.version,
@@ -251,12 +267,12 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
         }
         let state = format!(
             "{:?}",
-            forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+            forgerpc::TenantState::try_from(status.state).unwrap_or_default()
         );
         let version = segment.version;
         Self {
             id: segment.id.unwrap_or_default().to_string(),
-            name: segment.name,
+            name: config.name,
             version: version.clone(),
             vpc_id: segment.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
@@ -270,14 +286,14 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             lifecycle_detail: super::LifecycleDetail::new(
                 state,
                 version,
-                segment.state_reason,
-                segment.state_sla,
+                status.state_reason,
+                status.state_sla,
             ),
-            domain_id: segment.subdomain_id.unwrap_or_default().to_string(),
+            domain_id: config.subdomain_id.unwrap_or_default().to_string(),
             domain_name: String::new(), // filled in later
             segment_type: format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
             prefixes,
             history,
@@ -345,7 +361,10 @@ pub async fn detail(
     }
 
     let mut domain_name = String::new();
-    if let Some(domain_id) = segment.subdomain_id.as_ref()
+    if let Some(domain_id) = segment
+        .config
+        .as_ref()
+        .and_then(|c| c.subdomain_id.as_ref())
         && let Ok(name) = get_domain_name(state.clone(), domain_id).await
     {
         domain_name = name;

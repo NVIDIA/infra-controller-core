@@ -36,6 +36,14 @@ async fn convert_network_to_nice_format(
     segment: forgerpc::NetworkSegment,
     api_client: &ApiClient,
 ) -> CarbideCliResult<String> {
+    let config = segment.config.ok_or_else(|| {
+        CarbideCliError::GenericError("network segment missing config".to_string())
+    })?;
+
+    let status = segment.status.ok_or_else(|| {
+        CarbideCliError::GenericError("network segment missing status".to_string())
+    })?;
+
     let width = 10;
     let mut lines = String::new();
 
@@ -44,7 +52,7 @@ async fn convert_network_to_nice_format(
             "ID",
             segment.id.map(|id| id.to_string()).unwrap_or_default(),
         ),
-        ("NAME", segment.name),
+        ("NAME", config.name),
         ("CREATED", segment.created.unwrap_or_default().to_string()),
         ("UPDATED", segment.updated.unwrap_or_default().to_string()),
         (
@@ -58,7 +66,7 @@ async fn convert_network_to_nice_format(
             "STATE",
             format!(
                 "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                forgerpc::TenantState::try_from(status.state).unwrap_or_default()
             ),
         ),
         ("VPC", segment.vpc_id.unwrap_or_default().to_string()),
@@ -66,15 +74,15 @@ async fn convert_network_to_nice_format(
             "DOMAIN",
             format!(
                 "{}/{}",
-                segment.subdomain_id.unwrap_or_default(),
-                get_domain_name(segment.subdomain_id, api_client).await
+                config.subdomain_id.unwrap_or_default(),
+                get_domain_name(config.subdomain_id, api_client).await
             ),
         ),
         (
             "TYPE",
             format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
         ),
     ];
@@ -84,10 +92,10 @@ async fn convert_network_to_nice_format(
 
     writeln!(&mut lines, "{:<width$}: ", "PREFIXES")?;
     let width = 15;
-    if segment.prefixes.is_empty() {
+    if config.prefixes.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
-        for (i, prefix) in segment.prefixes.into_iter().enumerate() {
+        for (i, prefix) in config.prefixes.into_iter().enumerate() {
             let net = ipnet::IpNet::from_str(&prefix.prefix).unwrap();
             let range = format!("{} - {}", net.network(), net.broadcast());
             let data = vec![
@@ -115,7 +123,7 @@ async fn convert_network_to_nice_format(
     }
 
     writeln!(&mut lines, "STATE HISTORY: (Latest 5 only)")?;
-    if segment.history.is_empty() {
+    if status.history.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
         writeln!(
@@ -126,7 +134,7 @@ async fn convert_network_to_nice_format(
             &mut lines,
             "\t---------------------------------------------------"
         )?;
-        for x in segment.history.iter().rev().take(5).rev() {
+        for x in status.history.iter().rev().take(5).rev() {
             writeln!(
                 &mut lines,
                 "\t{:<15} {:25} {}",
@@ -156,7 +164,9 @@ async fn get_domain_name(domain_id: Option<DomainId>, api_client: &ApiClient) ->
     }
 }
 
-fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<Table> {
+fn convert_network_to_nice_table(
+    segments: forgerpc::NetworkSegmentList,
+) -> CarbideCliResult<Box<Table>> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -165,20 +175,28 @@ fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<
     ]);
 
     for segment in segments.network_segments {
-        let net = ipnet::IpNet::from_str(&segment.prefixes.first().unwrap().prefix).unwrap();
+        let config = segment.config.ok_or_else(|| {
+            CarbideCliError::GenericError("network segment missing config".to_string())
+        })?;
+
+        let status = segment.status.ok_or_else(|| {
+            CarbideCliError::GenericError("network segment missing status".to_string())
+        })?;
+
+        let net = ipnet::IpNet::from_str(&config.prefixes.first().unwrap().prefix).unwrap();
         let end_ip = net.broadcast().to_string();
 
         table.add_row(row![
             segment.id.unwrap_or_default(),
-            segment.name,
+            config.name,
             segment.created.unwrap_or_default(),
             format!(
                 "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                forgerpc::TenantState::try_from(status.state).unwrap_or_default()
             ),
             segment.vpc_id.unwrap_or_default(),
-            segment.mtu.unwrap_or(-1),
-            segment
+            config.mtu.unwrap_or(-1),
+            config
                 .prefixes
                 .iter()
                 .map(|x| x.prefix.to_string())
@@ -188,12 +206,12 @@ fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<
             segment.version,
             format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
         ]);
     }
 
-    table.into()
+    Ok(table.into())
 }
 
 async fn show_all_segments(
@@ -213,7 +231,7 @@ async fn show_all_segments(
     if json {
         println!("{}", serde_json::to_string_pretty(&all_segments)?);
     } else {
-        convert_network_to_nice_table(all_segments).printstd();
+        convert_network_to_nice_table(all_segments)?.printstd();
     }
     Ok(())
 }

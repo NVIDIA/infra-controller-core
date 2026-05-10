@@ -151,12 +151,12 @@ fn validate(
 
         // If segment is created using vpc_prefix id, it will not be in Ready state by now.
         if !segment_ids_using_vpc_prefix.contains(&segment.id) {
-            match &segment.controller_state.value {
+            match &segment.status.controller_state.value {
                 NetworkSegmentControllerState::Ready => {}
                 _ => {
                     return Err(ConfigValidationError::NetworkSegmentNotReady(
                         segment.id,
-                        format!("{:?}", segment.controller_state.value),
+                        format!("{:?}", segment.status.controller_state.value),
                     )
                     .into());
                 }
@@ -284,7 +284,7 @@ pub async fn allocate(
 
         // Hydrate iface with network addresses, returning the assigned addresses.
         // A segment may have multiple prefixes (e.g. dual-stack with both IPv4 and IPv6).
-        let addresses = if segment.segment_type == NetworkSegmentType::HostInband {
+        let addresses = if segment.config.segment_type == NetworkSegmentType::HostInband {
             // For host-inband network segments, the instance interface *is* the host
             // interface. Iterate all prefixes so dual-stack segments get both v4 and v6
             // addresses assigned. Prefixes where the host has no matching address are
@@ -521,9 +521,9 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
 
         self.host_inband_mac_address = Some(inband_host_interface.mac_address);
 
-        // Also write out the gateway for the network segment's prefix. Unlike the interface_prefixes
-        // field (which is a /32 or /30 for just this instance, for hosts with DPUs),
-        // segment_gateway is the gateway for the entire network segment.
+        // Also write out the gateway for the network segment's prefix. Unlike the
+        // interface_prefixes field (which is a /32 or /30 for just this instance, for hosts
+        // with DPUs), segment_gateway is the gateway for the entire network segment.
         //
         // This is currently only used for zero-DPU instances, where the instance's interface is
         // equivalent to the host's interface, and the tenant needs to know the gateway and prefix
@@ -614,7 +614,9 @@ mod tests {
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
     use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
-    use model::network_segment::NetworkSegmentType;
+    use model::network_segment::{
+        AllocationStrategy, NetworkSegmentConfig, NetworkSegmentStatus, NetworkSegmentType,
+    };
     use uuid::Uuid;
 
     use super::*;
@@ -628,26 +630,30 @@ mod tests {
                 let version = ConfigVersion::initial();
                 NetworkSegment {
                     id: NetworkSegmentId::from_str(&id).unwrap(),
-                    version,
-                    name: id,
-                    subdomain_id: None,
                     vpc_id: Some(vpc_id),
-                    mtu: 1500,
+                    version,
+                    config: NetworkSegmentConfig {
+                        name: id,
+                        subdomain_id: None,
+                        mtu: 1500,
+                        segment_type: NetworkSegmentType::Tenant,
+                        allocation_strategy: AllocationStrategy::default(), // Dynamic
+                    },
+                    status: NetworkSegmentStatus {
+                        controller_state: Versioned {
+                            value: NetworkSegmentControllerState::Ready,
+                            version,
+                        },
+                        controller_state_outcome: None,
+                        history: Vec::new(),
+                        vlan_id: None,
+                        vni: None,
+                        can_stretch: None,
+                    },
+                    prefixes: Vec::new(),
                     created: Utc::now(),
                     updated: Utc::now(),
                     deleted: None,
-                    prefixes: Vec::new(),
-                    controller_state: Versioned {
-                        value: NetworkSegmentControllerState::Ready,
-                        version,
-                    },
-                    controller_state_outcome: None,
-                    history: Vec::new(),
-                    vlan_id: None,
-                    vni: None,
-                    segment_type: NetworkSegmentType::Tenant,
-                    can_stretch: None,
-                    allocation_strategy: Default::default(),
                 }
             })
             .collect_vec();
@@ -729,7 +735,7 @@ mod tests {
     fn validate_not_ready_segment_fail() {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
-        data[9].controller_state.value = NetworkSegmentControllerState::Provisioning;
+        data[9].status.controller_state.value = NetworkSegmentControllerState::Provisioning;
         assert!(super::validate(&data, &config, &[]).is_err());
     }
 }

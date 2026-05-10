@@ -40,10 +40,33 @@ async fn test_network_segment_lifecycle_impl(
             .await;
     assert!(segment.created.is_some());
     assert!(segment.deleted.is_none());
-    assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);
-    assert_eq!(segment.segment_type, seg_type);
+    assert_eq!(
+        segment
+            .status
+            .as_ref()
+            .map(|s| s.state())
+            .unwrap_or_default(),
+        rpc::forge::TenantState::Provisioning
+    );
+    assert_eq!(
+        segment
+            .config
+            .as_ref()
+            .map(|c| c.segment_type)
+            .unwrap_or_default(),
+        seg_type
+    );
     let segment_id: NetworkSegmentId = segment.id.unwrap();
-    let _: uuid::Uuid = segment.prefixes.first().unwrap().id.unwrap().into();
+    let _: uuid::Uuid = segment
+        .config
+        .as_ref()
+        .unwrap()
+        .prefixes
+        .first()
+        .unwrap()
+        .id
+        .unwrap()
+        .into();
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
@@ -72,11 +95,13 @@ async fn test_network_segment_lifecycle_impl(
             .network_segments;
 
         assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].prefixes.len(), 1);
-        assert_eq!(
-            segments[0].prefixes[0].free_ip_count,
-            255 - num_reserved as u32
-        );
+        let prefixes = segments[0]
+            .config
+            .as_ref()
+            .map(|c| c.prefixes.as_slice())
+            .unwrap_or(&[]);
+        assert_eq!(prefixes.len(), 1);
+        assert_eq!(prefixes[0].free_ip_count, 255 - num_reserved as u32);
     }
 
     env.api

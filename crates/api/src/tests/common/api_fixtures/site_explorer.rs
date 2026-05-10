@@ -1858,7 +1858,7 @@ pub async fn create_expected_switches(
                 txn,
                 &network_segment,
                 nvos_mac,
-                network_segment.subdomain_id,
+                network_segment.config.subdomain_id,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
             )
@@ -1875,7 +1875,7 @@ pub async fn create_expected_switches(
             txn,
             &overlay_network_segment,
             &result.bmc_mac_address.clone(),
-            overlay_network_segment.subdomain_id,
+            overlay_network_segment.config.subdomain_id,
             false,
             AddressSelectionStrategy::NextAvailableIp,
         )

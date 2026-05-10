@@ -202,7 +202,7 @@ async fn test_expire_does_not_delete_static_allocation(
         &mut txn,
         &segment,
         &MacAddress::from_str("aa:bb:cc:dd:ee:08").unwrap(),
-        segment.subdomain_id,
+        segment.config.subdomain_id,
         true,
         AddressSelectionStrategy::StaticAddress(static_ip),
     )
@@ -249,7 +249,7 @@ async fn test_static_address_survives_expiration_and_rediscover(
         &mut txn,
         &segment,
         &mac,
-        segment.subdomain_id,
+        segment.config.subdomain_id,
         true,
         AddressSelectionStrategy::StaticAddress(static_ip),
     )

@@ -491,7 +491,7 @@ async fn test_assign_external_ip_moves_to_static_assignments(
         "interface should have moved to the static-assignments segment"
     );
     assert_eq!(
-        updated.domain_id, static_seg.subdomain_id,
+        updated.domain_id, static_seg.config.subdomain_id,
         "domain_id should match the static-assignments segment's subdomain"
     );
 
@@ -728,7 +728,7 @@ async fn test_reserved_segment_serves_static_reservation(
         &mut txn,
         &admin_seg,
         &bmc_mac,
-        admin_seg.subdomain_id,
+        admin_seg.config.subdomain_id,
         true,
         model::address_selection_strategy::AddressSelectionStrategy::StaticAddress(reserved_ip),
     )

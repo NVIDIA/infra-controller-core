@@ -301,10 +301,10 @@ pub async fn discover_dhcp(
 
         // If the segment only allows static reservations, don't
         // dynamically allocate. The device has no reservation.
-        if segment.allocation_strategy == AllocationStrategy::Reserved {
+        if segment.config.allocation_strategy == AllocationStrategy::Reserved {
             return Err(CarbideError::internal(format!(
                 "segment {} configured for static DHCP leases only; no static reservation for MAC {parsed_mac}",
-                segment.name,
+                segment.config.name,
             )));
         }
 

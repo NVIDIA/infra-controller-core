@@ -2543,8 +2543,8 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     .unwrap();
     let ns = ns.first().unwrap();
 
-    assert!(ns.vlan_id.is_none());
-    assert!(ns.vni.is_none());
+    assert!(ns.status.vlan_id.is_none());
+    assert!(ns.status.vni.is_none());
 
     let network_config = fetched_instance.config.network.clone();
     assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
