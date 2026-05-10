@@ -771,6 +771,23 @@ pub struct SiteExplorationReport {
     pub managed_hosts: Vec<ExploredManagedHost>,
 }
 
+/// Lower-cased prefix of the Redfish chassis `Id` that holds the hardware
+/// information of an NV-Switch tray (`MGX_NVSwitch_0`, `MGX_NVSwitch_1`, ...).
+const MGX_NVSWITCH_CHASSIS_ID_PREFIX: &str = "mgx_nvswitch_";
+
+/// Returns true when a hardware-info string reported over Redfish carries a
+/// real value rather than a placeholder. BMCs have been observed to populate
+/// fields with literal `"NA"` / `"N/A"` (or empty strings) before the
+/// underlying inventory is available; treating those values as real would make
+/// derived identifiers depend on whether the BMC has finished populating its
+/// inventory at the moment of discovery.
+fn is_real_hardware_value(s: &str) -> bool {
+    let trimmed = s.trim();
+    !trimmed.is_empty()
+        && !trimmed.eq_ignore_ascii_case("na")
+        && !trimmed.eq_ignore_ascii_case("n/a")
+}
+
 impl EndpointExplorationReport {
     /// Returns a report for an endpoint that is not reachable and could therefore
     /// not be explored
@@ -976,41 +993,68 @@ impl EndpointExplorationReport {
     }
 
     //TODO: refactor for common code with generate_power_shelf_id
-    /// Tries to generate and store a MachineId for the discovered endpoint if
-    /// enough data for generation is available
+    /// Tries to generate and store a SwitchId for the discovered endpoint if
+    /// enough data for generation is available.
+    ///
+    /// The ID is derived from the chassis serial number reported by Redfish.
+    /// BMCs have been observed to expose multiple `MGX_NVSwitch_*` chassis
+    /// entries where some are placeholders containing only `"NA"` / empty
+    /// strings, and the index that holds the real hardware data is not stable
+    /// across BMC firmware versions. Selecting by index alone therefore makes
+    /// the resulting `SwitchId` non-deterministic and lets the same physical
+    /// switch be inserted under multiple IDs.
+    ///
+    /// To stay tied to the physical hardware, we iterate the chassis array in
+    /// order and pick the first `MGX_NVSwitch_*` entry that reports a real
+    /// (non-empty, non-placeholder) serial number.
     pub fn generate_switch_id(&mut self) -> ModelResult<Option<SwitchId>> {
         let chassis = self
             .chassis
             .iter()
-            .find(|c| c.id.to_string().to_lowercase() == "mgx_nvswitch_0")
-            .unwrap();
-        let serial_number = chassis.serial_number.clone();
-        let manufacturer = chassis.manufacturer.clone().unwrap_or("NVIDIA".to_string());
-        let model = "Switch".to_string();
-
-        if let Some(serial_number) = serial_number.as_ref() {
-            let switch_type = SwitchType::NvLink;
-            let switch_source = SwitchIdSource::ProductBoardChassisSerial;
-
-            let switch_id = switch_id::from_hardware_info_with_type(
-                serial_number.as_str(),
-                manufacturer.as_str(),
-                model.as_str(),
-                switch_source,
-                switch_type,
-            )
-            .map_err(|_e| {
+            .filter(|c| {
+                c.id.to_lowercase()
+                    .starts_with(MGX_NVSWITCH_CHASSIS_ID_PREFIX)
+            })
+            .find(|c| {
+                c.serial_number
+                    .as_deref()
+                    .is_some_and(is_real_hardware_value)
+            })
+            .ok_or_else(|| {
                 ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(
                     MissingHardwareInfo::Serial,
                 ))
             })?;
-            self.switch_id = Some(switch_id);
-            Ok(self.switch_id)
-        } else {
-            Err(ModelError::HardwareInfo(
-                HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
+
+        let serial_number = chassis
+            .serial_number
+            .as_deref()
+            .expect("filter above guarantees serial_number is Some");
+        // Use the manufacturer reported by the same chassis we picked, falling
+        // back to "NVIDIA" if the BMC does not populate it. Keeping the
+        // existing fallback preserves IDs of switches already registered in
+        // production; tightening it is left as a follow-up.
+        let manufacturer = chassis
+            .manufacturer
+            .as_deref()
+            .filter(|s| is_real_hardware_value(s))
+            .unwrap_or("NVIDIA");
+        let model = "Switch";
+
+        let switch_id = switch_id::from_hardware_info_with_type(
+            serial_number,
+            manufacturer,
+            model,
+            SwitchIdSource::ProductBoardChassisSerial,
+            SwitchType::NvLink,
+        )
+        .map_err(|_e| {
+            ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(
+                MissingHardwareInfo::Serial,
             ))
-        }
+        })?;
+        self.switch_id = Some(switch_id);
+        Ok(self.switch_id)
     }
 
     pub fn get_inventory_map(&self) -> HashMap<&str, &Inventory> {
@@ -2412,5 +2456,162 @@ mod tests {
         let system: ComputerSystem =
             serde_json::from_value(json).expect("should deserialize missing BaseMac");
         assert_eq!(system.base_mac, None);
+    }
+
+    // -- generate_switch_id ---------------------------------------------------
+
+    /// Builds a minimal `EndpointExplorationReport` whose only meaningful field
+    /// is the chassis array, which is what `generate_switch_id` reads.
+    fn report_with_chassis(chassis: Vec<Chassis>) -> EndpointExplorationReport {
+        EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            chassis,
+            ..Default::default()
+        }
+    }
+
+    fn nvswitch_chassis(
+        id: &str,
+        serial: Option<&str>,
+        manufacturer: Option<&str>,
+    ) -> Chassis {
+        Chassis {
+            id: id.to_string(),
+            manufacturer: manufacturer.map(str::to_string),
+            serial_number: serial.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn generate_switch_id_picks_first_mgx_nvswitch_chassis_with_real_serial() {
+        // BMC reports the real hardware in MGX_NVSwitch_0 (the historical
+        // happy path). The new selection logic must keep using it so that IDs
+        // generated before this change remain stable.
+        let mut report = report_with_chassis(vec![
+            nvswitch_chassis("MGX_NVSwitch_0", Some("MT2514600DZP"), Some("NVIDIA")),
+            nvswitch_chassis("MGX_NVSwitch_1", Some("MT0000000000"), Some("NVIDIA")),
+        ]);
+
+        let id = report
+            .generate_switch_id()
+            .expect("valid hardware info should produce a switch id")
+            .expect("a switch id should be returned");
+
+        // Hash of "sMT2514600DZP-bNVIDIA-cSwitch" - this exact ID is currently
+        // running in production for switch nvswitch5-nvl6-gp1-jhb01 (BMC MAC
+        // 64:33:aa:19:f6:fe). Pinning it here guards against an accidental
+        // change to the hashing inputs.
+        assert_eq!(
+            id.to_string(),
+            "sw100nsvt7mdl9kcecdlqovlnva8h4h5974klqj5eg7q440e2grimjf8e20",
+        );
+    }
+
+    #[test]
+    fn generate_switch_id_skips_placeholder_chassis_and_uses_real_one() {
+        // Reproduces the production failure: BMC firmware moved the real
+        // hardware info from `MGX_NVSwitch_0` to `MGX_NVSwitch_1` and left
+        // `_0` populated with `"NA"` placeholders. The previous implementation
+        // hard-coded `_0`, so it would silently produce a SwitchId derived
+        // from the literal string `"NA"`, registering the same physical
+        // switch under a brand new ID on every site explorer run.
+        let mut report = report_with_chassis(vec![
+            nvswitch_chassis("MGX_NVSwitch_0", Some("NA"), Some("NVIDIA")),
+            nvswitch_chassis("MGX_NVSwitch_1", Some("MT2514600DZP"), Some("NVIDIA")),
+        ]);
+
+        let id = report
+            .generate_switch_id()
+            .expect("a chassis with a real serial is present")
+            .expect("a switch id should be returned");
+
+        // Must come out to the same ID as the happy-path test above: the
+        // identifier is a property of the physical hardware, not of the
+        // chassis index that the BMC chose to expose it at.
+        assert_eq!(
+            id.to_string(),
+            "sw100nsvt7mdl9kcecdlqovlnva8h4h5974klqj5eg7q440e2grimjf8e20",
+        );
+    }
+
+    #[test]
+    fn generate_switch_id_errors_when_all_chassis_have_placeholder_serials() {
+        let mut report = report_with_chassis(vec![
+            nvswitch_chassis("MGX_NVSwitch_0", Some("NA"), Some("NVIDIA")),
+            nvswitch_chassis("MGX_NVSwitch_1", Some("N/A"), Some("NVIDIA")),
+            nvswitch_chassis("MGX_NVSwitch_2", Some(""), Some("NVIDIA")),
+            nvswitch_chassis("MGX_NVSwitch_3", None, Some("NVIDIA")),
+        ]);
+
+        let err = report
+            .generate_switch_id()
+            .expect_err("placeholder-only chassis must not produce a switch id");
+
+        assert!(matches!(
+            err,
+            ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(
+                MissingHardwareInfo::Serial,
+            )),
+        ));
+    }
+
+    #[test]
+    fn generate_switch_id_errors_when_no_mgx_nvswitch_chassis_present() {
+        let mut report = report_with_chassis(vec![
+            nvswitch_chassis("MGX_BMC_0", Some("MT2514600DZP"), Some("NVIDIA")),
+            nvswitch_chassis("MGX_ERoT_NVSwitch_0", Some("0xDEADBEEF"), Some("NVIDIA")),
+        ]);
+
+        let err = report
+            .generate_switch_id()
+            .expect_err("a non-NV-Switch chassis must not be used to derive a switch id");
+
+        assert!(matches!(
+            err,
+            ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(
+                MissingHardwareInfo::Serial,
+            )),
+        ));
+    }
+
+    #[test]
+    fn generate_switch_id_falls_back_to_nvidia_when_manufacturer_missing() {
+        // The manufacturer fallback is intentionally preserved (see comment
+        // on `generate_switch_id`) for backward compatibility with switches
+        // already registered in production where the BMC did not report a
+        // chassis manufacturer. Tightening this is left as a follow-up.
+        let mut report_none = report_with_chassis(vec![
+            nvswitch_chassis("MGX_NVSwitch_0", Some("MT2514600DZP"), None),
+        ]);
+        let mut report_na = report_with_chassis(vec![
+            nvswitch_chassis("MGX_NVSwitch_0", Some("MT2514600DZP"), Some("NA")),
+        ]);
+        let mut report_explicit = report_with_chassis(vec![
+            nvswitch_chassis("MGX_NVSwitch_0", Some("MT2514600DZP"), Some("NVIDIA")),
+        ]);
+
+        let id_none = report_none.generate_switch_id().unwrap().unwrap();
+        let id_na = report_na.generate_switch_id().unwrap().unwrap();
+        let id_explicit = report_explicit.generate_switch_id().unwrap().unwrap();
+
+        assert_eq!(id_none, id_explicit);
+        assert_eq!(id_na, id_explicit);
+    }
+
+    #[test]
+    fn is_real_hardware_value_rejects_placeholders() {
+        for placeholder in ["", " ", "\t", "NA", "na", "Na", "N/A", "n/a", "  N/A  "] {
+            assert!(
+                !is_real_hardware_value(placeholder),
+                "{placeholder:?} should be rejected as a placeholder",
+            );
+        }
+        for real in ["MT2514600DZP", "NVIDIA", "0", "any-string"] {
+            assert!(
+                is_real_hardware_value(real),
+                "{real:?} should be accepted as a real value",
+            );
+        }
     }
 }
