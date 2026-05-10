@@ -213,6 +213,15 @@ impl BmcEndpointExplorer {
         vendor: RedfishVendor,
         cred_data: BmcCredentialsData<'_>,
     ) -> Result<Credentials, EndpointExplorationError> {
+        if cred_data.password.is_empty() {
+            return Err(EndpointExplorationError::MissingCredentials {
+                key: "expected_entity_password".to_string(),
+                cause: format!(
+                    "Expected entity for {bmc_mac_address} has no BMC password configured"
+                ),
+            });
+        }
+
         let current_bmc_credentials = Credentials::UsernamePassword {
             username: cred_data.username.to_string(),
             password: cred_data.password.to_string(),
@@ -683,7 +692,10 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         )
                         .await?
                     }
-                    Err(EndpointExplorationError::Unauthorized { .. }) => {
+                    Err(
+                        EndpointExplorationError::Unauthorized { .. }
+                        | EndpointExplorationError::MissingCredentials { .. },
+                    ) => {
                         let bmc_credentials = self
                             .try_sitewide_bmc_root_credentials(
                                 bmc_ip_address,
