@@ -1019,6 +1019,7 @@ dependencies = [
  "bmc-vendor",
  "carbide-health-report",
  "carbide-libmlx",
+ "carbide-libmlx-model",
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
@@ -1304,7 +1305,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-ipxe-renderer",
- "carbide-libmlx",
+ "carbide-libmlx-model",
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
@@ -1381,7 +1382,7 @@ dependencies = [
  "carbide-dpf",
  "carbide-health-report",
  "carbide-ipxe-renderer",
- "carbide-libmlx",
+ "carbide-libmlx-model",
  "carbide-network",
  "carbide-rpc",
  "carbide-rpc-utils",
@@ -2037,6 +2038,7 @@ dependencies = [
  "async-trait",
  "backon",
  "base64",
+ "carbide-libmlx-model",
  "carbide-rpc",
  "carbide-ssh",
  "carbide-uuid",
@@ -2064,6 +2066,14 @@ dependencies = [
  "url",
  "uuid",
  "wait-timeout",
+]
+
+[[package]]
+name = "carbide-libmlx-model"
+version = "0.0.0"
+dependencies = [
+ "mac_address",
+ "serde",
 ]
 
 [[package]]
@@ -2342,6 +2352,7 @@ dependencies = [
  "async-trait",
  "carbide-health-report",
  "carbide-http-connector",
+ "carbide-libmlx-model",
  "carbide-network",
  "carbide-secrets",
  "carbide-tls",
