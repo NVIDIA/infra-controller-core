@@ -990,19 +990,20 @@ async fn test_increment_vpc_version_detects_concurrent_writes(
         .id
         .unwrap();
 
-    let initial_version_nr = {
+    let initial_version = {
         let vpcs =
             db::vpc::find_by(&pool, ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id)).await?;
-        vpcs[0].version.version_nr()
+        vpcs[0].version
     };
+    let initial_version_nr = initial_version.version_nr();
 
-    // Open two transactions, have both read the current version, then race!
+    // Open two transactions, have both use the same expected version, then race!
     let pool_a = pool.clone();
     let pool_b = pool.clone();
     let (a, b) = tokio::join!(
         tokio::spawn(async move {
             let mut txn = pool_a.begin().await.unwrap();
-            let result = db::vpc::increment_vpc_version(&mut txn, vpc_id).await;
+            let result = db::vpc::increment_vpc_version(&mut txn, vpc_id, initial_version).await;
             if result.is_ok() {
                 txn.commit().await.unwrap();
             } else {
@@ -1012,7 +1013,7 @@ async fn test_increment_vpc_version_detects_concurrent_writes(
         }),
         tokio::spawn(async move {
             let mut txn = pool_b.begin().await.unwrap();
-            let result = db::vpc::increment_vpc_version(&mut txn, vpc_id).await;
+            let result = db::vpc::increment_vpc_version(&mut txn, vpc_id, initial_version).await;
             if result.is_ok() {
                 txn.commit().await.unwrap();
             } else {
