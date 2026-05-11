@@ -4979,7 +4979,6 @@ async fn test_instance_release_rejected_when_aggregate_health_has_prevent_deleti
             tenant_message: None,
             classifications: vec![health_report::HealthAlertClassification::prevent_deletion()],
         }],
-        ..Default::default()
     };
 
     send_health_report_entry(
