@@ -108,6 +108,22 @@ pub struct InstanceNetworkConfig {
     /// auto-resolve the instance's network interfaces from the host's
     /// HostInband network segments. Only valid for instances on zero-DPU
     /// hosts (well, no DPU, *or* DPU in NIC mode).
+    ///
+    /// It is also important to note that on the wire (request AND response),
+    /// `auto: true` only travels with `interfaces: []`, but internally some
+    /// other things are happening.
+    ///
+    /// On allocation/update, NICo resolves the empty interfaces: [] into
+    /// one entry per HostInband segment on the host, then stores the
+    /// fully-resolved config internally (allowing storage, status, IP
+    /// bookkeeping, config diffs, etc to all operate on real interfaces).
+    ///
+    /// Then, at the model <-> RPC boundary, the resolved interfaces are
+    /// stripped off to `[]`, so callers reading the instance config back
+    /// simply see what they originally sent (`auto: true` with no interfaces).
+    ///
+    /// The resolved per-interface details (IP, MAC, gateway, prefix) appear in
+    /// `Instance.status.network.interfaces` like usual.
     #[serde(default)]
     pub auto: bool,
 }
@@ -200,7 +216,35 @@ impl InstanceNetworkConfig {
         }
     }
 
-    /// Validates the network configuration
+    /// Returns this config as it should appear on the wire: for `auto`
+    /// configs, the resolved interfaces are stripped so external callers see
+    /// just their request (`{ auto: true, interfaces: [] }`). The fully-
+    /// resolved interfaces still drive `InstanceNetworkStatus` population
+    /// from the internal model. For non-auto configs, returns `self`
+    /// unchanged.
+    ///
+    /// This exists to keep the input config from the user represented
+    /// back to them as they sent it, and mask any internal interface
+    /// resolution that happened as a result of `auto`.
+    pub fn into_external_view(self) -> Self {
+        if self.auto {
+            Self {
+                interfaces: vec![],
+                auto: true,
+            }
+        } else {
+            self
+        }
+    }
+
+    /// Validates the network configuration.
+    ///
+    /// Note: this is also called on POST-resolution configs (i.e. after
+    /// `add_inband_interfaces_to_config` has expanded an `auto` request into
+    /// underlying interfaces), so it must not reject the combination
+    /// `auto: true` + non-empty interfaces here. The "auto must arrive with
+    /// empty interfaces" rule is enforced in RPC <-> model conversion, which
+    /// only runs on user input.
     pub fn validate(&self, allow_instance_vf: bool) -> Result<(), ConfigValidationError> {
         if !allow_instance_vf
             && self

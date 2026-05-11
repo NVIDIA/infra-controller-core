@@ -2630,7 +2630,18 @@ message InstanceNetworkConfig {
   // When true, NICO (or potentially some pluggable SDN backend) will
   // auto-resolve the instance's network interfaces from the host's
   // HostInband network segments. Only valid for instances on zero-DPU
-  // hosts (well, no DPU, *or* DPU in NIC mode).
+  // hosts (well, no DPU, *or* DPU in NIC mode). When set, `interfaces`
+  // MUST be empty on the request.
+  //
+  // Callers reading the instance back also see `auto = true` with an empty
+  // `interfaces` list (what they sent is preserved verbatim). The
+  // resolved per-interface details -- IP, MAC, gateway, prefix -- surface
+  // in `Instance.status.network.interfaces` instead.
+  //
+  // On update, sending `auto: true` re-resolves interfaces from the host's
+  // current HostInband segments. If nothing has changed, this is a no-op.
+  // If the host's segments have been added/removed by the operator, the
+  // update reflects that change.
   bool auto = 2;
 }
 
@@ -2747,9 +2758,16 @@ message InstanceStatus {
 message InstanceNetworkStatus {
   // Status for each configured interface
   //
-  // Each entry in this status array maps to its corresponding entry in the
-  // Config section. E.g. `instance.status.network.interface_status[1]`
-  // would map to `instance.config.network.interface_configs[1]`.
+  // For non-auto configs: each entry in this status array maps to its
+  // corresponding entry in the Config section. E.g.
+  // `instance.status.network.interfaces[1]` would map to
+  // `instance.config.network.interfaces[1]`.
+  //
+  // For auto configs (`InstanceNetworkConfig.auto = true`): the config-side
+  // `interfaces` is always empty on the wire (it's preserved verbatim from
+  // the request), so this status array stands alone and describes the
+  // interfaces Carbide resolved from the host's HostInband segments. There
+  // is no positional relationship to consult on the config side.
   repeated InstanceInterfaceStatus interfaces = 1;
 
   // Whether all desired network changes that the user has applied have taken effect

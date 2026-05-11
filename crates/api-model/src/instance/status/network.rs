@@ -49,9 +49,16 @@ use crate::network_security_group::NetworkSecurityGroupStatusObservation;
 pub struct InstanceNetworkStatus {
     /// Status for each configured interface
     ///
-    /// Each entry in this status array maps to its corresponding entry in the
-    /// Config section. E.g. `instance.status.network.interface_status[1]`
-    /// would map to `instance.config.network.interface_configs[1]`.
+    /// For non-auto configs: each entry in this status array maps to its
+    /// corresponding entry in the Config section. E.g.
+    /// `instance.status.network.interfaces[1]` maps to
+    /// `instance.config.network.interfaces[1]`.
+    ///
+    /// For auto configs (`InstanceNetworkConfig.auto = true`): on the wire
+    /// the config-side `interfaces` is always empty (the request is
+    /// preserved verbatim), so this array stands alone and describes the
+    /// interfaces Carbide resolved from the host's HostInband segments.
+    /// There is no positional relationship to consult on the config side.
     pub interfaces: Vec<InstanceInterfaceStatus>,
 
     /// Whether all desired network changes that the user has applied have taken effect
