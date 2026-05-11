@@ -550,9 +550,16 @@ int lease4_expire(CalloutHandle &handle) {
   }
 
   std::string ip_str = lease4->addr_.toText();
+  // Pass the MAC alongside the IP so NICo can scope the delete to
+  // exactly this (ip, mac) lease.
+  std::string mac_str;
+  if (lease4->hwaddr_ && !lease4->hwaddr_->hwaddr_.empty()) {
+    mac_str = lease4->hwaddr_->toText(false);
+  }
   LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
 
-  auto result = carbide_expire_lease(ip_str.c_str());
+  auto result = carbide_expire_lease(
+      ip_str.c_str(), mac_str.empty() ? nullptr : mac_str.c_str());
   if (result != LeaseExpirationResult::Success) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
   }
@@ -571,9 +578,16 @@ int lease6_expire(CalloutHandle &handle) {
   }
 
   std::string ip_str = lease6->addr_.toText();
+  // DHCPv6 identifies clients by DUID, but Kea still records the
+  // client's hardware address on the lease when available.
+  std::string mac_str;
+  if (lease6->hwaddr_ && !lease6->hwaddr_->hwaddr_.empty()) {
+    mac_str = lease6->hwaddr_->toText(false);
+  }
   LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
 
-  auto result = carbide_expire_lease(ip_str.c_str());
+  auto result = carbide_expire_lease(
+      ip_str.c_str(), mac_str.empty() ? nullptr : mac_str.c_str());
   if (result != LeaseExpirationResult::Success) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
   }

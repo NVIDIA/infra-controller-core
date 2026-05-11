@@ -3552,6 +3552,11 @@ message DhcpDiscovery {
 
 message ExpireDhcpLeaseRequest {
   string ip_address = 1;
+  // Optional MAC of the expiring lease. When set, the handler only
+  // deletes the row whose (ip_address, mac) pair matches; Kea will
+  // set both. admin-cli calls may just set ip_address. We could
+  // probably just enforce that both must be set.
+  optional string mac_address = 2;
 }
 
 enum ExpireDhcpLeaseStatus {
