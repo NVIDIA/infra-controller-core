@@ -18,12 +18,25 @@ use std::net::IpAddr;
 
 use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::NetworkSegmentId;
+use mac_address::MacAddress;
 use model::allocation_type::{AllocationType, AssignStaticResult};
 use model::network_segment::NetworkSegmentType;
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
 use crate::db_read::DbReader;
+
+/// Returned by allocation paths with `AddressSelectionStrategy::StaticAddress`
+/// when the target IP is already held by some other interface.
+#[derive(thiserror::Error, Debug)]
+#[error("Address already in use: {0} by {1} in network segment {2} (Interface: {3})")]
+pub struct AddressAlreadyInUseError(
+    pub IpAddr,
+    pub MacAddress,
+    pub NetworkSegmentId,
+    pub MachineInterfaceId,
+);
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
