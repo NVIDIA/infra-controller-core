@@ -5920,6 +5920,7 @@ name = "libnmxc"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "clap",
  "prost 0.14.1",
  "thiserror 2.0.17",
  "tokio",
@@ -5927,6 +5928,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

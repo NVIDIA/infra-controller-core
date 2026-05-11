@@ -1874,16 +1874,10 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
     assert_eq!(gpu_uid_count, 4);
 }
 
-/// `*_use_nmxc_simulator` integration tests only run when environment variable RUN_NMXC_SIMULATOR_TESTS is set (any value).
-/// Before running these tests, need to have nmx_simulator running on port 9601.
-/// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true"
-/// Also nmxc_uid_start in simulator_config.json should be set to 1000 so that GPU UIDs are assinged starting from 1000.
-///
-/// - [`test_create_instance_with_nvl_config_use_nmxc_simulator`]: plaintext gRPC to the simulator (no NMX-C client TLS paths).
-/// - [`test_create_instance_with_nvl_config_mtls_use_nmxc_simulator`]: `NvLinkConfig` mTLS matching
-///   `--ca-cert /etc/nmx-controller/ytl-jhb01-ca.crt --client-cert /etc/nmx-controller/ytl-jhb01-tls.crt
-///   --client-key /etc/nmx-controller/ytl-jhb01-tls.key --authority ytl-jhb01`.
-
+// `*_use_nmxc_simulator` integration tests only run when environment variable RUN_NMXC_SIMULATOR_TESTS is set (any value).
+// Before running these tests, need to have nmx_simulator running on port 9601.
+// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true"
+// Also nmxc_uid_start in simulator_config.json should be set to 1000 so that GPU UIDs are assinged starting from 1000.
 const RUN_NMXC_SIMULATOR_TESTS: &str = "RUN_NMXC_SIMULATOR_TESTS";
 
 const NMXC_SIMULATOR_TLS_CA: &str = "/etc/nmx-controller/ytl-jhb01-ca.crt";
@@ -2077,6 +2071,14 @@ async fn test_create_instance_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgP
     run_create_instance_with_nvl_config_nmxc_simulator_scenario(pool, false).await;
 }
 
+
+// mTLS scenario. For this test, the simulator needs to be configured with mTLS.
+// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true -c /etc/nmx-controller/ytl-jhb01-tls.crt -k /etc/nmx-controller/ytl-jhb01-tls.key -a /etc/nmx-controller/ytl-jhb01-ca.crt -e mtls"
+// This test uses the following harcoded mtls config:
+// ytl-jhb01-ca.crt is the CA certificate
+// ytl-jhb01-tls.crt is the client certificate
+// ytl-jhb01-tls.key is the client key
+// ytl-jhb01 is the authority
 #[crate::sqlx_test]
 async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx::PgPool) {
     if !nmxc_simulator_tests_enabled() {

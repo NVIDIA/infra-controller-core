@@ -41,7 +41,7 @@ async fn hello_to_grpc_endpoint() {
     let header = response.server_header.unwrap();
     assert_eq!(
         header.return_code,
-        libnmxc::nmxc_model::STReturnCode::NmxStSuccess as i32,
+        libnmxc::nmxc_model::StReturnCode::NmxStSuccess as i32,
         "expected return_code NMX_ST_SUCCESS"
     );
 }

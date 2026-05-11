@@ -1286,9 +1286,11 @@ pub mod test_support {
 
         #[test]
         fn simulator_for_nvlink_with_mtls_uses_https_default() {
-            let mut cfg = crate::cfg::file::NvLinkConfig::default();
-            cfg.nmx_c_tls_client_cert_path = Some("/tmp/client.pem".to_string());
-            cfg.nmx_c_tls_client_key_path = Some("/tmp/client-key.pem".to_string());
+            let cfg = crate::cfg::file::NvLinkConfig {
+                nmx_c_tls_client_cert_path: Some("/tmp/client.pem".to_string()),
+                nmx_c_tls_client_key_path: Some("/tmp/client-key.pem".to_string()),
+                ..Default::default()
+            };
             let s = NmxcSimClient::simulator_for_nvlink_config(&cfg);
             assert_eq!(
                 s._simulator_endpoint
@@ -1301,9 +1303,11 @@ pub mod test_support {
 
         #[test]
         fn with_simulator_url_for_nvlink_upgrades_http_to_https() {
-            let mut cfg = crate::cfg::file::NvLinkConfig::default();
-            cfg.nmx_c_tls_client_cert_path = Some("/c".to_string());
-            cfg.nmx_c_tls_client_key_path = Some("/k".to_string());
+            let cfg = crate::cfg::file::NvLinkConfig {
+                nmx_c_tls_client_cert_path: Some("/c".to_string()),
+                nmx_c_tls_client_key_path: Some("/k".to_string()),
+                ..Default::default()
+            };
             let s = NmxcSimClient::with_simulator_url_for_nvlink("http://127.0.0.1:19999", &cfg);
             assert_eq!(
                 s._simulator_endpoint

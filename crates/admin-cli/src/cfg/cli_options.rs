@@ -149,7 +149,7 @@ pub enum CliCommand {
     NetworkSegment(network_segment::Cmd),
     #[clap(
         name = "nvlink-nmxc-endpoints",
-        about = "Chassis serial → NMX-C endpoint mappings (nvlink_nmxc_endpoints)",
+        about = "Rack chassis serial → NMX-C endpoint mappings",
         subcommand
     )]
     NvlinkNmxcEndpoints(nvlink_nmxc_endpoints::Cmd),

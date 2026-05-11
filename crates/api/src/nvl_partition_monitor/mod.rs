@@ -1316,7 +1316,7 @@ impl NvlPartitionMonitor {
                             );
                             continue;
                         };
-                        let Some(partition_id_struct) = default_nmxc.partition_id.clone() else {
+                        let Some(partition_id_struct) = default_nmxc.partition_id else {
                             tracing::warn!(
                                 machine_id = %mh.host_snapshot.id,
                                 gpu_guid = %gpu.guid,
