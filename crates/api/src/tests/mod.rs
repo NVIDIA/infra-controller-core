@@ -55,6 +55,7 @@ mod instance_find;
 mod instance_ipxe_behaviors;
 mod instance_os;
 mod instance_type;
+mod ip_allocator;
 mod ipxe;
 mod level_filter;
 mod lldp;

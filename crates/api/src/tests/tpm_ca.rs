@@ -69,7 +69,7 @@ pub mod tests {
 
         let segment = db::network_segment::find_by(
             txn.as_mut(),
-            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            ObjectColumnFilter::One(db::network_segment::IdColumn, env.admin_segment_ref()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -78,9 +78,8 @@ pub mod tests {
 
         let iface = db::machine_interface::create(
             &mut txn,
-            &segment,
+            std::slice::from_ref(&segment),
             &dpu.host_mac_address,
-            Some(env.domain.into()),
             true,
             model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )
@@ -120,7 +119,7 @@ pub mod tests {
 
         let segment = db::network_segment::find_by(
             txn.as_mut(),
-            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            ObjectColumnFilter::One(db::network_segment::IdColumn, env.admin_segment_ref()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -129,9 +128,8 @@ pub mod tests {
 
         let iface = db::machine_interface::create(
             &mut txn,
-            &segment,
+            std::slice::from_ref(&segment),
             &dpu.host_mac_address,
-            Some(env.domain.into()),
             true,
             model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )
@@ -1183,7 +1181,7 @@ pub mod tests {
 
         let segment = db::network_segment::find_by(
             txn.as_mut(),
-            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            ObjectColumnFilter::One(db::network_segment::IdColumn, env.admin_segment_ref()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -1192,9 +1190,8 @@ pub mod tests {
 
         let iface = db::machine_interface::create(
             &mut txn,
-            &segment,
+            std::slice::from_ref(&segment),
             &dpu.host_mac_address,
-            Some(env.domain.into()),
             true,
             model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )

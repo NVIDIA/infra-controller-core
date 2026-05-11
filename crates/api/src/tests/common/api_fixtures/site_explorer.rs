@@ -1848,7 +1848,7 @@ pub async fn create_expected_switches(
             .await
             .expect("unable to create expected switch");
 
-        let network_segment = db::network_segment::admin(txn)
+        let network_segments = db::network_segment::admin(txn)
             .await
             .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
             .unwrap();
@@ -1856,9 +1856,8 @@ pub async fn create_expected_switches(
         for nvos_mac in &result.nvos_mac_addresses.clone() {
             db::machine_interface::create(
                 txn,
-                &network_segment,
+                &network_segments,
                 nvos_mac,
-                network_segment.subdomain_id,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
             )
@@ -1873,9 +1872,8 @@ pub async fn create_expected_switches(
 
         db::machine_interface::create(
             txn,
-            &overlay_network_segment,
+            std::slice::from_ref(&overlay_network_segment),
             &result.bmc_mac_address.clone(),
-            overlay_network_segment.subdomain_id,
             false,
             AddressSelectionStrategy::NextAvailableIp,
         )
