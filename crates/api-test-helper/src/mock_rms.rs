@@ -606,6 +606,18 @@ impl RmsApi for MockRmsApi {
         self.set_power_state_calls.lock().await.push(cmd);
         pop_or_err(&mut self.set_power_state_responses.lock().await)
     }
+    async fn set_power_state_by_device_list(
+        &self,
+        _cmd: rms::SetPowerStateByDeviceListRequest,
+    ) -> Result<rms::SetPowerStateByDeviceListResponse, RackManagerError> {
+        Ok(rms::SetPowerStateByDeviceListResponse::default())
+    }
+    async fn update_switch_system_password(
+        &self,
+        _cmd: rms::UpdateSwitchSystemPasswordRequest,
+    ) -> Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError> {
+        Ok(rms::UpdateSwitchSystemPasswordResponse::default())
+    }
     async fn get_power_state(
         &self,
         cmd: rms::GetPowerStateRequest,
