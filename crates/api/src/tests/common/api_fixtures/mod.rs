@@ -1369,8 +1369,17 @@ pub async fn create_test_env_with_overrides(
             NmxmSimClient::default()
         });
 
+    let nvlink_for_nmxc_sim = overrides
+        .config
+        .as_ref()
+        .and_then(|c| c.nvlink_config.as_ref())
+        .cloned()
+        .unwrap_or_default();
+
     let nmxc_sim: Arc<dyn NmxcPool> = if overrides.nmxc_simulator == Some(true) {
-        Arc::new(NmxcSimClient::simulator())
+        Arc::new(NmxcSimClient::simulator_for_nvlink_config(
+            &nvlink_for_nmxc_sim,
+        ))
     } else if let Some(n) = overrides.nmxm_fail_after_n_creates {
         Arc::new(NmxcSimClient::with_fail_after_n_creates(n))
     } else if overrides.nmxc_default_partition == Some(true) {

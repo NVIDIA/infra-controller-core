@@ -1878,25 +1878,38 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
 /// Before running these tests, need to have nmx_simulator running on port 9601.
 /// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true"
 /// Also nmxc_uid_start in simulator_config.json should be set to 1000 so that GPU UIDs are assinged starting from 1000.
+///
+/// - [`test_create_instance_with_nvl_config_use_nmxc_simulator`]: plaintext gRPC to the simulator (no NMX-C client TLS paths).
+/// - [`test_create_instance_with_nvl_config_mtls_use_nmxc_simulator`]: `NvLinkConfig` mTLS matching
+///   `--ca-cert /etc/nmx-controller/ytl-jhb01-ca.crt --client-cert /etc/nmx-controller/ytl-jhb01-tls.crt
+///   --client-key /etc/nmx-controller/ytl-jhb01-tls.key --authority ytl-jhb01`.
 
 const RUN_NMXC_SIMULATOR_TESTS: &str = "RUN_NMXC_SIMULATOR_TESTS";
+
+const NMXC_SIMULATOR_TLS_CA: &str = "/etc/nmx-controller/ytl-jhb01-ca.crt";
+const NMXC_SIMULATOR_TLS_CLIENT_CERT: &str = "/etc/nmx-controller/ytl-jhb01-tls.crt";
+const NMXC_SIMULATOR_TLS_CLIENT_KEY: &str = "/etc/nmx-controller/ytl-jhb01-tls.key";
+const NMXC_SIMULATOR_TLS_AUTHORITY: &str = "ytl-jhb01";
 
 fn nmxc_simulator_tests_enabled() -> bool {
     std::env::var_os(RUN_NMXC_SIMULATOR_TESTS).is_some()
 }
 
-#[crate::sqlx_test]
-async fn test_create_instance_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgPool) {
-    if !nmxc_simulator_tests_enabled() {
-        println!(
-            "skipping test_create_instance_with_nvl_config_use_nmxc_simulator as nmxc simulator tests are not enabled"
-        );
-        return;
-    }
-
+async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
+    pool: sqlx::PgPool,
+    with_mtls: bool,
+) {
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
         nvlink_config.enabled = true;
+        if with_mtls {
+            nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
+            nvlink_config.nmx_c_tls_client_cert_path =
+                Some(NMXC_SIMULATOR_TLS_CLIENT_CERT.to_string());
+            nvlink_config.nmx_c_tls_client_key_path =
+                Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
+            nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
+        }
     }
 
     let mut overrides = TestEnvOverrides::with_config(config);
@@ -2051,6 +2064,28 @@ async fn test_create_instance_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgP
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(logical_partition_list.partition_ids.len(), 0);
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_create_instance_with_nvl_config_use_nmxc_simulator as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+    run_create_instance_with_nvl_config_nmxc_simulator_scenario(pool, false).await;
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_create_instance_with_nvl_config_mtls_use_nmxc_simulator as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+    run_create_instance_with_nvl_config_nmxc_simulator_scenario(pool, true).await;
 }
 
 #[crate::sqlx_test]

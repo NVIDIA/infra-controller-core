@@ -5,6 +5,8 @@
 // Standalone binary to issue gRPC calls to an NMX-C endpoint using libnmxc.
 //
 
+#![allow(clippy::all)]
+
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
