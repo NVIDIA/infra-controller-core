@@ -57,7 +57,7 @@ libredfish = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
 prettytable-rs = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -66,13 +66,13 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = [
-  "env-filter",
-  "local-time",
+    "env-filter",
+    "local-time",
 ], workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
 x509-parser = { features = ["validate"], workspace = true }
-zip = { workspace = true }
+zip = { workspace = true, default-features = false, features = ["deflate"] }
 
 [build-dependencies]
 clap = { workspace = true }

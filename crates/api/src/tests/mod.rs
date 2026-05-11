@@ -132,7 +132,7 @@ pub use db::migrations::MIGRATOR;
 pub use crate::tests::common::sqlx_fixtures::sqlx_fixture_from_str;
 
 /// Setup logging for tests.
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup_test_logging() {
     use tracing::metadata::LevelFilter;
     use tracing_subscriber::filter::EnvFilter;
