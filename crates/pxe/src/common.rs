@@ -17,7 +17,6 @@
 use std::net::IpAddr;
 
 use axum_template::engine::Engine;
-use carbide_uuid::machine::MachineInterfaceId;
 use metrics_exporter_prometheus::PrometheusHandle;
 use rpc::forge::CloudInitInstructions;
 use serde::{Deserialize, Serialize};
@@ -32,23 +31,14 @@ pub(crate) struct Machine {
     pub instructions: CloudInitInstructions,
 }
 
-/// MachineLookup defines how the booting machine identified itself.
-/// The `uuid` query param (which comes from DHCP option 43.70, populated
-/// by carbide-dhcp or another API-integrated DHCP server) yields
-/// `InterfaceId`.
-/// When DHCP option 43.70 isn't set, carbide-pxe falls back to the
-/// observed source IP (`X-Forwarded-For` if proxied, TCP socket peer
-/// otherwise), populating `SourceIp`.
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MachineLookup {
-    InterfaceId(MachineInterfaceId),
-    SourceIp(IpAddr),
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MachineInterface {
     pub architecture: Option<machine_architecture::MachineArchitecture>,
-    pub lookup: MachineLookup,
+    /// IP carbide-pxe observed for the booting machine: `X-Forwarded-For`
+    /// when fronted by a proxy that injects it, TCP socket peer otherwise.
+    /// Forwarded to carbide-api which resolves it via `find_by_ip` to
+    /// fetch the machine_interface_id.
+    pub client_ip: IpAddr,
     pub platform: Option<String>,
     pub manufacturer: Option<String>,
     pub product: Option<String>,

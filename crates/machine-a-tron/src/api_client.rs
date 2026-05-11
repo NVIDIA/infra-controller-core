@@ -475,15 +475,15 @@ impl ApiClient {
     pub async fn get_pxe_instructions(
         &self,
         arch: rpc::forge::MachineArchitecture,
-        interface_id: MachineInterfaceId,
+        client_ip: std::net::IpAddr,
         product: Option<String>,
     ) -> ClientApiResult<PxeInstructions> {
         self.0
             .get_pxe_instructions(rpc::forge::PxeInstructionRequest {
                 arch: arch.into(),
-                interface_id: Some(interface_id),
                 product,
-                client_ip: None,
+                client_ip: Some(client_ip.to_string()),
+                ..Default::default()
             })
             .await
             .map_err(ClientApiError::InvocationError)

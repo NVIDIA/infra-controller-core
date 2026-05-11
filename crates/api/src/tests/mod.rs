@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod client_resolution;
 pub(crate) mod common;
 mod compute_allocation;
 mod connected_device;
