@@ -230,6 +230,7 @@ async fn test_power_shelf_database_operations(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };
@@ -281,6 +282,7 @@ async fn test_power_shelf_status_update(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };
@@ -325,6 +327,7 @@ async fn test_power_shelf_controller_state_transitions(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };
@@ -422,6 +425,7 @@ async fn test_power_shelf_conversion_roundtrip(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };
@@ -495,6 +499,7 @@ async fn test_power_shelf_list_segment_ids(
         let new_power_shelf = NewPowerShelf {
             id: power_shelf_id,
             config: config.clone(),
+            bmc_mac_address: None,
             metadata: None,
             rack_id: None,
         };
@@ -545,6 +550,7 @@ async fn test_power_shelf_controller_state_outcome(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };
