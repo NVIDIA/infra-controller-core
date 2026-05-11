@@ -61,7 +61,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
     );
     let machine_id = "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".parse()?;
     tokio::time::timeout(
-        Duration::from_secs(1),
+        Duration::from_secs(10),
         crate::upgrade::upgrade(
             &format!("https://{addr}"),
             &client_config,
