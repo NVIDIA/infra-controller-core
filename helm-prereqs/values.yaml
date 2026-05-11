@@ -51,6 +51,12 @@ vault:
     enabled: false
     name: "nico-cli-client"
     organization: ""
+  ## Kubernetes auth role for carbide-api to read from Vault KV
+  ## (e.g., BMC credentials for SiteExplorer).
+  carbideApiK8sAuth:
+    enabled: false
+    serviceAccountName: "carbide-api"
+    tokenTTL: "1h"
   kvMount: "secrets"
 
 certManager:
