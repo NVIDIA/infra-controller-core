@@ -30,5 +30,4 @@ ALTER TABLE tenant_identity_config ADD COLUMN encrypted_signing_key_2 TEXT;
 ALTER TABLE tenant_identity_config
     ADD COLUMN current_signing_key_slot tenant_identity_current_signing_key_slot_t NOT NULL DEFAULT 'signing_key_1';
 
-ALTER TABLE tenant_identity_config ADD COLUMN signing_key_overlap_sec INTEGER;
 ALTER TABLE tenant_identity_config ADD COLUMN non_active_slot_expires_at TIMESTAMPTZ;

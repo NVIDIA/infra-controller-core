@@ -32,7 +32,9 @@ use db::{WithTransaction, tenant, tenant_identity_config};
 use forge_secrets::credentials::CredentialReader;
 use forge_secrets::key_encryption;
 use model::tenant::identity_config::TenantIdentityCurrentSigningKeySlot;
-use model::rpc_conv::tenant::identity_config_try_from_proto;
+use model::rpc_conv::tenant::{
+    identity_config_try_from_proto, validate_identity_overlap_for_rotation,
+};
 use model::tenant::{
     EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfigValidationBounds,
     IdentityConfigValidationError, InvalidNonEmptyStr,
@@ -112,11 +114,17 @@ fn tenant_identity_signing_keys_response(
                 "signing_key_public_1: {e}"
             )))
         })?;
+        let current_signer =
+            cfg.current_signing_key_slot == TenantIdentityCurrentSigningKeySlot::SigningKey1;
         keys.push(TenantIdentitySigningKey {
             kid: doc.0.kid.clone(),
             alg: doc.0.alg.clone(),
-            current_signer: cfg.current_signing_key_slot
-                == TenantIdentityCurrentSigningKeySlot::SigningKey1,
+            current_signer,
+            expire_at: if current_signer {
+                None
+            } else {
+                cfg.non_active_slot_expires_at.map(Timestamp::from)
+            },
         });
     }
     if let Some(ref doc) = cfg.signing_key_public_2 {
@@ -125,11 +133,17 @@ fn tenant_identity_signing_keys_response(
                 "signing_key_public_2: {e}"
             )))
         })?;
+        let current_signer =
+            cfg.current_signing_key_slot == TenantIdentityCurrentSigningKeySlot::SigningKey2;
         keys.push(TenantIdentitySigningKey {
             kid: doc.0.kid.clone(),
             alg: doc.0.alg.clone(),
-            current_signer: cfg.current_signing_key_slot
-                == TenantIdentityCurrentSigningKeySlot::SigningKey2,
+            current_signer,
+            expire_at: if current_signer {
+                None
+            } else {
+                cfg.non_active_slot_expires_at.map(Timestamp::from)
+            },
         });
     }
     let n_current = keys.iter().filter(|k| k.current_signer).count();
@@ -309,6 +323,8 @@ pub(crate) async fn set_configuration(
         })?),
     };
     config.signing_key_overlap_sec = signing_key_overlap_sec;
+    validate_identity_overlap_for_rotation(&config)
+        .map_err(|e: IdentityConfigValidationError| CarbideError::InvalidArgument(e.0))?;
 
     let key_material = match (&existing, config.rotate_key) {
         (None, _) | (_, true) => {
@@ -319,7 +335,8 @@ pub(crate) async fn set_configuration(
             .await?;
             let (private_pem, public_pem) = key_encryption::generate_es256_key_pair()
                 .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-            let key_id = KeyId::from_public_key_material(&public_pem);
+            let public_pem_trimmed = public_pem.trim();
+            let key_id = KeyId::from_public_key_material(public_pem_trimmed);
             let encrypted_signing_key: EncryptedSigningPrivateKey =
                 key_encryption::encrypt(&private_pem, &encryption_key, &config.encryption_key_id)
                     .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
@@ -327,7 +344,8 @@ pub(crate) async fn set_configuration(
                     .map_err(|e: InvalidNonEmptyStr| {
                         CarbideError::InvalidArgument(e.to_string())
                     })?;
-            let signing_key_public: SigningPublicKeyPem = public_pem
+            let signing_key_public: SigningPublicKeyPem = public_pem_trimmed
+                .to_string()
                 .try_into()
                 .map_err(|e: InvalidNonEmptyStr| CarbideError::InvalidArgument(e.to_string()))?;
             Some(SigningKeyMaterial {
@@ -339,10 +357,6 @@ pub(crate) async fn set_configuration(
         (Some(_), false) => None,
     };
 
-    let site_overlap_default = api
-        .runtime_config
-        .machine_identity
-        .signing_key_overlap_default_sec;
     let cfg = api
         .database_connection
         .with_txn(|txn| {
@@ -354,14 +368,7 @@ pub(crate) async fn set_configuration(
                         id: org_id.as_str().to_string(),
                     });
                 }
-                let cfg = tenant_identity_config::set(
-                    &org_id,
-                    &config,
-                    key_material,
-                    site_overlap_default,
-                    txn,
-                )
-                .await?;
+                let cfg = tenant_identity_config::set(&org_id, &config, key_material, txn).await?;
                 tenant::increment_version(org_id.as_str(), txn).await?;
                 Ok(cfg)
             })

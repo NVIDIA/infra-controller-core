@@ -331,13 +331,20 @@ pub struct SigningKeyPublicV1 {
 
 impl SigningKeyPublicV1 {
     /// Builds version-1 JSON content for an ES256 SPKI PEM (canonical `kid` from [`KeyId::from_public_key_material`]).
+    ///
+    /// PEM is trimmed before hashing and storage so `kid` always matches [`Self::validate`] (which
+    /// recomputes the id from stored `public_pem`). Generated PEM often ends with a trailing newline.
     pub fn es256_from_public_pem(public_pem: &str) -> Result<Self, String> {
+        let public_pem = public_pem.trim();
+        if public_pem.is_empty() {
+            return Err("signing public PEM is empty".to_string());
+        }
         let kid = KeyId::from_public_key_material(public_pem);
         Ok(Self {
             v: 1,
             kid: kid.as_str().to_string(),
             alg: TENANT_IDENTITY_SIGNING_JWT_ALG.to_string(),
-            public_pem: public_pem.trim().to_string(),
+            public_pem: public_pem.to_string(),
         })
     }
 
@@ -405,7 +412,7 @@ pub type EncryptedTokenDelegationAuthConfig =
 
 #[cfg(test)]
 mod key_id_tests {
-    use super::KeyId;
+    use super::{KeyId, SigningKeyPublicV1};
 
     #[test]
     fn key_id_from_public_key_material_is_deterministic_hex64() {
@@ -415,5 +422,14 @@ mod key_id_tests {
         assert_eq!(a, b);
         assert_eq!(a.as_str().len(), 64);
         assert!(a.as_str().chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn es256_public_doc_trailing_newline_passes_validate() {
+        let base = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
+        let pem = format!("{base}\n");
+        let doc = SigningKeyPublicV1::es256_from_public_pem(&pem).expect("build doc");
+        assert_eq!(doc.public_pem, base);
+        doc.validate().expect("kid must match trimmed PEM");
     }
 }

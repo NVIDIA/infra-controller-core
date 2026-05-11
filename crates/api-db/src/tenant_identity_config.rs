@@ -49,7 +49,6 @@ fn tenant_identity_row_select_expr(table_alias: Option<&str>) -> String {
         "signing_key_public_1",
         "signing_key_public_2",
         "current_signing_key_slot",
-        "signing_key_overlap_sec",
         "non_active_slot_expires_at",
         "encryption_key_id::text AS encryption_key_id",
         "token_endpoint::text AS token_endpoint",
@@ -119,13 +118,12 @@ fn signing_public_json_from_material(
 /// Set identity config for an org.
 /// When creating new or rotating key, caller must provide `key_material` (generated key pair, encrypted private key).
 /// Caller must ensure tenant exists and global machine-identity is enabled.
-/// `site_signing_key_overlap_default_sec` is used when `config.signing_key_overlap_sec` is `None` to compute
-/// [`non_active_slot_expires_at`] on `rotate_key`.
+/// On key rotation, `config.signing_key_overlap_sec` must be set (seconds until the previous JWKS key is dropped);
+/// see [`IdentityConfig::try_from_proto`].
 pub async fn set(
     org_id: &TenantOrganizationId,
     config: &IdentityConfig,
     key_material: Option<SigningKeyMaterial>,
-    site_signing_key_overlap_default_sec: u32,
     txn: &mut PgConnection,
 ) -> DatabaseResult<TenantIdentityConfig> {
     gc_expired_non_active_signing_key(org_id, txn).await?;
@@ -143,17 +141,6 @@ pub async fn set(
 
     let existing = find(org_id, &mut *txn).await?;
 
-    let overlap_for_expiry = match config.signing_key_overlap_sec {
-        None => site_signing_key_overlap_default_sec,
-        Some(v) => u32::try_from(v).map_err(|_| {
-            DatabaseError::InvalidArgument(
-                "signing_key_overlap_sec must be non-negative and fit in u32".into(),
-            )
-        })?,
-    };
-
-    let overlap_i32 = config.signing_key_overlap_sec;
-
     let (enc1, enc2, pub1, pub2, current_slot, non_active_expires): (
         Option<_>,
         Option<_>,
@@ -170,18 +157,31 @@ pub async fn set(
         (Some(ex), true, Some(km)) => {
             if ex.signing_key_public_1.is_some()
                 && ex.signing_key_public_2.is_some()
-                && ex
-                    .non_active_slot_expires_at
-                    .is_some_and(|t| t > Utc::now())
+                && let Some(expires_at) = ex.non_active_slot_expires_at
+                && expires_at > Utc::now()
             {
-                return Err(DatabaseError::InvalidArgument(
-                    "cannot rotate signing key while the previous key is still in the overlap period"
-                        .into(),
-                ));
+                let now = Utc::now();
+                let remain = (expires_at - now).num_seconds().max(0);
+                return Err(DatabaseError::InvalidArgument(format!(
+                    "cannot rotate signing key while the previous key is still in the overlap period \
+                     (overlap ends at {expires_at}; about {remain}s remaining). \
+                     Call SetTenantIdentityConfiguration again with rotate_key and an explicit \
+                     signing_key_overlap_sec after that time, or wait until the overlap window ends."
+                )));
             }
             let pub_doc = signing_public_json_from_material(&km)?;
             let new_enc = km.encrypted_signing_key;
             let other = ex.current_signing_key_slot.other();
+            let overlap_sec = config.signing_key_overlap_sec.ok_or_else(|| {
+                DatabaseError::InvalidArgument(
+                    "signing_key_overlap_sec is required when rotating the signing key".into(),
+                )
+            })?;
+            let overlap_for_expiry = u32::try_from(overlap_sec).map_err(|_| {
+                DatabaseError::InvalidArgument(
+                    "signing_key_overlap_sec must be non-negative and fit in u32".into(),
+                )
+            })?;
             let expires = Some(Utc::now() + ChronoDuration::seconds(i64::from(overlap_for_expiry)));
             match other {
                 TenantIdentityCurrentSigningKeySlot::SigningKey1 => (
@@ -237,9 +237,9 @@ pub async fn set(
             token_ttl_sec, subject_prefix, enabled, created_at, updated_at,
             encrypted_signing_key_1, encrypted_signing_key_2,
             signing_key_public_1, signing_key_public_2,
-            current_signing_key_slot, signing_key_overlap_sec, non_active_slot_expires_at,
+            current_signing_key_slot, non_active_slot_expires_at,
             encryption_key_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10, $11, $12, $13, $14, $15)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10, $11, $12, $13, $14)
         ON CONFLICT (organization_id) DO UPDATE SET
             issuer = EXCLUDED.issuer,
             default_audience = EXCLUDED.default_audience,
@@ -253,7 +253,6 @@ pub async fn set(
             signing_key_public_1 = EXCLUDED.signing_key_public_1,
             signing_key_public_2 = EXCLUDED.signing_key_public_2,
             current_signing_key_slot = EXCLUDED.current_signing_key_slot,
-            signing_key_overlap_sec = EXCLUDED.signing_key_overlap_sec,
             non_active_slot_expires_at = EXCLUDED.non_active_slot_expires_at,
             encryption_key_id = EXCLUDED.encryption_key_id
         RETURNING {returning}
@@ -273,7 +272,6 @@ pub async fn set(
         .bind(pub1)
         .bind(pub2)
         .bind(current_slot)
-        .bind(overlap_i32)
         .bind(non_active_expires)
         .bind(&config.encryption_key_id)
         .fetch_one(txn)
@@ -486,7 +484,7 @@ mod tests {
         };
 
         let key_material = placeholder_key_material();
-        let cfg = set(&org_id, &config, Some(key_material), 3600, &mut txn)
+        let cfg = set(&org_id, &config, Some(key_material), &mut txn)
             .await
             .unwrap();
         assert_eq!(cfg.issuer.as_str(), "https://issuer.example.com");
@@ -538,7 +536,7 @@ mod tests {
             signing_key_overlap_sec: None,
         };
         let key_material = placeholder_key_material();
-        set(&org_id, &config, Some(key_material), 3600, &mut txn)
+        set(&org_id, &config, Some(key_material), &mut txn)
             .await
             .unwrap();
 

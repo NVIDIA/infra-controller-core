@@ -333,7 +333,7 @@ pub struct IdentityConfig {
     pub rotate_key: bool,
     pub algorithm: identity_config::SigningAlgorithm,
     pub encryption_key_id: EncryptionKeyId,
-    /// Stored `signing_key_overlap_sec` override; `None` = SQL NULL (use site default when rotating).
+    /// Seconds to keep the previous verification key in JWKS after `rotate_key` (required when rotating).
     pub signing_key_overlap_sec: Option<i32>,
 }
 
@@ -346,9 +346,7 @@ pub struct IdentityConfigValidationBounds {
     pub encryption_key_id: EncryptionKeyId,
     /// Site policy: JWT issuer trust domain must match at least one entry. Empty = no extra check.
     pub trust_domain_allowlist: Vec<String>,
-    /// Default overlap (seconds) when `signing_key_overlap_sec` is NULL at rotate time.
-    pub signing_key_overlap_default_sec: u32,
-    /// Max allowed overlap (seconds) for tenant override.
+    /// Max allowed `signing_key_overlap_sec` (seconds) on rotate.
     pub signing_key_overlap_max_sec: u32,
 }
 
