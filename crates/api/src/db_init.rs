@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use carbide_network::virtualization::VpcVirtualizationType;
 use db::dns::domain;
+use db::network_segment::reconcile_network_defs;
 use db::vpc::{self};
 use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
 use itertools::Itertools;
@@ -82,12 +83,16 @@ pub async fn create_initial_networks(
         return Ok(());
     }
     let domain_id = all_domains[0].id;
+    reconcile_network_defs(&mut txn, networks).await?;
+
     for (name, def) in networks {
         if db::network_segment::find_by_name(&mut txn, name)
             .await
             .is_ok()
         {
-            // Network segments are only created the first time we start carbide-api
+            // Network segments are only created the first time we start carbide-api;
+            // `reconcile_network_defs` above has already recorded the snapshot if
+            // it was missing (the backfill path).
             tracing::debug!("Network segment {name} exists");
             continue;
         }
@@ -95,6 +100,9 @@ pub async fn create_initial_networks(
         ns.can_stretch = Some(true);
         // update_network_segments_svi_ip will take care of allocating svi ip.
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
+        // Snapshot the network definition in the same transaction as the network_segment row,
+        // so the two stay consistent across restarts.
+        db::network_segment::insert_network_def(&mut txn, name, def).await?;
         tracing::info!("Created network segment {name}");
     }
 

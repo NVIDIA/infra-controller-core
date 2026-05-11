@@ -1568,6 +1568,8 @@ pub struct InitialObjectsConfig {
     /// Required, but wrapped in `Option` so partial configs
     /// can be deserialized and merged.
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
+    /// Network Segment definitions
+    pub networks: Option<HashMap<String, NetworkDefinition>>,
 }
 
 impl DpaConfig {
@@ -2729,6 +2731,7 @@ mod tests {
     use figment::providers::{Env, Format, Toml};
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
+    use model::network_segment::NetworkDefinitionSegmentType;
     use model::resource_pool;
 
     use super::*;
@@ -3967,6 +3970,32 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
         let f = PathBuf::from(format!("{TEST_DATA_DIR}/initial_objects.toml"));
         let config: InitialObjectsConfig = Toml::from_path(f.as_path()).unwrap();
         let pools = config.pools.as_ref().unwrap();
+        let networks = config.networks.as_ref().unwrap();
+
+        assert_eq!(
+            networks.get("admin").unwrap(),
+            &NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::Admin,
+                prefix: "172.20.0.0/24".to_string(),
+                gateway: "172.20.0.1".to_string(),
+                mtu: 9000,
+                reserve_first: 5,
+                allocation_strategy: Default::default(),
+            }
+        );
+
+        assert_eq!(
+            networks.get("DEV1-C09-IPMI-01").unwrap(),
+            &NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::Underlay,
+                prefix: "172.99.0.0/26".to_string(),
+                gateway: "172.99.0.1".to_string(),
+                mtu: 1500,
+                reserve_first: 5,
+                allocation_strategy: Default::default(),
+            }
+        );
+
         assert_eq!(
             pools.get("lo-ip").unwrap(),
             &ResourcePoolDef {

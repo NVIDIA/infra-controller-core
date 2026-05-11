@@ -47,6 +47,7 @@ use model::attestation::spdm::VerifierImpl;
 use model::expected_machine::ExpectedMachine;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::HostHealthConfig;
+use model::network_segment::NetworkDefinition;
 use model::resource_pool::{self, ResourcePoolDef};
 use model::route_server::RouteServerSourceType;
 use opentelemetry::metrics::Meter;
@@ -131,6 +132,16 @@ fn pool_source(figment: Option<&Figment>, name: &str) -> String {
         .unwrap_or_else(|| "carbide-api config".to_string())
 }
 
+/// Given a figment and the name of a network definition, return the human-readable
+/// string describing where the network definition came from.
+fn network_source(figment: Option<&Figment>, name: &str) -> String {
+    figment
+        .and_then(|f| f.find_metadata(&format!("networks.{name}")))
+        .and_then(|m| m.source.as_ref())
+        .map(|source| source.to_string())
+        .unwrap_or_else(|| "carbide-api config".to_string())
+}
+
 /// Determines the authoritative set of resource pool definitions to reconcile
 /// against the database at startup, merging `InitialObjectsConfig.pools`
 /// with the legacy `CarbideConfig.pools` source.
@@ -209,6 +220,80 @@ fn resolve_initial_pools(
                     pool = %name,
                     source = %source,
                     "Resource pool `{name}` is still defined in both {source}. \
+                     Move it into initial_objects_file to silence this warning.",
+                );
+            }
+            Ok(merged)
+        }
+    }
+}
+
+/// Determines the authoritative set of network definitions to reconcile
+/// against the database at startup, merging `InitialObjectsConfig.networks`
+/// with the legacy `CarbideConfig.networks` source.
+fn resolve_initial_networks(
+    carbide_config: &CarbideConfig,
+    initial_objects: Option<&InitialObjectsConfig>,
+) -> eyre::Result<HashMap<String, NetworkDefinition>> {
+    let from_initial_objects = initial_objects.and_then(|io| io.networks.as_ref());
+    let from_carbide_config = carbide_config.networks.as_ref();
+
+    match (from_initial_objects, from_carbide_config) {
+        // No networks are defined anywhere — initial network creation is skipped.
+        (None, None) => Ok(HashMap::new()),
+        // Networks are defined in InitialObjectsConfig.networks
+        (Some(io), None) => Ok(io.clone()),
+        // Networks are defined only in the legacy CarbideConfig.networks
+        (None, Some(cc)) => {
+            for name in cc.keys() {
+                let source = network_source(carbide_config.config_ctx.as_ref(), name);
+                tracing::warn!(
+                    network = %name,
+                    source = %source,
+                    "Network `{name}` is defined in {source}. Defining networks in {source} \
+                     is deprecated; move the definitions into `initial_objects_file`.",
+                );
+            }
+            Ok(cc.clone())
+        }
+        // Networks are defined in both sources.
+        (Some(io), Some(cc)) => {
+            let mut merged = io.clone();
+            let mut conflicts: Vec<String> = vec![];
+            let mut legacy_names: Vec<String> = vec![];
+
+            for (name, legacy_def) in cc {
+                match merged.get(name) {
+                    Some(new_def) if new_def != legacy_def => conflicts.push(name.clone()),
+                    Some(_) => legacy_names.push(name.clone()),
+                    None => {
+                        legacy_names.push(name.clone());
+                        merged.insert(name.clone(), legacy_def.clone());
+                    }
+                }
+            }
+
+            if !conflicts.is_empty() {
+                let conflict_details: Vec<String> = conflicts
+                    .iter()
+                    .map(|name| {
+                        format!(
+                            "`{name}` (in {})",
+                            network_source(carbide_config.config_ctx.as_ref(), name)
+                        )
+                    })
+                    .collect();
+                return Err(eyre::eyre!(
+                    "networks have conflicting definitions {conflict_details:?}. \
+                     Reconcile each network by removing it from one source.",
+                ));
+            }
+            for name in &legacy_names {
+                let source = network_source(carbide_config.config_ctx.as_ref(), name);
+                tracing::warn!(
+                    network = %name,
+                    source = %source,
+                    "Network `{name}` is still defined in {source}. \
                      Move it into initial_objects_file to silence this warning.",
                 );
             }
@@ -418,6 +503,12 @@ pub async fn start_api(
     //
     // Pool reconciliation specifically must happen before `create_common_pools` runs below, because
     // that call queries `resource_pool` and bails if any mandatory pool is missing or empty.
+    //
+    // Resolve initial networks up-front so any configuration conflicts surface
+    // before we touch the database. The actual reconcile/creation runs inside
+    // `initialize_and_start_controllers`.
+    let resolved_networks = resolve_initial_networks(&carbide_config, initial_objects.as_ref())?;
+
     if carbide_config.listen_only {
         tracing::info!(
             "Not populating resource pools or route_servers in database, as listen_only=true"
@@ -634,6 +725,7 @@ pub async fn start_api(
             api_service.clone(),
             meter.clone(),
             ipmi_tool.clone(),
+            resolved_networks,
             cancel_token.clone(),
         )
         .await?;
@@ -673,6 +765,7 @@ pub async fn initialize_and_start_controllers(
     api_service: Arc<Api>,
     meter: Meter,
     ipmi_tool: Arc<dyn IPMITool>,
+    initial_networks: HashMap<String, NetworkDefinition>,
     cancel_token: CancellationToken,
 ) -> eyre::Result<()> {
     let Api {
@@ -775,8 +868,8 @@ pub async fn initialize_and_start_controllers(
         resource_pool_stats: common_pools.pool_stats.clone(),
     });
 
-    if let Some(networks) = carbide_config.networks.as_ref() {
-        db_init::create_initial_networks(&api_service, db_pool, networks).await?;
+    if !initial_networks.is_empty() {
+        db_init::create_initial_networks(&api_service, db_pool, &initial_networks).await?;
     }
 
     if let Some(fnn_config) = carbide_config.fnn.as_ref()
@@ -1185,12 +1278,29 @@ mod tests {
 
     use figment::Figment;
     use figment::providers::{Format, Toml};
+    use model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
     use model::resource_pool::ResourcePoolType;
     use model::resource_pool::define::ResourcePoolDef;
 
-    use super::resolve_initial_pools;
+    use super::{resolve_initial_networks, resolve_initial_pools};
     use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
 
+    fn carbide_with_networks(
+        networks: Option<HashMap<String, NetworkDefinition>>,
+    ) -> CarbideConfig {
+        let mut cfg: CarbideConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+               database_url = "postgres://test"
+               listen = "[::]:1081"
+               asn = 1
+            "#,
+            ))
+            .extract()
+            .expect("Unable to extract config");
+        cfg.networks = networks;
+        cfg
+    }
     // Builds a `CarbideConfig` from the smallest valid TOML and overrides
     // the `pools` field. `resolve_initial_pools` only reads `.pools`, so
     // the rest of the config can be defaulted.
@@ -1209,6 +1319,20 @@ mod tests {
         cfg
     }
 
+    fn network_definition(
+        prefix: &str,
+        segment_type: NetworkDefinitionSegmentType,
+    ) -> NetworkDefinition {
+        NetworkDefinition {
+            segment_type,
+            prefix: prefix.to_string(),
+            gateway: "".to_string(),
+            mtu: 0,
+            reserve_first: 0,
+            allocation_strategy: Default::default(),
+        }
+    }
+
     fn ipv4_pool(prefix: &str) -> ResourcePoolDef {
         ResourcePoolDef {
             ranges: Vec::new(),
@@ -1218,6 +1342,12 @@ mod tests {
         }
     }
 
+    fn network_map(entries: &[(&str, NetworkDefinition)]) -> HashMap<String, NetworkDefinition> {
+        entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
     fn pool_map(entries: &[(&str, ResourcePoolDef)]) -> HashMap<String, ResourcePoolDef> {
         entries
             .iter()
@@ -1225,15 +1355,23 @@ mod tests {
             .collect()
     }
 
-    fn initial_objects(entries: &[(&str, ResourcePoolDef)]) -> InitialObjectsConfig {
+    fn initial_objects_networks(entries: &[(&str, NetworkDefinition)]) -> InitialObjectsConfig {
+        InitialObjectsConfig {
+            pools: None,
+            networks: Some(network_map(entries)),
+        }
+    }
+
+    fn initial_objects_pools(entries: &[(&str, ResourcePoolDef)]) -> InitialObjectsConfig {
         InitialObjectsConfig {
             pools: Some(pool_map(entries)),
+            networks: None,
         }
     }
 
     // neither source declares pools — operator misconfiguration.
     #[test]
-    fn no_sources_errors() {
+    fn no_pool_sources_errors() {
         let cfg = carbide_with_pools(None);
         let err =
             resolve_initial_pools(&cfg, None).expect_err("missing pools must surface as an error");
@@ -1247,7 +1385,7 @@ mod tests {
     #[test]
     fn initial_objects_only_succeeds() {
         let cfg = carbide_with_pools(None);
-        let io = initial_objects(&[("lo-ip", ipv4_pool("10.0.0.0/24"))]);
+        let io = initial_objects_pools(&[("lo-ip", ipv4_pool("10.0.0.0/24"))]);
 
         let resolved =
             resolve_initial_pools(&cfg, Some(&io)).expect("InitialObjectsConfig-only must succeed");
@@ -1273,7 +1411,7 @@ mod tests {
     #[test]
     fn disjoint_union_returns_all_pools() {
         let cfg = carbide_with_pools(Some(pool_map(&[("legacy-only", ipv4_pool("10.0.1.0/24"))])));
-        let io = initial_objects(&[("new-only", ipv4_pool("10.0.2.0/24"))]);
+        let io = initial_objects_pools(&[("new-only", ipv4_pool("10.0.2.0/24"))]);
 
         let resolved = resolve_initial_pools(&cfg, Some(&io)).expect("disjoint union must succeed");
 
@@ -1288,7 +1426,7 @@ mod tests {
     fn overlap_identical_succeeds() {
         let pool = ipv4_pool("10.0.0.0/24");
         let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", pool.clone())])));
-        let io = initial_objects(&[("lo-ip", pool.clone())]);
+        let io = initial_objects_pools(&[("lo-ip", pool.clone())]);
 
         let resolved = resolve_initial_pools(&cfg, Some(&io)).expect("identical defs must succeed");
 
@@ -1301,7 +1439,7 @@ mod tests {
     #[test]
     fn overlap_conflict_errors() {
         let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
-        let io = initial_objects(&[("lo-ip", ipv4_pool("10.0.0.0/16"))]);
+        let io = initial_objects_pools(&[("lo-ip", ipv4_pool("10.0.0.0/16"))]);
 
         let err = resolve_initial_pools(&cfg, Some(&io)).expect_err("conflicting defs must error");
 
@@ -1319,12 +1457,156 @@ mod tests {
             ("alpha", ipv4_pool("10.0.0.0/24")),
             ("beta", ipv4_pool("10.0.1.0/24")),
         ])));
-        let io = initial_objects(&[
+        let io = initial_objects_pools(&[
             ("alpha", ipv4_pool("10.0.0.0/16")),
             ("beta", ipv4_pool("10.0.1.0/16")),
         ]);
 
         let err = resolve_initial_pools(&cfg, Some(&io)).expect_err("any conflict must error");
+        let msg = err.to_string();
+
+        assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
+        assert!(msg.contains("beta"), "expected `beta` in {msg}");
+    }
+
+    // neither source declares networks — operator misconfiguration.
+    #[test]
+    fn no_network_sources_returns_empty() {
+        let cfg = carbide_with_networks(None);
+        let resolved =
+            resolve_initial_networks(&cfg, None).expect("missing networks must not be an error");
+        assert!(
+            resolved.is_empty(),
+            "no declared networks should produce an empty map"
+        );
+    }
+
+    // only `InitialObjectsConfig.pools` declares pools
+    #[test]
+    fn initial_objects_networks_only_succeeds() {
+        let cfg = carbide_with_networks(None);
+        let io = initial_objects_networks(&[(
+            "network1",
+            network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin),
+        )]);
+
+        let resolved = resolve_initial_networks(&cfg, Some(&io))
+            .expect("InitialObjectsConfig-only must succeed");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved.get("network1"),
+            Some(&network_definition(
+                "10.0.0.0/24",
+                NetworkDefinitionSegmentType::Admin
+            ))
+        );
+    }
+
+    // only legacy `CarbideConfig.networks` declares networks
+    #[test]
+    fn legacy_only_returns_legacy_networks() {
+        let cfg = carbide_with_networks(Some(network_map(&[(
+            "network1",
+            network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin),
+        )])));
+
+        let resolved = resolve_initial_networks(&cfg, None).expect("legacy-only must succeed");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved.get("network1"),
+            Some(&network_definition(
+                "10.0.0.0/24",
+                NetworkDefinitionSegmentType::Admin
+            ))
+        );
+    }
+
+    // both sources declare networks but with different names
+    // Resolver returns the union; emits a deprecation warning naming the still-legacy entries.
+    #[test]
+    fn disjoint_union_returns_all_networks() {
+        let cfg = carbide_with_networks(Some(network_map(&[(
+            "legacy-only",
+            network_definition("10.0.1.0/24", NetworkDefinitionSegmentType::Admin),
+        )])));
+        let io = initial_objects_networks(&[(
+            "new-only",
+            network_definition("10.0.2.0/24", NetworkDefinitionSegmentType::Admin),
+        )]);
+
+        let resolved =
+            resolve_initial_networks(&cfg, Some(&io)).expect("disjoint union must succeed");
+
+        assert_eq!(resolved.len(), 2);
+        assert!(resolved.contains_key("legacy-only"));
+        assert!(resolved.contains_key("new-only"));
+    }
+
+    // both sources declare the same network with identical definitions —
+    // Resolver dedupes silently; the still-legacy entry is included in the deprecation warning.
+    #[test]
+    fn overlap_networks_identical_succeeds() {
+        let pool = network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin);
+        let cfg = carbide_with_networks(Some(network_map(&[("network1", pool.clone())])));
+        let io = initial_objects_networks(&[("network1", pool.clone())]);
+
+        let resolved =
+            resolve_initial_networks(&cfg, Some(&io)).expect("identical defs must succeed");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved.get("network1"), Some(&pool));
+    }
+
+    // both sources declare the same network name but with different definitions —
+    // Resolver must fail loudly so the bad state is fixed before reconcile runs.
+    #[test]
+    fn overlap_networks_conflict_errors() {
+        let cfg = carbide_with_networks(Some(network_map(&[(
+            "network1",
+            network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin),
+        )])));
+        let io = initial_objects_networks(&[(
+            "network1",
+            network_definition("10.0.0.0/16", NetworkDefinitionSegmentType::Admin),
+        )]);
+
+        let err =
+            resolve_initial_networks(&cfg, Some(&io)).expect_err("conflicting defs must error");
+
+        assert!(
+            err.to_string().contains("network1"),
+            "error message should name the conflicting network: {err}"
+        );
+    }
+
+    // every overlap is a conflict — the resolver collects all
+    // bad names so the operator can fixe them
+    #[test]
+    fn collects_all_conflict_network_names() {
+        let cfg = carbide_with_networks(Some(network_map(&[
+            (
+                "alpha",
+                network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin),
+            ),
+            (
+                "beta",
+                network_definition("10.0.1.0/24", NetworkDefinitionSegmentType::Admin),
+            ),
+        ])));
+        let io = initial_objects_networks(&[
+            (
+                "alpha",
+                network_definition("10.0.0.0/16", NetworkDefinitionSegmentType::Admin),
+            ),
+            (
+                "beta",
+                network_definition("10.0.1.0/16", NetworkDefinitionSegmentType::Admin),
+            ),
+        ]);
+
+        let err = resolve_initial_networks(&cfg, Some(&io)).expect_err("any conflict must error");
         let msg = err.to_string();
 
         assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
