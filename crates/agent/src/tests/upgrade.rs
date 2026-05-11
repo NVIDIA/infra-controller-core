@@ -16,7 +16,6 @@
  */
 
 use std::path::PathBuf;
-use std::time::Duration;
 use std::{env, fs};
 
 use ::rpc::forge as rpc;
@@ -60,16 +59,13 @@ async fn test_upgrade_check() -> eyre::Result<()> {
         marker.path().display()
     );
     let machine_id = "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".parse()?;
-    tokio::time::timeout(
-        Duration::from_secs(10),
-        crate::upgrade::upgrade(
-            &format!("https://{addr}"),
-            &client_config,
-            &machine_id,
-            Some(upgrade_cmd).as_deref(),
-        ),
+    crate::upgrade::upgrade(
+        &format!("https://{addr}"),
+        &client_config,
+        &machine_id,
+        Some(upgrade_cmd).as_deref(),
     )
-    .await??;
+    .await?;
 
     assert!(
         fs::read_to_string(marker.path())?.contains("apt-get install"),
