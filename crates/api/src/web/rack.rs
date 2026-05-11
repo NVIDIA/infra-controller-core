@@ -115,7 +115,7 @@ pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Statu
             .await?
             .into_inner();
 
-        racks.extend(next_racks.racks.into_iter());
+        racks.extend(next_racks.racks);
         offset += page_size;
     }
 
