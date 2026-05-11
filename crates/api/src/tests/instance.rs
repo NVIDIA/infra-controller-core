@@ -87,8 +87,8 @@ use crate::tests::common::api_fixtures::instance::{
 };
 use crate::tests::common::api_fixtures::rpc_instance::RpcInstance;
 use crate::tests::common::api_fixtures::{
-    TestEnv, create_managed_host_multi_dpu, create_managed_host_with_ek, remove_health_report_entry,
-    send_health_report_entry, update_time_params,
+    TestEnv, create_managed_host_multi_dpu, create_managed_host_with_ek,
+    remove_health_report_entry, send_health_report_entry, update_time_params,
 };
 use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
 use crate::tests::common::rpc_builder::{
