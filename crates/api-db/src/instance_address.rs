@@ -630,7 +630,6 @@ mod tests {
                 let version = ConfigVersion::initial();
                 NetworkSegment {
                     id: NetworkSegmentId::from_str(&id).unwrap(),
-                    vpc_id: Some(vpc_id),
                     version,
                     config: NetworkSegmentConfig {
                         name: id,
@@ -638,6 +637,7 @@ mod tests {
                         mtu: 1500,
                         segment_type: NetworkSegmentType::Tenant,
                         allocation_strategy: AllocationStrategy::default(), // Dynamic
+                        vpc_id: Some(vpc_id),
                     },
                     status: NetworkSegmentStatus {
                         controller_state: Versioned {
@@ -711,7 +711,7 @@ mod tests {
     fn validate_multiple_vpc_must_fail() {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
-        data[0].vpc_id = Some(uuid::Uuid::new_v4().into());
+        data[0].config.vpc_id = Some(uuid::Uuid::new_v4().into());
         assert!(super::validate(&data, &config, &[]).is_err());
     }
 
@@ -719,7 +719,7 @@ mod tests {
     fn validate_missing_vpc_fail() {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
-        data[2].vpc_id = None;
+        data[2].config.vpc_id = None;
         assert!(super::validate(&data, &config, &[]).is_err());
     }
 
