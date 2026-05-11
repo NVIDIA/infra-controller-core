@@ -37,6 +37,7 @@ use crate::cfg::runtime::{RuntimeConfig, RuntimeContext};
 use crate::rpc::ApiClient;
 
 mod async_write;
+mod attestation;
 mod bmc_machine;
 mod boot_override;
 mod cfg;
@@ -71,7 +72,6 @@ mod machine_interfaces;
 mod machine_validation;
 mod managed_host;
 mod managed_switch;
-mod measurement;
 mod metadata;
 mod mlx;
 mod network_devices;
@@ -204,6 +204,7 @@ async fn main() -> color_eyre::Result<()> {
 
     // Command to talk to Carbide API.
     match command {
+        CliCommand::Attestation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::BmcMachine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::BootOverride(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Credential(cmd) => cmd.dispatch(ctx).await?,
@@ -234,7 +235,6 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::MachineValidation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ManagedHost(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ManagedSwitch(cmd) => cmd.dispatch(ctx).await?,
-        CliCommand::Measurement(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Mlx(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkDevice(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkSecurityGroup(cmd) => cmd.dispatch(ctx).await?,

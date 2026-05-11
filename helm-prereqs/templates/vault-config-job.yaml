@@ -235,6 +235,20 @@ spec:
                 policies=cert-manager-forge-policy \
                 ttl=1h
 
+              {{ if .Values.vault.carbideApiK8sAuth.enabled }}
+              # ---- K8s auth role for carbide-api ----
+              # carbide-api authenticates to in-cluster Vault via its SA JWT
+              # (vault SDK auto-detects /var/run/secrets/kubernetes.io/serviceaccount/token)
+              # and reads BMC credentials from the KV mount (forge-vault-policy
+              # grants read on {{ .Values.vault.kvMount }}/data/*).
+              echo "Creating K8s auth role for carbide-api..."
+              vault write auth/kubernetes/role/{{ .Values.vault.carbideApiK8sAuth.serviceAccountName }} \
+                bound_service_account_names={{ .Values.vault.carbideApiK8sAuth.serviceAccountName }} \
+                bound_service_account_namespaces="{{ .Values.namespace }}" \
+                policies=forge-vault-policy \
+                ttl={{ .Values.vault.carbideApiK8sAuth.tokenTTL }}
+              {{ end }}
+
               # ---- KV v2 + AppRole ----
               echo "Enabling KV v2 at {{ .Values.vault.kvMount }}/..."
               vault secrets enable -path={{ .Values.vault.kvMount }} kv-v2 2>/dev/null || true

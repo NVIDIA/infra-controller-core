@@ -124,6 +124,8 @@ use crate::state_controller::network_segment::handler::NetworkSegmentStateHandle
 use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
 use crate::state_controller::power_shelf::handler::PowerShelfStateHandler;
 use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
+use crate::state_controller::rack::handler::RackStateHandler;
+use crate::state_controller::rack::io::RackStateControllerIO;
 use crate::state_controller::spdm::handler::SpdmAttestationStateHandler;
 use crate::state_controller::spdm::io::SpdmStateControllerIO;
 use crate::state_controller::state_handler::{
@@ -357,6 +359,7 @@ pub struct TestEnv {
     network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
+    rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
     switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub reachability_params: ReachabilityParams,
     pub test_meter: TestMeter,
@@ -633,6 +636,17 @@ impl TestEnv {
     #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_switch_controller_iteration(&self) {
         self.switch_controller
+            .lock()
+            .await
+            .run_single_iteration()
+            .await;
+    }
+
+    /// Runs one iteration of the rack state controller handler with the services
+    /// in this test environment
+    #[allow(clippy::await_holding_refcell_ref)]
+    pub async fn run_rack_controller_iteration(&self) {
+        self.rack_controller
             .lock()
             .await
             .run_single_iteration()
@@ -1721,6 +1735,15 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
+    let rack_controller = StateController::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_racks", test_meter.meter())
+        .processor_id(state_controller_id.clone())
+        .services(handler_services.clone())
+        .state_handler(Arc::new(RackStateHandler::default()))
+        .build_for_manual_iterations(cancel_token.clone())
+        .expect("Unable to build RackStateController");
+
     let fake_endpoint_explorer = MockEndpointExplorer {
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
         power_states: Arc::new(std::sync::Mutex::new(Default::default())),
@@ -1848,6 +1871,7 @@ pub async fn create_test_env_with_overrides(
         switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
+        rack_controller: Arc::new(Mutex::new(rack_controller)),
         reachability_params,
         attestation_enabled,
         test_meter,

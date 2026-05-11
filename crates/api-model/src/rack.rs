@@ -329,7 +329,7 @@ impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
     }
 }
 
-fn derive_rack_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
+pub fn derive_rack_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
     if let Some(replace) = &sources.replace {
         return replace.clone();
     }

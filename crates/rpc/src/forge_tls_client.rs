@@ -561,7 +561,8 @@ impl<'a> ForgeTlsClient<'a> {
             error: e,
         })?;
 
-        // only check for the root cert if the uri we were given is actually HTTPS.  That lets tests function properly.
+        // Only check the root and client certs if the uri we were given is actually HTTPS.
+        // That lets tests and plaintext-HTTP environments function properly.
         if let Some(scheme) = uri.scheme()
             && scheme == &tonic::codegen::http::uri::Scheme::HTTPS
         {
@@ -579,6 +580,25 @@ impl<'a> ForgeTlsClient<'a> {
                         path: self.forge_client_config.root_ca_path.clone(),
                         error,
                     }
+                    .into());
+                }
+            }
+
+            if let Some(cert_expiry) = self.forge_client_config.client_cert_expiry() {
+                let start = SystemTime::now();
+                let current_time = start
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Time went backwards");
+                if u64::try_from(cert_expiry)
+                    .ok()
+                    .is_none_or(|v| current_time.as_secs() > v)
+                {
+                    tracing::error!(
+                        "Client certificate is expired, perhaps you need to regenerate your cert?"
+                    );
+                    return Err(ConfigurationError::InvalidClientCert(
+                        rustls::Error::InvalidCertificate(rustls::CertificateError::Expired),
+                    )
                     .into());
                 }
             }
@@ -604,25 +624,6 @@ impl<'a> ForgeTlsClient<'a> {
                         ))
                 }
             };
-
-            if let Some(cert_expiry) = self.forge_client_config.client_cert_expiry() {
-                let start = SystemTime::now();
-                let current_time = start
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Time went backwards");
-                if u64::try_from(cert_expiry)
-                    .ok()
-                    .is_none_or(|v| current_time.as_secs() > v)
-                {
-                    tracing::error!(
-                        "Client certificate is expired, perhaps you need to regenerate your cert?"
-                    );
-                    return Err(ConfigurationError::InvalidClientCert(
-                        rustls::Error::InvalidCertificate(rustls::CertificateError::Expired),
-                    )
-                    .into());
-                }
-            }
 
             if let Some((certs, key)) = self.forge_client_config.read_client_cert() {
                 builder()

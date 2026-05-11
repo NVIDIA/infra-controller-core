@@ -132,7 +132,7 @@ where
             Vec::new()
         };
         let detector_count = detectors.len();
-        let report = build_health_report(detectors);
+        let report = build_health_report(detectors, &self.event_context);
 
         self.emit_event(CollectorEvent::HealthReport(Arc::new(report)));
 
@@ -202,7 +202,7 @@ where
     }
 }
 
-fn build_health_report(detectors: Vec<Arc<LeakDetector>>) -> HealthReport {
+fn build_health_report(detectors: Vec<Arc<LeakDetector>>, context: &EventContext) -> HealthReport {
     let mut successes = Vec::new();
     let mut alerts = Vec::new();
 
@@ -234,6 +234,7 @@ fn build_health_report(detectors: Vec<Arc<LeakDetector>>) -> HealthReport {
         observed_at: Some(chrono::Utc::now()),
         successes,
         alerts,
+        target: context.health_report_target(),
     }
 }
 

@@ -43,7 +43,7 @@ pub struct BackendEndpointConfig {
 
 /// TLS configuration for a backend gRPC connection.
 ///
-/// Follows the same SPIFFE cert convention used by RLA: a directory
+/// Follows the same SPIFFE cert convention used by NICo Flow: a directory
 /// containing `ca.crt`, `tls.crt`, and `tls.key`. Alternatively, each
 /// path can be set individually.
 #[derive(Debug, Clone, Deserialize, Serialize)]

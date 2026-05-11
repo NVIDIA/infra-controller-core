@@ -92,6 +92,7 @@ impl Default for EndpointSourcesConfig {
 
 /// A single static BMC endpoint configuration.
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct StaticBmcEndpoint {
     pub ip: String,
     #[serde(default)]
@@ -99,9 +100,31 @@ pub struct StaticBmcEndpoint {
     pub mac: String,
     pub username: String,
     pub password: Option<String>,
-    pub switch_serial: Option<String>,
-    pub machine_id: Option<String>,
+    pub machine: Option<StaticMachineEndpoint>,
+    pub power_shelf: Option<StaticPowerShelfEndpoint>,
+    pub switch: Option<StaticSwitchEndpoint>,
     pub rack_id: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticMachineEndpoint {
+    pub id: String,
+    pub serial: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticPowerShelfEndpoint {
+    pub id: Option<String>,
+    pub serial: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticSwitchEndpoint {
+    pub id: Option<String>,
+    pub serial: Option<String>,
 }
 
 impl Debug for StaticBmcEndpoint {
@@ -110,10 +133,47 @@ impl Debug for StaticBmcEndpoint {
             .field("ip", &self.ip)
             .field("port", &self.port)
             .field("mac", &self.mac)
-            .field("switch_serial", &self.switch_serial)
-            .field("machine_id", &self.machine_id)
+            .field("machine", &self.machine)
+            .field("power_shelf", &self.power_shelf)
+            .field("switch", &self.switch)
             .field("rack_id", &self.rack_id)
             .finish()
+    }
+}
+
+impl StaticBmcEndpoint {
+    fn identity_count(&self) -> usize {
+        usize::from(self.machine.is_some())
+            + usize::from(self.power_shelf.is_some())
+            + usize::from(self.switch.is_some())
+    }
+
+    fn validate(&self, index: usize) -> Result<(), String> {
+        if self.identity_count() > 1 {
+            return Err(format!(
+                "endpoint_sources.static_bmc_endpoints[{index}] must specify at most one of machine, power_shelf, or switch"
+            ));
+        }
+
+        if let Some(power_shelf) = &self.power_shelf
+            && power_shelf.id.is_none()
+            && power_shelf.serial.is_none()
+        {
+            return Err(format!(
+                "endpoint_sources.static_bmc_endpoints[{index}].power_shelf requires id or serial"
+            ));
+        }
+
+        if let Some(switch) = &self.switch
+            && switch.id.is_none()
+            && switch.serial.is_none()
+        {
+            return Err(format!(
+                "endpoint_sources.static_bmc_endpoints[{index}].switch requires id or serial"
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -135,6 +195,14 @@ pub struct SinksConfig {
     #[serde(alias = "rack_health_override")]
     pub rack_health_report: Configurable<RackHealthReportSinkConfig>,
 
+    /// Switch health report sink: sends switch-level health reports to Carbide API.
+    #[serde(alias = "switch_health_override")]
+    pub switch_health_report: Configurable<SwitchHealthReportSinkConfig>,
+
+    /// Power shelf health report sink: sends power-shelf-level health reports to Carbide API.
+    #[serde(alias = "power_shelf_health_override")]
+    pub power_shelf_health_report: Configurable<PowerShelfHealthReportSinkConfig>,
+
     /// Log file sink: writes log events as JSONL to rotating files on disk.
     pub log_file: Configurable<LogFileSinkConfig>,
 
@@ -149,6 +217,10 @@ impl Default for SinksConfig {
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
             health_report: Configurable::Enabled(HealthReportSinkConfig::default()),
             rack_health_report: Configurable::Enabled(RackHealthReportSinkConfig::default()),
+            switch_health_report: Configurable::Enabled(SwitchHealthReportSinkConfig::default()),
+            power_shelf_health_report: Configurable::Enabled(
+                PowerShelfHealthReportSinkConfig::default(),
+            ),
             log_file: Configurable::Disabled,
             otlp: Configurable::Disabled,
         }
@@ -258,6 +330,44 @@ pub struct RackHealthReportSinkConfig {
 }
 
 impl Default for RackHealthReportSinkConfig {
+    fn default() -> Self {
+        Self {
+            connection: CarbideApiConnectionConfig::default(),
+            workers: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SwitchHealthReportSinkConfig {
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
+
+    /// Number of concurrent workers submitting switch-level reports to Carbide API.
+    pub workers: usize,
+}
+
+impl Default for SwitchHealthReportSinkConfig {
+    fn default() -> Self {
+        Self {
+            connection: CarbideApiConnectionConfig::default(),
+            workers: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PowerShelfHealthReportSinkConfig {
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
+
+    /// Number of concurrent workers submitting power-shelf-level reports to Carbide API.
+    pub workers: usize,
+}
+
+impl Default for PowerShelfHealthReportSinkConfig {
     fn default() -> Self {
         Self {
             connection: CarbideApiConnectionConfig::default(),
@@ -669,10 +779,40 @@ impl Config {
             );
         }
 
+        for (index, endpoint) in self
+            .endpoint_sources
+            .static_bmc_endpoints
+            .iter()
+            .enumerate()
+        {
+            endpoint.validate(index)?;
+        }
+
         if let Configurable::Enabled(health_report) = &self.sinks.health_report
             && health_report.workers == 0
         {
             return Err("sinks.health_report.workers must be greater than 0".to_string());
+        }
+
+        if let Configurable::Enabled(rack_health_report) = &self.sinks.rack_health_report
+            && rack_health_report.workers == 0
+        {
+            return Err("sinks.rack_health_report.workers must be greater than 0".to_string());
+        }
+
+        if let Configurable::Enabled(switch_health_report) = &self.sinks.switch_health_report
+            && switch_health_report.workers == 0
+        {
+            return Err("sinks.switch_health_report.workers must be greater than 0".to_string());
+        }
+
+        if let Configurable::Enabled(power_shelf_health_report) =
+            &self.sinks.power_shelf_health_report
+            && power_shelf_health_report.workers == 0
+        {
+            return Err(
+                "sinks.power_shelf_health_report.workers must be greater than 0".to_string(),
+            );
         }
 
         if let Configurable::Enabled(logs) = &self.collectors.logs {
@@ -1170,11 +1310,25 @@ username = "admin"
 password = "pass"
 
 [[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "cumulus"
+password = "pass"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001" }
+
+[[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.1.1"
 mac = "11:22:33:44:55:66"
 username = "cumulus"
 password = "pass"
-switch_serial = "SN-SW-001"
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-001" }
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.2.1"
+mac = "22:33:44:55:66:77"
+username = "admin"
+password = "pass"
+power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-PS-001" }
 "#;
 
         let config: Config = Figment::new()
@@ -1183,18 +1337,87 @@ switch_serial = "SN-SW-001"
             .extract()
             .expect("failed to parse static switch endpoint config");
 
-        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 4);
         assert!(
             config.endpoint_sources.static_bmc_endpoints[0]
-                .switch_serial
+                .machine
                 .is_none()
+                && config.endpoint_sources.static_bmc_endpoints[0]
+                    .switch
+                    .is_none()
+                && config.endpoint_sources.static_bmc_endpoints[0]
+                    .power_shelf
+                    .is_none()
         );
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[1]
-                .switch_serial
-                .as_deref(),
+                .machine
+                .as_ref()
+                .map(|machine| machine.id.as_ref()),
+            Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .machine
+                .as_ref()
+                .and_then(|machine| machine.serial.as_deref()),
+            Some("MN-001")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.id.as_deref()),
+            Some("fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.serial.as_deref()),
             Some("SN-SW-001")
         );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[3]
+                .power_shelf
+                .as_ref()
+                .and_then(|power_shelf| power_shelf.id.as_deref()),
+            Some("fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[3]
+                .power_shelf
+                .as_ref()
+                .and_then(|power_shelf| power_shelf.serial.as_deref()),
+            Some("SN-PS-001")
+        );
+    }
+
+    #[test]
+    fn test_static_endpoint_rejects_multiple_identity_types() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.0.1"
+mac = "aa:bb:cc:dd:ee:ff"
+username = "admin"
+password = "pass"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0" }
+switch = { serial = "SN-SW-001" }
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("config should parse before validation");
+
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -1205,17 +1428,39 @@ switch_serial = "SN-SW-001"
             .extract()
             .expect("could not parse config toml file");
 
-        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 3);
         assert!(
             config.endpoint_sources.static_bmc_endpoints[0]
-                .switch_serial
+                .switch
                 .is_none()
         );
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[1]
-                .switch_serial
-                .as_deref(),
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.id.as_deref()),
+            Some("fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.serial.as_deref()),
             Some("SN-SWITCH-001")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .power_shelf
+                .as_ref()
+                .and_then(|power_shelf| power_shelf.id.as_deref()),
+            Some("fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .power_shelf
+                .as_ref()
+                .and_then(|power_shelf| power_shelf.serial.as_deref()),
+            Some("SN-POWER-SHELF-001")
         );
         if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
             assert_eq!(health_report.workers, 8);
