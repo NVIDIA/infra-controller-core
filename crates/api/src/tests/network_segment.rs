@@ -156,9 +156,8 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 
     db::machine_interface::create(
         &mut txn,
-        &db_segment,
+        std::slice::from_ref(&db_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        None,
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -1012,21 +1011,28 @@ async fn test_update_svi_ip_admin_segment(
     db_init::create_admin_vpc(&env.pool, Some(10600)).await?;
 
     let mut txn = env.pool.begin().await?;
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
-    assert!(admin_segment.vpc_id.is_some());
-    let admin_vpc = db::vpc::find_by(
-        txn.as_mut(),
-        ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
-    )
-    .await?;
-    assert_eq!(
-        admin_vpc[0].network_virtualization_type,
-        VpcVirtualizationType::Fnn
-    );
+    let admin_segments = db::network_segment::admin(&mut txn).await?;
+
+    for admin_segment in admin_segments {
+        assert!(admin_segment.vpc_id.is_some());
+        let admin_vpc = db::vpc::find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
+        )
+        .await?;
+        assert_eq!(
+            admin_vpc[0].network_virtualization_type,
+            VpcVirtualizationType::Fnn
+        );
+    }
+
     db_init::update_network_segments_svi_ip(&env.pool).await?;
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
-    for prefix in admin_segment.prefixes {
-        assert!(prefix.svi_ip.is_some());
+    let admin_segments = db::network_segment::admin(&mut txn).await?;
+
+    for admin_segment in admin_segments {
+        for prefix in admin_segment.prefixes {
+            assert!(prefix.svi_ip.is_some());
+        }
     }
     Ok(())
 }
