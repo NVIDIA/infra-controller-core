@@ -442,12 +442,21 @@ impl ManagedHostStateSnapshot {
                 }
             };
 
-        let mut has_hardware_health = false;
-
         // Merge DPU's alerts.  If DPU alerts should be suppressed, than remove the classification from the
         // alert so that metrics won't show a critical issue.
         let suppress_dpu_alerts = self.managed_state.suppress_dpu_alerts();
         for snapshot in self.dpu_snapshots.iter_mut() {
+            if let Some(over) = snapshot.health_reports.replace.as_mut() {
+                let source = over.source.clone();
+                Self::merge_override_report_with_hw_health(
+                    &mut output,
+                    &source,
+                    over,
+                    host_health_config.hardware_health_reports,
+                );
+                continue;
+            }
+
             let health_report = if suppress_dpu_alerts {
                 let mut health_report = snapshot.dpu_agent_health_report().cloned();
 
@@ -479,16 +488,16 @@ impl ManagedHostStateSnapshot {
                 .iter_mut()
                 .filter(|(source, _)| source.as_str() != HealthReport::DPU_AGENT_SOURCE)
             {
-                let merged_hardware = Self::merge_override_report_with_hw_health(
+                Self::merge_override_report_with_hw_health(
                     &mut output,
                     source,
                     over,
                     host_health_config.hardware_health_reports,
                 );
-                has_hardware_health |= merged_hardware;
             }
         }
 
+        let mut has_host_hardware_health = false;
         for (source, over) in self.host_snapshot.health_reports.merges.iter_mut() {
             let merged_hardware = Self::merge_override_report_with_hw_health(
                 &mut output,
@@ -496,11 +505,11 @@ impl ManagedHostStateSnapshot {
                 over,
                 host_health_config.hardware_health_reports,
             );
-            has_hardware_health |= merged_hardware;
+            has_host_hardware_health |= merged_hardware;
         }
 
         if host_health_config.hardware_health_reports == HardwareHealthReportsConfig::Enabled
-            && !has_hardware_health
+            && !has_host_hardware_health
         {
             merge_or_timeout(&mut output, &None, "hardware-health".to_string());
         }

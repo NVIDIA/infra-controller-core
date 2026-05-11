@@ -4674,7 +4674,7 @@ message HealthReportEntry {
   HealthReportApplyMode mode = 2;
 }
 
-// Request to insert a health report source for a Machine.
+// Request to insert a health report source for a Host or DPU Machine.
 message InsertMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   HealthReportEntry health_report_entry = 2;
@@ -4735,7 +4735,7 @@ message ListHealthReportResponse {
   repeated HealthReportEntry health_report_entries = 1;
 }
 
-// Request to remove a health report source for a Machine.
+// Request to remove a health report source from a host or DPU Machine.
 message RemoveMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   string source = 2;

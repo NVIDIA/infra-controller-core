@@ -35,7 +35,7 @@ pub async fn list_machine_health_reports(
 
     let machine_id = convert_and_log_machine_id(Some(&machine_id.into_inner()))?;
 
-    let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+    let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "machine",
@@ -45,7 +45,7 @@ pub async fn list_machine_health_reports(
     txn.commit().await?;
 
     Ok(Response::new(rpc::ListHealthReportResponse {
-        health_report_entries: host_machine
+        health_report_entries: machine
             .health_reports
             .clone()
             .into_iter()
@@ -62,7 +62,7 @@ async fn remove_by_source(
     machine_id: MachineId,
     source: String,
 ) -> Result<(), CarbideError> {
-    let host_machine = db::machine::find_one(
+    let machine = db::machine::find_one(
         &mut *txn,
         &machine_id,
         MachineSearchConfig {
@@ -79,15 +79,9 @@ async fn remove_by_source(
     })?;
 
     // Ensure this source already exists in override list
-    let mode = if host_machine
-        .health_reports
-        .replace
-        .as_ref()
-        .map(|o| &o.source)
-        == Some(&source)
-    {
+    let mode = if machine.health_reports.replace.as_ref().map(|o| &o.source) == Some(&source) {
         HealthReportApplyMode::Replace
-    } else if host_machine.health_reports.merges.contains_key(&source) {
+    } else if machine.health_reports.merges.contains_key(&source) {
         HealthReportApplyMode::Merge
     } else {
         return Err(CarbideError::NotFoundError {
@@ -116,7 +110,7 @@ pub async fn insert_machine_health_report(
         health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
     else {
-        return Err(CarbideError::MissingArgument("override").into());
+        return Err(CarbideError::MissingArgument("health_report_entry").into());
     };
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
     let Some(report) = report else {
@@ -126,13 +120,13 @@ pub async fn insert_machine_health_report(
         return Err(CarbideError::InvalidArgument("mode".to_string()).into());
     };
     let mode: HealthReportApplyMode = mode.into();
-    if machine_id.machine_type().is_dpu() && mode == HealthReportApplyMode::Replace {
-        return Err(CarbideError::InvalidArgument(
-            "DPU's cannot have HealthReportApplyMode::Replace health report overrides".to_string(),
-        )
-        .into());
-    }
     let mut txn = api.txn_begin().await?;
+    let _machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
