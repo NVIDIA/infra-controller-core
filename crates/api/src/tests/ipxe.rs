@@ -28,7 +28,6 @@ use model::machine::{DpuInitState, HostReprovisionState, MachineState, ManagedHo
 use rpc::forge::CloudInitInstructionsRequest;
 use rpc::forge::forge_server::Forge;
 
-use crate::handlers::machine_interface_address::preallocate_machine_interface;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
@@ -480,7 +479,7 @@ async fn preallocate_external_interface(
     let ip_addr: std::net::IpAddr = ip.parse().unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    preallocate_machine_interface(&mut txn, mac_address, ip_addr)
+    db::machine_interface::preallocate_machine_interface(&mut txn, mac_address, ip_addr)
         .await
         .unwrap();
     txn.commit().await.unwrap();
