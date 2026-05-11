@@ -60,6 +60,10 @@ spec:
               {{- . | nindent 14 }}
           {{- end }}
           env:
+            - name: FORGE_DPU_AGENT_METRICS_TARGET
+              value: carbide-dpf-cluster-{{ .Values.carbide_dpu_agent }}.dpf-operator-system.svc.cluster.local:8888
+            - name: CARBIDE_FMDS_METRICS_TARGET
+              value: carbide-dpf-cluster-{{ .Values.carbide_fmds }}.dpf-operator-system.svc.cluster.local:8888
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -89,12 +93,6 @@ spec:
             - name: forge-certs
               mountPath: /opt/forge
               readOnly: true
-            - name: ssl-certs
-              mountPath: /etc/ssl/certs
-              readOnly: true
-            - name: ssl-private
-              mountPath: /etc/ssl/private
-              readOnly: true
             - name: machine-id
               mountPath: /run/otelcol-contrib
             - name: cursors
@@ -121,14 +119,6 @@ spec:
         - name: forge-certs
           hostPath:
             path: /opt/forge
-            type: DirectoryOrCreate
-        - name: ssl-certs
-          hostPath:
-            path: /etc/ssl/certs
-            type: DirectoryOrCreate
-        - name: ssl-private
-          hostPath:
-            path: /etc/ssl/private
             type: DirectoryOrCreate
         - name: machine-id
           hostPath:

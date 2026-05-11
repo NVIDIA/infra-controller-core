@@ -29,7 +29,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -543,7 +543,12 @@ async fn get_interfaces_for_instance_detail(
             && let Some(vpc) = vpc_map.get(&vpc_id_val)
         {
             vpc_id = vpc.id.map(|id| id.to_string()).unwrap_or_default();
-            vpc_name = vpc.name.clone();
+            vpc_name = vpc
+                .metadata
+                .as_ref()
+                .map(|x| x.name.as_str())
+                .unwrap_or("<no name>")
+                .to_string();
         }
 
         let status = &if_status[i];
@@ -634,3 +639,6 @@ pub async fn detail(
     instance_detail.interfaces = instance_detail_interfaces;
     (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
 }
+
+impl super::Base for InstanceShow {}
+impl super::Base for InstanceDetail {}

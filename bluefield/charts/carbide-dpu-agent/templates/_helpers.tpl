@@ -47,3 +47,11 @@ Selector labels
 app.kubernetes.io/name: {{ include "carbide-dpu-agent.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Metrics port for collecting agent metrics
+*/}}
+{{- define "carbide-dpu-agent.metricsPort" -}}
+{{- default 8888 .Values.metricsPort -}}
+{{- end -}}
+

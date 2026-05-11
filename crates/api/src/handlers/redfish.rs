@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use arc_swap::ArcSwap;
+use carbide_utils::HostPortPair;
 use chrono::{DateTime, Local};
 use db::Transaction;
 use db::redfish_actions::{
@@ -30,7 +31,6 @@ use http::{HeaderMap, HeaderValue, Uri};
 use model::redfish::BMCResponse;
 use serde::Serialize;
 use sqlx::PgPool;
-use utils::HostPortPair;
 use uuid::Uuid;
 
 use crate::CarbideError;

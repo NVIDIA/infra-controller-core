@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use carbide_utils::test_support::test_meter::TestMeter;
 use config_version::{ConfigVersion, Versioned};
 use db::DatabaseError;
 use futures::StreamExt;
@@ -30,7 +31,6 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use utils::test_support::test_meter::TestMeter;
 
 use crate::config::IterationConfig;
 use crate::controller::{self, Enqueuer, QueuedObject, StateController};

@@ -120,10 +120,6 @@ exceptions = [
 # adding a clarification entry for it allows you to manually specify the
 # licensing information
 [[licenses.clarify]] # TODO: we should open a PR against the upstream lib to figure out why this is necessary, it's clearly marked on the GH page for the repo.
-crate = "async-ssh2-tokio"
-expression = "Apache-2.0"
-license-files = []
-[[licenses.clarify]] # TODO: we should open a PR against the upstream lib to figure out why this is necessary, it's clearly marked on the GH page for the repo.
 crate = "smbios-lib"
 expression = "MIT"
 license-files = []

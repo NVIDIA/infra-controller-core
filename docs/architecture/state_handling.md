@@ -1,6 +1,6 @@
 # Reliable State Handling
 
-NCX Infra Controller (NICo) provides reliable state handling for a variety of resources via a mechanism called the *state controller*.
+NVIDIA Infra Controller (NICo) provides reliable state handling for a variety of resources via a mechanism called the *state controller*.
 
 "Reliable state handling" refers to the ability of resources to traverse through lifecycle states even in the case of intermittent errors (e.g. a Host BMC or a dependent service is temporarily unavailable) via automated periodic retries. It also means that state handling is deterministic and free of race conditions.
 
@@ -26,3 +26,4 @@ The execution of the state handlers is performed in the following fashion:
 - The handler function is scheduled for execution periodically (typically every 30s) in a way that guarantees that state handlers for different resources can run in parallel, but the state handler for the same resource is running at most once. The periodic execution guarantees that even if something fails intermittently, it will be automatically retried in the next iteration.
 - If the state handling function of a state handler returns `Transition` (to the next state), then the state handler will be scheduled to run again immediately. This avoids the 30s wait time--which especially helps if the resource needs to go through multiple small states which should all be retryable individually.
 - In addition to periodic scheduling and scheduling on state transitions, NICo control plane components can also explicitly request the state handler for any given resource to re-run as soon as possible via the [Enqueuer](https://github.com/NVIDIA/metal-manager/blob/main/crates/api/src/state_controller/controller/enqueuer.rs) component. This allows the system to react as fast as possible to external events, e.g. to a reboot notification from a host.
+

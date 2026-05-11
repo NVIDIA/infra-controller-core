@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -126,3 +126,5 @@ async fn fetch_network_devices(
         .sort_unstable_by(|d1, d2| d1.name.cmp(&d2.name));
     Ok(topology.network_devices)
 }
+
+impl super::Base for NetworkDeviceShow {}

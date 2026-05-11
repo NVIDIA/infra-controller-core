@@ -17,13 +17,13 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
-use carbide_uuid::machine::MachineInterfaceId;
-use tokio::sync::mpsc;
-use tonic::{Request, Response, Status};
-use utils::models::dhcp::{
+use carbide_rpc_utils::dhcp::{
     DhcpConfig as ModelDhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath,
     HostConfig as ModelHostConfig, InterfaceInfo as ModelInterfaceInfo,
 };
+use carbide_uuid::machine::MachineInterfaceId;
+use tokio::sync::mpsc;
+use tonic::{Request, Response, Status};
 
 pub mod proto {
     tonic::include_proto!("dhcp_server_control");

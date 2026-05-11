@@ -19,10 +19,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::db::work_lock_manager::WorkLockManagerHandle;
+use carbide_utils::periodic_timer::PeriodicTimer;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use utils::periodic_timer::PeriodicTimer;
 
 use crate::config::IterationConfig;
 use crate::controller::{ControllerIteration, ControllerIterationId, IterationError, db};
@@ -68,7 +68,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             // If a controller got the lock, the maximum delay is higher than for controllers
             // which failed to get the lock, which aims to give another bias to
             // a different controller.
-            use rand::Rng;
+            use rand::RngExt;
             let iteration_max_jitter = if iteration_result.skipped_iteration {
                 err_jitter
             } else {

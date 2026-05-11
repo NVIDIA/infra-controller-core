@@ -97,20 +97,27 @@ impl MachineATron {
             })
             .collect();
 
-        for machine in &machines {
-            // Inform the API that we have finished our reboot (ie. scout is now running)
-            self.app_context
-                .api_client()
-                .add_expected_machine(
-                    machine.host_info().bmc_mac_address.to_string(),
-                    machine.host_info().serial.clone(),
+        if self.app_context.app_config.register_expected_machines {
+            for machine in &machines {
+                // Inform the API that we have finished our reboot (ie. scout is now running)
+                self.app_context
+                    .api_client()
+                    .add_expected_machine(
+                        machine.host_info().bmc_mac_address.to_string(),
+                        machine.host_info().serial.clone(),
 
-                )
-                .await
-                .inspect_err(|e| {
-                    tracing::warn!(error=?e, "error adding expected machine, likely already ingested");
-                })
-                .ok();
+                    )
+                    .await
+                    .inspect_err(|e| {
+                        tracing::warn!(error=?e, "error adding expected machine, likely already ingested");
+                    })
+                    .ok();
+            }
+        } else {
+            tracing::info!(
+                "register_expected_machines=false; skipping auto-registration of {} mock host(s)",
+                machines.len()
+            );
         }
 
         Ok(machines)
@@ -304,6 +311,7 @@ impl MachineATron {
 fn parse_network_virtualization_type(s: Option<&str>) -> Option<VpcVirtualizationType> {
     match s {
         Some("etv") => Some(VpcVirtualizationType::EthernetVirtualizer),
+        #[allow(deprecated)]
         Some("etv_nvue") => Some(VpcVirtualizationType::EthernetVirtualizerWithNvue),
         Some("fnn") => Some(VpcVirtualizationType::Fnn),
         Some(other) => {

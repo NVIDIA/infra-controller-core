@@ -137,7 +137,11 @@ impl IntoTable for ShowOutput {
             .map(|id| id.to_string().into())
             .unwrap_or("".into());
         let prefix = row.prefix.as_str();
-        let name = row.name.as_str();
+        let name = row
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("<no name>");
         let mut r = vec![vpc_prefix_id, vpc_id, prefix.into(), name.into()];
 
         if let Some(status) = &row.status {

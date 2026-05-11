@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     PrefixMatchType, VpcPrefixCreationRequest, VpcPrefixDeletionRequest, VpcPrefixSearchQuery,
@@ -35,7 +36,10 @@ async fn test_create_and_delete_vpc_prefix_deprecated_fields(
     let new_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
         prefix: ip_prefix.into(),
-        name: "Test VPC prefix".into(),
+        metadata: Some(Metadata {
+            name: "Test VPC prefix".to_string(),
+            ..Default::default()
+        }),
         vpc_id: Some(vpc_id),
         ..Default::default()
     };
@@ -70,7 +74,6 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
     let new_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -118,7 +121,6 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
     let new_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -139,7 +141,6 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
     let overlapping_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: overlapping_ip_prefix.into(),
@@ -173,7 +174,6 @@ async fn test_reject_create_with_invalid_metadata(
     let new_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
@@ -223,7 +223,6 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
         let bad_vpc_prefix = VpcPrefixCreationRequest {
             id: None,
             prefix: String::new(),
-            name: String::new(),
             vpc_id: Some(vpc_id),
 
             config: Some(rpc::forge::VpcPrefixConfig {
@@ -257,7 +256,6 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
     let create_p1 = VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig { prefix: p1.into() }),
         metadata: Some(rpc::forge::Metadata {
@@ -268,7 +266,6 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
     let create_p2 = VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
-        name: String::new(),
         vpc_id: Some(vpc_id),
         config: Some(rpc::forge::VpcPrefixConfig { prefix: p2.into() }),
         metadata: Some(rpc::forge::Metadata {

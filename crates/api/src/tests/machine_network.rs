@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::time::SystemTime;
 
@@ -25,11 +26,14 @@ use ::rpc::forge::{
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
 use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use model::machine::network::ManagedHostQuarantineMode;
+use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 
+use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 #[crate::sqlx_test]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
@@ -92,6 +96,97 @@ async fn test_managed_host_network_config_with_sitewide_bgp_password(pool: sqlx:
         response.bgp_leaf_session_password,
         Some("test-bgp-password".to_string())
     );
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_includes_routing_profile_accepted_leaks(
+    pool: sqlx::PgPool,
+) {
+    let profile_type = "ROUTE_LEAK_TEST";
+    let expected_leaks = vec!["10.42.0.0/24".to_string(), "2001:db8:42::/64".to_string()];
+
+    // Configure an FNN routing profile with explicit accepted underlay leaks.
+    let env = api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default().with_fnn_config(Some(FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([(
+                profile_type.to_string(),
+                FnnRoutingProfileConfig {
+                    internal: true,
+                    access_tier: 0,
+                    accepted_leaks_from_underlay: expected_leaks
+                        .iter()
+                        .map(|prefix| PrefixFilterPolicyEntry {
+                            prefix: prefix.parse().unwrap(),
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
+            )]),
+        })),
+    )
+    .await;
+
+    // Create a tenant and FNN VPC using that routing profile.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "route-leak-test".to_string(),
+            routing_profile_type: Some(profile_type.to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "route-leak-test".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant.organization_id.as_str())
+                .metadata(Metadata {
+                    name: "route leak vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type(profile_type.to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Allocate an instance on the VPC so the DPU receives tenant network config.
+    let mh = create_managed_host(&env).await;
+    mh.instance_builer(&env)
+        .tenant_org(tenant.organization_id)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    // Fetch the DPU network config and extract its routing profile.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(mh.dpu().id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let routing_profile = response.routing_profile.unwrap();
+
+    // Verify the configured leak prefixes are preserved in the gRPC response.
+    let actual_leaks: Vec<_> = routing_profile
+        .accepted_leaks_from_underlay
+        .into_iter()
+        .map(|leak| leak.prefix)
+        .collect();
+    assert_eq!(actual_leaks, expected_leaks);
 }
 
 #[crate::sqlx_test]
@@ -173,12 +268,12 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
         .expect("Error getting DPU1 network config")
         .into_inner();
 
-    // Assert: They should not have the same config version, since the managed_host_config_version
-    // represents the health of that particular DPU.
-    assert!(
-        dpu_1_network_config
-            .managed_host_config_version
-            .ne(&dpu_2_network_config.managed_host_config_version)
+    // Assert: Both DPUs report the same managed_host_config_version, because
+    // it's the host's network_config_version and group-sync keeps every member
+    // of the host's machine group at the same version.
+    assert_eq!(
+        dpu_1_network_config.managed_host_config_version,
+        dpu_2_network_config.managed_host_config_version,
     );
 }
 

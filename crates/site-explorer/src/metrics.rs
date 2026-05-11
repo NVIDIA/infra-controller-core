@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use carbide_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;

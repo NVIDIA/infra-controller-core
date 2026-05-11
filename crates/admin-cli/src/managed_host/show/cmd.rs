@@ -36,12 +36,12 @@ const UNKNOWN: &str = "Unknown";
 #[derive(Default, Serialize)]
 struct ManagedHostOutputWrapper {
     options: ManagedHostOutputOptions,
-    managed_host_output: utils::ManagedHostOutput,
+    managed_host_output: carbide_rpc_utils::ManagedHostOutput,
 }
 
 #[derive(Serialize)]
 struct ManagedHostList<'a> {
-    managed_hosts: &'a [utils::ManagedHostOutput],
+    managed_hosts: &'a [carbide_rpc_utils::ManagedHostOutput],
 }
 
 #[derive(Default, Clone, Copy, Serialize)]
@@ -155,7 +155,7 @@ impl From<ManagedHostOutputWrapper> for Row {
 }
 
 fn convert_managed_hosts_to_nice_output(
-    managed_hosts: Vec<utils::ManagedHostOutput>,
+    managed_hosts: Vec<carbide_rpc_utils::ManagedHostOutput>,
     options: ManagedHostOutputOptions,
 ) -> Box<Table> {
     let managed_hosts_wrapper = managed_hosts
@@ -204,13 +204,13 @@ fn convert_managed_hosts_to_nice_output(
 }
 
 async fn show_managed_hosts(
-    managed_host_data: utils::ManagedHostMetadata,
+    managed_host_data: carbide_rpc_utils::ManagedHostMetadata,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     output_options: ManagedHostOutputOptions,
     sort_by: SortField,
 ) -> CarbideCliResult<()> {
-    let mut managed_hosts = utils::get_managed_host_output(managed_host_data);
+    let mut managed_hosts = carbide_rpc_utils::get_managed_host_output(managed_host_data);
     match sort_by {
         SortField::PrimaryId => managed_hosts.sort_by(|m1, m2| m1.machine_id.cmp(&m2.machine_id)),
         SortField::State => managed_hosts.sort_by(|m1, m2| m1.state.cmp(&m2.state)),
@@ -267,7 +267,7 @@ async fn show_managed_hosts(
     Ok(())
 }
 
-fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResult<()> {
+fn show_managed_host_details_view(m: carbide_rpc_utils::ManagedHostOutput) -> CarbideCliResult<()> {
     let width = 27;
     let mut lines = String::new();
 
@@ -356,7 +356,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
             "    Probe Alerts",
             Some(format_health_alerts(&m.health.alerts, width)),
         ),
-        ("    Overrides", Some(m.health_sources.join(","))),
+        ("    Health Reports", Some(m.health_sources.join(","))),
     ];
     data.append(&mut health_details);
 
@@ -567,7 +567,7 @@ pub async fn show(
     };
 
     show_managed_hosts(
-        utils::ManagedHostMetadata {
+        carbide_rpc_utils::ManagedHostMetadata {
             machines,
             connected_devices,
             network_devices,

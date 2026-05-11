@@ -1,3 +1,4 @@
+{{- if .Values.vault.configJob.enabled }}
 ## =============================================================================
 ## Vault PKI Configuration Job (post-install hook)
 ## Uses only tools built into hashicorp/vault image (busybox wget/sed/grep).
@@ -8,6 +9,7 @@
 ##   container:     wait for site-root Secret, then:
 ##     - Import site-root CA into Vault PKI engine (forgeca)
 ##     - Configure PKI role (forge-cluster) with SPIFFE URI SANs
+##     - Optionally configure PKI role for NICo CLI client certificates
 ##     - Enable Kubernetes auth, bind cert-manager SA
 ##     - Create cert-manager-forge-policy + forge-vault-policy
 ##     - Enable KV v2 at secrets/
@@ -87,7 +89,7 @@ spec:
         ## works reliably with self-signed certs.
         ## ---------------------------------------------------------------
         - name: wait-vault
-          image: hashicorp/vault:1.17
+          image: {{ .Values.vault.configJob.vaultImage | quote }}
           env:
             - name: VAULT_ADDR
               value: {{ .Values.vault.address | quote }}
@@ -119,7 +121,7 @@ spec:
         ## No apk install required.
         ## ---------------------------------------------------------------
         - name: configure
-          image: hashicorp/vault:1.17
+          image: {{ .Values.vault.configJob.vaultImage | quote }}
           env:
             - name: VAULT_ADDR
               value: {{ .Values.vault.address | quote }}
@@ -184,6 +186,23 @@ spec:
                 require_cn=false \
                 use_csr_common_name=true
 
+              {{ if .Values.vault.nicoCliClientRole.enabled }}
+              # ---- Create NICo CLI client PKI role ----
+              echo "Creating PKI role {{ .Values.vault.nicoCliClientRole.name }}..."
+              vault write {{ .Values.vault.pkiMount }}/roles/{{ .Values.vault.nicoCliClientRole.name }} \
+                allow_any_name=true \
+                enforce_hostnames=false \
+                cn_validations=disabled \
+                client_flag=true \
+                server_flag=false \
+                key_type=ec \
+                key_bits=256 \
+                ttl=1h \
+                max_ttl=12h \
+                ou={{ .Values.vault.nicoCliClientRole.name | quote }}{{ if .Values.vault.nicoCliClientRole.organization }} \
+                organization={{ .Values.vault.nicoCliClientRole.organization | quote }}{{ end }}
+              {{ end }}
+
               # ---- Enable K8s auth ----
               echo "Configuring Kubernetes auth..."
               vault auth enable kubernetes 2>/dev/null || true
@@ -242,10 +261,10 @@ spec:
         ## Patch carbide-vault-approle-tokens with real AppRole credentials.
         ## Runs alongside configure; waits for /approle-creds/done sentinel
         ## written by the configure container before patching.
-        ## Uses bitnami/kubectl since the vault image has no kubectl.
+        ## Uses a kubectl image since the vault image has no kubectl.
         ## ---------------------------------------------------------------
         - name: patch-approle-secret
-          image: bitnami/kubectl:latest
+          image: {{ .Values.vault.configJob.kubectlImage | quote }}
           volumeMounts:
             - name: approle-creds
               mountPath: /approle-creds
@@ -262,3 +281,4 @@ spec:
                 --type=merge \
                 -p "{\"stringData\":{\"VAULT_ROLE_ID\":\"${_ROLE_ID}\",\"VAULT_SECRET_ID\":\"${_SECRET_ID}\"}}"
               echo "carbide-vault-approle-tokens patched with real AppRole credentials"
+{{- end }}

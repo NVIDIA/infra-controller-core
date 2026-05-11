@@ -41,6 +41,7 @@ carbide-health-report = { path = "../health-report" }
 carbide-measured-boot = { path = "../measured-boot", features = ["cli"] }
 carbide-libmlx = { path = "../libmlx" }
 carbide-rpc = { path = "../rpc", features = ["cli"] }
+carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-utils = { path = "../utils" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
@@ -69,7 +70,6 @@ tracing-subscriber = { features = [
   "local-time",
 ], workspace = true }
 urlencoding = { workspace = true }
-version-compare = { workspace = true }
 uuid = { workspace = true }
 x509-parser = { features = ["validate"], workspace = true }
 zip = { workspace = true }

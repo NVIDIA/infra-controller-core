@@ -43,7 +43,5 @@ reqwest = { workspace = true, default-features = false, features = [
 ] }
 tracing = { workspace = true }
 thiserror = { workspace = true }
-tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
-getopts = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }

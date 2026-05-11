@@ -18,7 +18,6 @@
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use ::rpc::forge::RemoveHealthReportOverrideRequest;
 use chrono::Utc;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
@@ -166,10 +165,7 @@ pub async fn handle_health_report(
 ) -> CarbideCliResult<()> {
     match command {
         Args::Show { machine_id } => {
-            let response = api_client
-                .0
-                .list_health_report_overrides(machine_id)
-                .await?;
+            let response = api_client.machine_list_health_reports(machine_id).await?;
             health_utils::display_health_reports(response.health_report_entries, output_format)?;
         }
         Args::Add(options) => {
@@ -197,11 +193,7 @@ pub async fn handle_health_report(
             report_source,
         } => {
             api_client
-                .0
-                .remove_health_report_override(RemoveHealthReportOverrideRequest {
-                    machine_id: Some(machine_id),
-                    source: report_source,
-                })
+                .machine_remove_health_report(machine_id, report_source)
                 .await?;
         }
         Args::PrintEmptyTemplate => {

@@ -305,6 +305,19 @@ pub struct TenantIdentitySigningKeyIdTag;
 /// Per-tenant signing key identifier stored in `key_id` (JWT `kid`); must be non-empty.
 pub type KeyId = NonEmptyStr<TenantIdentitySigningKeyIdTag>;
 
+impl KeyId {
+    /// JWT `kid` from `hex(sha256(utf8_bytes(public_key_material)))`.
+    ///
+    /// Delegates to [`forge_secrets::key_encryption::key_id_from_public_key`] (e.g. SPKI PEM from
+    /// ES256 key generation). Infallible: that function always yields 64 hex characters.
+    pub fn from_public_key_material(public_key_material: &str) -> Self {
+        Self::try_from(forge_secrets::key_encryption::key_id_from_public_key(
+            public_key_material,
+        ))
+        .expect("key_id_from_public_key yields 64 hex chars, always non-empty")
+    }
+}
+
 /// Marker for `tenant_identity_config.signing_key_public` (SPKI PEM text).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TenantSigningPublicKeyPemTag;
@@ -330,3 +343,18 @@ pub struct TokenDelegationEncryptedAuthConfigTag;
 /// Ciphertext for `tenant_identity_config.encrypted_auth_method_config` (delegation client secret JSON).
 pub type EncryptedTokenDelegationAuthConfig =
     EnvelopeCiphertext<TokenDelegationEncryptedAuthConfigTag>;
+
+#[cfg(test)]
+mod key_id_tests {
+    use super::KeyId;
+
+    #[test]
+    fn key_id_from_public_key_material_is_deterministic_hex64() {
+        let pem = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
+        let a = KeyId::from_public_key_material(pem);
+        let b = KeyId::from_public_key_material(pem);
+        assert_eq!(a, b);
+        assert_eq!(a.as_str().len(), 64);
+        assert!(a.as_str().chars().all(|c| c.is_ascii_hexdigit()));
+    }
+}

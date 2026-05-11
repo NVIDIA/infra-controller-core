@@ -21,8 +21,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{self, Duration};
 
+use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
-use ::utils::HostPortPair;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,
@@ -904,6 +904,9 @@ where
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
+        register_expected_machines: true,
+        host_bmc_password: None,
+        dpu_bmc_password: None,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         mock_bmc_ssh_port: None,

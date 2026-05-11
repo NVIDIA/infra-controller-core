@@ -36,7 +36,7 @@ pub(crate) use crypto::{
 use jsonwebtoken::{EncodingKey, Header, encode};
 use model::tenant::identity_config::TENANT_IDENTITY_SIGNING_JWT_ALG;
 use p256::PublicKey;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use p256::pkcs8::DecodePublicKey;
 use serde_json::Value;
 pub(crate) use token_exchange::{token_exchange_http_client, token_exchange_request};
@@ -164,7 +164,7 @@ pub fn public_pem_to_jwk_value(
 
     let pk = PublicKey::from_public_key_pem(public_key_pem.trim())
         .map_err(|e| JwkBuildError(format!("failed to parse signing public key PEM: {e}")))?;
-    let encoded = pk.to_encoded_point(false);
+    let encoded = pk.to_sec1_point(false);
     let x = encoded
         .x()
         .ok_or_else(|| JwkBuildError("EC public key missing x coordinate".into()))?;

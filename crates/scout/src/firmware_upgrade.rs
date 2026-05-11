@@ -19,31 +19,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
-use serde::{Deserialize, Serialize};
+use rpc::forge_agent_control_response::ScoutFirmwareUpgradeTask as FirmwareUpgradeTask;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const SCRIPT_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_MAX_RETRIES: u32 = 3;
-
-// FirmwareUpgradeTask represents the JSON payload received from
-// carbide-api via ForgeAgentControl when Action::FirmwareUpgrade is set.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FirmwareUpgradeTask {
-    pub component_type: String,
-    pub target_version: String,
-    pub script: FileArtifact,
-    pub execution_timeout_seconds: u32,
-    pub artifact_download_timeout_seconds: u32,
-    pub file_artifacts: Vec<FileArtifact>,
-}
-
-// FileArtifact represents a file to download with its expected checksum.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FileArtifact {
-    pub url: String,
-    pub sha256: String,
-}
 
 // FirmwareUpgradeResult captures the outcome of a firmware upgrade execution.
 // Fields will be used when ReportScoutFirmwareUpgradeStatus RPC is implemented.
@@ -88,11 +69,15 @@ async fn run_firmware_upgrade(
     let work_dir = tempfile::tempdir()?;
 
     let download_timeout = Duration::from_secs(task.artifact_download_timeout_seconds.into());
+    let script = task
+        .script
+        .as_ref()
+        .ok_or("firmware upgrade task missing script")?;
 
     // Download the script and verify its checksum.
     let script_path = tokio::time::timeout(
         SCRIPT_DOWNLOAD_TIMEOUT,
-        download_file_with_retries(client, &task.script.url, work_dir.path()),
+        download_file_with_retries(client, &script.url, work_dir.path()),
     )
     .await
     .map_err(|_| {
@@ -102,10 +87,10 @@ async fn run_firmware_upgrade(
         )
     })??;
     let actual = sha256_file(&script_path).await?;
-    if actual != task.script.sha256 {
+    if actual != script.sha256 {
         return Err(format!(
             "checksum mismatch for script {}: expected {}, got {actual}",
-            task.script.url, task.script.sha256
+            script.url, script.sha256
         )
         .into());
     }
@@ -117,6 +102,7 @@ async fn run_firmware_upgrade(
     // Download file artifacts and verify checksums.
     let download_dir = work_dir.path().join("downloads");
     tokio::fs::create_dir_all(&download_dir).await?;
+    let mut downloaded_artifacts = Vec::with_capacity(task.file_artifacts.len());
     for artifact in &task.file_artifacts {
         let dest = tokio::time::timeout(
             download_timeout,
@@ -138,6 +124,7 @@ async fn run_firmware_upgrade(
             .into());
         }
         tracing::info!("[firmware_upgrade] checksum verified for {}", artifact.url);
+        downloaded_artifacts.push(dest);
     }
 
     tracing::info!(
@@ -148,11 +135,15 @@ async fn run_firmware_upgrade(
     // Execute the script with env vars for context.
     // kill_on_drop ensures the child process is terminated if the timeout fires,
     // preventing orphaned processes and races with tempdir cleanup.
-    let child = tokio::process::Command::new("sh")
+    let mut command = tokio::process::Command::new("sh");
+    command
         .arg(&script_path)
+        .args(&downloaded_artifacts)
         .env("DOWNLOAD_DIR", &download_dir)
         .env("COMPONENT_TYPE", &task.component_type)
-        .env("TARGET_VERSION", &task.target_version)
+        .env("TARGET_VERSION", &task.target_version);
+
+    let child = command
         .current_dir(work_dir.path())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -266,13 +257,14 @@ async fn sha256_file(path: &Path) -> Result<String, Box<dyn std::error::Error>> 
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 #[cfg(test)]
 mod tests {
     use axum::Router;
     use axum::routing::get;
+    use rpc::forge_agent_control_response::FileArtifact;
     use tokio::net::TcpListener;
 
     use super::*;
@@ -295,7 +287,7 @@ mod tests {
     }
 
     fn sha256_hex(data: &str) -> String {
-        format!("{:x}", Sha256::digest(data.as_bytes()))
+        hex::encode(Sha256::digest(data.as_bytes()))
     }
 
     fn script_artifact(base: &str, path: &str, content: &str) -> FileArtifact {
@@ -316,9 +308,10 @@ mod tests {
         .await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.2.3".into(),
-            script: script_artifact(&base, "/scripts/upgrade.sh", script),
+            script: Some(script_artifact(&base, "/scripts/upgrade.sh", script)),
             execution_timeout_seconds: 30,
             artifact_download_timeout_seconds: 30,
             file_artifacts: vec![FileArtifact {
@@ -345,9 +338,10 @@ mod tests {
         let base = start_file_server(vec![("/scripts/fail.sh", script)]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "bios".into(),
             target_version: "2.0.0".into(),
-            script: script_artifact(&base, "/scripts/fail.sh", script),
+            script: Some(script_artifact(&base, "/scripts/fail.sh", script)),
             execution_timeout_seconds: 30,
             artifact_download_timeout_seconds: 30,
             file_artifacts: vec![],
@@ -366,9 +360,10 @@ mod tests {
         let base = start_file_server(vec![("/scripts/slow.sh", script)]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.0.0".into(),
-            script: script_artifact(&base, "/scripts/slow.sh", script),
+            script: Some(script_artifact(&base, "/scripts/slow.sh", script)),
             execution_timeout_seconds: 1,
             artifact_download_timeout_seconds: 30,
             file_artifacts: vec![],
@@ -387,9 +382,10 @@ mod tests {
         let base = start_file_server(vec![("/scripts/env.sh", script)]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpldmb".into(),
             target_version: "3.4.5".into(),
-            script: script_artifact(&base, "/scripts/env.sh", script),
+            script: Some(script_artifact(&base, "/scripts/env.sh", script)),
             execution_timeout_seconds: 30,
             artifact_download_timeout_seconds: 30,
             file_artifacts: vec![],
@@ -404,16 +400,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_script_receives_artifacts_as_args_in_order() {
+        let script = r#"#!/bin/sh
+echo "argc=$#"
+echo "arg1=$(basename "$1")"
+echo "arg2=$(basename "$2")"
+test "$#" = "2"
+test -f "$1"
+test -f "$2"
+test "$(basename "$1")" = "first.bin"
+test "$(basename "$2")" = "second.bin"
+"#;
+        let first_content = "first-binary-data";
+        let second_content = "second-binary-data";
+        let base = start_file_server(vec![
+            ("/scripts/env.sh", script),
+            ("/firmware/first.bin", first_content),
+            ("/firmware/second.bin", second_content),
+        ])
+        .await;
+
+        let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
+            component_type: "cpldmb".into(),
+            target_version: "3.4.5".into(),
+            script: Some(script_artifact(&base, "/scripts/env.sh", script)),
+            execution_timeout_seconds: 30,
+            artifact_download_timeout_seconds: 30,
+            file_artifacts: vec![
+                FileArtifact {
+                    url: format!("{base}/firmware/first.bin"),
+                    sha256: sha256_hex(first_content),
+                },
+                FileArtifact {
+                    url: format!("{base}/firmware/second.bin"),
+                    sha256: sha256_hex(second_content),
+                },
+            ],
+        };
+
+        let result = handle_firmware_upgrade(&reqwest::Client::new(), &task).await;
+
+        assert!(result.success, "error: {}", result.error);
+        assert!(result.stdout.contains("argc=2"));
+        assert!(result.stdout.contains("arg1=first.bin"));
+        assert!(result.stdout.contains("arg2=second.bin"));
+    }
+
+    #[tokio::test]
     async fn test_download_failure() {
         let base = start_file_server(vec![]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.0.0".into(),
-            script: FileArtifact {
+            script: Some(FileArtifact {
                 url: format!("{base}/scripts/nonexistent.sh"),
                 sha256: "doesntmatter".into(),
-            },
+            }),
             execution_timeout_seconds: 30,
             artifact_download_timeout_seconds: 30,
             file_artifacts: vec![],
@@ -435,9 +480,10 @@ mod tests {
         .await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.0.0".into(),
-            script: script_artifact(&base, "/scripts/upgrade.sh", script),
+            script: Some(script_artifact(&base, "/scripts/upgrade.sh", script)),
             execution_timeout_seconds: 30,
             artifact_download_timeout_seconds: 30,
             file_artifacts: vec![FileArtifact {
@@ -458,12 +504,13 @@ mod tests {
         let base = start_file_server(vec![("/scripts/upgrade.sh", script)]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.0.0".into(),
-            script: FileArtifact {
+            script: Some(FileArtifact {
                 url: format!("{base}/scripts/upgrade.sh"),
                 sha256: "bad_checksum".into(),
-            },
+            }),
             execution_timeout_seconds: 30,
             artifact_download_timeout_seconds: 30,
             file_artifacts: vec![],
@@ -476,29 +523,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_task_json_ser_deser_roundtrip() {
-        let task = FirmwareUpgradeTask {
-            component_type: "cpld".into(),
-            target_version: "1.2.3".into(),
-            script: FileArtifact {
-                url: "http://example.com/script.sh".into(),
-                sha256: "scripthash".into(),
+    async fn test_legacy_task_json_parses_to_rpc_task() {
+        let json = serde_json::json!({
+            "upgrade_task_id": "roundtrip-upgrade-task-id",
+            "component_type": "cpld",
+            "target_version": "1.2.3",
+            "script": {
+                "url": "http://example.com/script.sh",
+                "sha256": "scripthash",
             },
-            execution_timeout_seconds: 300,
-            artifact_download_timeout_seconds: 120,
-            file_artifacts: vec![FileArtifact {
-                url: "http://example.com/fw.bin".into(),
-                sha256: "abc123".into(),
+            "execution_timeout_seconds": 300,
+            "artifact_download_timeout_seconds": 120,
+            "file_artifacts": [{
+                "url": "http://example.com/fw.bin",
+                "sha256": "abc123",
             }],
-        };
-
-        let json = serde_json::to_string(&task).unwrap();
-        let parsed: FirmwareUpgradeTask = serde_json::from_str(&json).unwrap();
+        });
+        let parsed: FirmwareUpgradeTask = serde_json::from_value(json).unwrap();
+        let script = parsed.script.as_ref().unwrap();
 
         assert_eq!(parsed.component_type, "cpld");
+        assert_eq!(parsed.upgrade_task_id, "roundtrip-upgrade-task-id");
         assert_eq!(parsed.target_version, "1.2.3");
-        assert_eq!(parsed.script.url, "http://example.com/script.sh");
-        assert_eq!(parsed.script.sha256, "scripthash");
+        assert_eq!(script.url, "http://example.com/script.sh");
+        assert_eq!(script.sha256, "scripthash");
         assert_eq!(parsed.execution_timeout_seconds, 300);
         assert_eq!(parsed.artifact_download_timeout_seconds, 120);
         assert_eq!(parsed.file_artifacts.len(), 1);

@@ -180,12 +180,22 @@
                   any: {}
           FROM_DEFAULT_VRF_TO_vpc_1025186_PREFIX_LIST:
             rule:
+              '1':
+                action: permit
+                match:
+                  '10.255.0.0/24':
+                    max-prefix-len: 32
               '65534':
                 action: permit
                 match:
                   0.0.0.0/0: {}
           FROM_DEFAULT_VRF_TO_vpc_1025197_PREFIX_LIST:
             rule:
+              '1':
+                action: permit
+                match:
+                  '10.255.0.0/24':
+                    max-prefix-len: 32
               '65534':
                 action: permit
                 match:
@@ -527,7 +537,7 @@
                 match:
                   ip-prefix-list: FROM_DEFAULT_VRF_TO_vpc_1025197_PREFIX_LIST
                   type: ipv4
-          FROM_DEFAULT_VRF_TO_vpc_1025186_MAP_IPV6:
+          FROM_DEFAULT_VRF_TO_vpc_1025186_MAP_V6:
             rule:
               '10':
                 action:
@@ -535,7 +545,7 @@
                 match:
                   ip-prefix-list: FROM_DEFAULT_VRF_TO_vpc_1025186_PREFIX_LIST_IPV6
                   type: ipv6
-          FROM_DEFAULT_VRF_TO_vpc_1025197_MAP_IPV6:
+          FROM_DEFAULT_VRF_TO_vpc_1025197_MAP_V6:
             rule:
               '10':
                 action:
@@ -573,6 +583,10 @@
               '65535':
                 action:
                   deny: {}
+    system:
+      api:
+        listening-address:
+          0.0.0.0: {}
     vrf:
       default:
         router:
@@ -705,6 +719,12 @@
                 route-export:
                   to-evpn:
                     enable: on
+                route-import:
+                  from-vrf:
+                    route-map: FROM_DEFAULT_VRF_TO_vpc_1025186_MAP_V6
+                    enable: on
+                    list:
+                      default: {}
             enable: on
             neighbor:
               10.217.5.170:
@@ -814,6 +834,12 @@
                 route-export:
                   to-evpn:
                     enable: on
+                route-import:
+                  from-vrf:
+                    route-map: FROM_DEFAULT_VRF_TO_vpc_1025197_MAP_V6
+                    enable: on
+                    list:
+                      default: {}
             enable: on
             neighbor:
               10.217.5.170:

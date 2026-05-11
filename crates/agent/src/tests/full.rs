@@ -838,6 +838,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
+            accepted_leaks_from_underlay: vec![],
             route_target_imports: vec![rpc_common::RouteTarget {
                 asn: 44444,
                 vni: 55555,

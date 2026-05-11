@@ -74,6 +74,9 @@ spec:
               mountPath: /host-mem-info
             - name: forge-certs
               mountPath: /opt/forge
+            - name: host-resolv-conf
+              mountPath: /host-resolv.conf
+              readOnly: true
       containers:
         - name: forge-dpu-agent
           securityContext:
@@ -81,7 +84,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
             - run
-            - "nvue-rest"
+            - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
             - "--dhcp-grpc-server=http://carbide-dpf-cluster-{{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
             - "--fmds-grpc-server=http://carbide-dpf-cluster-{{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
@@ -158,6 +161,10 @@ spec:
         - name: proc-mem-info
           hostPath:
             path: /proc/meminfo
+        - name: host-resolv-conf
+          hostPath:
+            path: /etc/resolv.conf
+            type: File
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

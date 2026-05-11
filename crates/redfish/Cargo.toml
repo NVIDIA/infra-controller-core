@@ -14,6 +14,7 @@ default = []
 test-support = [ "dep:chrono", "dep:serde_json", "dep:tokio" ]
 
 [dependencies]
+bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-secrets = { path = "../secrets" }

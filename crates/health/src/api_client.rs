@@ -31,7 +31,7 @@ use url::Url;
 use crate::HealthError;
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, CredentialProvider, EndpointMetadata,
-    EndpointSource, MachineData, SwitchData,
+    EndpointSource, MachineData, PowerShelfData, SwitchData,
 };
 
 #[derive(Clone)]
@@ -86,6 +86,7 @@ impl ApiClientWrapper {
 
     pub async fn fetch_bmc_hosts(&self) -> Result<Vec<Arc<BmcEndpoint>>, HealthError> {
         let mut endpoints = self.fetch_machine_endpoints().await?;
+        endpoints.extend(self.fetch_power_shelf_endpoints().await);
         endpoints.extend(self.fetch_switch_endpoints().await);
 
         tracing::info!("Prepared total {} endpoints", endpoints.len());
@@ -168,6 +169,37 @@ impl ApiClientWrapper {
         }
     }
 
+    async fn fetch_power_shelf_endpoints(&self) -> Vec<Arc<BmcEndpoint>> {
+        let request = rpc::forge::PowerShelfQuery {
+            name: None,
+            power_shelf_id: None,
+        };
+
+        match self.client.find_power_shelves(request).await {
+            Ok(response) => {
+                let mut endpoints = Vec::new();
+
+                for power_shelf in response.power_shelves {
+                    match self.extract_power_shelf_endpoint(&power_shelf).await {
+                        Ok(endpoint) => endpoints.push(Arc::new(endpoint)),
+                        Err(error) => tracing::warn!(
+                            ?power_shelf,
+                            ?error,
+                            "Could not add power shelf endpoint due to error"
+                        ),
+                    }
+                }
+
+                tracing::debug!(count = endpoints.len(), "Fetched power shelf endpoints");
+                endpoints
+            }
+            Err(error) => {
+                tracing::warn!(?error, "Failed to fetch power shelf endpoints");
+                Vec::new()
+            }
+        }
+    }
+
     async fn extract_machine_endpoint(
         &self,
         machine: &rpc::forge::Machine,
@@ -212,7 +244,39 @@ impl ApiClientWrapper {
 
         self.endpoint_with_auth(
             addr,
-            Some(EndpointMetadata::Switch(SwitchData { serial })),
+            Some(EndpointMetadata::Switch(SwitchData {
+                id: switch.id,
+                serial,
+            })),
+            None,
+        )
+        .await
+    }
+
+    async fn extract_power_shelf_endpoint(
+        &self,
+        power_shelf: &rpc::forge::PowerShelf,
+    ) -> Result<BmcEndpoint, HealthError> {
+        let Some(bmc_info) = &power_shelf.bmc_info else {
+            return Err(HealthError::GenericError(
+                "Could not extract power shelf endpoint without BMC Info".to_string(),
+            ));
+        };
+        let addr = BmcAddr::try_from(bmc_info)?;
+        let serial = power_shelf
+            .config
+            .as_ref()
+            .map(|config| config.name.clone())
+            .ok_or(HealthError::GenericError(
+                "Power shelf endpoint does not have serial".to_string(),
+            ))?;
+
+        self.endpoint_with_auth(
+            addr,
+            Some(EndpointMetadata::PowerShelf(PowerShelfData {
+                id: power_shelf.id,
+                serial,
+            })),
             None,
         )
         .await
@@ -249,13 +313,13 @@ impl ApiClientWrapper {
             mode: rpc::forge::HealthReportApplyMode::Merge.into(),
         };
 
-        let request = rpc::forge::InsertHealthReportOverrideRequest {
+        let request = rpc::forge::InsertMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             health_report_entry: Some(ovrd),
         };
 
         self.client
-            .insert_health_report_override(request)
+            .insert_machine_health_report(request)
             .await
             .map_err(HealthError::ApiInvocationError)?;
 
@@ -272,13 +336,59 @@ impl ApiClientWrapper {
             mode: rpc::forge::HealthReportApplyMode::Merge.into(),
         };
 
-        let request = rpc::forge::InsertRackHealthReportOverrideRequest {
+        let request = rpc::forge::InsertRackHealthReportRequest {
             rack_id: Some(rack_id.clone()),
             health_report_entry: Some(ovrd),
         };
 
         self.client
-            .insert_rack_health_report_override(request)
+            .insert_rack_health_report(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(())
+    }
+
+    pub async fn submit_switch_health_report(
+        &self,
+        switch_id: &carbide_uuid::switch::SwitchId,
+        report: health_report::HealthReport,
+    ) -> Result<(), HealthError> {
+        let ovrd = rpc::forge::HealthReportEntry {
+            report: Some(report.into()),
+            mode: rpc::forge::HealthReportApplyMode::Merge.into(),
+        };
+
+        let request = rpc::forge::InsertSwitchHealthReportRequest {
+            switch_id: Some(*switch_id),
+            health_report_entry: Some(ovrd),
+        };
+
+        self.client
+            .insert_switch_health_report(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(())
+    }
+
+    pub async fn submit_power_shelf_health_report(
+        &self,
+        power_shelf_id: &carbide_uuid::power_shelf::PowerShelfId,
+        report: health_report::HealthReport,
+    ) -> Result<(), HealthError> {
+        let ovrd = rpc::forge::HealthReportEntry {
+            report: Some(report.into()),
+            mode: rpc::forge::HealthReportApplyMode::Merge.into(),
+        };
+
+        let request = rpc::forge::InsertPowerShelfHealthReportRequest {
+            power_shelf_id: Some(*power_shelf_id),
+            health_report_entry: Some(ovrd),
+        };
+
+        self.client
+            .insert_power_shelf_health_report(request)
             .await
             .map_err(HealthError::ApiInvocationError)?;
 

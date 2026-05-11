@@ -37,10 +37,10 @@ use aes_gcm::aead::{Aead, KeyInit};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use p256::SecretKey;
+use p256::elliptic_curve::Generate;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
-use rand::TryRngCore;
-use rand::rngs::OsRng as AesOsRng;
-use rand_core::OsRng;
+use rand::rngs::SysRng;
+use rand_core::TryRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -87,10 +87,11 @@ struct EncryptionEnvelopeV1 {
 }
 
 fn envelope_json_bytes(
-    key_id: &str,
+    key_id: impl AsRef<str>,
     nonce: &[u8; 12],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, KeyEncryptionError> {
+    let key_id = key_id.as_ref();
     let kid = key_id.as_bytes();
     if kid.is_empty() || kid.len() > 255 {
         return Err(KeyEncryptionError::Encrypt(
@@ -119,25 +120,26 @@ fn parse_envelope_json(data: &[u8]) -> Result<([u8; 12], Vec<u8>), KeyEncryption
 
 /// Encrypts plaintext with AES-256-GCM using envelope v1.
 ///
-/// `encryption_secret` is raw 32-byte key material
+/// `encryption_secret` is raw 32-byte key material.
 /// `encryption_key_id` must match the entry under `machine_identity.encryption_keys` and site
-/// `current_encryption_key_id`.
+/// `current_encryption_key_id` (1..=255 UTF-8 bytes). Callers may pass any `T: AsRef<str>` (e.g. a
+/// non-empty encryption-key id newtype from the API model).
 /// Returns standard base64 of the UTF-8 JSON envelope (safe for `TEXT` columns).
 pub fn encrypt(
     plaintext: &[u8],
     encryption_secret: &Aes256Key,
-    encryption_key_id: &str,
+    encryption_key_id: impl AsRef<str>,
 ) -> Result<String, KeyEncryptionError> {
     let cipher = Aes256Gcm::new_from_slice(encryption_secret)
         .map_err(|e| KeyEncryptionError::Encrypt(e.to_string()))?;
     let mut nonce = [0u8; 12];
-    AesOsRng.try_fill_bytes(&mut nonce).map_err(|e| {
+    SysRng.try_fill_bytes(&mut nonce).map_err(|e| {
         KeyEncryptionError::Encrypt(format!("OS RNG failed while generating AES-GCM nonce: {e}"))
     })?;
     let ciphertext = cipher
         .encrypt(&nonce.into(), plaintext)
         .map_err(|e| KeyEncryptionError::Encrypt(e.to_string()))?;
-    let envelope = envelope_json_bytes(encryption_key_id, &nonce, &ciphertext)?;
+    let envelope = envelope_json_bytes(encryption_key_id.as_ref(), &nonce, &ciphertext)?;
     Ok(BASE64.encode(&envelope))
 }
 
@@ -161,6 +163,9 @@ pub fn decrypt(
 
 /// Computes key_id as hex(sha256(public_key)).
 /// Works with any public key representation (PEM, DER, etc.).
+///
+/// API domain code should prefer `KeyId::from_public_key_material` in `carbide-api-model`, which
+/// delegates to this function (one implementation).
 pub fn key_id_from_public_key(public_key: &str) -> String {
     let hash = Sha256::digest(public_key.as_bytes());
     hex::encode(hash)
@@ -171,7 +176,9 @@ pub fn key_id_from_public_key(public_key: &str) -> String {
 /// The public PEM matches `p256::PublicKey::from_public_key_pem` (same as carbide-api JWKS).
 /// Returns (private_key_pem_bytes, public_key_pem).
 pub fn generate_es256_key_pair() -> Result<(Vec<u8>, String), KeyEncryptionError> {
-    let secret_key = SecretKey::random(&mut OsRng);
+    let secret_key = SecretKey::try_generate_from_rng(&mut SysRng).map_err(|e| {
+        KeyEncryptionError::KeyGen(format!("Could not generate SecretKey from system RNG: {e}"))
+    })?;
     let private_pem = secret_key
         .to_pkcs8_pem(LineEnding::LF)
         .map_err(|e| KeyEncryptionError::KeyGen(e.to_string()))?;

@@ -16162,7 +16162,7 @@ components:
         id:
           type: string
           format: uuid
-          description: RLA internal component UUID
+          description: NICo Flow internal component UUID
         componentId:
           type: string
           description: Component ID assigned by the component manager service

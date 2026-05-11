@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use opentelemetry::metrics::Meter;
 
 #[derive(Clone, Debug)]
@@ -104,8 +104,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use carbide_utils::test_support::test_meter::TestMeter;
     use prometheus_text_parser::ParsedPrometheusMetrics;
-    use utils::test_support::test_meter::TestMeter;
 
     use super::*;
 

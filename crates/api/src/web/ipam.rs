@@ -22,12 +22,13 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use carbide_rpc_utils::dhcp::DhcpConfig;
 use chrono::{DateTime, Utc};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-use utils::models::dhcp::DhcpConfig;
 
+use super::Base;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -534,13 +535,6 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
             .metadata
             .as_ref()
             .map(|m| m.name.clone())
-            .or_else(|| {
-                if p.name.is_empty() {
-                    None
-                } else {
-                    Some(p.name.clone())
-                }
-            })
             .unwrap_or_default();
         prefixes_by_vpc
             .entry(vpc_id)
@@ -600,7 +594,19 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
         offset += page_size;
     }
 
-    vpcs.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    vpcs.sort_unstable_by(|a, b| {
+        let vpc1_name = a
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("<no name>");
+        let vpc2_name = b
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("<no name>");
+        vpc1_name.cmp(vpc2_name)
+    });
     Ok(vpcs)
 }
 
@@ -672,7 +678,7 @@ pub async fn overlay_prefix_html(
         .metadata
         .as_ref()
         .map(|m| m.name.clone())
-        .unwrap_or_else(|| prefix.name.clone());
+        .unwrap_or_else(|| "<no name>".to_string());
     let vpc_id = prefix.vpc_id.map(|id| id.to_string()).unwrap_or_default();
 
     // Fetch the parent VPC for name/VNI.
@@ -882,3 +888,11 @@ pub async fn overlay_segment_html(
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for IpamDhcp {}
+impl super::Base for IpamDns {}
+impl super::Base for IpamUnderlay {}
+impl super::Base for IpamUnderlaySegment {}
+impl super::Base for IpamOverlay {}
+impl super::Base for IpamOverlayPrefix {}
+impl super::Base for IpamOverlaySegment {}

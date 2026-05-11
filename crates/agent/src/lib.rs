@@ -29,13 +29,13 @@ use carbide_host_support::hardware_enumeration::{
     enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
 };
 use carbide_host_support::registration::register_machine;
+use carbide_utils::arch::CpuArchitecture;
 pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
 use tokio::fs;
-use utils::models::arch::CpuArchitecture;
 use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
@@ -121,6 +121,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             config_path.display().to_string(),
         ),
     };
+    agent
+        .machine_identity
+        .validate()
+        .map_err(|e| eyre::eyre!("invalid [machine-identity] in agent config: {e}"))?;
     tracing::info!("Using configuration from {path}: {agent:?}");
 
     if agent.machine.is_fake_dpu {
@@ -197,7 +201,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // Output path is fixed (HW_CACHE_PATH) so the main container can always find it.
         Some(AgentCommand::InitContainer) => {
             download_cert().await?;
-            enumerate_and_save_hardware()?;
+            enumerate_and_save_hardware().await?;
+            util::save_host_nameservers()?;
         }
 
         // One-off health check.
@@ -410,6 +415,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                         .transpose()?,
                     network_security_groups,
                     bgp_leaf_session_password: opts.bgp_leaf_session_password,
+                    is_dpu_os: true,
+                    fmds_gateway_vlan: None,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;
@@ -551,7 +558,9 @@ pub fn pretty_cmd(c: &Command) -> String {
 // and local development only.
 fn fill_fake_dpu_info(hardware_info: &mut DiscoveryInfo) {
     hardware_info.machine_type = CpuArchitecture::Aarch64.to_string(); // old
-    hardware_info.machine_arch = Some(CpuArchitecture::Aarch64.into()); // new
+    hardware_info.machine_arch = Some(rpc::utils::cpu_architecture_to_rpc(
+        CpuArchitecture::Aarch64,
+    )); // new
     if let Some(dmi) = hardware_info.dmi_data.as_mut() {
         dmi.board_name = "BlueField SoC".to_string();
         if dmi.product_serial.is_empty() {

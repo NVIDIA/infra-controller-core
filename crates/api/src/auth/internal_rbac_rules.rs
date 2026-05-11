@@ -41,14 +41,14 @@ enum RulePrincipal {
     SshRs,
     Health,
     Pxe,
-    Rla,
+    Flow,
     MaintenanceJobs,
     DsxExchangeConsumer,
     Anonymous, // Permitted for everything
 }
 use self::RulePrincipal::{
-    Agent, Anonymous, Dhcp, Dns, DsxExchangeConsumer, ForgeAdminCLI, Health, Machineatron,
-    MaintenanceJobs, Pxe, Rla, Scout, SiteAgent, Ssh, SshRs,
+    Agent, Anonymous, Dhcp, Dns, DsxExchangeConsumer, Flow, ForgeAdminCLI, Health, Machineatron,
+    MaintenanceJobs, Pxe, Scout, SiteAgent, Ssh, SshRs,
 };
 
 impl InternalRBACRules {
@@ -132,27 +132,27 @@ impl InternalRBACRules {
         );
         x.perm("RecordDpuNetworkStatus", vec![Agent, Machineatron]);
         x.perm(
-            "ListHealthReportOverrides",
+            "ListMachineHealthReports",
             vec![ForgeAdminCLI, Health, Ssh, SshRs],
         );
         x.perm(
-            "InsertHealthReportOverride",
-            vec![ForgeAdminCLI, Health, Ssh, SshRs, Rla],
+            "InsertMachineHealthReport",
+            vec![ForgeAdminCLI, Health, Ssh, SshRs, Flow],
         );
         x.perm(
-            "RemoveHealthReportOverride",
-            vec![ForgeAdminCLI, Health, Ssh, SshRs, Rla],
+            "RemoveMachineHealthReport",
+            vec![ForgeAdminCLI, Health, Ssh, SshRs, Flow],
         );
         x.perm(
-            "ListRackHealthReportOverrides",
+            "ListRackHealthReports",
             vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm(
-            "InsertRackHealthReportOverride",
+            "InsertRackHealthReport",
             vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm(
-            "RemoveRackHealthReportOverride",
+            "RemoveRackHealthReport",
             vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm("ListSwitchHealthReports", vec![ForgeAdminCLI, Health]);
@@ -161,6 +161,21 @@ impl InternalRBACRules {
         x.perm("ListPowerShelfHealthReports", vec![ForgeAdminCLI, Health]);
         x.perm("InsertPowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
         x.perm("RemovePowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
+        // Deprecated aliases for the machine health report RPCs. Mirror the
+        // permissions of their canonical equivalents above. Drop once we're
+        // confident no clients are still calling the old names.
+        x.perm(
+            "ListHealthReportOverrides",
+            vec![ForgeAdminCLI, Health, Ssh, SshRs],
+        );
+        x.perm(
+            "InsertHealthReportOverride",
+            vec![ForgeAdminCLI, Health, Ssh, SshRs, Flow],
+        );
+        x.perm(
+            "RemoveHealthReportOverride",
+            vec![ForgeAdminCLI, Health, Ssh, SshRs, Flow],
+        );
         x.perm("DpuAgentUpgradeCheck", vec![Scout]);
         x.perm("DpuAgentUpgradePolicyAction", vec![ForgeAdminCLI]);
         x.perm("LookupRecord", vec![Dns]);
@@ -180,7 +195,7 @@ impl InternalRBACRules {
         x.perm("AssignStaticAddress", vec![ForgeAdminCLI]);
         x.perm("RemoveStaticAddress", vec![ForgeAdminCLI]);
         x.perm("FindInterfaceAddresses", vec![ForgeAdminCLI]);
-        x.perm("FindInterfaces", vec![ForgeAdminCLI, Agent, Rla]);
+        x.perm("FindInterfaces", vec![ForgeAdminCLI, Agent, Flow]);
         x.perm("DeleteInterface", vec![ForgeAdminCLI]);
         x.perm("FindIpAddress", vec![ForgeAdminCLI]);
         x.perm(
@@ -192,7 +207,7 @@ impl InternalRBACRules {
                 SiteAgent,
                 Ssh,
                 SshRs,
-                Rla,
+                Flow,
             ],
         );
         x.perm(
@@ -204,16 +219,16 @@ impl InternalRBACRules {
                 SiteAgent,
                 Ssh,
                 SshRs,
-                Rla,
+                Flow,
             ],
         );
         x.perm("FindConnectedDevicesByDpuMachineIds", vec![ForgeAdminCLI]);
-        x.perm("FindMachineIdsByBmcIps", vec![ForgeAdminCLI, Rla]);
+        x.perm("FindMachineIdsByBmcIps", vec![ForgeAdminCLI, Flow]);
         x.perm("FindMachineHealthHistories", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindMachineStateHistories", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("IdentifyUuid", vec![ForgeAdminCLI]);
         x.perm("IdentifyMac", vec![ForgeAdminCLI]);
-        x.perm("IdentifySerial", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm("IdentifySerial", vec![ForgeAdminCLI, Machineatron, Flow]);
         x.perm("GetBMCMetaData", vec![Health, Ssh, SshRs]);
         x.perm("UpdateBMCMetaData", vec![Machineatron]);
         x.perm("UpdateMachineCredentials", vec![]);
@@ -237,14 +252,14 @@ impl InternalRBACRules {
         );
         x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI]);
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
-        x.perm("Explore", vec![ForgeAdminCLI, Rla]);
-        x.perm("ReExploreEndpoint", vec![ForgeAdminCLI, Rla]);
+        x.perm("Explore", vec![ForgeAdminCLI, Flow]);
+        x.perm("ReExploreEndpoint", vec![ForgeAdminCLI, Flow]);
         x.perm("DeleteExploredEndpoint", vec![ForgeAdminCLI]);
         x.perm("PauseExploredEndpointRemediation", vec![ForgeAdminCLI]);
-        x.perm("FindExploredEndpointIds", vec![ForgeAdminCLI, Rla]);
-        x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI, Rla]);
-        x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Rla]);
-        x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Rla]);
+        x.perm("FindExploredEndpointIds", vec![ForgeAdminCLI, Flow]);
+        x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI, Flow]);
+        x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
+        x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
@@ -253,15 +268,15 @@ impl InternalRBACRules {
         );
         x.perm("AdminListResourcePools", vec![ForgeAdminCLI]);
         x.perm("AdminGrowResourcePool", vec![ForgeAdminCLI]);
-        x.perm("SetMaintenance", vec![ForgeAdminCLI, SiteAgent, Rla]);
+        x.perm("SetMaintenance", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("SetDynamicConfig", vec![ForgeAdminCLI, Machineatron]);
         x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI]);
-        x.perm("TriggerHostReprovisioning", vec![ForgeAdminCLI, Rla]);
+        x.perm("TriggerHostReprovisioning", vec![ForgeAdminCLI, Flow]);
         x.perm("ListDpuWaitingForReprovisioning", vec![ForgeAdminCLI]);
         x.perm("MarkManualFirmwareUpgradeComplete", vec![ForgeAdminCLI]);
         x.perm(
             "ListHostsWaitingForReprovisioning",
-            vec![ForgeAdminCLI, Rla],
+            vec![ForgeAdminCLI, Flow],
         );
         x.perm("GetDpuInfoList", vec![Agent]);
         x.perm("GetMachineBootOverride", vec![ForgeAdminCLI]);
@@ -279,25 +294,25 @@ impl InternalRBACRules {
         x.perm("UpdateInstancePhoneHomeLastContact", vec![Agent]);
         x.perm("SetHostUefiPassword", vec![ForgeAdminCLI]);
         x.perm("ClearHostUefiPassword", vec![ForgeAdminCLI]);
-        x.perm("AddExpectedMachine", vec![ForgeAdminCLI, SiteAgent, Rla]);
+        x.perm("AddExpectedMachine", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("DeleteExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("GetExpectedMachine", vec![ForgeAdminCLI, Rla]);
+        x.perm("GetExpectedMachine", vec![ForgeAdminCLI, Flow]);
         x.perm(
             "GetAllExpectedMachines",
-            vec![ForgeAdminCLI, SiteAgent, Rla],
+            vec![ForgeAdminCLI, SiteAgent, Flow],
         );
         x.perm("ReplaceAllExpectedMachines", vec![ForgeAdminCLI]);
         x.perm("DeleteAllExpectedMachines", vec![ForgeAdminCLI]);
         x.perm(
             "GetAllExpectedMachinesLinked",
-            vec![ForgeAdminCLI, SiteAgent, Rla],
+            vec![ForgeAdminCLI, SiteAgent, Flow],
         );
         x.perm(
             "GetAllUnexpectedMachines",
-            vec![ForgeAdminCLI, SiteAgent, Rla],
+            vec![ForgeAdminCLI, SiteAgent, Flow],
         );
         x.perm("AttestQuote", vec![Anonymous]);
         x.perm("SignMachineIdentity", vec![Agent]);
@@ -440,7 +455,7 @@ impl InternalRBACRules {
         x.perm("PersistValidationResult", vec![Scout]);
         x.perm("GetMachineValidationResults", vec![ForgeAdminCLI, Scout]);
         x.perm("MachineValidationCompleted", vec![Machineatron, Scout]);
-        x.perm("MachineSetAutoUpdate", vec![ForgeAdminCLI, Rla]);
+        x.perm("MachineSetAutoUpdate", vec![ForgeAdminCLI, Flow]);
         x.perm(
             "GetMachineValidationExternalConfig",
             vec![ForgeAdminCLI, Scout],
@@ -451,7 +466,7 @@ impl InternalRBACRules {
         );
         x.perm("GetMachineValidationRuns", vec![ForgeAdminCLI]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
-        x.perm("AdminPowerControl", vec![ForgeAdminCLI, Rla]);
+        x.perm("AdminPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
         x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
@@ -544,15 +559,15 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetDesiredFirmwareVersions",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("CreateSku", vec![ForgeAdminCLI]);
         x.perm("GenerateSkuFromMachine", vec![ForgeAdminCLI]);
         x.perm("AssignSkuToMachine", vec![ForgeAdminCLI]);
         x.perm("VerifySkuForMachine", vec![ForgeAdminCLI]);
         x.perm("RemoveSkuAssociation", vec![ForgeAdminCLI]);
-        x.perm("GetAllSkuIds", vec![ForgeAdminCLI, SiteAgent, Rla]);
-        x.perm("FindSkusByIds", vec![ForgeAdminCLI, SiteAgent, Rla]);
+        x.perm("GetAllSkuIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
+        x.perm("FindSkusByIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("DeleteSku", vec![ForgeAdminCLI]);
         x.perm("UpdateSkuMetadata", vec![ForgeAdminCLI]);
         x.perm("UpdateMachineHardwareInfo", vec![ForgeAdminCLI]);
@@ -573,14 +588,14 @@ impl InternalRBACRules {
         x.perm("FindVpcPeeringIds", vec![ForgeAdminCLI]);
         x.perm("FindVpcPeeringsByIds", vec![ForgeAdminCLI]);
         x.perm("DeleteVpcPeering", vec![ForgeAdminCLI]);
-        x.perm("ResetHostReprovisioning", vec![ForgeAdminCLI, Rla]);
+        x.perm("ResetHostReprovisioning", vec![ForgeAdminCLI, Flow]);
         x.perm("CopyBfbToDpuRshim", vec![ForgeAdminCLI]);
-        x.perm("GetPowerOptions", vec![ForgeAdminCLI, SiteAgent, Rla]);
-        x.perm("UpdatePowerOption", vec![ForgeAdminCLI, SiteAgent, Rla]);
+        x.perm("GetPowerOptions", vec![ForgeAdminCLI, SiteAgent, Flow]);
+        x.perm("UpdatePowerOption", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("CreateBmcUser", vec![ForgeAdminCLI]);
         x.perm("DeleteBmcUser", vec![ForgeAdminCLI]);
-        x.perm("SetFirmwareUpdateTimeWindow", vec![ForgeAdminCLI, Rla]);
-        x.perm("ListHostFirmware", vec![ForgeAdminCLI, Rla]);
+        x.perm("SetFirmwareUpdateTimeWindow", vec![ForgeAdminCLI, Flow]);
+        x.perm("ListHostFirmware", vec![ForgeAdminCLI, Flow]);
         x.perm("EnableInfiniteBoot", vec![ForgeAdminCLI]);
         x.perm("IsInfiniteBootEnabled", vec![ForgeAdminCLI]);
         x.perm("Lockdown", vec![ForgeAdminCLI]);
@@ -605,8 +620,8 @@ impl InternalRBACRules {
         x.perm("FindAppliedRemediationIds", vec![ForgeAdminCLI]);
         x.perm("GetNextRemediationForMachine", vec![Agent]);
         x.perm("RemediationApplied", vec![Agent]);
-        x.perm("DetermineMachineIngestionState", vec![ForgeAdminCLI, Rla]);
-        x.perm("AllowIngestionAndPowerOn", vec![ForgeAdminCLI, Rla]);
+        x.perm("DetermineMachineIngestionState", vec![ForgeAdminCLI, Flow]);
+        x.perm("AllowIngestionAndPowerOn", vec![ForgeAdminCLI, Flow]);
         x.perm("SetPrimaryDpu", vec![ForgeAdminCLI]);
         x.perm("CreateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
@@ -627,24 +642,28 @@ impl InternalRBACRules {
         x.perm("TriggerMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CancelMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(
+            "ListAttestationsForMachineId",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "GetMachineAttestationStatus",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
             "FindMachineIdsUnderAttestation",
             vec![ForgeAdminCLI, SiteAgent],
         );
-        x.perm(
-            "FindMachinesUnderAttestation",
-            vec![ForgeAdminCLI, SiteAgent],
-        );
-        x.perm("FindPowerShelves", vec![ForgeAdminCLI, Machineatron, Rla]);
-        x.perm("FindPowerShelfIds", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm("FindPowerShelves", vec![ForgeAdminCLI, Machineatron, Flow]);
+        x.perm("FindPowerShelfIds", vec![ForgeAdminCLI, Machineatron, Flow]);
         x.perm(
             "FindPowerShelvesByIds",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "AddExpectedPowerShelf",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
             "DeleteExpectedPowerShelf",
@@ -656,11 +675,11 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetExpectedPowerShelf",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
             "GetAllExpectedPowerShelves",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Flow],
         );
         x.perm(
             "ReplaceAllExpectedPowerShelves",
@@ -672,33 +691,33 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetAllExpectedPowerShelvesLinked",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Flow],
         );
         x.perm(
             "FindPowerShelfStateHistories",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
             "FindSwitches",
-            vec![ForgeAdminCLI, Machineatron, Rla, Health],
+            vec![ForgeAdminCLI, Machineatron, Flow, Health],
         );
         x.perm(
             "FindSwitchIds",
-            vec![ForgeAdminCLI, Machineatron, Rla, Health],
+            vec![ForgeAdminCLI, Machineatron, Flow, Health],
         );
         x.perm(
             "FindSwitchesByIds",
-            vec![ForgeAdminCLI, Machineatron, Rla, Health],
+            vec![ForgeAdminCLI, Machineatron, Flow, Health],
         );
         x.perm("CreateSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("AddExpectedSwitch", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm("AddExpectedSwitch", vec![ForgeAdminCLI, Machineatron, Flow]);
         x.perm("DeleteExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("UpdateExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("GetExpectedSwitch", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm("GetExpectedSwitch", vec![ForgeAdminCLI, Machineatron, Flow]);
         x.perm(
             "GetAllExpectedSwitches",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Flow],
         );
         x.perm(
             "ReplaceAllExpectedSwitches",
@@ -710,7 +729,7 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetAllExpectedSwitchesLinked",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Flow],
         );
         x.perm(
             "AddExpectedRack",
@@ -726,22 +745,22 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetExpectedRack",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Flow],
         );
         x.perm(
             "GetAllExpectedRacks",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Flow],
         );
         x.perm("ReplaceAllExpectedRacks", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeleteAllExpectedRacks", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "FindSwitchStateHistories",
-            vec![ForgeAdminCLI, Machineatron, Rla],
+            vec![ForgeAdminCLI, Machineatron, Flow],
         );
-        x.perm("FindRackIds", vec![ForgeAdminCLI, SiteAgent, Rla]);
-        x.perm("FindRacksByIds", vec![ForgeAdminCLI, SiteAgent, Rla]);
-        x.perm("GetRack", vec![ForgeAdminCLI, Rla]);
-        x.perm("DeleteRack", vec![ForgeAdminCLI, Rla]);
+        x.perm("FindRackIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
+        x.perm("FindRacksByIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
+        x.perm("GetRack", vec![ForgeAdminCLI, Flow]);
+        x.perm("DeleteRack", vec![ForgeAdminCLI, Flow]);
         x.perm("GetRackProfile", vec![ForgeAdminCLI]);
         x.perm("RackManagerCall", vec![ForgeAdminCLI]);
         x.perm("ScoutStream", vec![Scout]);
@@ -792,7 +811,7 @@ impl InternalRBACRules {
         );
         x.perm(
             "GetMachinePositionInfo",
-            vec![ForgeAdminCLI, SiteAgent, Rla],
+            vec![ForgeAdminCLI, SiteAgent, Flow],
         );
         x.perm("ModifyDPFState", vec![ForgeAdminCLI]);
         x.perm("GetDPFState", vec![ForgeAdminCLI]);
@@ -805,11 +824,11 @@ impl InternalRBACRules {
         );
         x.perm("UpdateComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("ComponentPowerControl", vec![ForgeAdminCLI, Rla]);
-        x.perm("GetComponentInventory", vec![ForgeAdminCLI, Rla]);
-        x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Rla]);
-        x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Rla]);
-        x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Rla]);
+        x.perm("ComponentPowerControl", vec![ForgeAdminCLI, Flow]);
+        x.perm("GetComponentInventory", vec![ForgeAdminCLI, Flow]);
+        x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Flow]);
+        x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Flow]);
+        x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {
@@ -887,7 +906,7 @@ impl RuleInfo {
                     RulePrincipal::Health => {
                         Principal::SpiffeServiceIdentifier("carbide-hardware-health".to_string())
                     }
-                    RulePrincipal::Rla => {
+                    RulePrincipal::Flow => {
                         Principal::SpiffeServiceIdentifier("carbide-rla".to_string())
                     }
                     RulePrincipal::MaintenanceJobs => {
@@ -1064,13 +1083,13 @@ mod rbac_rule_tests {
             )]
         ));
         assert!(InternalRBACRules::allowed_from_static(
-            "InsertHealthReportOverride",
+            "InsertMachineHealthReport",
             &[Principal::SpiffeServiceIdentifier(
                 "carbide-rla".to_string()
             )]
         ));
         assert!(InternalRBACRules::allowed_from_static(
-            "RemoveHealthReportOverride",
+            "RemoveMachineHealthReport",
             &[Principal::SpiffeServiceIdentifier(
                 "carbide-rla".to_string()
             )]

@@ -5,7 +5,7 @@ instances:
   - url: nvidia-ncx-infra-controller.docs.buildwithfern.com/infra-controller
     custom-domain: docs.nvidia.com/infra-controller
 
-title: NVIDIA NCX Infra Controller
+title: NVIDIA Infra Controller
 
 metadata:
   canonical-host: "docs.nvidia.com/infra-controller"
@@ -67,10 +67,10 @@ css:
 navbar-links:
   - type: filled
     text: GitHub
-    href: https://github.com/NVIDIA/ncx-infra-controller-core
+    href: https://github.com/NVIDIA/infra-controller-core
 
 products:
-  - display-name: NCX Infra Controller
+  - display-name: NVIDIA Infra Controller
     slug: /
     path: ../docs/index.yml
     versions:
@@ -82,7 +82,12 @@ redirects:
     destination: "/infra-controller/"
   - source: "/infra-controller/dev/index.html"
     destination: "/infra-controller/dev/"
-
+  - source: "/infra-controller/documentation/introduction"
+    destination: "/infra-controller/documentation/overview/what-is-nico"
+  - source: "/infra-controller/documentation/getting-started/site-setup"
+    destination: "infra-controller/documentation/getting-started/quick-start-guide"
+  - source: "/infra-controller/documentation/getting-started/building-ni-co-containers"
+    destination: "/infra-controller/documentation/getting-started/building-nico-containers"
 experimental:
   mdx-components:
     - ./components

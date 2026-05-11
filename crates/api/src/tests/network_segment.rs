@@ -41,6 +41,7 @@ use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
 use model::vpc::UpdateVpcVirtualization;
 use prometheus_text_parser::ParsedPrometheusMetrics;
+use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
@@ -64,7 +65,11 @@ async fn test_advance_network_prefix_state(
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(rpc::forge::Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
                 .tonic_request(),
         )
         .await
@@ -1169,7 +1174,11 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("dual-stack vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "dual-stack vpc".to_string(),
+                    ..Default::default()
+                })
                 .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
                 .tonic_request(),
         )
@@ -1250,12 +1259,14 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder(
-                "uncontained-ipv6-vpc",
-                "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
-            )
-            .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
-            .tonic_request(),
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "uncontained-ipv6-vpc".to_string(),
+                    description: "".to_string(),
+                    labels: vec![],
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
         )
         .await?
         .into_inner();

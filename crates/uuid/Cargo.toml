@@ -47,7 +47,6 @@ sqlx = { workspace = true, features = [
   "json",
 ], optional = true }
 thiserror = { workspace = true }
-tonic = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 prost = { workspace = true }
 
