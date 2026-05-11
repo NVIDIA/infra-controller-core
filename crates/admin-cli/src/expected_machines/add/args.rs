@@ -33,8 +33,12 @@ pub struct Args {
     pub bmc_mac_address: MacAddress,
     #[clap(short = 'u', long, help = "BMC username of the expected machine")]
     pub bmc_username: String,
-    #[clap(short = 'p', long, help = "BMC password of the expected machine")]
-    pub bmc_password: String,
+    #[clap(
+        short = 'p',
+        long,
+        help = "BMC password of the expected machine (optional; defaults to empty string if not provided)"
+    )]
+    pub bmc_password: Option<String>,
     #[clap(
         short = 's',
         long,
@@ -174,7 +178,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
         Ok(rpc::forge::ExpectedMachine {
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,
-            bmc_password: value.bmc_password,
+            bmc_password: value.bmc_password.unwrap_or_default(),
             chassis_serial_number: value.chassis_serial_number,
             fallback_dpu_serial_numbers: value.fallback_dpu_serial_numbers.unwrap_or_default(),
             metadata: Some(metadata),

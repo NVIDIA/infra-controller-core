@@ -99,6 +99,30 @@ fn parse_add() {
     }
 }
 
+// parse_add_without_password ensures add parses when --bmc-password is omitted.
+#[test]
+fn parse_add_without_password() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--chassis-serial-number",
+        "SN12345",
+    ])
+    .expect("should parse add without password");
+
+    match cmd {
+        Cmd::Add(args) => {
+            assert_eq!(args.bmc_password, None);
+            assert_eq!(args.bmc_username, "admin");
+        }
+        _ => panic!("expected Add variant"),
+    }
+}
+
 // parse_add_with_options ensures add parses with
 // all options.
 #[test]

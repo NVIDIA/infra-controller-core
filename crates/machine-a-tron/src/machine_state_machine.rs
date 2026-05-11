@@ -943,6 +943,17 @@ impl MachineStateMachine {
             self.mat_host_id,
         );
 
+        let pw_override = match &self.machine_info {
+            MachineInfo::Host(_) => self.app_context.app_config.host_bmc_password.as_deref(),
+            MachineInfo::Dpu(_) => self.app_context.app_config.dpu_bmc_password.as_deref(),
+        };
+        if let Some(pw) = pw_override {
+            bmc_mock
+                .state()
+                .account_service_state
+                .change_factory_default_password(pw);
+        }
+
         let maybe_bmc_mock_handle = match &self.app_context.bmc_registration_mode {
             BmcRegistrationMode::None(port) => {
                 let address = SocketAddr::new(ip_address.into(), *port);
