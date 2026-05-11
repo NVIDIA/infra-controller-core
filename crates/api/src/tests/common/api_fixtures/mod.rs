@@ -367,7 +367,7 @@ pub struct TestEnv {
     pub site_explorer: SiteExplorer,
     pub nmxm_sim: Arc<dyn NmxmClientPool>,
     pub endpoint_explorer: MockEndpointExplorer,
-    pub admin_segment: Option<NetworkSegmentId>,
+    pub admin_segments: Vec<NetworkSegmentId>,
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
@@ -379,6 +379,21 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
+    /// Returns the default admin network segment used by most tests.
+    pub fn admin_segment(&self) -> NetworkSegmentId {
+        *self
+            .admin_segments
+            .first()
+            .expect("test env should have an admin segment")
+    }
+
+    /// Returns a reference to the default admin network segment used by most tests.
+    pub fn admin_segment_ref(&self) -> &NetworkSegmentId {
+        self.admin_segments
+            .first()
+            .expect("test env should have an admin segment")
+    }
+
     /// Creates an instance of CommonStateHandlerServices that are suitable for this
     /// test environment
     pub fn state_handler_services(&self) -> CommonStateHandlerServices {
@@ -1832,9 +1847,9 @@ pub async fn create_test_env_with_overrides(
         .unwrap()
         .unwrap();
 
-    let (admin_segment, underlay_segment) = if overrides.create_network_segments.unwrap_or(true) {
+    let (admin_segments, underlay_segment) = if overrides.create_network_segments.unwrap_or(true) {
         // Create admin network
-        let admin = Some(create_admin_network_segment(&api).await);
+        let admin_segments = vec![create_admin_network_segment(&api).await];
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
 
@@ -1850,9 +1865,9 @@ pub async fn create_test_env_with_overrides(
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
 
-        (admin, underlay)
+        (admin_segments, underlay)
     } else {
-        (None, None)
+        (Vec::new(), None)
     };
 
     TestEnv {
@@ -1878,7 +1893,7 @@ pub async fn create_test_env_with_overrides(
         site_explorer,
         nmxm_sim,
         endpoint_explorer: fake_endpoint_explorer,
-        admin_segment,
+        admin_segments,
         underlay_segment,
         domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),

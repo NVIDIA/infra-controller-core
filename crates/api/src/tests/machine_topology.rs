@@ -64,7 +64,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
     let segment = db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
+        ObjectColumnFilter::One(network_segment::IdColumn, env.admin_segment_ref()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -73,9 +73,8 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let iface = db::machine_interface::create(
         &mut txn,
-        &segment,
+        std::slice::from_ref(&segment),
         &dpu.host_mac_address,
-        Some(env.domain.into()),
         true,
         model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
     )
@@ -216,7 +215,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let mut txn = env.pool.begin().await?;
     let segment = db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
+        ObjectColumnFilter::One(network_segment::IdColumn, env.admin_segment_ref()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -225,9 +224,8 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let iface = db::machine_interface::create(
         &mut txn,
-        &segment,
+        std::slice::from_ref(&segment),
         &dpu.host_mac_address,
-        Some(env.domain.into()),
         true,
         model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
     )

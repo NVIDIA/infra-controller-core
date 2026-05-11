@@ -748,7 +748,7 @@ impl TransactionVending for PgPool {
 }
 
 #[cfg(test)]
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup_test_logging() {
     use tracing::metadata::LevelFilter;
     use tracing_subscriber::filter::EnvFilter;

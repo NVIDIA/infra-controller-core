@@ -268,7 +268,7 @@ pub async fn discover_dhcp(
         &mut txn,
         existing_machine_id,
         parsed_mac,
-        parsed_relay,
+        std::slice::from_ref(&parsed_relay),
         host_nic,
         is_primary_nic,
     )

@@ -75,9 +75,8 @@ pub async fn preallocate_machine_interface(
 
     db::machine_interface::create(
         txn,
-        &segment,
+        std::slice::from_ref(&segment),
         &bmc_mac_address,
-        segment.subdomain_id,
         true,
         AddressSelectionStrategy::StaticAddress(bmc_ip),
     )
@@ -150,9 +149,8 @@ pub async fn update_preallocated_machine_interface(
 
         db::machine_interface::create(
             txn,
-            &segment,
+            std::slice::from_ref(&segment),
             &bmc_mac_address,
-            segment.subdomain_id,
             true,
             AddressSelectionStrategy::StaticAddress(bmc_ip),
         )

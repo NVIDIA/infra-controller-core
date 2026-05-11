@@ -33,7 +33,7 @@ async fn prevent_duplicate_mac_addresses(
 
     let network_segment = db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
+        ObjectColumnFilter::One(network_segment::IdColumn, env.admin_segment_ref()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?
@@ -42,9 +42,8 @@ async fn prevent_duplicate_mac_addresses(
 
     let new_interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &dpu.oob_mac_address,
-        None,
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -55,9 +54,8 @@ async fn prevent_duplicate_mac_addresses(
 
     let duplicate_interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &dpu.oob_mac_address,
-        None,
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
