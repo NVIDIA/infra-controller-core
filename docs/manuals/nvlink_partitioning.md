@@ -13,6 +13,56 @@ NICo extends the concept of an *NVLink Partition* with the *NVLink Logical Parti
 
 > **Note**: NVLink Partitioning is only supported for GB200 compute nodes.
 
+### Enabling NMX-M based NVLink partitioning
+
+#### Prerequisites
+* carbide-core / NICo is deployed and running.
+* vault is running.
+* carbide-core can reach the NMX-M endpoint over the network.
+* NMX-M has an API user with permissions to read GPUs/partitions and create/update/delete partitions.
+
+1. **Enable NVLink Partitioning In carbide-core config**
+
+Add or update the configmap carbide-api-site-config-files consumed by carbide-core:
+
+```
+  [nvlink_config]
+  enabled = true
+  nmx_m_endpoint = "https://<nmx-m-host>:<port>"
+
+  monitor_run_interval = "60s"
+  nmx_m_operation_timeout = "10s"
+
+  allow_insecure = true
+```
+
+2. **Restart carbide-core**
+
+3. **Configure NMX-M credentials**
+
+Store the NMX-M username and password in vault through carbide admin CLI:
+
+```
+  carbide-admin-cli credential add-nmx-m \
+    --username <nmx-m-username> \
+    --password <nmx-m-password>
+```
+
+4. **Populate NVLink GPU Mapping**
+
+After enabling nvlink in the site config, for already discovered machines populate the machine-to-NMX-M GPU mapping before expecting partitioning to work (machines discovered after enabling nvlink do not need this step):
+
+```
+carbide-admin-cli nvlink-info populate --update-db <machine-id>
+```
+
+5. **Validation**
+
+Check:
+* carbide-core logs do not show "Failed to create NMXM client".
+* logs do not show failures getting NMX-M partitions or GPU list.
+* metrics show `carbide_nvlink_partition_monitor_nmxm_connect_error_count` is 0
+
 ### Creating a NVLink Logical Partition
 
 NICo users can create NVLink Logical Partitions and plan GPU assignments using NVLink Interfaces for Instances (as described in steps **1-2**). NICo can also automatically generate NVLink Interfaces and assign them to Instances (as described in step **3**).
