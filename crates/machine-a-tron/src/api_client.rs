@@ -286,6 +286,7 @@ impl ApiClient {
             }),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![interface_config],
+                auto: false,
             }),
             network_security_group_id: None,
             infiniband: None,

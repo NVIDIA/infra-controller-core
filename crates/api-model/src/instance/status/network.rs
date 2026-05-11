@@ -806,6 +806,7 @@ mod tests {
                     internal_uuid: uuid::Uuid::new_v4(),
                 },
             ],
+            auto: false,
         }
     }
 
@@ -884,6 +885,7 @@ mod tests {
                     internal_uuid: internal_uuid3,
                 },
             ],
+            auto: false,
         }
     }
 

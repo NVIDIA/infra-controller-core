@@ -1002,6 +1002,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
 
     // Create instance with hostname
@@ -1797,6 +1798,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
 
     let tinstance = mh.instance_builer(&env).network(network).build().await;
@@ -2378,6 +2380,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let config = rpc::InstanceConfig {
@@ -3284,6 +3287,7 @@ async fn test_network_details_migration(
                                 ip_address: None,
                                 ipv6_interface_config: None,
                             }],
+                            auto: false,
                         })
                         .rpc(),
                 )
@@ -3370,6 +3374,7 @@ async fn test_network_details_migration(
                         device_instance: 0,
                         virtual_function_id: None,
                     }],
+                    auto: false,
                 }),
                 infiniband: None,
                 nvlink: None,
@@ -3452,6 +3457,7 @@ async fn test_network_details_migration(
                         device_instance: 0,
                         virtual_function_id: None,
                     }],
+                    auto: false,
                 }),
                 infiniband: None,
                 nvlink: None,
@@ -3604,6 +3610,7 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
                             device_instance: 0,
                             virtual_function_id: None,
                         }],
+                        auto: false,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -3677,6 +3684,7 @@ async fn test_allocate_and_update_network_config_instance(
             device_instance: 0,
             virtual_function_id: None,
         }],
+        auto: false,
     };
 
     // Now update to change network config.
@@ -3809,6 +3817,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
 
     // Now update to change network config.
@@ -3980,6 +3989,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -4072,6 +4082,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -4210,6 +4221,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     // Now update to change network config.
@@ -4344,6 +4356,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -4405,6 +4418,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -4556,6 +4570,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
 
     let config = rpc::InstanceConfig {

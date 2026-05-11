@@ -2575,8 +2575,17 @@ message InstanceConfig {
 
 // Desired network configuration for an instance
 message InstanceNetworkConfig {
-  // Configures how instance network interfaces are set up
+  // Configures how instance network interfaces are set up.
+  // Mutually exclusive with `auto`: when `auto` is true, this
+  // MUST be empty, When `auto` is false, this lists the explicit
+  // interface configuration the caller wants applied.
   repeated InstanceInterfaceConfig interfaces = 1;
+
+  // When true, NICO (or potentially some pluggable SDN backend) will
+  // auto-resolve the instance's network interfaces from the host's
+  // HostInband network segments. Only valid for instances on zero-DPU
+  // hosts (well, no DPU, *or* DPU in NIC mode).
+  bool auto = 2;
 }
 
 // Desired infiniband configuration for an instance
