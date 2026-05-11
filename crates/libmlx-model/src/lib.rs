@@ -15,8 +15,5 @@
  * limitations under the License.
  */
 
-pub mod cmd;
-pub mod discovery;
-pub mod filters;
-pub mod proto;
-pub mod report;
+pub mod device;
+pub mod firmware;

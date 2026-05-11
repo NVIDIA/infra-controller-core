@@ -75,6 +75,7 @@ tempfile = { workspace = true }
 url = { workspace = true }
 
 # Internal
+carbide-libmlx-model = { path = "../libmlx-model" }
 carbide-rpc = { path = "../rpc" }
 carbide-uuid = { path = "../uuid" }
 carbide-ssh = { path = "../ssh" }
@@ -84,5 +85,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 
 [dev-dependencies]
+carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
 carbide-ssh = { path = "../ssh", features = ["test_support"] }
 russh = { workspace = true }
