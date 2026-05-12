@@ -45,6 +45,25 @@ use crate::protos::forge::forge_client::ForgeClient;
 use crate::protos::nmx_c::nmx_controller_client::NmxControllerClient;
 use crate::{forge_resolver, protos};
 
+/// Formats an error as `"{top}: {root}"` using the deepest source in its chain,
+/// since `Display` alone doesn't walk `source()` and would hide the root cause.
+fn format_error_chain<E: std::error::Error + ?Sized>(err: &E) -> String {
+    // Bound the walk so a cyclic or pathologically deep `source()` chain can't hang us.
+    let max_depth = 16;
+    let out = err.to_string();
+    let source = std::iter::successors(err.source(), |e| e.source())
+        .take(max_depth)
+        .last()
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| out.clone());
+
+    if out != source {
+        format!("{out}: {source}")
+    } else {
+        out
+    }
+}
+
 pub type NmxCClientT = NmxControllerClient<
     BoxCloneService<
         hyper::Request<Body>,
@@ -461,10 +480,10 @@ impl<'a> ForgeTlsClient<'a> {
                         tracing::error!(
                             "error connecting client to forge api (url: {}), will retry: {}",
                             api_config.url,
-                            err
+                            format_error_chain(err)
                         );
                     })
-                    .map_err(|e| ForgeTlsClientError::Connection(e.to_string()))?;
+                    .map_err(|e| ForgeTlsClientError::Connection(format_error_chain(&e)))?;
 
                 // ok, ok
                 Ok(Ok(client))
@@ -542,7 +561,8 @@ impl<'a> ForgeTlsClient<'a> {
             error: e,
         })?;
 
-        // only check for the root cert if the uri we were given is actually HTTPS.  That lets tests function properly.
+        // Only check the root and client certs if the uri we were given is actually HTTPS.
+        // That lets tests and plaintext-HTTP environments function properly.
         if let Some(scheme) = uri.scheme()
             && scheme == &tonic::codegen::http::uri::Scheme::HTTPS
         {
@@ -560,6 +580,25 @@ impl<'a> ForgeTlsClient<'a> {
                         path: self.forge_client_config.root_ca_path.clone(),
                         error,
                     }
+                    .into());
+                }
+            }
+
+            if let Some(cert_expiry) = self.forge_client_config.client_cert_expiry() {
+                let start = SystemTime::now();
+                let current_time = start
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Time went backwards");
+                if u64::try_from(cert_expiry)
+                    .ok()
+                    .is_none_or(|v| current_time.as_secs() > v)
+                {
+                    tracing::error!(
+                        "Client certificate is expired, perhaps you need to regenerate your cert?"
+                    );
+                    return Err(ConfigurationError::InvalidClientCert(
+                        rustls::Error::InvalidCertificate(rustls::CertificateError::Expired),
+                    )
                     .into());
                 }
             }
@@ -586,22 +625,6 @@ impl<'a> ForgeTlsClient<'a> {
                 }
             };
 
-            if let Some(cert_expiry) = self.forge_client_config.client_cert_expiry() {
-                let start = SystemTime::now();
-                let current_time = start
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Time went backwards");
-                if current_time.as_secs() > cert_expiry.try_into().unwrap() {
-                    tracing::error!(
-                        "Client certificate is expired, perhaps you need to regenerate your cert?"
-                    );
-                    return Err(ConfigurationError::InvalidClientCert(
-                        rustls::Error::InvalidCertificate(rustls::CertificateError::Expired),
-                    )
-                    .into());
-                }
-            }
-
             if let Some((certs, key)) = self.forge_client_config.read_client_cert() {
                 builder()
                     .with_client_auth_cert(certs, key)
@@ -622,7 +645,7 @@ impl<'a> ForgeTlsClient<'a> {
         let resolver_config = ResolverConfig::from_parts(
             forge_resolver_config.0.domain,
             forge_resolver_config.0.search_domain,
-            forge_resolver_config.0.inner.into_inner(),
+            forge_resolver_config.0.inner,
         );
         // Five seconds is the default, but setting anyway for documentation and future proofing
         let mut resolver_opts = ForgeResolverOpts::default().timeout(Duration::from_secs(5));
@@ -758,10 +781,10 @@ impl<'a> ForgeTlsClient<'a> {
                         tracing::error!(
                             "error connecting client to forge api (url: {}), will retry: {}",
                             api_config.url,
-                            err
+                            format_error_chain(err)
                         );
                     })
-                    .map_err(|e| ForgeTlsClientError::Connection(e.to_string()))?;
+                    .map_err(|e| ForgeTlsClientError::Connection(format_error_chain(&e)))?;
 
                 // ok, ok
                 Ok(Ok(client))
@@ -848,7 +871,7 @@ mod tests {
         let resolver_config = ResolverConfig::from_parts(
             forge_resolver_config.0.domain,
             forge_resolver_config.0.search_domain,
-            forge_resolver_config.0.inner.into_inner(),
+            forge_resolver_config.0.inner,
         );
 
         let resolver_opts = ForgeResolverOpts::default().timeout(Duration::from_secs(5));
@@ -924,5 +947,31 @@ mod tests {
 
         assert_eq!(attempts_for_addr.unwrap(), max_retries + 1);
         assert_eq!(errors_for_addr.unwrap(), max_retries + 1);
+    }
+
+    #[test]
+    fn format_error_chain_walks_source_chain() {
+        #[derive(thiserror::Error, Debug)]
+        #[error("invalid peer certificate: UnknownIssuer")]
+        struct Inner;
+
+        #[derive(thiserror::Error, Debug)]
+        #[error("client error (Connect)")]
+        struct Outer(#[from] Inner);
+
+        let err: Outer = Inner.into();
+        assert_eq!(
+            format_error_chain(&err),
+            "client error (Connect): invalid peer certificate: UnknownIssuer"
+        );
+    }
+
+    #[test]
+    fn format_error_chain_with_no_source_returns_top_message() {
+        #[derive(thiserror::Error, Debug)]
+        #[error("only message")]
+        struct Plain;
+
+        assert_eq!(format_error_chain(&Plain), "only message");
     }
 }

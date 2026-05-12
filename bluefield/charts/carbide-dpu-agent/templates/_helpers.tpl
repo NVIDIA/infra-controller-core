@@ -49,8 +49,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Server Port
+Metrics port for collecting agent metrics
 */}}
-{{- define "carbide-dpu-agent.serverPort" -}}
-{{- default 8888 .Values.serverPort -}}
+{{- define "carbide-dpu-agent.metricsPort" -}}
+{{- default 8888 .Values.metricsPort -}}
 {{- end -}}
+

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
@@ -266,9 +266,9 @@ pub async fn create(
 ) -> DatabaseResult<ExpectedMachine> {
     let id = machine.id.unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_machines
-            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled, bmc_ip_address, bmc_retain_credentials, dpu_mode)
+            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled, bmc_ip_address, bmc_retain_credentials, dpu_mode, host_lifecycle_profile)
             VALUES
-            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14, $15::inet, $16, $17) RETURNING *";
+            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14, $15::inet, $16, $17, $18::jsonb) RETURNING *";
 
     sqlx::query_as(query)
         .bind(id)
@@ -293,6 +293,7 @@ pub async fn create(
         .bind(machine.data.bmc_ip_address)
         .bind(machine.data.bmc_retain_credentials.unwrap_or(false))
         .bind(machine.data.dpu_mode)
+        .bind(sqlx::types::Json(&machine.data.host_lifecycle_profile))
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
@@ -388,9 +389,9 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// `bmc_mac_address`. Includes `bmc_ip_address` when the operator configures a static BMC IP.
 pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> DatabaseResult<()> {
     let (where_clause, target_id) = match machine.id {
-        Some(id) => ("id=$16::uuid", id.to_string()),
+        Some(id) => ("id=$17::uuid", id.to_string()),
         None => (
-            "bmc_mac_address=$16::macaddr",
+            "bmc_mac_address=$17::macaddr",
             machine.bmc_mac_address.to_string(),
         ),
     };
@@ -404,7 +405,8 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
              dpf_enabled=COALESCE($12, dpf_enabled), \
              bmc_ip_address=$13, \
              bmc_retain_credentials=COALESCE($14, bmc_retain_credentials), \
-             dpu_mode=$15 \
+             dpu_mode=$15, \
+             host_lifecycle_profile=COALESCE($16, host_lifecycle_profile) \
          WHERE {where_clause}"
     );
 
@@ -424,6 +426,10 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
         .bind(machine.data.bmc_ip_address)
         .bind(machine.data.bmc_retain_credentials)
         .bind(machine.data.dpu_mode)
+        .bind(
+            (!machine.data.host_lifecycle_profile.is_empty())
+                .then_some(sqlx::types::Json(&machine.data.host_lifecycle_profile)),
+        )
         .bind(&target_id)
         .execute(&mut *txn)
         .await
@@ -435,32 +441,5 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
             id: target_id,
         });
     }
-    Ok(())
-}
-
-/// fn will insert rows that are not currently present in DB for each expected_machine arg in list,
-/// but will NOT overwrite existing rows matching by MAC addr.
-pub async fn create_missing_from(
-    txn: &mut PgConnection,
-    expected_machines: &[ExpectedMachine],
-) -> DatabaseResult<()> {
-    let existing_machines = find_all(&mut *txn).await?;
-    let existing_map: BTreeMap<String, ExpectedMachine> = existing_machines
-        .into_iter()
-        .map(|machine| (machine.bmc_mac_address.to_string(), machine))
-        .collect();
-
-    for expected_machine in expected_machines {
-        if existing_map.contains_key(&expected_machine.bmc_mac_address.to_string()) {
-            tracing::debug!(
-                "Not overwriting expected-machine with mac_addr: {}",
-                expected_machine.bmc_mac_address.to_string()
-            );
-            continue;
-        }
-
-        create(txn, expected_machine.clone()).await?;
-    }
-
     Ok(())
 }

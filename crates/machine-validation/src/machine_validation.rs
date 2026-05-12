@@ -19,14 +19,15 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 
+use carbide_utils::cmd::TokioCmd;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use chrono::Utc;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace};
-use utils::cmd::TokioCmd;
 
 use crate::{
     IMAGE_LIST_FILE, MACHINE_VALIDATION_IMAGE_FILE, MACHINE_VALIDATION_IMAGE_PATH,
@@ -226,7 +227,7 @@ impl MachineValidation {
         machine_id: &MachineId,
         test: &rpc::forge::MachineValidationTest,
         in_context: String,
-        uuid: rpc::common::Uuid,
+        validation_id: MachineValidationId,
     ) -> Option<rpc::forge::MachineValidationResult> {
         let mut mc_result = rpc::forge::MachineValidationResult {
             test_id: Some(test.test_id.clone()),
@@ -235,7 +236,7 @@ impl MachineValidation {
             command: test.command.clone(),
             args: test.args.clone(),
             context: in_context.clone(),
-            validation_id: Some(uuid.clone()),
+            validation_id: Some(validation_id),
             ..rpc::forge::MachineValidationResult::default()
         };
         if test.external_config_file.is_some() {
@@ -258,7 +259,10 @@ impl MachineValidation {
             match TokioCmd::new(test.pre_condition.clone().unwrap_or("/bin/true".to_owned()))
                 .timeout(DEFAULT_TIMEOUT)
                 .env("CONTEXT".to_owned(), in_context.clone())
-                .env("MACHINE_VALIDATION_RUN_ID".to_owned(), uuid.to_string())
+                .env(
+                    "MACHINE_VALIDATION_RUN_ID".to_owned(),
+                    validation_id.to_string(),
+                )
                 .env("MACHINE_ID".to_owned(), machine_id.to_string())
                 .output_with_timeout()
                 .await
@@ -310,7 +314,10 @@ impl MachineValidation {
             Ok(mut file) => {
                 let mut envs = HashMap::new();
                 envs.insert("CONTEXT".to_owned(), in_context.clone());
-                envs.insert("MACHINE_VALIDATION_RUN_ID".to_owned(), uuid.to_string());
+                envs.insert(
+                    "MACHINE_VALIDATION_RUN_ID".to_owned(),
+                    validation_id.to_string(),
+                );
                 envs.insert("MACHINE_ID".to_owned(), machine_id.to_string());
                 let env_vars = envs
                     .iter()
@@ -326,7 +333,10 @@ impl MachineValidation {
             .args(vec!["-c".to_string(), command_string])
             .timeout(test.timeout.unwrap_or(7200).try_into().unwrap())
             .env("CONTEXT".to_owned(), in_context.clone())
-            .env("MACHINE_VALIDATION_RUN_ID".to_owned(), uuid.to_string())
+            .env(
+                "MACHINE_VALIDATION_RUN_ID".to_owned(),
+                validation_id.to_string(),
+            )
             .env("MACHINE_ID".to_owned(), machine_id.to_string())
             .output_with_timeout()
             .await
@@ -406,7 +416,7 @@ impl MachineValidation {
         machine_id: &MachineId,
         tests: Vec<rpc::forge::MachineValidationTest>,
         context: String,
-        uuid: String,
+        validation_id: MachineValidationId,
         execute_tests_sequentially: bool,
         machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
@@ -431,9 +441,7 @@ impl MachineValidation {
                         machine_id,
                         &test,
                         context.to_string(),
-                        rpc::common::Uuid {
-                            value: uuid.clone(),
-                        },
+                        validation_id,
                     )
                     .await;
                 match self.clone().persist(result).await {

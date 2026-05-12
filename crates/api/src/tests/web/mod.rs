@@ -21,8 +21,9 @@ use hyper::http::request::Builder;
 
 use crate::tests::common;
 use crate::web::routes;
-mod machine_health;
+mod health;
 mod managed_host;
+mod vpc;
 
 fn make_test_app(env: &TestEnv) -> Router {
     let r = routes(env.api.clone()).unwrap();

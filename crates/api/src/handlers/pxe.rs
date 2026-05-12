@@ -34,7 +34,36 @@ pub(crate) async fn get_pxe_instructions(
 
     let mut txn = api.txn_begin().await?;
 
-    let target: model::pxe::PxeInstructionRequest = request.into_inner().try_into()?;
+    // interface_id is sent when carbide-dhcp (or a carbide-api integrated
+    // DHCP service) populates DHCP option 43.70. client_ip is sent when
+    // it didn't -- carbide-pxe forwards the client IP it observed (XFF if
+    // proxied, TCP socket peer otherwise). interface_id wins when both
+    // are present (it's already resolved -- saves a lookup). When only
+    // client_ip is present, resolve it to interface_id here so the rest
+    // of the model can take the same path.
+    let mut rpc_request = request.into_inner();
+    if rpc_request.interface_id.is_none() {
+        let ip_str = rpc_request.client_ip.as_deref().ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "PxeInstructionRequest requires either interface_id or client_ip".to_string(),
+            )
+        })?;
+        let ip: IpAddr = ip_str.parse().map_err(|e| {
+            CarbideError::InvalidArgument(format!("Failed parsing client_ip '{ip_str}': {e}"))
+        })?;
+        let iface = db::machine_interface::find_by_ip(txn.as_pgconn(), ip)
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "MachineInterface",
+                id: ip.to_string(),
+            })?;
+        rpc_request.interface_id = Some(iface.id);
+    }
+
+    // And now we can naturally continue, whether the request came in
+    // with DHCP option 43.70 (interface_id) or the client-IP (and the
+    // client_ip resolved to interface_id just above).
+    let target: model::pxe::PxeInstructionRequest = rpc_request.try_into()?;
     let interface_id = target.interface_id;
     let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, target).await?;
 

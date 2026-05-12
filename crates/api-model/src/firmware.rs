@@ -29,7 +29,7 @@ use crate::site_explorer::EndpointExplorationReport;
 #[serde(rename_all = "PascalCase")]
 pub struct DesiredFirmwareVersions {
     /// Parsed versions, serializtion override means it will always be sorted
-    #[serde(default, serialize_with = "utils::ordered_map")]
+    #[serde(default, serialize_with = "carbide_utils::ordered_map")]
     pub versions: HashMap<FirmwareComponentType, String>,
 }
 
@@ -126,27 +126,10 @@ pub enum FirmwareComponentType {
     HGXBmc,
     CombinedBmcUefi,
     Gpu,
+    Cx7,
     #[serde(other)]
     #[default]
     Unknown,
-}
-
-impl From<FirmwareComponentType> for libredfish::model::update_service::ComponentType {
-    fn from(fct: FirmwareComponentType) -> libredfish::model::update_service::ComponentType {
-        use libredfish::model::update_service::ComponentType;
-        match fct {
-            FirmwareComponentType::Bmc => ComponentType::BMC,
-            FirmwareComponentType::Uefi => ComponentType::UEFI,
-            FirmwareComponentType::Cec => ComponentType::Unknown,
-            FirmwareComponentType::Nic => ComponentType::Unknown,
-            FirmwareComponentType::CpldMb => ComponentType::CPLDMB,
-            FirmwareComponentType::CpldPdb => ComponentType::CPLDPDB,
-            FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
-            FirmwareComponentType::CombinedBmcUefi => ComponentType::Unknown,
-            FirmwareComponentType::Gpu => ComponentType::Unknown,
-            FirmwareComponentType::Unknown => ComponentType::Unknown,
-        }
-    }
 }
 
 impl fmt::Display for FirmwareComponentType {
@@ -161,6 +144,7 @@ impl fmt::Display for FirmwareComponentType {
             FirmwareComponentType::Cec => write!(f, "CEC"),
             FirmwareComponentType::Gpu => write!(f, "GPU"),
             FirmwareComponentType::HGXBmc => write!(f, "HGX BMC"),
+            FirmwareComponentType::Cx7 => write!(f, "CX7"),
             FirmwareComponentType::Unknown => write!(f, "Unknown"),
         }
     }
@@ -215,6 +199,23 @@ pub struct FirmwareEntry {
     pub pre_update_resets: bool,
     #[serde(default)]
     pub script: Option<PathBuf>,
+    #[serde(default)]
+    pub files: Vec<FirmwareFileArtifact>,
+    #[serde(default)]
+    pub scout: Option<ScoutConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct FirmwareFileArtifact {
+    pub filename: String,
+    pub sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ScoutConfig {
+    pub script: FirmwareFileArtifact,
+    pub execution_timeout_seconds: u32,
+    pub artifact_download_timeout_seconds: u32,
 }
 
 impl FirmwareEntry {
@@ -233,6 +234,8 @@ impl FirmwareEntry {
             preingestion_exclusive_config: false,
             pre_update_resets: false,
             script: None,
+            files: vec![],
+            scout: None,
         }
     }
     pub fn standard_multiple_filenames(version: &str) -> Self {

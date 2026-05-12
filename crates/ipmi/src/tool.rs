@@ -19,10 +19,10 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use carbide_utils::cmd::{CmdError, CmdResult, TokioCmd};
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
-use utils::cmd::{CmdError, CmdResult, TokioCmd};
 
 use crate::IPMITool;
 

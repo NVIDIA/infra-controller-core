@@ -10,6 +10,11 @@ exposedPorts:
   ports: {}
 
 ### Service specific values ###
+# Prometheus receiver port; must match DPUServiceConfiguration configPorts (dpf_services).
+prometheusPort: 9999
+# Host:port for prometheus/fmds scrape targets (see otel_config.yaml). DPF sets these via carbide-api.
+carbide_dpu_agent: ""
+carbide_fmds: ""
 image:
   repository: ""
   pullPolicy: IfNotPresent
@@ -18,4 +23,11 @@ imagePullSecrets: []
 podSecurityContext: {}
 securityContext:
   privileged: true
+  runAsUser: 0
+  runAsGroup: 0
+  capabilities:
+    add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BIND_SERVICE
 tolerations: []

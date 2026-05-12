@@ -1,18 +1,24 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
+use carbide_metrics_utils::OtelView;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
-use opentelemetry_sdk::metrics::{Aggregation, Instrument, InstrumentKind, Stream, View};
+use opentelemetry_sdk::metrics::{Aggregation, InstrumentKind};
 
 /// Metric name for machine reboot duration histogram
 const MACHINE_REBOOT_DURATION_METRIC_NAME: &str = "carbide_machine_reboot_duration";
@@ -41,15 +47,15 @@ impl ApiMetricsEmitter {
     /// Buckets are optimized for this range with additional buckets for faster/slower reboots.
     ///
     /// Boundaries in seconds: 3min, 5min, 10min, 15min, 30min, 60min
-    pub fn machine_reboot_duration_view()
-    -> Result<Box<dyn View>, opentelemetry_sdk::metrics::MetricError> {
-        let mut criteria = Instrument::new().name(MACHINE_REBOOT_DURATION_METRIC_NAME.to_string());
-        criteria.kind = Some(InstrumentKind::Histogram);
-        let mask = Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
-            boundaries: vec![180.0, 300.0, 600.0, 900.0, 1800.0, 3600.0],
-            record_min_max: true,
-        });
-        opentelemetry_sdk::metrics::new_view(criteria, mask)
+    pub fn machine_reboot_duration_view() -> carbide_metrics_utils::Result<OtelView> {
+        carbide_metrics_utils::new_view(
+            MACHINE_REBOOT_DURATION_METRIC_NAME,
+            Some(InstrumentKind::Histogram),
+            Aggregation::ExplicitBucketHistogram {
+                boundaries: vec![180.0, 300.0, 600.0, 900.0, 1800.0, 3600.0],
+                record_min_max: true,
+            },
+        )
     }
 
     /// Records machine reboot duration with product information

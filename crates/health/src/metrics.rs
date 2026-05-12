@@ -200,6 +200,16 @@ impl CollectorRegistry {
         Ok(metrics)
     }
 
+    pub fn unregister_gauge_metrics(
+        &self,
+        metrics: &GaugeMetrics,
+    ) -> Result<(), prometheus::Error> {
+        self.registry
+            .registry
+            .unregister(Box::new(metrics.clone()))
+            .map(|_| ())
+    }
+
     pub fn registry(&self) -> &Registry {
         &self.registry.registry
     }
@@ -354,6 +364,10 @@ impl GaugeMetrics {
         let current_gen = self.current_generation.load(Ordering::Acquire);
         self.gauges.retain(|_, data| data.generation == current_gen);
     }
+
+    pub fn clear(&self) {
+        self.gauges.clear();
+    }
 }
 
 impl Collector for GaugeMetrics {
@@ -397,7 +411,7 @@ impl Collector for GaugeMetrics {
             gauge.set_value(data.value);
 
             let mut metric = proto::Metric::new();
-            metric.set_label(labels.into());
+            metric.set_label(labels);
             metric.set_gauge(gauge);
 
             family.mut_metric().push(metric);

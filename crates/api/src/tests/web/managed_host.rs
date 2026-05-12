@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 use axum::body::Body;
+use carbide_rpc_utils::ManagedHostOutput;
 use db::managed_host;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
 use model::hardware_info::HardwareInfo;
 use model::machine::LoadSnapshotOptions;
 use tower::ServiceExt;
-use utils::ManagedHostOutput;
 
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -189,7 +189,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
         hardware_info.dmi_data.as_ref().unwrap().product_name
     );
     assert_eq!(row.machine_id, machine_id.to_string());
-    assert!(!row.health_overrides.is_empty());
+    assert!(!row.health_sources.is_empty());
     assert!(row.health_probe_alerts.is_empty());
     assert!(!row.host_admin_ip.is_empty());
     assert_eq!(

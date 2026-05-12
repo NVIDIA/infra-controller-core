@@ -19,9 +19,10 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use futures_util::TryStreamExt;
-use netlink_packet_route::link::{LinkAttribute, LinkMessage};
-pub use netlink_packet_route::link::{LinkLayerType, State as LinkState};
 use rpc::forge as rpc;
+use rtnetlink::packet_route::link::{
+    LinkAttribute, LinkLayerType, LinkMessage, State as LinkState,
+};
 use {rtnetlink, tokio};
 
 #[derive(Clone, Debug)]

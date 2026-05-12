@@ -18,8 +18,6 @@
 use std::fmt;
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
 #[cfg(feature = "ipnetwork")]
 use ipnetwork::IpNetwork;
 
@@ -142,52 +140,6 @@ impl fmt::Display for VpcVirtualizationType {
     }
 }
 
-impl TryFrom<i32> for VpcVirtualizationType {
-    type Error = RpcDataConversionError;
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        Ok(match value {
-            x if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => {
-                Self::EthernetVirtualizer
-            }
-            // If we get proto enum field 2, which is ETHERNET_VIRTUALIZER_WITH_NVUE,
-            // just map it to EthernetVirtualizer.
-            x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
-                Self::EthernetVirtualizer
-            }
-            x if x == rpc::VpcVirtualizationType::Fnn as i32 => Self::Fnn,
-            _ => {
-                return Err(RpcDataConversionError::InvalidVpcVirtualizationType(value));
-            }
-        })
-    }
-}
-
-impl From<rpc::VpcVirtualizationType> for VpcVirtualizationType {
-    fn from(v: rpc::VpcVirtualizationType) -> Self {
-        match v {
-            rpc::VpcVirtualizationType::EthernetVirtualizer => Self::EthernetVirtualizer,
-            // ETHERNET_VIRTUALIZER_WITH_NVUE is equivalent to EthernetVirtualizer
-            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue => Self::EthernetVirtualizer,
-            rpc::VpcVirtualizationType::Fnn => Self::Fnn,
-            // Following are deprecated.
-            rpc::VpcVirtualizationType::FnnClassic => Self::Fnn,
-            rpc::VpcVirtualizationType::FnnL3 => Self::Fnn,
-        }
-    }
-}
-
-impl From<VpcVirtualizationType> for rpc::VpcVirtualizationType {
-    fn from(nvt: VpcVirtualizationType) -> Self {
-        match nvt {
-            VpcVirtualizationType::EthernetVirtualizer
-            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                rpc::VpcVirtualizationType::EthernetVirtualizer
-            }
-            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn,
-        }
-    }
-}
-
 /// Concatenate a required IPv4 value with an optional IPv6 value into a vector.
 /// Empty IPv6 strings are filtered out.
 pub fn build_dual_stack_list(v4: String, v6: Option<String>) -> Vec<String> {
@@ -282,34 +234,6 @@ mod tests {
             "etv".parse::<VpcVirtualizationType>().unwrap(),
             VpcVirtualizationType::EthernetVirtualizer
         );
-    }
-
-    #[test]
-    fn proto_value_2_maps_to_etv() {
-        // Make sure our proto From implementation turns
-        // ETHERNET_VIRTUALIZER_WITH_NVUE into EthernetVirtualizer.
-        let vtype = VpcVirtualizationType::try_from(2).unwrap();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
-    fn proto_value_0_maps_to_etv() {
-        let vtype = VpcVirtualizationType::try_from(0).unwrap();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
-    fn from_rpc_etv_with_nvue_maps_to_etv() {
-        let vtype: VpcVirtualizationType =
-            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
-    fn to_rpc_etv_maps_to_proto_etv() {
-        let rpc_vtype: rpc::VpcVirtualizationType =
-            VpcVirtualizationType::EthernetVirtualizer.into();
-        assert_eq!(rpc_vtype, rpc::VpcVirtualizationType::EthernetVirtualizer);
     }
 
     #[test]

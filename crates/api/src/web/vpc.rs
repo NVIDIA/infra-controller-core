@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -53,7 +53,12 @@ impl From<forgerpc::Vpc> for VpcRowDisplay {
             tenant_organization_id: vpc.tenant_organization_id,
             tenant_keyset_id: vpc.tenant_keyset_id.unwrap_or_default(),
             routing_profile_type: vpc.routing_profile_type.unwrap_or("None".to_string()),
-            vni: vpc.vni.map(|vni| vni.to_string()).unwrap_or_default(),
+            vni: vpc
+                .status
+                .as_ref()
+                .and_then(|status| status.vni)
+                .map(|vni| vni.to_string())
+                .unwrap_or_default(),
         }
     }
 }
@@ -111,7 +116,18 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
 
     vpcs.sort_unstable_by(|vpc1, vpc2| {
         // Order by name first, and ID second
-        let ord = vpc1.name.cmp(&vpc2.name);
+        let vpc1_name = vpc1
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or_default();
+        let vpc2_name = vpc2
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or_default();
+        let ord = vpc1_name.cmp(vpc2_name);
+
         if !ord.is_eq() {
             return ord;
         }
@@ -144,7 +160,12 @@ impl From<forgerpc::Vpc> for VpcDetail {
             tenant_organization_id: vpc.tenant_organization_id,
             tenant_keyset_id: vpc.tenant_keyset_id.unwrap_or_default(),
             routing_profile_type: vpc.routing_profile_type.unwrap_or("None".to_string()),
-            vni: vpc.vni.map(|vni| vni.to_string()).unwrap_or_default(),
+            vni: vpc
+                .status
+                .as_ref()
+                .and_then(|status| status.vni)
+                .map(|vni| vni.to_string())
+                .unwrap_or_default(),
             metadata_detail: super::MetadataDetail {
                 metadata: vpc.metadata.unwrap_or_default(),
                 metadata_version: vpc.version,
@@ -206,3 +227,6 @@ pub async fn detail(
     let tmpl: VpcDetail = vpc.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for VpcShow {}
+impl super::Base for VpcDetail {}

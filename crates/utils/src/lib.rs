@@ -19,38 +19,23 @@ use std::hash::Hash;
 
 use serde::{Serialize, Serializer};
 
+pub mod arch;
 pub mod cmd;
 pub mod config;
 mod host_port_pair;
-pub mod managed_host_display;
 pub mod metrics;
-pub mod models;
 pub mod periodic_timer;
 pub mod sku;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
 pub use host_port_pair::{HostPortPair, HostPortParseError};
-pub use managed_host_display::{ManagedHostMetadata, ManagedHostOutput, get_managed_host_output};
 pub const DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER: &str = "Unspecified Base Board Serial Number";
 pub const DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER: &str = "Unspecified Chassis Board Serial Number";
 pub const DEFAULT_DMI_SYSTEM_MANUFACTURER: &str = "Unspecified System Manufacturer";
 pub const DEFAULT_DMI_SYSTEM_MODEL: &str = "Unspecified Model";
 pub const BF2_PRODUCT_NAME: &str = "BlueField SoC";
 pub const BF3_PRODUCT_NAME: &str = "BlueField-3 SmartNIC Main Card";
-
-/// A string to display to the user. Either the 'reason' or 'err' field, or None.
-pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<String> {
-    use rpc::forge::ControllerStateOutcome::*;
-    let Ok(outcome) = rpc::forge::ControllerStateOutcome::try_from(p.outcome) else {
-        tracing::error!("Invalid rpc::forge::ControllerStateOutcome i32, should be impossible.");
-        return None;
-    };
-    match outcome {
-        Transition | DoNothing | Todo => None,
-        Wait | Error => p.outcome_msg.clone(),
-    }
-}
 
 // ordered_map is used with serde to take a HashMap and always serialize it in key sorted order
 pub fn ordered_map<S, K: Ord + Serialize, V: Serialize>(

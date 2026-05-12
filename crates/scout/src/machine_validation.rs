@@ -17,6 +17,7 @@
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use regex::Regex;
 use tokio::process::Command;
 
@@ -27,14 +28,14 @@ use crate::client::create_forge_client;
 pub(crate) async fn completed(
     config: &Options,
     machine_id: &MachineId,
-    uuid: String,
+    validation_id: &MachineValidationId,
     machine_validation_error: Option<String>,
 ) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(rpc::MachineValidationCompletedRequest {
         machine_id: Some(*machine_id),
         machine_validation_error,
-        validation_id: Some(::rpc::common::Uuid { value: uuid }),
+        validation_id: Some(*validation_id),
     });
     client.machine_validation_completed(request).await?;
     tracing::info!("sending machine validation completed");
@@ -70,7 +71,7 @@ pub async fn get_system_manufacturer_name() -> String {
 pub(crate) async fn run(
     cmd_config: &Options,
     machine_id: &MachineId,
-    uuid: String,
+    validation_id: MachineValidationId,
     context: String,
     machine_validation_filter: machine_validation::MachineValidationFilter,
 ) -> Result<(), CarbideClientError> {
@@ -86,7 +87,7 @@ pub(crate) async fn run(
         platform_name,
         options,
         context,
-        uuid,
+        validation_id,
         machine_validation_filter,
     )
     .await

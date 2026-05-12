@@ -26,8 +26,8 @@ use model::switch::{Switch, SwitchControllerState, SwitchSearchFilter, state_sla
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
-use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::switch::context::SwitchStateHandlerContextObjects;
+use crate::state_controller::switch::metrics::SwitchMetricsEmitter;
 
 /// State Controller IO implementation for Switches
 #[derive(Default, Debug)]
@@ -38,7 +38,7 @@ impl StateControllerIO for SwitchStateControllerIO {
     type ObjectId = SwitchId;
     type State = Switch;
     type ControllerState = SwitchControllerState;
-    type MetricsEmitter = NoopMetricsEmitter;
+    type MetricsEmitter = SwitchMetricsEmitter;
     type ContextObjects = SwitchStateHandlerContextObjects;
 
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "switch_controller_iteration_ids";
@@ -57,6 +57,7 @@ impl StateControllerIO for SwitchStateControllerIO {
                 deleted: model::DeletedFilter::Include,
                 controller_state: None,
                 bmc_mac: None,
+                ..Default::default()
             },
         )
         .await
@@ -119,7 +120,14 @@ impl StateControllerIO for SwitchStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::switch_state_history::persist(txn, object_id, new_state, new_version).await?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::Switch,
+            object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 

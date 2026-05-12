@@ -889,7 +889,7 @@ async fn test_network_security_group_delete(
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("", default_tenant_org)
+            VpcCreationRequest::builder(default_tenant_org)
                 .network_security_group_id(good_network_security_group_id)
                 .metadata(Metadata::new_with_default_name())
                 .tonic_request(),
@@ -1159,8 +1159,9 @@ async fn test_network_security_group_propagation_impl(
 
     let segment_ids = env
         .create_vpc_and_tenant_segments_with_vpc_details(
-            VpcCreationRequest::builder("Tenant1", default_tenant_org)
+            VpcCreationRequest::builder(default_tenant_org)
                 .id(vpc_id)
+                .metadata(Metadata::new_with_default_name())
                 .network_security_group_id(good_network_security_group_id)
                 .rpc(),
             dpu_count,
@@ -1785,8 +1786,12 @@ async fn test_network_security_group_get_attachments(
     // Create a VPC
     let segment_id = env
         .create_vpc_and_tenant_segment_with_vpc_details(
-            VpcCreationRequest::builder("Tenant1", default_tenant_org)
+            VpcCreationRequest::builder(default_tenant_org)
                 .id(vpc_id)
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
                 .network_security_group_id(good_network_security_group_id)
                 .rpc(),
         )

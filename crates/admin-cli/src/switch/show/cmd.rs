@@ -37,8 +37,10 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                 "Metadata Name",
                 "Slot",
                 "Tray",
+                "Primary",
                 "Power State",
                 "Health",
+                "FabricManager(nmxc)",
                 "State"
             ]);
 
@@ -86,6 +88,12 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     .as_ref()
                     .and_then(|status| status.health_status.as_deref())
                     .unwrap_or("N/A");
+                let is_primary = if switch.is_primary { "Yes" } else { "No" };
+                let fabric_manager_status = switch
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.fabric_manager_status.as_deref())
+                    .unwrap_or("N/A");
 
                 table.add_row(row![
                     id,
@@ -93,8 +101,10 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     metadata_name,
                     slot_number,
                     tray_index,
+                    is_primary,
                     power_state,
                     health,
+                    fabric_manager_status,
                     switch.controller_state,
                 ]);
             }
@@ -117,8 +127,10 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                 "Metadata Name",
                 "Slot",
                 "Tray",
+                "Primary",
                 "Power State",
                 "Health",
+                "FabricManager(nmxc)",
                 "State"
             ]);
 
@@ -166,6 +178,12 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     .as_ref()
                     .and_then(|status| status.health_status.as_deref())
                     .unwrap_or("N/A");
+                let is_primary = if switch.is_primary { "Yes" } else { "No" };
+                let fabric_manager_status = switch
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.fabric_manager_status.as_deref())
+                    .unwrap_or("N/A");
 
                 table.add_row(row![
                     id,
@@ -173,8 +191,10 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     metadata_name,
                     slot_number,
                     tray_index,
+                    is_primary,
                     power_state,
                     health,
+                    fabric_manager_status,
                     switch.controller_state,
                 ]);
             }

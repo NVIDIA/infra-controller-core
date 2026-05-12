@@ -20,6 +20,7 @@ use std::iter;
 use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
@@ -38,7 +39,8 @@ use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
     BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
     FailureSource, LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
-    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, SpdmMeasuringState,
+    ValidationState,
 };
 use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
@@ -46,8 +48,8 @@ use model::rack::RackConfig;
 use model::site_explorer::EndpointExplorationReport;
 use model::switch::{NewSwitch, SwitchConfig};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self, HealthReportEntry, InsertHealthReportOverrideRequest};
-use rpc::forge_agent_control_response::Action;
+use rpc::forge::{self, HealthReportEntry, InsertMachineHealthReportRequest};
+use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
 use sqlx::PgConnection;
@@ -397,9 +399,10 @@ impl<'a> MockExploredHost<'a> {
 
         for machine_id in self.dpu_machine_ids.values() {
             let response = forge_agent_control(self.test_env, *machine_id).await;
+            assert!(matches!(response.action, Some(Action::Discovery(_))));
             assert_eq!(
-                response.action,
-                rpc::forge_agent_control_response::Action::Discovery as i32
+                response.legacy_action,
+                rpc::forge_agent_control_response::LegacyAction::Discovery as i32
             );
 
             discovery_completed(self.test_env, *machine_id).await;
@@ -486,9 +489,10 @@ impl<'a> MockExploredHost<'a> {
 
         for machine_id in self.dpu_machine_ids.values() {
             let response = forge_agent_control(self.test_env, *machine_id).await;
+            assert!(matches!(response.action, Some(Action::Discovery(_)),));
             assert_eq!(
-                response.action,
-                rpc::forge_agent_control_response::Action::Discovery as i32
+                response.legacy_action,
+                rpc::forge_agent_control_response::LegacyAction::Discovery as i32
             );
 
             discovery_completed(self.test_env, *machine_id).await;
@@ -652,10 +656,29 @@ impl<'a> MockExploredHost<'a> {
             inject_machine_measurements(self.test_env, host_machine_id).await;
         }
 
+        // if SPDM attestation is enabled, we need to drive it to completion
+        if self.test_env.config.spdm.enabled {
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_matches(
+                    &host_machine_id,
+                    10,
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::SpdmMeasuring {
+                            spdm_measuring_state: SpdmMeasuringState::PollResult,
+                        },
+                    },
+                )
+                .await;
+
+            for _ in 0..10 {
+                self.test_env.run_spdm_controller_iteration().await;
+            }
+        }
+
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                10,
+                20,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 },
@@ -664,7 +687,7 @@ impl<'a> MockExploredHost<'a> {
 
         self.test_env
             .api
-            .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+            .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
                 health_report_entry: Some(HealthReportEntry {
                     report: Some(
                         HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"))
@@ -685,7 +708,7 @@ impl<'a> MockExploredHost<'a> {
             .test_env
             .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
-                10,
+                15,
                 |machine| {
                     machine.current_state() == &expected_state
                         || matches!(
@@ -827,9 +850,10 @@ impl<'a> MockExploredHost<'a> {
         }
 
         let response = forge_agent_control(self.test_env, host_machine_id).await;
+        assert!(matches!(response.action, Some(Action::Noop(_))));
         assert_eq!(
-            response.action,
-            rpc::forge_agent_control_response::Action::Noop as i32
+            response.legacy_action,
+            rpc::forge_agent_control_response::LegacyAction::Noop as i32
         );
 
         self.test_env
@@ -887,7 +911,7 @@ impl<'a> MockExploredHost<'a> {
 
         self.test_env
             .api
-            .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+            .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
                 health_report_entry: Some(HealthReportEntry {
                     report: Some(
                         HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"))
@@ -935,7 +959,7 @@ impl<'a> MockExploredHost<'a> {
                     validation_state: ValidationState::MachineValidation {
                         machine_validation: MachineValidatingState::MachineValidating {
                             context: "Discovery".to_string(),
-                            id: uuid::Uuid::default(),
+                            id: MachineValidationId::new(),
                             completed: 1,
                             total: 1,
                             is_enabled: self.test_env.config.machine_validation_config.enabled,
@@ -948,12 +972,10 @@ impl<'a> MockExploredHost<'a> {
         let response = forge_agent_control(self.test_env, host_machine_id).await;
         if self.test_env.config.machine_validation_config.enabled {
             let uuid = &response.data.unwrap().pair[1].value;
-            let validation_id = Some(rpc::Uuid {
-                value: uuid.to_owned(),
-            });
+            let validation_id: MachineValidationId = uuid.parse().unwrap();
             let success = update_machine_validation_run(
                 self.test_env,
-                validation_id.clone(),
+                Some(validation_id),
                 Some(rpc::Duration::from(std::time::Duration::from_secs(1200))),
                 1,
             )
@@ -961,13 +983,13 @@ impl<'a> MockExploredHost<'a> {
             assert_eq!(success.message, "Success".to_string());
             let runs = get_machine_validation_runs(self.test_env, &host_machine_id, false).await;
             for run in runs.runs {
-                if run.validation_id == validation_id {
+                if run.validation_id == Some(validation_id) {
                     assert_eq!(run.status.unwrap_or_default().total, 1);
                     assert_eq!(run.status.unwrap_or_default().completed_tests, 0);
                     assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 1200);
                 }
             }
-            machine_validation_result.validation_id = validation_id.clone();
+            machine_validation_result.validation_id = Some(validation_id);
             persist_machine_validation_result(self.test_env, machine_validation_result.clone())
                 .await;
             assert_eq!(
@@ -982,7 +1004,7 @@ impl<'a> MockExploredHost<'a> {
 
             let runs = get_machine_validation_runs(self.test_env, &host_machine_id, false).await;
             for run in runs.runs {
-                if run.validation_id == validation_id {
+                if run.validation_id == Some(validation_id) {
                     assert_eq!(run.status.unwrap_or_default().total, 1);
                     assert_eq!(
                         run.status.unwrap_or_default().completed_tests,
@@ -1033,7 +1055,8 @@ impl<'a> MockExploredHost<'a> {
                     .await;
 
                 let response = forge_agent_control(self.test_env, host_machine_id).await;
-                assert_eq!(response.action, Action::Noop as i32);
+                assert!(matches!(response.action, Some(Action::Noop(_))));
+                assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
                         &host_machine_id,
@@ -1825,7 +1848,7 @@ pub async fn create_expected_switches(
             .await
             .expect("unable to create expected switch");
 
-        let network_segment = db::network_segment::admin(txn)
+        let network_segments = db::network_segment::admin(txn)
             .await
             .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
             .unwrap();
@@ -1833,9 +1856,8 @@ pub async fn create_expected_switches(
         for nvos_mac in &result.nvos_mac_addresses.clone() {
             db::machine_interface::create(
                 txn,
-                &network_segment,
+                &network_segments,
                 nvos_mac,
-                network_segment.subdomain_id,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
             )
@@ -1850,9 +1872,8 @@ pub async fn create_expected_switches(
 
         db::machine_interface::create(
             txn,
-            &overlay_network_segment,
+            std::slice::from_ref(&overlay_network_segment),
             &result.bmc_mac_address.clone(),
-            overlay_network_segment.subdomain_id,
             false,
             AddressSelectionStrategy::NextAvailableIp,
         )

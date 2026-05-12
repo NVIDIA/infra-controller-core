@@ -22,6 +22,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
+use carbide_rpc_utils::managed_host_display::to_time;
 use carbide_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use itertools::Itertools;
@@ -29,10 +30,9 @@ use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
-use utils::managed_host_display::to_time;
 
-use super::filters;
 use super::state_history::StateHistoryTable;
+use super::{Base, filters};
 use crate::api::Api;
 use crate::web::action_status::{self, ActionStatus};
 
@@ -47,9 +47,7 @@ struct MachineShow {
 struct MachineRowDisplay {
     id: String,
     hostname: String,
-    state: String,
-    time_in_state: String,
-    time_in_state_above_sla: bool,
+    state_display: super::StateDisplay,
     associated_dpu_ids: Vec<String>,
     associated_host_id: String,
     sys_vendor: String,
@@ -130,16 +128,20 @@ impl MachineRowDisplay {
             })
             .unwrap_or_else(health_report::HealthReport::missing_report);
 
+        let time_in_state_above_sla = m
+            .state_sla
+            .as_ref()
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or_default();
+        let state_display = super::StateDisplay {
+            state: m.state,
+            time_in_state_above_sla,
+        };
+
         MachineRowDisplay {
             hostname,
             id: m.id.map(|id| id.to_string()).unwrap_or_default(),
-            state: m.state,
-            time_in_state: config_version::since_state_change_humanized(&m.state_version),
-            time_in_state_above_sla: m
-                .state_sla
-                .as_ref()
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
+            state_display,
             ip_address,
             mac_address,
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
@@ -431,10 +433,7 @@ struct MachineDetail<'a> {
     id: String,
     host_id: String,
     rack_id: String,
-    state_version: String,
-    time_in_state: String,
-    state_display: super::StateDisplay,
-    state_sla_detail: super::StateSlaDetail,
+    lifecycle_detail: super::LifecycleDetail,
     last_reboot: String,
     machine_type: String,
     is_host: bool,
@@ -453,8 +452,7 @@ struct MachineDetail<'a> {
     interfaces: Vec<MachineInterfaceDisplay>,
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
     inventory: Vec<MachineInventorySoftwareComponent>,
-    health: health_report::HealthReport,
-    health_overrides: Vec<String>,
+    health_detail: super::HealthDetail,
     bmc_info: Option<rpc::forge::BmcInfo>,
     discovery_info_json: String,
     metadata_detail: super::MetadataDetail,
@@ -638,38 +636,31 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
         let quarantine_state = m
             .quarantine_state
             .and_then(|q| ManagedHostQuarantineState::try_from(q).ok());
+        let is_host = m.machine_type == forgerpc::MachineType::Host as i32;
+        let host_id = m
+            .associated_host_machine_id
+            .map_or_else(String::default, |id| id.to_string());
+        let health_reports_url = if is_host || host_id.is_empty() {
+            format!("/admin/machine/{machine_id}/health")
+        } else {
+            format!("/admin/machine/{host_id}/health")
+        };
+        let health_detail = super::HealthDetail::new(
+            health_reports_url,
+            "Go to ManagedHost health reports",
+            m.health,
+            m.health_sources,
+        );
 
         MachineDetail {
             id: machine_id.clone(),
             rack_id: m.rack_id.map(|id| id.to_string()).unwrap_or_default(),
-            time_in_state: config_version::since_state_change_humanized(&m.state_version),
-            state_version: m.state_version,
-            state_display: super::StateDisplay {
-                state: m.state,
-                time_in_state_above_sla: m
-                    .state_sla
-                    .as_ref()
-                    .map(|sla| sla.time_in_state_above_sla)
-                    .unwrap_or_default(),
-            },
-            state_sla_detail: super::StateSlaDetail {
-                state_sla: m
-                    .state_sla
-                    .as_ref()
-                    .and_then(|sla| sla.sla)
-                    .map(|sla| {
-                        config_version::format_duration(
-                            chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
-                        )
-                    })
-                    .unwrap_or_default(),
-                time_in_state_above_sla: m
-                    .state_sla
-                    .as_ref()
-                    .map(|sla| sla.time_in_state_above_sla)
-                    .unwrap_or_default(),
-                state_reason: m.state_reason,
-            },
+            lifecycle_detail: super::LifecycleDetail::new(
+                m.state,
+                m.state_version,
+                m.state_reason,
+                m.state_sla,
+            ),
             last_reboot: to_time(m.last_reboot_time, Some(&machine_id))
                 .unwrap_or("N/A".to_string()),
             metadata_detail: super::MetadataDetail {
@@ -677,7 +668,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                 metadata_version: m.version,
             },
             machine_type: get_machine_type(&machine_id),
-            is_host: m.machine_type == forgerpc::MachineType::Host as i32,
+            is_host,
             network_config: String::new(), // filled in later
             bmc_info: m.bmc_info,
             history,
@@ -699,17 +690,8 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             maintenance_reference: m.maintenance_reference.unwrap_or_default(),
             maintenance_start_time: to_time(m.maintenance_start_time, Some(&machine_id))
                 .unwrap_or_default(),
-            host_id: m
-                .associated_host_machine_id
-                .map_or_else(String::default, |id| id.to_string()),
-            health: m
-                .health
-                .map(|h| {
-                    health_report::HealthReport::try_from(h)
-                        .unwrap_or_else(health_report::HealthReport::malformed_report)
-                })
-                .unwrap_or_else(health_report::HealthReport::missing_report),
-            health_overrides: m.health_sources.iter().map(|o| o.source.clone()).collect(),
+            host_id,
+            health_detail,
             discovery_info_json,
             capabilities_json: m
                 .capabilities
@@ -1038,3 +1020,6 @@ pub async fn set_dpu_first_boot_order(
 
     Redirect::to(&redirect_url).into_response()
 }
+
+impl super::Base for MachineShow {}
+impl<'a> super::Base for MachineDetail<'a> {}

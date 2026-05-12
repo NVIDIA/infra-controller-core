@@ -18,7 +18,7 @@
 //! State Handler implementation for Switches (mirrors Machine state handler structure).
 
 use carbide_uuid::switch::SwitchId;
-use model::switch::{Switch, SwitchControllerState};
+use model::switch::{Switch, SwitchControllerState, derive_switch_aggregate_health};
 use tracing::instrument;
 
 use crate::state_controller::state_handler::{
@@ -40,13 +40,17 @@ use crate::state_controller::switch::validating::handle_validating;
 pub struct SwitchStateHandler {}
 
 impl SwitchStateHandler {
-    /// Records metrics for the switch. Stub for now; extend when switch metrics are defined.
     fn record_metrics(
         &self,
-        _state: &Switch,
-        _ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+        state: &Switch,
+        ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
     ) {
-        // TODO: Populate when SwitchMetrics has fields (e.g. health, version, etc.)
+        let aggregate_health = derive_switch_aggregate_health(&state.health_reports);
+        ctx.metrics.health.populate(
+            state.id.to_string(),
+            &aggregate_health,
+            &state.health_reports,
+        );
     }
 
     /// Attempts a state transition by delegating to the appropriate state handler.

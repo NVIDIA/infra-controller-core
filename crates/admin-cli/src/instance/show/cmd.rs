@@ -256,7 +256,8 @@ async fn convert_instance_to_nice_format(
                 (
                     "VPC NAME",
                     vpc.as_ref()
-                        .map(|v| v.name.as_str().into())
+                        .and_then(|v| v.metadata.as_ref())
+                        .map(|v| Cow::Borrowed(v.name.as_str()))
                         .unwrap_or("<not found>".into()),
                 ),
             ];
@@ -359,18 +360,7 @@ async fn convert_instance_to_nice_format(
         writeln!(&mut lines, "NETWORK SECURITY GROUP ID: {nsg_id}")?;
     }
 
-    if let Some(metadata) = instance.metadata.as_ref() {
-        writeln!(
-            &mut lines,
-            "LABELS: {}",
-            metadata
-                .labels
-                .iter()
-                .map(|x| format!("{}: {}", x.key, x.value.as_deref().unwrap_or_default()))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )?;
-    }
+    crate::metadata::write_metadata_in_nice_format(&mut lines, width, instance.metadata.as_ref())?;
 
     Ok(lines)
 }
@@ -397,7 +387,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .map(|tenant| tenant.tenant_organization_id.as_str())
             .unwrap_or_default();
 
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(instance.metadata.as_ref());
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(instance.metadata.as_ref());
 
         let tenant_state = instance
             .status

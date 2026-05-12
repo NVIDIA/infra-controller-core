@@ -52,6 +52,13 @@ impl DataSink for TracingSink {
                     "Metric collection end"
                 );
             }
+            CollectorEvent::CollectorRemoved => {
+                tracing::info!(
+                    endpoint = %context.endpoint_key(),
+                    collector = %context.collector_type,
+                    "Collector removed"
+                );
+            }
             CollectorEvent::Log(record) => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
@@ -79,6 +86,7 @@ impl DataSink for TracingSink {
                     alert_count = report.alerts.len(),
                     alerts = ?report.alerts,
                     report_source = report.source.as_str(),
+                    target = ?report.target,
                     "Health report event"
                 );
             }

@@ -38,7 +38,7 @@ async fn test_machine_discovery_no_domain(
     let machine_interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
+        std::slice::from_ref(&FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()),
         None,
     )
     .await
@@ -75,7 +75,7 @@ async fn test_machine_discovery_with_domain(
     let machine_interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
+        std::slice::from_ref(&FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()),
         None,
     )
     .await

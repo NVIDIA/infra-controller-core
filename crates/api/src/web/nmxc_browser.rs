@@ -24,6 +24,7 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
+use super::Base;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -119,3 +120,5 @@ pub async fn query(
 
     (StatusCode::OK, Html(browser.render().unwrap())).into_response()
 }
+
+impl super::Base for NmxcBrowser {}

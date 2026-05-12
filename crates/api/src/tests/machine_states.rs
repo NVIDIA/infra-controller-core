@@ -15,9 +15,12 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use base64::prelude::*;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use chrono::Duration;
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
@@ -44,11 +47,11 @@ use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
     DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource, InstanceState,
     LockdownMode, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
-    ValidationState,
+    SpdmMeasuringState, ValidationState,
 };
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
-use rpc::forge_agent_control_response::Action;
+use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest, TpmCaCert, TpmCaCertId};
+use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
 use tonic::{Code, Request};
@@ -73,6 +76,196 @@ use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_ek, discovery_completed, forge_agent_control,
     on_demand_machine_validation, update_time_params,
 };
+use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
+
+// Verify the group-sync property of `db::machine::try_update_network_config`,
+// where any write to a row in the host's group (the host or any of its DPUs)
+// updates that row's content + version, AND fans the version bump out to every
+// other row in the "group", after which, the host + all of its DPUs network
+// config version are the same.
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_group_sync(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // After ingestion brings the host to Ready, network_configured fixture
+    // calls have caught DPU observations up to their (per-DPU) expected
+    // versions, so sync is true at this point.
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should be true after ingestion brings DPU observations up to expected version"
+    );
+
+    // Bump the HOST's network_config (write the same content back). The
+    // group-sync helper should also bump each DPU's version to the same
+    // new value.
+    let host_before = mh.host().db_machine(&mut txn).await;
+    db::machine::try_update_network_config(
+        txn.as_mut(),
+        &mh.id,
+        host_before.network_config.version,
+        &host_before.network_config.value,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let host_after_host_write = mh.host().db_machine(&mut txn).await;
+    let dpu_after_host_write = mh.dpu().db_machine(&mut txn).await;
+    assert_eq!(
+        host_after_host_write.network_config.version, dpu_after_host_write.network_config.version,
+        "group-sync: DPU's version should match host's after a host write"
+    );
+    assert_ne!(
+        host_after_host_write.network_config.version, host_before.network_config.version,
+        "host's version should have advanced"
+    );
+
+    // Sync should now be false; the DPU's expected has bumped (via the
+    // machine group bump), but its observation still reports the older
+    // version.
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        !snapshot.managed_host_network_config_version_synced(),
+        "sync should be false after the group bump until the DPU agent reports the new version"
+    );
+    txn.commit().await.unwrap();
+
+    // Simulate the DPU agent polling, applying, and reporting back.
+    common::api_fixtures::network_configured(&env, &mh.dpu_ids).await;
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should flip back to true after the agent reports the new version"
+    );
+
+    // And now the converse direction -- bump a DPU's row (the shape of
+    // machine_discovery's loopback_ip allocation). The group-sync helper
+    // fans that bump out to the host's row too, keeping versions equal.
+    let dpu_before_dpu_write = mh.dpu().db_machine(&mut txn).await;
+    db::machine::try_update_network_config(
+        txn.as_mut(),
+        &dpu_before_dpu_write.id,
+        dpu_before_dpu_write.network_config.version,
+        &dpu_before_dpu_write.network_config.value,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let host_after_dpu_write = mh.host().db_machine(&mut txn).await;
+    let dpu_after_dpu_write = mh.dpu().db_machine(&mut txn).await;
+    assert_eq!(
+        host_after_dpu_write.network_config.version, dpu_after_dpu_write.network_config.version,
+        "group-sync: host's version should match DPU's after a DPU write"
+    );
+
+    // Sync flips to false again, since the DPU's expected just advanced
+    // beyond what it most recently observed.
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        !snapshot.managed_host_network_config_version_synced(),
+        "sync should be false after a DPU-row write bumps the group"
+    );
+}
+
+// Per-DPU network-config sync is rooted in the host-level
+// `network_config.version`, not the DPU's own row version.
+// carbide-api serves `host.version` to carbide-dpu-agent as
+// `managed_host_config_version`, and the agent echoes it back
+// as its observation; this just makes sure the host-level
+// verison is looked at, and the DPU-level version is ignored.
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_sync_host_version(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // Do a baseline check that the initial ingestion
+    // `network_configured` brought DPU observations up
+    // to host.version, meaning things shold be in sync.
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should be true after ingestion"
+    );
+
+    // Now, bump just the DPU row's `network_config_version` via
+    // a direct raw UPDATE (and bypassing `try_update_network_config`).
+    // The idea is this shouldn't matter, since we're looking at the
+    // host-level version.
+    let dpu_before = mh.dpu().db_machine(&mut txn).await;
+    let host_before = mh.host().db_machine(&mut txn).await;
+    let drifted_dpu_version = dpu_before.network_config.version.increment();
+    sqlx::query("UPDATE machines SET network_config_version = $1 WHERE id = $2")
+        .bind(drifted_dpu_version)
+        .bind(dpu_before.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let host_after = mh.host().db_machine(&mut txn).await;
+    let dpu_after = mh.dpu().db_machine(&mut txn).await;
+    assert_eq!(
+        host_after.network_config.version, host_before.network_config.version,
+        "raw DPU update should leave host.version untouched"
+    );
+    assert_ne!(
+        dpu_after.network_config.version, host_after.network_config.version,
+        "dpu.row.version is now ahead of host.version"
+    );
+
+    // The observation version should still equal the host.version,
+    // so things should still be in sync!
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should be true because observation == host.version, even though dpu.row.version is ahead"
+    );
+}
+
+// A freshly-created host defaults to admin (`use_admin_network` = true);
+// flipping the host-level `network_config.use_admin_network` to false
+// must be reflected by `ManagedHostStateSnapshot::use_admin_network()`.
+#[crate::sqlx_test]
+async fn test_use_admin_network_reads_host_network_config(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.use_admin_network(),
+        "fresh host should default to admin network"
+    );
+
+    let host = mh.host().db_machine(&mut txn).await;
+    let mut netconf = host.network_config.value.clone();
+    netconf.use_admin_network = Some(false);
+    db::machine::try_update_network_config(
+        txn.as_mut(),
+        &mh.id,
+        host.network_config.version,
+        &netconf,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        !snapshot.use_admin_network(),
+        "host with network_config.use_admin_network=false should report tenant"
+    );
+}
 
 #[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
@@ -432,10 +625,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
                 message: "test nvme failure".to_string(),
             },
         ),
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
 
     env.api
@@ -476,10 +666,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
                 message: "test nvme failure".to_string(),
             },
         ),
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
     env.api
         .cleanup_machine_completed(clean_failed_req)
@@ -507,11 +694,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     // Now the host cleans up successfully.
     let clean_succeeded_req = tonic::Request::new(rpc::MachineCleanupInfo {
         machine_id: mh.id.into(),
-        nvme: None,
-        ram: None,
-        mem_overwrite: None,
-        ib: None,
-        result: 0,
+        ..Default::default()
     });
     env.api
         .cleanup_machine_completed(clean_succeeded_req)
@@ -531,6 +714,54 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     ));
 }
 
+#[crate::sqlx_test]
+async fn test_hdd_clean_failed_state_host(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+
+    let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
+        machine_id: mh.id.into(),
+        hdd: Some(
+            rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
+                result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
+                message: "test hdd failure".to_string(),
+            },
+        ),
+        ..Default::default()
+    });
+
+    env.api
+        .cleanup_machine_completed(clean_failed_req)
+        .await
+        .unwrap();
+
+    update_time_params(
+        &env.pool,
+        &host,
+        1,
+        Some(host.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
+    )
+    .await;
+    // let state machine check the failure condition.
+    env.run_machine_state_controller_iteration().await;
+
+    let host = mh.host().db_machine(&mut txn).await;
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: model::machine::FailureCause::NVMECleanFailed { .. },
+                ..
+            },
+            retry_count: 0,
+            ..
+        }
+    ));
+}
+
 /// If the DPU stops sending us health updates we eventually mark it unhealthy
 #[crate::sqlx_test]
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
@@ -547,9 +778,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let dpu_machine = mh.dpu().db_machine(&mut txn).await;
     assert!(
         dpu_machine
-            .dpu_agent_health_report
-            .as_ref()
-            .as_ref()
+            .dpu_agent_health_report()
             .unwrap()
             .alerts
             .is_empty()
@@ -606,18 +835,12 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let dpu_machine = mh.dpu().db_machine(&mut txn).await;
     assert!(
         !dpu_machine
-            .dpu_agent_health_report
-            .as_ref()
-            .as_ref()
+            .dpu_agent_health_report()
             .unwrap()
             .alerts
             .is_empty(),
         "DPU is not healthy: {:?}",
-        dpu_machine
-            .dpu_agent_health_report
-            .as_ref()
-            .as_ref()
-            .unwrap()
+        dpu_machine.dpu_agent_health_report().unwrap()
     );
 
     // The up count reflects the heartbeat timeout.
@@ -716,6 +939,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
             arch: rpc::forge::MachineArchitecture::X86 as i32,
             interface_id: Some(host.interfaces[0].id),
             product: None,
+            client_ip: None,
         }))
         .await
         .unwrap()
@@ -724,7 +948,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     assert!(pxe.pxe_script.contains("scout.efi"));
 
     let response = forge_agent_control(&env, mh.id).await;
-    assert_eq!(response.action, Action::Discovery as i32);
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
+    assert_eq!(response.legacy_action, LegacyAction::Discovery as i32);
 
     discovery_completed(&env, mh.id).await;
 
@@ -784,7 +1009,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "Discovery".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: true,
@@ -816,7 +1041,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let response = forge_agent_control(&env, mh.id).await;
-    assert_eq!(response.action, Action::Noop as i32);
+    assert!(matches!(response.action, Some(Action::Noop(_))));
+    assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.id,
         1,
@@ -1304,7 +1530,16 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 ) {
     let mut config = get_config();
     config.attestation_enabled = true;
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    config.spdm.enabled = true;
+
+    let mut overrides = TestEnvOverrides::with_config(config);
+
+    // set NRAS verifier to fail
+    let nras_should_fail_parsing_flag = Arc::new(AtomicBool::new(true));
+
+    overrides.nras_should_fail_parsing = Some(nras_should_fail_parsing_flag.clone());
+
+    let env = create_test_env_with_overrides(pool, overrides).await;
 
     // 1. create_dpu as usual
     // 2. start creating host until ca validation failure is encountered
@@ -1435,7 +1670,22 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         ))
         .await
         .unwrap();
-    txn.commit().await.unwrap();
+
+    // ---------
+    // now do the spdm attestation
+
+    spdm_attestation_run_to_failed_then_to_success(
+        env,
+        nras_should_fail_parsing_flag,
+        &mh,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::SpdmMeasuring {
+                spdm_measuring_state: SpdmMeasuringState::PollResult,
+            },
+        },
+    )
+    .await;
 
     // ---------
     // after the measurements are in, we should proceed to ready state
@@ -1449,7 +1699,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     .await;
 
     env.api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             health_report_entry: Some(HealthReportEntry {
                 report: Some(
                     HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")).into(),
@@ -1462,7 +1712,8 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         .expect("Failed to add hardware health report to newly created machine");
 
     let response = mh.host().forge_agent_control().await;
-    assert_eq!(response.action, Action::Discovery as i32);
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
+    assert_eq!(response.legacy_action, LegacyAction::Discovery as i32);
 
     mh.host().discovery_completed().await;
 
@@ -1493,7 +1744,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "Discovery".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: env.config.machine_validation_config.enabled,
@@ -1518,7 +1769,8 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     // This is what simulates a reboot being completed.
     let response = mh.host().forge_agent_control().await;
-    assert_eq!(response.action, Action::Noop as i32);
+    assert!(matches!(response.action, Some(Action::Noop(_))));
+    assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
@@ -1654,14 +1906,51 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     }
 }
 
+/// Exercises WaitingForBiosJob state by configuring mock BMC to return a job ID from machine_setup.
+/// Verifies that host reaches "Ready" and that state machine transitioned through WaitingForBiosJob.
+#[crate::sqlx_test]
+async fn test_bios_config_job_happy_path(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    env.redfish_sim
+        .set_machine_setup_bios_job_id(Some("JID_BIOS_TEST_123".to_string()));
+    env.redfish_sim.set_job_state_sequence(vec![
+        libredfish::JobState::Scheduled,
+        libredfish::JobState::Completed,
+    ]);
+
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        matches!(host.current_state(), ManagedHostState::Ready),
+        "Expected host to reach Ready, but got: {:?}",
+        host.current_state()
+    );
+
+    let history = mh.host().parsed_history(None).await;
+    let went_through_bios_job = history.iter().any(|state| {
+        matches!(
+            state,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForBiosJob { .. },
+            }
+        )
+    });
+    assert!(
+        went_through_bios_job,
+        "Expected state history to include WaitingForBiosJob, but it did not. History: {:#?}",
+        history
+    );
+}
+
 #[crate::sqlx_test]
 async fn test_scout_heartbeat_timeout_alert_cleared_on_ready_transition(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = create_managed_host(&env).await;
     let host_machine_id = mh.host().id;
 
-    // Keep scout in timed-out state so Ready does not clear this via the normal
-    // "heartbeat recovered" path before we exercise transition-out-of-Ready logic.
     let mut txn = env.db_txn().await;
     sqlx::query(
         "UPDATE machines SET last_scout_contact_time = NOW() - INTERVAL '2 years' WHERE id = $1",
@@ -1850,14 +2139,10 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
 
     let machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
-    // First discovery - establishes the host with the original TPM-based ID
     host_discover_machine(&env, &host_config, machine_interface_id).await;
 
-    // Second discovery - different TPM EK cert simulates TPM replacement
-    // without force-delete, producing a different stable_machine_id
     let mut discovery_info =
         DiscoveryInfo::try_from(model::hardware_info::HardwareInfo::from(&host_config)).unwrap();
-    // Use a different valid EK cert to simulate TPM replacement
     discovery_info.tpm_ek_certificate =
         Some(BASE64_STANDARD.encode(common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED));
     discovery_info.attest_key_info = Some(AttestKeyInfo {

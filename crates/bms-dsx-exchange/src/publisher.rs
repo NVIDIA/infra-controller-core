@@ -284,14 +284,15 @@ mod tests {
 
     fn liquid_isolation_metadata() -> SupportedMetadata {
         parse_supported_metadata(
+            "BMS/v1/PUB/Metadata/Rack/RackLiquidIsolationRequest/site/rack-01",
             r#"{
                 "pointType": "RackLiquidIsolationRequest",
                 "objectType": "Rack",
                 "rackName": "Rack-01",
                 "rackId": "rack-01",
-                "integration": "CM",
-                "valueTopic": "BMS/v1/CM/Value/Rack/RackLiquidIsolationRequest/site/rack-01"
-            }"#,
+                "integration": "CM"
+            }"#
+            .as_bytes(),
         )
         .unwrap()
         .unwrap()
@@ -299,12 +300,13 @@ mod tests {
 
     fn heartbeat_metadata() -> SupportedMetadata {
         parse_supported_metadata(
+            "BMS/v1/PUB/Metadata/System/HeartbeatTimestampIntegration/site",
             r#"{
                 "pointType": "HeartbeatTimestampIntegration",
                 "objectType": "System",
-                "integration": "CM",
-                "valueTopic": "BMS/v1/CM/Value/System/HeartbeatTimestampIntegration/site"
-            }"#,
+                "integration": "CM"
+            }"#
+            .as_bytes(),
         )
         .unwrap()
         .unwrap()
@@ -440,14 +442,15 @@ mod tests {
     fn metadata_from_another_integration_is_used_directly() {
         let mut publisher = publisher();
         let metadata = parse_supported_metadata(
+            "BMS/v1/PUB/Metadata/Rack/RackLiquidIsolationRequest/site/rack-01",
             r#"{
                 "pointType": "RackLiquidIsolationRequest",
                 "objectType": "Rack",
                 "rackName": "Rack-01",
                 "rackId": "rack-01",
-                "integration": "OTHER",
-                "valueTopic": "BMS/v1/OTHER/Value/Rack/RackLiquidIsolationRequest/site/rack-01"
-            }"#,
+                "integration": "OTHER"
+            }"#
+            .as_bytes(),
         )
         .unwrap()
         .unwrap();

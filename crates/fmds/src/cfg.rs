@@ -33,6 +33,10 @@ pub struct Options {
     #[clap(long, default_value = "0.0.0.0:80")]
     pub rest_address: String,
 
+    /// Prometheus scrape address for `/metrics` (HTTP request stats for the REST metadata API).
+    #[clap(long, default_value = "0.0.0.0:8888")]
+    pub metrics_address: String,
+
     /// Carbide API server address for phone_home.
     #[clap(long, default_value = "https://carbide-api.forge")]
     pub forge_api: String,
@@ -51,6 +55,18 @@ pub struct Options {
     /// This will probably be shared with the carbide-dpu-agent.
     #[clap(long)]
     pub client_key: Option<String>,
+
+    /// Name of the interface to assign the metadata-service address to.
+    #[clap(long, env = "FMDS_INTERFACE_NAME", default_value = "f_pf0hpf_if")]
+    pub interface_name: String,
+
+    /// CIDR to assign on `interface_name` (cloud metadata-service address).
+    #[clap(
+        long,
+        env = "FMDS_INTERFACE_CIDR",
+        default_value = "169.254.169.254/30"
+    )]
+    pub interface_cidr: String,
 }
 
 impl Options {

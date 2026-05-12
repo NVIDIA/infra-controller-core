@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use crate::bug::InjectedBugs;
 use crate::redfish;
+use crate::redfish::account_service::AccountServiceState;
 use crate::redfish::chassis::ChassisState;
 use crate::redfish::computer_system::SystemState;
 use crate::redfish::manager::ManagerState;
@@ -33,6 +34,7 @@ pub struct BmcState {
     pub system_state: Arc<SystemState>,
     pub chassis_state: Arc<ChassisState>,
     pub update_service_state: Arc<UpdateServiceState>,
+    pub account_service_state: Arc<AccountServiceState>,
     pub injected_bugs: Arc<InjectedBugs>,
     pub callbacks: Option<Arc<dyn crate::Callbacks>>,
 }

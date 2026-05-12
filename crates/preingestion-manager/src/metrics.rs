@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::utils::metrics::SharedMetricsHolder;
+use ::carbide_utils::metrics::SharedMetricsHolder;
 use opentelemetry::metrics::Meter;
 
 #[derive(Clone, Debug)]
@@ -67,7 +67,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<PreingestionM
         let metrics = shared_metrics;
         meter
             .u64_observable_gauge("carbide_preingestion_waiting_download")
-            .with_description("The amount of machines that are waiting for firmware downloads on other machines to complete before doing thier own")
+            .with_description("The amount of machines that are waiting for firmware downloads on other machines to complete before doing their own")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     observer.observe(
@@ -104,8 +104,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use carbide_utils::test_support::test_meter::TestMeter;
     use prometheus_text_parser::ParsedPrometheusMetrics;
-    use utils::test_support::test_meter::TestMeter;
 
     use super::*;
 

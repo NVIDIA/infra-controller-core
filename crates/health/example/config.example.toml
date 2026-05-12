@@ -38,6 +38,7 @@ port = 443
 mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001" }
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.1.1"
@@ -45,7 +46,15 @@ port = 443
 mac = "11:22:33:44:55:66"
 username = "admin"
 password = "secret"
-switch_serial = "SN-SWITCH-001"
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-001" }
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.2.1"
+port = 443
+mac = "22:33:44:55:66:77"
+username = "admin"
+password = "secret"
+power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-POWER-SHELF-001" }
 
 # ==============================================================================
 # Sinks: Where collector events are sent
@@ -69,12 +78,33 @@ endpoint = "http://localhost:4317"
 batch_size = 512
 flush_interval = "2s"
 
-[sinks.health_override]
+[sinks.health_report]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
 api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
 workers = 8
+
+[sinks.rack_health_report]
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key = "/var/run/secrets/spiffe.io/tls.key"
+api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+workers = 2
+
+[sinks.switch_health_report]
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key = "/var/run/secrets/spiffe.io/tls.key"
+api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+workers = 2
+
+[sinks.power_shelf_health_report]
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key = "/var/run/secrets/spiffe.io/tls.key"
+api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+workers = 2
 
 # ==============================================================================
 # Rate Limiting
@@ -98,6 +128,10 @@ include_sensor_thresholds = true
 
 [collectors.firmware]
 firmware_refresh_interval = "30m"
+
+[collectors.leak_detector]
+poll_interval = "1m"
+state_refresh_interval = "30m"
 
 [collectors.logs]
 mode = "sse" # "sse" (default, preferred) or "periodic" (fallback)

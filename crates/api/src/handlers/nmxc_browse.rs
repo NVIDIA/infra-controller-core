@@ -278,13 +278,14 @@ pub(crate) async fn nmxc_browse(
                 code,
                 headers,
             })),
-            Err(CarbideError::NotFoundError { kind: "nmxc_gpu", id }) => {
-                Ok(Response::new(rpc::NmxcBrowseResponse {
-                    body: format!("GPU not found: {id}"),
-                    code: 404,
-                    headers: HashMap::new(),
-                }))
-            }
+            Err(CarbideError::NotFoundError {
+                kind: "nmxc_gpu",
+                id,
+            }) => Ok(Response::new(rpc::NmxcBrowseResponse {
+                body: format!("GPU not found: {id}"),
+                code: 404,
+                headers: HashMap::new(),
+            })),
             Err(CarbideError::InvalidArgument(msg)) => Ok(Response::new(rpc::NmxcBrowseResponse {
                 body: msg,
                 code: 400,

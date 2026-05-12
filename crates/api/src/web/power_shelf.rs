@@ -26,16 +26,9 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::state_history::StateHistoryTable;
+use super::{Base, filters};
 use crate::api::Api;
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
-}
 
 #[derive(Template)]
 #[template(path = "power_shelf_show.html")]
@@ -43,11 +36,11 @@ struct PowerShelfShow {
     power_shelves: Vec<PowerShelfRecord>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug)]
 struct PowerShelfRecord {
     id: String,
     name: String,
-    state: String,
+    state_display: super::StateDisplay,
     capacity: String,
     voltage: String,
 }
@@ -70,18 +63,15 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
         .power_shelves
         .into_iter()
         .map(|shelf| {
-            let state = shelf
-                .status
-                .as_ref()
-                .and_then(|s| s.controller_state.clone())
-                .map(|s| capitalize(&s))
-                .unwrap_or_else(|| "Unknown".to_string());
+            let status = shelf.status.as_ref();
+            let lifecycle = status.and_then(|status| status.lifecycle.as_ref());
+            let state_display = super::StateDisplay::from_lifecycle(lifecycle);
 
             let config = shelf.config.unwrap_or_default();
             PowerShelfRecord {
                 id: shelf.id.map(|id| id.to_string()).unwrap_or_default(),
                 name: config.name,
-                state,
+                state_display,
                 capacity: config
                     .capacity
                     .map(|c| c.to_string())
@@ -120,35 +110,41 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 struct PowerShelfDetail {
     id: String,
     rack_id: String,
-    controller_state: String,
-    state_version: String,
-    time_in_state: String,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    lifecycle_detail: super::LifecycleDetail,
     power_state: Option<String>,
     name: String,
     capacity: String,
     voltage: String,
     bmc_info: Option<rpc::forge::BmcInfo>,
     metadata_detail: super::MetadataDetail,
+    health_detail: super::HealthDetail,
+    history: StateHistoryTable,
 }
 
 impl PowerShelfDetail {
-    fn new(shelf: rpc::forge::PowerShelf) -> Self {
+    fn new(shelf: rpc::forge::PowerShelf, history: StateHistoryTable) -> Self {
         let id = shelf
             .id
             .as_ref()
             .map(|id| id.to_string())
             .unwrap_or_default();
         let config = shelf.config.unwrap_or_default();
-        let state_reason = shelf.status.as_ref().and_then(|s| s.state_reason.clone());
-        let power_state = shelf.status.as_ref().and_then(|s| s.power_state.clone());
-        let controller_state = shelf
+        let lifecycle = shelf
             .status
             .as_ref()
-            .and_then(|s| s.controller_state.clone())
-            .map(|s| capitalize(&s))
-            .unwrap_or_else(|| "Unknown".to_string());
-        let time_in_state = config_version::since_state_change_humanized(&shelf.state_version);
+            .and_then(|s| s.lifecycle.clone())
+            .unwrap_or_default();
+        let power_state = shelf.status.as_ref().and_then(|s| s.power_state.clone());
+        let health_detail = super::HealthDetail::new(
+            format!("/admin/power-shelf/{id}/health"),
+            "Go to Power Shelf health reports",
+            shelf.status.as_ref().and_then(|s| s.health.clone()),
+            shelf
+                .status
+                .as_ref()
+                .map(|s| s.health_sources.clone())
+                .unwrap_or_default(),
+        );
         let metadata_detail = super::MetadataDetail {
             metadata: shelf.metadata.unwrap_or_default(),
             metadata_version: shelf.version,
@@ -156,10 +152,7 @@ impl PowerShelfDetail {
         Self {
             id,
             rack_id: shelf.rack_id.map(|id| id.to_string()).unwrap_or_default(),
-            controller_state,
-            state_version: shelf.state_version,
-            time_in_state,
-            state_reason,
+            lifecycle_detail: lifecycle.into(),
             power_state,
             name: config.name,
             capacity: config
@@ -172,6 +165,8 @@ impl PowerShelfDetail {
                 .unwrap_or_else(|| "N/A".to_string()),
             bmc_info: shelf.bmc_info,
             metadata_detail,
+            health_detail,
+            history,
         }
     }
 }
@@ -198,7 +193,22 @@ pub async fn detail(
         return (StatusCode::OK, Json(shelf)).into_response();
     }
 
-    let detail = PowerShelfDetail::new(shelf);
+    let history = match super::state_history::fetch_power_shelf_state_history_records(
+        &api,
+        &power_shelf_id,
+    )
+    .await
+    {
+        Ok((_power_shelf_id, records)) => StateHistoryTable {
+            records: records.into_iter().map(Into::into).collect(),
+        },
+        Err((code, err)) => {
+            tracing::error!(%code, %err, %power_shelf_id, "fetch_power_shelf_state_history_records");
+            StateHistoryTable { records: vec![] }
+        }
+    };
+
+    let detail = PowerShelfDetail::new(shelf, history);
     (StatusCode::OK, Html(detail.render().unwrap())).into_response()
 }
 
@@ -262,3 +272,6 @@ async fn fetch_power_shelves(api: &Api) -> Result<rpc::forge::PowerShelfList, to
     }
     Ok(rpc::forge::PowerShelfList { power_shelves })
 }
+
+impl super::Base for PowerShelfShow {}
+impl super::Base for PowerShelfDetail {}

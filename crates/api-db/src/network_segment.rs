@@ -137,7 +137,14 @@ pub async fn persist(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     crate::network_prefix::create_for(txn, &segment_id, &value.prefixes).await?;
-    crate::network_segment_state_history::persist(txn, segment_id, &initial_state, version).await?;
+    crate::state_history::persist(
+        txn,
+        crate::state_history::StateHistoryTableId::NetworkSegment,
+        &segment_id,
+        &initial_state,
+        version,
+    )
+    .await?;
 
     find_by(
         txn,
@@ -179,19 +186,7 @@ pub async fn for_relay(
     txn: &mut PgConnection,
     relay: IpAddr,
 ) -> DatabaseResult<Option<NetworkSegment>> {
-    lazy_static! {
-        static ref query: String = format!(
-            r#"{}
-                INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
-                WHERE $1::inet <<= network_prefixes.prefix"#,
-            NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
-        );
-    }
-    let mut results = sqlx::query_as(&query)
-        .bind(IpNetwork::from(relay))
-        .fetch_all(txn)
-        .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+    let mut results = for_relay_all(txn, std::slice::from_ref(&relay)).await?;
 
     match results.len() {
         0 | 1 => Ok(results.pop()),
@@ -201,28 +196,87 @@ pub async fn for_relay(
     }
 }
 
-pub async fn for_segment_type(
+/// Returns all network segments that contain at least one relay/gateway IP.
+pub async fn for_relay_all(
     txn: &mut PgConnection,
-    relay: IpAddr,
-    segment_type: NetworkSegmentType,
-) -> DatabaseResult<Option<NetworkSegment>> {
+    relays: &[IpAddr],
+) -> DatabaseResult<Vec<NetworkSegment>> {
     lazy_static! {
         static ref query: String = format!(
             r#"{}
-                INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
-                WHERE $1::inet <<= network_prefixes.prefix
-                AND $2 = ns.network_segment_type
-                "#,
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM network_prefixes
+                    WHERE network_prefixes.segment_id = ns.id
+                    AND EXISTS (
+                        SELECT 1 FROM unnest($1::inet[]) AS ip
+                        WHERE ip <<= network_prefixes.prefix
+                    )
+                )
+                ORDER BY ns.id"#,
             NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
         );
     }
-    let mut results = sqlx::query_as(&query)
-        .bind(IpNetwork::from(relay))
+    let results = sqlx::query_as(&query)
+        .bind(
+            relays
+                .iter()
+                .map(|v| IpNetwork::from(v.to_owned()))
+                .collect::<Vec<IpNetwork>>(),
+        )
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(&query, e))?;
+
+    Ok(results)
+}
+
+/// Accepts a set of relay/gateway IPs and a segment type and returns
+/// all network segments that match.
+pub async fn for_segment_type_all(
+    txn: &mut PgConnection,
+    relays: &[IpAddr],
+    segment_type: NetworkSegmentType,
+) -> DatabaseResult<Vec<NetworkSegment>> {
+    lazy_static! {
+        static ref query: String = format!(
+            r#"{}
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM network_prefixes
+                    WHERE network_prefixes.segment_id = ns.id
+                    AND EXISTS (
+                        SELECT 1 FROM unnest($1::inet[]) AS ip
+                        WHERE ip <<= network_prefixes.prefix
+                    )
+                )
+                AND $2 = ns.network_segment_type
+                ORDER BY ns.id"#,
+            NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
+        );
+    }
+
+    let results = sqlx::query_as(&query)
+        .bind(
+            relays
+                .iter()
+                .map(|v| IpNetwork::from(v.to_owned()))
+                .collect::<Vec<IpNetwork>>(),
+        )
         .bind(segment_type)
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(&query, e))?;
 
+    Ok(results)
+}
+
+pub async fn for_segment_type(
+    txn: &mut PgConnection,
+    relay: IpAddr,
+    segment_type: NetworkSegmentType,
+) -> DatabaseResult<Option<NetworkSegment>> {
+    let mut results = for_segment_type_all(txn, std::slice::from_ref(&relay), segment_type).await?;
     if results.len() > 1 {
         tracing::trace!(
             "Multiple network segments defined for segment_type {} and relay address {}",
@@ -576,15 +630,15 @@ pub async fn static_assignments(txn: &mut PgConnection) -> Result<NetworkSegment
     find_by_name(txn, STATIC_ASSIGNMENTS_SEGMENT_NAME).await
 }
 
-/// This method returns Admin network segment.
-pub async fn admin(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseError> {
+/// Returns all admin network segments.
+pub async fn admin(txn: &mut PgConnection) -> Result<Vec<NetworkSegment>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
-            "{} WHERE network_segment_type = 'admin'",
+            "{} WHERE network_segment_type = 'admin' ORDER BY ns.id",
             NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
         );
     }
-    let mut segments: Vec<NetworkSegment> = sqlx::query_as(&query)
+    let segments: Vec<NetworkSegment> = sqlx::query_as(&query)
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(&query, e))?;
@@ -593,7 +647,7 @@ pub async fn admin(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseErr
         return Err(DatabaseError::query(&query, sqlx::Error::RowNotFound));
     }
 
-    Ok(segments.remove(0))
+    Ok(segments)
 }
 
 /// Are queried segment in ready state?

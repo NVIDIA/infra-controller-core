@@ -6,12 +6,15 @@ metadata:
     {{- include "carbide-dpu-agent.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
+  internalTrafficPolicy: Local
   selector:
     {{- include "carbide-dpu-agent.selectorLabels" . | nindent 4 }}
     {{- with .Values.serviceDaemonSet.labels }}
       {{- toYaml . | nindent 4 }}
     {{- end }}
   ports:
-    - protocol: TCP
-      port: {{ include "carbide-dpu-agent.serverPort" . | int }}
-      targetPort: {{ include "carbide-dpu-agent.serverPort" . | int }}
+    - name: metrics
+      protocol: TCP
+      port: {{ include "carbide-dpu-agent.metricsPort" . | int }}
+      targetPort: {{ include "carbide-dpu-agent.metricsPort" . | int }}
+

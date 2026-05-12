@@ -259,6 +259,41 @@ WHERE address=$4 AND version=$5";
     Ok(query_result.rows_affected() > 0)
 }
 
+/// Updates only the last exploration error and latency in an endpoint's report.
+///
+/// This preserves the rest of the last successful exploration report while recording
+/// an exploration failure. Returns `Ok(false)` if the entry had been deleted in the
+/// meantime or otherwise modified. It will not fail for version mismatches.
+pub async fn try_update_last_exploration_error(
+    address: IpAddr,
+    old_version: ConfigVersion,
+    error: &model::site_explorer::EndpointExplorationError,
+    latency: std::time::Duration,
+    txn: &mut PgConnection,
+) -> Result<bool, DatabaseError> {
+    let new_version = old_version.increment();
+    let query = "UPDATE explored_endpoints
+SET version=$1,
+    exploration_report=jsonb_set(
+        jsonb_set(exploration_report, '{LastExplorationError}', $2::jsonb, true),
+        '{LastExplorationLatency}', $3::jsonb, true
+    ),
+    waiting_for_explorer_refresh=true,
+    exploration_requested=false
+WHERE address=$4 AND version=$5";
+    let query_result = sqlx::query(query)
+        .bind(new_version)
+        .bind(sqlx::types::Json(error))
+        .bind(sqlx::types::Json(&latency))
+        .bind(address)
+        .bind(old_version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(query_result.rows_affected() > 0)
+}
+
 /// clear_last_known_error clears the last known error in explored_endpoints for the BMC identified by IP
 pub async fn clear_last_known_error(
     address: IpAddr,

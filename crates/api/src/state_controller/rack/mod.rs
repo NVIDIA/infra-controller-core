@@ -33,9 +33,11 @@ pub mod created;
 pub mod deleting;
 pub mod discovering;
 pub mod error_state;
+pub mod fabric_manager;
 pub mod handler;
 pub mod io;
 pub mod maintenance;
+pub mod metrics;
 pub mod ready;
 pub mod validating;
 

@@ -27,7 +27,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use eyre::{ContextCompat, WrapErr, eyre};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
-use rand::Rng;
+use rand::RngExt;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::sleep;
 use vaultrs::api::kv2::requests::SetSecretRequestOptions;
@@ -403,11 +403,6 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
         );
 
         let credentials = match vault_response {
-            // If pasword is empty we treat it the same as missing credentials
-            Ok(Credentials::UsernamePassword {
-                username: _,
-                password,
-            }) if password.is_empty() => Ok(None),
             Ok(creds) => Ok(Some(creds)),
             Err(ce) => {
                 let status_code = record_vault_client_error(&ce, "get_credentials", vault_metrics);

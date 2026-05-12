@@ -118,7 +118,8 @@ fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogR
         }
         CollectorEvent::Metric(_)
         | CollectorEvent::MetricCollectionStart
-        | CollectorEvent::MetricCollectionEnd => None,
+        | CollectorEvent::MetricCollectionEnd
+        | CollectorEvent::CollectorRemoved => None,
     }
 }
 
@@ -224,6 +225,7 @@ mod tests {
         let report = CollectorEvent::HealthReport(
             HealthReport {
                 source: ReportSource::BmcSensors,
+                target: None,
                 observed_at: None,
                 successes: vec![],
                 alerts: vec![HealthReportAlert {

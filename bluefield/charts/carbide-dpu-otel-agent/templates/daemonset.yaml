@@ -54,8 +54,6 @@ spec:
           args:
             - "--config-path=/etc/forge-dpu-otel-agent/config.toml"
             - "run"
-            - "--source-tls-cert-path=/opt/forge/machine_cert.pem"
-            - "--source-tls-key-path=/opt/forge/machine_cert.key"
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:
             limits:

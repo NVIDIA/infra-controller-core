@@ -23,18 +23,17 @@ use std::path::Path;
 use std::process::Command;
 use std::str::Utf8Error;
 
+use ::carbide_rpc_utils::machine_discovery::aggregate_cpus;
+use ::carbide_utils::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
+use ::carbide_utils::cmd::CmdError;
 use ::rpc::machine_discovery as rpc_discovery;
-use ::utils::cmd::CmdError;
-use ::utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use base64::prelude::*;
+use carbide_utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
 use libudev::Device;
 use procfs::{CpuInfo, FromRead};
 use rpc::machine_discovery::MemoryDevice;
 use tracing::warn;
 use uname::uname;
-use utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
-
-use crate::cpu::aggregate_cpus;
 
 pub mod dpu;
 mod gpu;
@@ -728,8 +727,9 @@ fn enumerate_hardware_inner(
             // Figure out a longer term strategy to use all three serial numbers. Keeping the commented out code below for future reference.
             // Possible Values for dmi.product_name: BlueField SoC (BF2), BlueField-3 SmartNIC Main Card (BF3), BlueField-3 DPU (BF3)
             if dmi.product_name.contains(BF_PRODUCT_NAME_REGEX) {
-                dmi.board_serial = utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string();
-                dmi.chassis_serial = utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string();
+                dmi.board_serial = carbide_utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string();
+                dmi.chassis_serial =
+                    carbide_utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string();
             } else {
                 dmi.board_serial = convert_sysattr_to_string("board_serial", &device)?.to_string();
                 dmi.chassis_serial =
@@ -849,7 +849,7 @@ fn enumerate_hardware_inner(
         nvme_devices: nvmes,
         dmi_data: Some(dmi),
         machine_type: arch.to_string(),
-        machine_arch: Some(arch.into()),
+        machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(arch)),
         tpm_ek_certificate,
         dpu_info: dpu_vpd,
         gpus,
@@ -867,6 +867,23 @@ const INIT_CPU_INFO_PATH: &str = "/host-cpu-info";
 /// Path where the host's `/proc/meminfo` is bind-mounted inside the init container.
 const INIT_MEM_INFO_PATH: &str = "/host-mem-info";
 
+/// Validate that an enumerated [`rpc_discovery::DiscoveryInfo`] is complete
+/// enough for downstream use. Returns `Err` describing the missing piece so
+/// the caller can retry the probe.
+///
+/// Today the only required field is `dpu_info` — DPU VPD probing can race
+/// with device init and produce a `None` if read too early.
+fn validate_enumerated(
+    info: &rpc_discovery::DiscoveryInfo,
+) -> Result<(), HardwareEnumerationError> {
+    if info.dpu_info.is_none() {
+        return Err(HardwareEnumerationError::GenericError(
+            "Hardware enumeration is missing dpu_info".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Enumerate hardware and save the result as JSON to [`HW_CACHE_PATH`].
 ///
 /// Used by the init container to snapshot host hardware info so the containerized agent can
@@ -874,11 +891,49 @@ const INIT_MEM_INFO_PATH: &str = "/host-mem-info";
 ///
 /// Reads CPU info from [`INIT_CPU_INFO_PATH`] (`/host-cpu-info`) where the init container
 /// bind-mounts the host's `/proc/cpuinfo`.
-pub fn enumerate_and_save_hardware()
+pub async fn enumerate_and_save_hardware()
 -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
-    let info = enumerate_hardware_inner(INIT_CPU_INFO_PATH, INIT_MEM_INFO_PATH)?;
-    save_hardware_to(&info, HW_CACHE_PATH)?;
-    Ok(info)
+    let mut last_err = String::new();
+
+    macro_rules! try_or_retry {
+        ($expr:expr, $msg:literal, $attempt:expr) => {
+            match $expr {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!(attempt = $attempt, error = %e, $msg);
+                    last_err = e.to_string();
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    continue;
+                }
+            }
+        };
+    }
+
+    for attempt in 1..10 {
+        let info = try_or_retry!(
+            enumerate_hardware_inner(INIT_CPU_INFO_PATH, INIT_MEM_INFO_PATH),
+            "Hardware enumeration failed; retrying in 10s",
+            attempt
+        );
+        try_or_retry!(
+            validate_enumerated(&info),
+            "Hardware enumeration incomplete; retrying in 10s",
+            attempt
+        );
+        try_or_retry!(
+            save_hardware_to(&info, HW_CACHE_PATH),
+            "Failed to save hardware cache; retrying in 10s",
+            attempt
+        );
+        return Ok(info);
+    }
+
+    tracing::error!(
+        last_error = %last_err,
+        "Init container failed to generate hardware info. Try to delete the pod to recover."
+    );
+
+    Err(HardwareEnumerationError::GenericError(last_err))
 }
 
 /// Load the hardware snapshot from [`HW_CACHE_PATH`] written by the init container.

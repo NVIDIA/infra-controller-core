@@ -30,7 +30,7 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_managed_host_with_config,
-    create_test_env_with_overrides, get_config, send_health_report_override,
+    create_test_env_with_overrides, get_config, send_health_report_entry,
 };
 
 fn leak_alert_report(source: &str) -> HealthReport {
@@ -79,24 +79,20 @@ async fn test_insert_list_remove_rack_override(
     let report = leak_alert_report("dsx-exchange-consumer");
 
     env.api
-        .insert_rack_health_report_override(Request::new(
-            rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
-                    report: Some(report.clone().into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(report.clone().into()),
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await?;
 
     let list_resp = env
         .api
-        .list_rack_health_report_overrides(Request::new(
-            rpc_forge::ListRackHealthReportOverridesRequest {
-                rack_id: Some(rack_id.clone()),
-            },
-        ))
+        .list_rack_health_reports(Request::new(rpc_forge::ListRackHealthReportsRequest {
+            rack_id: Some(rack_id.clone()),
+        }))
         .await?
         .into_inner();
     assert_eq!(list_resp.health_report_entries.len(), 1);
@@ -110,21 +106,17 @@ async fn test_insert_list_remove_rack_override(
     assert_eq!(listed_report.alerts.len(), 1);
 
     env.api
-        .remove_rack_health_report_override(Request::new(
-            rpc_forge::RemoveRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                source: "dsx-exchange-consumer".to_string(),
-            },
-        ))
+        .remove_rack_health_report(Request::new(rpc_forge::RemoveRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            source: "dsx-exchange-consumer".to_string(),
+        }))
         .await?;
 
     let list_resp = env
         .api
-        .list_rack_health_report_overrides(Request::new(
-            rpc_forge::ListRackHealthReportOverridesRequest {
-                rack_id: Some(rack_id.clone()),
-            },
-        ))
+        .list_rack_health_reports(Request::new(rpc_forge::ListRackHealthReportsRequest {
+            rack_id: Some(rack_id.clone()),
+        }))
         .await?
         .into_inner();
     assert_eq!(list_resp.health_report_entries.len(), 0);
@@ -146,25 +138,21 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     for _ in 0..3 {
         env.api
-            .insert_rack_health_report_override(Request::new(
-                rpc_forge::InsertRackHealthReportOverrideRequest {
-                    rack_id: Some(rack_id.clone()),
-                    health_report_entry: Some(rpc_forge::HealthReportEntry {
-                        report: Some(report.clone().into()),
-                        mode: rpc_forge::HealthReportApplyMode::Merge as i32,
-                    }),
-                },
-            ))
+            .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+                rack_id: Some(rack_id.clone()),
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
+                    report: Some(report.clone().into()),
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                }),
+            }))
             .await?;
     }
 
     let list_resp = env
         .api
-        .list_rack_health_report_overrides(Request::new(
-            rpc_forge::ListRackHealthReportOverridesRequest {
-                rack_id: Some(rack_id.clone()),
-            },
-        ))
+        .list_rack_health_reports(Request::new(rpc_forge::ListRackHealthReportsRequest {
+            rack_id: Some(rack_id.clone()),
+        }))
         .await?
         .into_inner();
     assert_eq!(list_resp.health_report_entries.len(), 1);
@@ -186,12 +174,10 @@ async fn test_remove_nonexistent_source(
 
     let result = env
         .api
-        .remove_rack_health_report_override(Request::new(
-            rpc_forge::RemoveRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                source: "nonexistent-source".to_string(),
-            },
-        ))
+        .remove_rack_health_report(Request::new(rpc_forge::RemoveRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            source: "nonexistent-source".to_string(),
+        }))
         .await;
 
     assert!(result.is_err());
@@ -212,15 +198,13 @@ async fn test_missing_rack_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let result = env
         .api
-        .insert_rack_health_report_override(Request::new(
-            rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(nonexistent_rack_id),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
-                    report: Some(report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(nonexistent_rack_id),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(report.into()),
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await;
 
     assert!(result.is_err(), "Expected NotFound for nonexistent rack");
@@ -253,15 +237,13 @@ async fn test_propagation_to_host_aggregate_health(
 
     let report = leak_alert_report("dsx-exchange-consumer");
     env.api
-        .insert_rack_health_report_override(Request::new(
-            rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
-                    report: Some(report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(report.into()),
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await?;
 
     let snapshot = db::managed_host::load_snapshot(
@@ -315,15 +297,13 @@ async fn test_host_allocatability_blocked_by_rack_override(
 
     let report = leak_alert_report("dsx-exchange-consumer");
     env.api
-        .insert_rack_health_report_override(Request::new(
-            rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
-                    report: Some(report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(report.into()),
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await?;
 
     let snapshot = db::managed_host::load_snapshot(
@@ -355,7 +335,7 @@ async fn test_host_replace_overrides_rack_alerts(
     let host_machine_id = mh.id;
 
     let host_replace = empty_healthy_report("sre-override");
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (host_replace, HealthReportApplyMode::Replace),
@@ -374,15 +354,13 @@ async fn test_host_replace_overrides_rack_alerts(
 
     let rack_report = leak_alert_report("dsx-exchange-consumer");
     env.api
-        .insert_rack_health_report_override(Request::new(
-            rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
-                    report: Some(rack_report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(rack_report.into()),
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await?;
 
     let snapshot = db::managed_host::load_snapshot(
@@ -424,7 +402,7 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
     let host_machine_id = mh.id;
 
     let host_replace = empty_healthy_report("sre-override");
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (host_replace, HealthReportApplyMode::Replace),
@@ -443,15 +421,13 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
 
     let rack_report = leak_alert_report("rack-level-replace");
     env.api
-        .insert_rack_health_report_override(Request::new(
-            rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
-                    report: Some(rack_report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Replace as i32,
-                }),
-            },
-        ))
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(rack_report.into()),
+                mode: rpc_forge::HealthReportApplyMode::Replace as i32,
+            }),
+        }))
         .await?;
 
     let snapshot = db::managed_host::load_snapshot(
@@ -510,33 +486,27 @@ async fn test_dsx_consumer_contract(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     };
 
     env.api
-        .insert_rack_health_report_override(Request::new(
-            rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
-                    report: Some(report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(report.into()),
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await?;
 
     env.api
-        .remove_rack_health_report_override(Request::new(
-            rpc_forge::RemoveRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                source: "dsx-exchange-consumer".to_string(),
-            },
-        ))
+        .remove_rack_health_report(Request::new(rpc_forge::RemoveRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            source: "dsx-exchange-consumer".to_string(),
+        }))
         .await?;
 
     let list_resp = env
         .api
-        .list_rack_health_report_overrides(Request::new(
-            rpc_forge::ListRackHealthReportOverridesRequest {
-                rack_id: Some(rack_id.clone()),
-            },
-        ))
+        .list_rack_health_reports(Request::new(rpc_forge::ListRackHealthReportsRequest {
+            rack_id: Some(rack_id.clone()),
+        }))
         .await?
         .into_inner();
     assert_eq!(
@@ -562,15 +532,13 @@ async fn test_rack_health_visible_in_find_racks_by_ids(
 
     let report = leak_alert_report("dsx-exchange-consumer");
     env.api
-        .insert_rack_health_report_override(Request::new(
-            rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id.clone()),
-                health_report_entry: Some(rpc_forge::HealthReportEntry {
-                    report: Some(report.into()),
-                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(report.into()),
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await?;
 
     let rack_resp = env
@@ -602,6 +570,124 @@ async fn test_rack_health_visible_in_find_racks_by_ids(
     assert_eq!(
         rack_status.health_sources[0].mode,
         rpc_forge::HealthReportApplyMode::Merge as i32
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_rack_health_aggregation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(get_config()))
+            .await;
+
+    let mut txn = pool.acquire().await?;
+    let rack_id = TestRackDbBuilder::new().persist(&mut txn).await?;
+    drop(txn);
+
+    env.run_rack_controller_iteration().await;
+
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_racks_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{fresh=\"true\",override_type=\"replace\"} 0".to_string(),
+        ]
+    );
+
+    let mut status_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_racks_health_status_count");
+    status_metrics.sort();
+    assert_eq!(
+        status_metrics,
+        vec![
+            "{fresh=\"true\",healthy=\"false\"} 0".to_string(),
+            "{fresh=\"true\",healthy=\"true\"} 1".to_string(),
+        ]
+    );
+
+    env.api
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(leak_alert_report("dsx-exchange-consumer").into()),
+                mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
+        .await?;
+    env.run_rack_controller_iteration().await;
+
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_racks_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 1".to_string(),
+            "{fresh=\"true\",override_type=\"replace\"} 0".to_string(),
+        ]
+    );
+
+    let mut status_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_racks_health_status_count");
+    status_metrics.sort();
+    assert_eq!(
+        status_metrics,
+        vec![
+            "{fresh=\"true\",healthy=\"false\"} 1".to_string(),
+            "{fresh=\"true\",healthy=\"true\"} 0".to_string(),
+        ]
+    );
+
+    env.api
+        .insert_rack_health_report(Request::new(rpc_forge::InsertRackHealthReportRequest {
+            rack_id: Some(rack_id.clone()),
+            health_report_entry: Some(rpc_forge::HealthReportEntry {
+                report: Some(empty_healthy_report("admin-override").into()),
+                mode: rpc_forge::HealthReportApplyMode::Replace as i32,
+            }),
+        }))
+        .await?;
+    env.run_rack_controller_iteration().await;
+
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_racks_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 1".to_string(),
+            "{fresh=\"true\",override_type=\"replace\"} 1".to_string(),
+        ]
+    );
+
+    let mut status_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_racks_health_status_count");
+    status_metrics.sort();
+    assert_eq!(
+        status_metrics,
+        vec![
+            "{fresh=\"true\",healthy=\"false\"} 0".to_string(),
+            "{fresh=\"true\",healthy=\"true\"} 1".to_string(),
+        ]
+    );
+
+    assert!(
+        env.test_meter
+            .formatted_metrics("carbide_alerts_suppressed_count")
+            .is_empty(),
+        "racks should not emit the legacy alerts_suppressed alias"
     );
 
     Ok(())

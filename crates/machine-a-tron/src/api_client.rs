@@ -17,9 +17,10 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use base64::prelude::*;
-use bmc_mock::MachineInfo;
+use bmc_mock::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, MachineInfo};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine_validation::MachineValidationId;
 use mac_address::MacAddress;
 use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
@@ -405,7 +406,6 @@ impl ApiClient {
         self.0
             .create_vpc(rpc::forge::VpcCreationRequest {
                 id: None,
-                name: "".to_string(),
                 tenant_organization_id: "Forge-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
                 network_security_group_id: None,
@@ -429,13 +429,13 @@ impl ApiClient {
     pub async fn machine_validation_complete(
         &self,
         machine_id: &MachineId,
-        validation_id: rpc::common::Uuid,
+        validation_id: &MachineValidationId,
     ) -> ClientApiResult<()> {
         self.0
             .machine_validation_completed(rpc::forge::MachineValidationCompletedRequest {
                 machine_id: Some(*machine_id),
                 machine_validation_error: None,
-                validation_id: Some(validation_id),
+                validation_id: Some(*validation_id),
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -461,7 +461,7 @@ impl ApiClient {
                 result: 0,
                 message: "".to_string(),
             }),
-            result: 0,
+            ..Default::default()
         };
 
         self.0
@@ -482,6 +482,7 @@ impl ApiClient {
                 arch: arch.into(),
                 interface_id: Some(interface_id),
                 product,
+                client_ip: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -508,8 +509,8 @@ impl ApiClient {
         self.0
             .add_expected_machine(ExpectedMachine {
                 bmc_mac_address,
-                bmc_username: "root".to_string(),
-                bmc_password: "factory_password".to_string(),
+                bmc_username: DUMMY_FACTORY_USERNAME.to_string(),
+                bmc_password: DUMMY_FACTORY_PASSWORD.to_string(),
                 chassis_serial_number,
                 fallback_dpu_serial_numbers: Vec::new(),
                 metadata: None,
@@ -524,6 +525,7 @@ impl ApiClient {
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: None,
+                host_lifecycle_profile: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)
