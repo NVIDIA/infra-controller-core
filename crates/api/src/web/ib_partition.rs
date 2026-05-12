@@ -130,7 +130,7 @@ async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>
             .await
             .map(|response| response.into_inner())?;
 
-        partitions.extend(next_partitions.ib_partitions.into_iter());
+        partitions.extend(next_partitions.ib_partitions);
         offset += page_size;
     }
 

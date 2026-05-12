@@ -77,8 +77,8 @@ pub async fn show_expected_machines(
         }));
 
     let bmc_ips = expected_mi
-        .iter()
-        .filter_map(|(_mac, interface)| {
+        .values()
+        .filter_map(|interface| {
             let ip = interface.address.first()?;
             Some(ip.clone())
         })

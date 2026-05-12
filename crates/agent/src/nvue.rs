@@ -449,7 +449,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     };
 
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
-    vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
+    vpcs.sort_by_key(|a| a.L3VNI);
 
     let (traffic_intercept_ipv4, traffic_intercept_ipv6) =
         split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, 1);
