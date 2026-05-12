@@ -3058,6 +3058,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-api-test-helper",
  "carbide-macros",
+ "carbide-secrets",
  "carbide-sqlx-testing",
  "carbide-uuid",
  "chrono",

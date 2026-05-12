@@ -276,11 +276,20 @@ mod tests {
     }
 
     fn make_ep(mac: &str) -> SwitchEndpoint {
+        use forge_secrets::credentials::Credentials;
         SwitchEndpoint {
             bmc_ip: "10.0.0.1".parse().unwrap(),
             bmc_mac: mac.parse().unwrap(),
             nvos_ip: "10.0.0.2".parse().unwrap(),
             nvos_mac: "11:22:33:44:55:66".parse().unwrap(),
+            bmc_credentials: Credentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "pass".to_string(),
+            },
+            nvos_credentials: Credentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "pass".to_string(),
+            },
         }
     }
 
