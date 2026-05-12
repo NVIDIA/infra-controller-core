@@ -3031,6 +3031,20 @@ impl Forge for Api {
         crate::handlers::dpf::get_dpf_state(self, request).await
     }
 
+    async fn get_dpf_host_snapshot(
+        &self,
+        request: Request<rpc::GetDpfHostSnapshotRequest>,
+    ) -> Result<Response<rpc::DpfHostSnapshotResponse>, Status> {
+        crate::handlers::dpf::get_dpf_host_snapshot(self, request).await
+    }
+
+    async fn get_dpf_service_versions(
+        &self,
+        request: Request<rpc::GetDpfServiceVersionsRequest>,
+    ) -> Result<Response<rpc::DpfServiceVersionsResponse>, Status> {
+        crate::handlers::dpf::get_dpf_service_versions(self, request).await
+    }
+
     // scout_stream handles the bidirectional streaming connection from scout agents.
     // scout agents call scout_stream and send an Init message, and then carbide-api
     // will send down "request" messages to connected agent(s) to either instruct them

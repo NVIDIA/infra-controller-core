@@ -23,7 +23,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use carbide_dpf::{
     BmcPasswordProvider, DpfError, DpfSdk, DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher,
-    KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
+    HostDpfSnapshot, KubeRepository, ResourceLabeler, ServiceTemplateVersion,
+    node_id_from_dpu_node_cr_name,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -76,6 +77,15 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Check that a DPUNode's labels match the current expected labels.
     /// Returns `false` when the node exists but has stale labels.
     async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError>;
+
+    /// Curated snapshot of all DPF CRs related to one host (DPUNode +
+    /// DPUDevices + DPUs). `node_name` is the full DPUNode CR name.
+    async fn snapshot_host(&self, node_name: &str) -> Result<HostDpfSnapshot, DpfError>;
+
+    /// List helm-chart versions declared on each live `DPUServiceTemplate`
+    /// CR — used for comparing config vs deployed state.
+    async fn list_service_template_versions(&self)
+    -> Result<Vec<ServiceTemplateVersion>, DpfError>;
 }
 
 /// Applies carbide-specific labels to DPF resources.
@@ -369,5 +379,15 @@ impl DpfOperations for DpfSdkOps {
 
     async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError> {
         self.sdk.verify_node_labels(node_name).await
+    }
+
+    async fn snapshot_host(&self, node_name: &str) -> Result<HostDpfSnapshot, DpfError> {
+        self.sdk.snapshot_host(node_name).await
+    }
+
+    async fn list_service_template_versions(
+        &self,
+    ) -> Result<Vec<ServiceTemplateVersion>, DpfError> {
+        self.sdk.list_service_template_versions().await
     }
 }

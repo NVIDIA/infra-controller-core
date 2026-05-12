@@ -15,30 +15,17 @@
  * limitations under the License.
  */
 
-pub mod common;
-mod disable;
-mod enable;
-mod service_version;
-mod show;
-mod snapshot;
+pub mod args;
+pub mod cmd;
 
-use clap::Parser;
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
 
-use crate::cfg::dispatch::Dispatch;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Enable DPF")]
-    Enable(enable::Args),
-    #[clap(about = "Disable DPF")]
-    Disable(disable::Args),
-    #[clap(about = "Check Status of DPF")]
-    Show(show::Args),
-    #[clap(about = "Snapshot DPF CRs (DPUNode, DPUDevices, DPUs) for a host")]
-    Snapshot(snapshot::Args),
-    #[clap(
-        alias = "sv",
-        about = "Compare configured vs deployed DPF service versions"
-    )]
-    ServiceVersion(service_version::Args),
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::snapshot(&self.inner, &ctx.api_client).await
+    }
 }

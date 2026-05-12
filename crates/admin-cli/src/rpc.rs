@@ -21,7 +21,7 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcEndpointRequest, FindInstanceTypesByIdsRequest,
-    FindNetworkSecurityGroupsByIdsRequest, GetDpfStateRequest,
+    FindNetworkSecurityGroupsByIdsRequest, GetDpfHostSnapshotRequest, GetDpfStateRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
     IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
     ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
@@ -2202,5 +2202,21 @@ impl ApiClient {
         }
 
         Ok(all_dpf_states)
+    }
+
+    pub async fn get_dpf_host_snapshot(
+        &self,
+        host_machine_id: MachineId,
+    ) -> CarbideCliResult<String> {
+        let request = GetDpfHostSnapshotRequest {
+            host_machine_id: Some(host_machine_id),
+        };
+        let response = self.0.get_dpf_host_snapshot(request).await?;
+        Ok(response.json_payload)
+    }
+
+    pub async fn get_dpf_service_versions(&self) -> CarbideCliResult<Vec<rpc::DpfServiceVersion>> {
+        let response = self.0.get_dpf_service_versions().await?;
+        Ok(response.services)
     }
 }
