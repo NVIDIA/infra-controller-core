@@ -286,6 +286,7 @@ impl ApiClient {
             }),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![interface_config],
+                auto: false,
             }),
             network_security_group_id: None,
             infiniband: None,
@@ -482,6 +483,7 @@ impl ApiClient {
                 arch: arch.into(),
                 interface_id: Some(interface_id),
                 product,
+                client_ip: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

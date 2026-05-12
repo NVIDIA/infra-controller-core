@@ -565,22 +565,35 @@ async fn rms_start_firmware_upgrade(
     for submission in submissions {
         match submission.response {
             Ok(response) => {
-                if !response.job_id.is_empty() {
-                    job.batch_job_ids.push(response.job_id.clone());
+                let batch_response = response.response.as_ref();
+                if let Some(batch_response) = batch_response
+                    && !batch_response.job_id.is_empty()
+                {
+                    job.batch_job_ids.push(batch_response.job_id.clone());
                 }
 
                 let child_jobs = response
                     .node_jobs
                     .iter()
-                    .map(|child| (child.node_id.as_str(), child.job_id.clone()))
+                    .map(|child| (child.node_id.clone(), child.job_id.clone()))
                     .collect::<std::collections::HashMap<_, _>>();
-                let node_errors = response
-                    .node_results
-                    .iter()
-                    .map(|result| (result.node_id.as_str(), result.error_message.clone()))
-                    .collect::<std::collections::HashMap<_, _>>();
-                let parent_job_id =
-                    (!response.job_id.is_empty()).then_some(response.job_id.clone());
+                let node_errors = batch_response
+                    .map(|batch_response| {
+                        batch_response
+                            .node_results
+                            .iter()
+                            .filter(|result| {
+                                result.status
+                                    != librms::protos::rack_manager::ReturnCode::Success as i32
+                                    || !result.error_message.is_empty()
+                            })
+                            .map(|result| (result.node_id.clone(), result.error_message.clone()))
+                            .collect::<std::collections::HashMap<_, _>>()
+                    })
+                    .unwrap_or_default();
+                let parent_job_id = batch_response.and_then(|batch_response| {
+                    (!batch_response.job_id.is_empty()).then(|| batch_response.job_id.clone())
+                });
 
                 let target_devices = match submission.display_name {
                     "Compute Node" => &mut job.machines,
@@ -599,10 +612,10 @@ async fn rms_start_firmware_upgrade(
                         error_message: None,
                     };
 
-                    if let Some(error_message) = node_errors.get(device.node_id.as_str()) {
+                    if let Some(error_message) = node_errors.get(&device.node_id) {
                         status.status = "failed".into();
                         status.error_message = Some(error_message.clone());
-                    } else if let Some(job_id) = child_jobs.get(device.node_id.as_str()) {
+                    } else if let Some(job_id) = child_jobs.get(&device.node_id) {
                         status.job_id = Some(job_id.clone());
                     } else {
                         status.status = "failed".into();
@@ -821,29 +834,47 @@ async fn rms_start_nvos_update(
             ))
         })?;
 
-    if response.status != rms::ReturnCode::Success as i32
-        && response.job_id.is_empty()
+    let batch_response = response.response.as_ref();
+    let batch_status = batch_response
+        .map(|batch_response| batch_response.status)
+        .unwrap_or(rms::ReturnCode::Failure as i32);
+    let batch_job_id = batch_response
+        .map(|batch_response| batch_response.job_id.as_str())
+        .unwrap_or_default();
+    if batch_status != rms::ReturnCode::Success as i32
+        && batch_job_id.is_empty()
         && response.node_jobs.is_empty()
     {
-        let message = if response.message.is_empty() {
+        let message = batch_response
+            .map(|batch_response| batch_response.message.as_str())
+            .unwrap_or_default();
+        let message = if message.is_empty() {
             "RMS returned failure for UpdateSwitchSystemImage".to_string()
         } else {
-            response.message
+            message.to_string()
         };
         return Err(StateHandlerError::GenericError(eyre::eyre!(message)));
     }
 
-    let parent_job_id = (!response.job_id.is_empty()).then_some(response.job_id.clone());
+    let parent_job_id = (!batch_job_id.is_empty()).then(|| batch_job_id.to_string());
     let child_jobs = response
         .node_jobs
         .iter()
-        .map(|child| (child.node_id.as_str(), child.job_id.clone()))
+        .map(|child| (child.node_id.clone(), child.job_id.clone()))
         .collect::<std::collections::HashMap<_, _>>();
-    let node_errors = response
-        .node_results
-        .iter()
-        .map(|result| (result.node_id.as_str(), result.error_message.clone()))
-        .collect::<std::collections::HashMap<_, _>>();
+    let node_errors = batch_response
+        .map(|batch_response| {
+            batch_response
+                .node_results
+                .iter()
+                .filter(|result| {
+                    result.status != rms::ReturnCode::Success as i32
+                        || !result.error_message.is_empty()
+                })
+                .map(|result| (result.node_id.clone(), result.error_message.clone()))
+                .collect::<std::collections::HashMap<_, _>>()
+        })
+        .unwrap_or_default();
 
     let switches: Vec<_> = switches
         .into_iter()
@@ -855,13 +886,13 @@ async fn rms_start_nvos_update(
                 nvos_ip: switch.os_ip.unwrap_or_default(),
                 status: "pending".into(),
                 job_id: child_jobs
-                    .get(switch.node_id.as_str())
+                    .get(&switch.node_id)
                     .cloned()
                     .or_else(|| parent_job_id.clone()),
                 error_message: None,
             };
 
-            if let Some(error_message) = node_errors.get(switch.node_id.as_str()) {
+            if let Some(error_message) = node_errors.get(&switch.node_id) {
                 status.status = "failed".into();
                 status.error_message = Some(error_message.clone());
             } else if status.job_id.is_none() {

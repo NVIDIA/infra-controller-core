@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 
+#[cfg(feature = "test-support")]
+use std::str::FromStr;
+
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
@@ -169,5 +172,44 @@ impl MlxDeviceInfo {
             "uefi_version_virtio_net_current",
             "status",
         ]
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl MlxDeviceInfo {
+    /// create_test_device creates a sample device for testing purposes.
+    pub fn create_test_device() -> Self {
+        Self {
+            pci_name: "01:00.0".to_string(),
+            device_type: "ConnectX-6 Dx".to_string(),
+            psid: Some("MT_00000055".to_string()),
+            device_description: Some("Mellanox ConnectX-6 Dx EN 100GbE dual port".to_string()),
+            part_number: Some("MCX623106AN-CDAT".to_string()),
+            fw_version_current: Some("22.32.1010".to_string()),
+            pxe_version_current: Some("3.6.0502".to_string()),
+            uefi_version_current: Some("14.25.1020".to_string()),
+            uefi_version_virtio_blk_current: Some("1.0.0".to_string()),
+            uefi_version_virtio_net_current: Some("1.0.0".to_string()),
+            base_mac: Some(MacAddress::from_str("b8:3f:d2:12:34:56").unwrap()),
+            status: None,
+        }
+    }
+
+    /// create_test_device_with_missing_data creates a device with partial data (like a DPU).
+    pub fn create_test_device_with_missing_data() -> Self {
+        Self {
+            pci_name: "b4:00.0".to_string(),
+            device_type: "BlueField3".to_string(),
+            psid: None,
+            device_description: None,
+            part_number: None,
+            fw_version_current: None,
+            pxe_version_current: None,
+            uefi_version_current: None,
+            uefi_version_virtio_blk_current: None,
+            uefi_version_virtio_net_current: None,
+            base_mac: None,
+            status: Some("Failed to open device".to_string()),
+        }
     }
 }

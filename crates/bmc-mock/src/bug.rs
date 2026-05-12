@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use axum::http::StatusCode;
-use duration_str::deserialize_option_duration;
+use duration_str::deserialize_duration;
 use serde::{Deserialize, Serialize};
 
 use crate::redfish;
@@ -43,7 +43,7 @@ pub struct Args {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct LongResponse {
     pub path: Option<String>,
-    #[serde(deserialize_with = "deserialize_option_duration")]
+    #[serde(deserialize_with = "deserialize_duration")]
     pub timeout: Option<Duration>,
 }
 

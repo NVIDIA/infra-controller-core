@@ -39,6 +39,7 @@ impl TestMachineInterface {
                 arch: arch as i32,
                 interface_id: Some(self.id),
                 product: None,
+                client_ip: None,
             }))
             .await
             .unwrap()

@@ -136,7 +136,11 @@ impl HealthObject {
     }
 
     fn show_machine_templates(&self) -> bool {
-        matches!(self, HealthObject::Machine(_))
+        matches!(
+            self,
+            HealthObject::Machine(id)
+                if id.machine_type().is_host() || id.machine_type().is_predicted_host()
+        )
     }
 }
 
@@ -160,13 +164,6 @@ pub async fn machine_health(
     let Ok(machine_id) = MachineId::from_str(&machine_id) else {
         return (StatusCode::BAD_REQUEST, "invalid machine id").into_response();
     };
-    if machine_id.machine_type().is_dpu() {
-        return (
-            StatusCode::NOT_FOUND,
-            "no health for dpu. see host machine instead",
-        )
-            .into_response();
-    }
 
     let data = match fetch_machine_health_page_data(&state, &machine_id).await {
         Ok(data) => data,

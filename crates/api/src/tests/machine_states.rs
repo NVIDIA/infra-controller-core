@@ -939,6 +939,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
             arch: rpc::forge::MachineArchitecture::X86 as i32,
             interface_id: Some(host.interfaces[0].id),
             product: None,
+            client_ip: None,
         }))
         .await
         .unwrap()

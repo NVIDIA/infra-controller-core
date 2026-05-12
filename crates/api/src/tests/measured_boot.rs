@@ -439,7 +439,6 @@ pub mod tests {
 
     // carbide/api/attestation.rs tests
 
-    use num_bigint_dig::BigUint;
     use rsa::RsaPublicKey;
     use tonic::Request;
     use tss_esapi::structures::Signature::RsaPss;
@@ -633,8 +632,8 @@ pub mod tests {
         };
 
         // now, we construct the actual public key from the modulus and exponent
-        let modulus = BigUint::from_bytes_be(unique.value());
-        let exponent: BigUint = BigUint::from(65537u32);
+        let modulus = rsa::BigUint::from_bytes_be(unique.value());
+        let exponent = rsa::BigUint::from(65537u32);
 
         let pub_key_ek =
             RsaPublicKey::new(modulus, exponent).expect("ERROR: could not create RsaPublicKey");

@@ -1045,7 +1045,13 @@ async fn test_add_with_bmc_ip_rejects_if_interface_exists(
 
     // Create an interface via DHCP (simulating the device already being on the network).
     let mut txn = env.pool.begin().await?;
-    db::machine_interface::validate_existing_mac_and_create(&mut txn, bmc_mac, relay, None).await?;
+    db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        bmc_mac,
+        std::slice::from_ref(&relay),
+        None,
+    )
+    .await?;
     txn.commit().await?;
 
     // Now try to add an expected power shelf with the same MAC -- should fail.
@@ -1130,7 +1136,7 @@ async fn test_add_with_bmc_ip_rejects_if_ip_already_allocated(
     let existing = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         "6A:6B:6C:6D:6E:87".parse().unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -1276,9 +1282,13 @@ async fn test_update_with_bmc_ip_assigns_to_empty_interface(
 
     // Create interface via DHCP, then remove its address.
     let mut txn = env.pool.begin().await?;
-    let iface =
-        db::machine_interface::validate_existing_mac_and_create(&mut txn, bmc_mac, relay, None)
-            .await?;
+    let iface = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        bmc_mac,
+        std::slice::from_ref(&relay),
+        None,
+    )
+    .await?;
     db::machine_interface_address::delete(&mut txn, &iface.id).await?;
     txn.commit().await?;
 

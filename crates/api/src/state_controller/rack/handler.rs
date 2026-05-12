@@ -18,7 +18,7 @@
 //! State Handler implementation for Racks.
 
 use carbide_uuid::rack::RackId;
-use model::rack::{Rack, RackState};
+use model::rack::{Rack, RackState, derive_rack_aggregate_health};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::created::handle_created;
@@ -40,6 +40,19 @@ use crate::state_controller::state_handler::{
 pub struct RackStateHandler {}
 
 impl RackStateHandler {
+    fn record_metrics(
+        &self,
+        state: &Rack,
+        ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+    ) {
+        let aggregate_health = derive_rack_aggregate_health(&state.health_reports);
+        ctx.metrics.health.populate(
+            state.id.to_string(),
+            &aggregate_health,
+            &state.health_reports,
+        );
+    }
+
     async fn attempt_state_transition(
         &self,
         id: &RackId,
@@ -82,6 +95,8 @@ impl StateHandler for RackStateHandler {
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
         tracing::info!("Rack {} is in state {}", id, controller_state.to_string());
+
+        self.record_metrics(state, ctx);
 
         if state.deleted.is_some() && !matches!(controller_state, RackState::Deleting) {
             tracing::info!(

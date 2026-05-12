@@ -271,7 +271,9 @@ impl TryFrom<rpc::SwitchConfig> for SwitchConfig {
     }
 }
 
-fn derive_switch_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
+pub fn derive_switch_aggregate_health(
+    sources: &HealthReportSources,
+) -> health_report::HealthReport {
     if let Some(replace) = &sources.replace {
         return replace.clone();
     }

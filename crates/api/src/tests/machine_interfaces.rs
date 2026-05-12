@@ -21,7 +21,7 @@ use std::str::FromStr;
 
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
 use db::dhcp_entry::DhcpEntry;
-use db::{self, ObjectColumnFilter};
+use db::{self};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
@@ -49,13 +49,16 @@ async fn only_one_primary_interface_per_machine(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
 
     let new_interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &dpu.oob_mac_address,
-        None,
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -72,9 +75,8 @@ async fn only_one_primary_interface_per_machine(
 
     let should_failed_machine_interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &other_dpu.oob_mac_address,
-        None,
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -100,13 +102,16 @@ async fn many_non_primary_interfaces_per_machine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
 
     db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        None,
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -118,9 +123,8 @@ async fn many_non_primary_interfaces_per_machine(
 
     let should_be_ok_interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ef").as_ref().unwrap(),
-        None,
         false,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -148,7 +152,7 @@ async fn return_existing_machine_interface_on_rediscover(
     let new_machine = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac,
-        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
+        std::slice::from_ref(&FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()),
         None,
     )
     .await?;
@@ -156,7 +160,7 @@ async fn return_existing_machine_interface_on_rediscover(
     let existing_machine = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac,
-        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
+        std::slice::from_ref(&FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()),
         None,
     )
     .await?;
@@ -174,23 +178,21 @@ async fn find_all_interfaces_test_cases(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let domain_ids = db::dns::domain::find_by(
-        txn.as_mut(),
-        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
-    )
-    .await?;
-    let domain_id = domain_ids[0].id;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+
     let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
     for i in 0..2 {
         let mut txn = env.pool.begin().await?;
         let interface = db::machine_interface::create(
             &mut txn,
-            &network_segment,
+            std::slice::from_ref(&network_segment),
             MacAddress::from_str(format!("ff:ff:ff:ff:ff:0{i}").as_str())
                 .as_ref()
                 .unwrap(),
-            Some(domain_id),
             true,
             AddressSelectionStrategy::NextAvailableIp,
         )
@@ -256,18 +258,16 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let domain_ids = db::dns::domain::find_by(
-        txn.as_mut(),
-        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
-    )
-    .await?;
-    let domain_id = domain_ids[0].id;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+
     let new_interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &dpu.oob_mac_address,
-        Some(domain_id),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -327,7 +327,11 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let network = db::network_segment::admin(&mut txn).await?;
+    let network = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     txn.commit().await.unwrap();
 
     let (tx, _rx1) = broadcast::channel(10);
@@ -344,9 +348,8 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             let mut txn = db_pool.begin().await.unwrap();
             db::machine_interface::create(
                 &mut txn,
-                &n,
+                std::slice::from_ref(&n),
                 &MacAddress::from_str(&mac).unwrap(),
-                Some(env.domain.into()),
                 true,
                 AddressSelectionStrategy::NextAvailableIp,
             )
@@ -385,12 +388,15 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -586,12 +592,15 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -623,12 +632,15 @@ async fn test_max_one_interface_association(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -699,12 +711,15 @@ async fn test_power_shelf_association(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -748,12 +763,15 @@ async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )

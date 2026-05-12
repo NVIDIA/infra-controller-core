@@ -25,12 +25,15 @@ use model::tenant::TenantOrganizationId;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
+use crate::state_controller::health_metrics::{
+    HealthIterationMetrics, HealthMetricDimension, HealthObjectMetrics,
+    register_alerts_suppressed_gauge, register_health_gauges,
+};
 use crate::state_controller::metrics::MetricsEmitter;
 
 #[derive(Debug, Default)]
 pub struct MachineMetrics {
     pub agent_versions: HashMap<String, usize>,
-    pub alerts_suppressed: bool,
     pub dpus_up: usize,
     pub dpus_healthy: usize,
     /// DPU probe alerts by Probe ID and Target
@@ -43,14 +46,8 @@ pub struct MachineMetrics {
     pub machine_reboot_attempts_in_failed_during_discovery: Option<u64>,
     pub num_gpus: usize,
     pub in_use_by_tenant: Option<TenantOrganizationId>,
-    /// Health probe alerts for the aggregate host by Probe ID and Target
-    pub health_probe_alerts: HashSet<(health_report::HealthProbeId, Option<String>)>,
-    pub health_alert_classifications: HashSet<health_report::HealthAlertClassification>,
-    pub machine_id: String,
-    /// The amount of configured `merge` overrides
-    pub num_merge_overrides: usize,
-    /// Whether an override of type `replace` is configured
-    pub replace_override_enabled: bool,
+    /// Health related signals that are common across all entity types, e.g switch/host/rack.
+    pub health: HealthObjectMetrics,
     /// The SKU that is assigned to the host
     pub sku: Option<String>,
     pub sku_device_type: Option<String>,
@@ -86,16 +83,9 @@ pub struct MachineStateControllerIterationMetrics {
     pub hosts_in_use_by_tenant: HashMap<TenantOrganizationId, usize>,
     pub hosts_usable: usize,
     pub hosts_total: usize,
-    /// The amount of hosts by Health status (healthy==true) and assignment status
-    pub hosts_healthy: HashMap<(bool, IsInUseByTenant), usize>,
-    /// The amount of unhealthy hosts by Probe ID, Probe Target and assignment status
-    pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>, IsInUseByTenant), usize>,
-    /// The amount of unhealthy hosts by Alert classification and assignment status
-    pub unhealthy_hosts_by_classification_id: HashMap<(String, IsInUseByTenant), usize>,
-    /// The set of machines (by machine_id) whose external, metrics-based alerting is suppressed
-    pub host_alerts_suppressed_by_machine_id: HashSet<String>,
-    /// The amount of configured overrides by type (merge vs replace) and assignment status
-    pub num_overrides: HashMap<(&'static str, IsInUseByTenant), usize>,
+    /// Aggregate health-related metrics for all hosts, keyed by tenant
+    /// assignment status.
+    pub health: HealthIterationMetrics<IsInUseByTenant>,
     /// Mapping from SKU ID to the amount of hosts which have the SKU configured
     pub hosts_by_sku: HashMap<(String, String), usize>,
     pub hosts_with_bios_password_set: usize,
@@ -103,8 +93,18 @@ pub struct MachineStateControllerIterationMetrics {
     pub hosts_with_scout_heartbeat_timeout: HashSet<String>,
 }
 
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
-pub struct IsInUseByTenant(bool);
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, Default)]
+pub struct IsInUseByTenant(pub bool);
+
+impl HealthMetricDimension for IsInUseByTenant {
+    fn key_values(&self) -> Vec<KeyValue> {
+        vec![KeyValue::new("in_use", self.0.to_string())]
+    }
+
+    fn all_values() -> Vec<Self> {
+        vec![IsInUseByTenant(true), IsInUseByTenant(false)]
+    }
+}
 
 #[derive(Debug)]
 pub struct MachineMetricsEmitter {
@@ -264,70 +264,25 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 })
                 .build()
         };
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("carbide_hosts_health_status_count")
-                .with_description("The total number of Managed Hosts in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts")
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        for healthy in [true, false] {
-                            for in_use in [true, false] {
-                                let count = metrics
-                                    .hosts_healthy
-                                    .get(&(healthy, IsInUseByTenant(in_use)))
-                                    .copied()
-                                    .unwrap_or_default();
-                                observer.observe(
-                                    count as u64,
-                                    &[attrs, &[
-                                        KeyValue::new("healthy", healthy.to_string()),
-                                        KeyValue::new("in_use", in_use.to_string()),
-                                    ]].concat(),
-                                );
-                            }
-                        }
-                    })
-                })
-                .build()
-        };
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("carbide_hosts_health_overrides_count")
-                .with_description("The amount of health overrides that are configured in the site")
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        // The HashMap access is used here instead of iterating order to make sure that
-                        // all 4 combinations always emit metrics. No metric will be absent in case
-                        // no host falls into that category
-                        for override_type in ["merge", "replace"] {
-                            for in_use in [true, false] {
-                                let count = metrics
-                                    .num_overrides
-                                    .get(&(override_type, IsInUseByTenant(in_use)))
-                                    .copied()
-                                    .unwrap_or_default();
-                                observer.observe(
-                                    count as u64,
-                                    &[
-                                        attrs,
-                                        &[
-                                            KeyValue::new(
-                                                "override_type",
-                                                override_type.to_string(),
-                                            ),
-                                            KeyValue::new("in_use", in_use.to_string()),
-                                        ],
-                                    ]
-                                    .concat(),
-                                );
-                            }
-                        }
-                    })
-                })
-                .build()
-        };
+        register_health_gauges::<_, IsInUseByTenant, _>(
+            "carbide_hosts",
+            "machine_id",
+            meter,
+            shared_metrics.clone(),
+            |m| &m.health,
+        );
+
+        // Deprecation warning:
+        // `carbide_alerts_suppressed_count` before the metric was renamed to
+        // `carbide_hosts_alerts_suppressed_count`.
+        // Will be remvoed in future
+        register_alerts_suppressed_gauge(
+            "carbide_alerts_suppressed_count",
+            "machine_id",
+            meter,
+            shared_metrics.clone(),
+            |m| &m.health.alerts_suppressed_by_object_id,
+        );
 
         {
             let metrics = shared_metrics.clone();
@@ -357,84 +312,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
                                     ],
                                 ]
                                 .concat(),
-                            );
-                        }
-                    })
-                })
-                .build()
-        };
-
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("carbide_hosts_unhealthy_by_probe_id_count")
-                .with_description(
-                    "The amount of ManagedHosts which reported a certain Health Probe Alert",
-                )
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        for ((probe, target, in_use), count) in &metrics.unhealthy_hosts_by_probe_id
-                        {
-                            observer.observe(
-                                *count as u64,
-                                &[
-                                    attrs,
-                                    &[
-                                        KeyValue::new("probe_id", probe.clone()),
-                                        KeyValue::new(
-                                            "probe_target",
-                                            target.clone().unwrap_or_default(),
-                                        ),
-                                        KeyValue::new("in_use", in_use.0.to_string()),
-                                    ],
-                                ]
-                                .concat(),
-                            );
-                        }
-                    })
-                })
-                .build()
-        };
-
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("carbide_hosts_unhealthy_by_classification_count")
-                .with_description(
-                    "The amount of ManagedHosts which are marked with a certain classification due to being unhealthy",
-                )
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        for ((classification, in_use), count) in
-                            &metrics.unhealthy_hosts_by_classification_id
-                        {
-                            observer.observe(
-                                *count as u64,
-                                &[attrs, &[
-                                    KeyValue::new("classification", classification.clone()),
-                                    KeyValue::new("in_use", in_use.0.to_string()),
-                                ]].concat(),
-                            );
-                        }
-                    })
-                })
-                .build()
-        };
-
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("carbide_alerts_suppressed_count")
-                .with_description(
-                    "Whether external metrics based alerting is suppressed for a specific host",
-                )
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        for machine_id in &metrics.host_alerts_suppressed_by_machine_id {
-                            observer.observe(
-                                1u64,
-                                &[attrs, &[KeyValue::new("machine_id", machine_id.clone())]]
-                                    .concat(),
                             );
                         }
                     })
@@ -647,12 +524,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
         iteration_metrics.dpus_up += object_metrics.dpus_up;
         iteration_metrics.dpus_healthy += object_metrics.dpus_healthy;
 
-        let is_healthy = object_metrics.health_probe_alerts.is_empty();
         let is_assigned = IsInUseByTenant(object_metrics.in_use_by_tenant.is_some());
-        *iteration_metrics
-            .hosts_healthy
-            .entry((is_healthy, is_assigned))
-            .or_default() += 1;
+        iteration_metrics
+            .health
+            .merge(is_assigned, &object_metrics.health);
 
         iteration_metrics.gpus_total += object_metrics.num_gpus;
         if object_metrics.is_usable_as_instance {
@@ -686,34 +561,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .unhealthy_dpus_by_probe_id
                 .entry((probe_id.to_string(), target.clone()))
                 .or_default() += count;
-        }
-
-        for (probe_id, target) in &object_metrics.health_probe_alerts {
-            *iteration_metrics
-                .unhealthy_hosts_by_probe_id
-                .entry((probe_id.to_string(), target.clone(), is_assigned))
-                .or_default() += 1;
-        }
-        for classification in &object_metrics.health_alert_classifications {
-            *iteration_metrics
-                .unhealthy_hosts_by_classification_id
-                .entry((classification.to_string(), is_assigned))
-                .or_default() += 1;
-        }
-        if object_metrics.alerts_suppressed {
-            iteration_metrics
-                .host_alerts_suppressed_by_machine_id
-                .insert(object_metrics.machine_id.to_string());
-        }
-        *iteration_metrics
-            .num_overrides
-            .entry(("merge", is_assigned))
-            .or_default() += object_metrics.num_merge_overrides;
-        if object_metrics.replace_override_enabled {
-            *iteration_metrics
-                .num_overrides
-                .entry(("replace", is_assigned))
-                .or_default() += 1;
         }
 
         // Record SKU information for all hosts, using "unknown" for hosts without SKU
@@ -808,15 +655,17 @@ mod tests {
                 client_certificate_expiry: HashMap::from_iter([("machine a".to_string(), Some(1))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
-                health_probe_alerts: HashSet::from_iter([(
-                    "FileExists".parse().unwrap(),
-                    Some("def.txt".to_string()),
-                )]),
-                health_alert_classifications: HashSet::new(),
-                alerts_suppressed: false,
-                machine_id: "".to_string(),
-                num_merge_overrides: 0,
-                replace_override_enabled: false,
+                health: HealthObjectMetrics {
+                    object_id: "".to_string(),
+                    health_probe_alerts: HashSet::from_iter([(
+                        "FileExists".parse().unwrap(),
+                        Some("def.txt".to_string()),
+                    )]),
+                    health_alert_classifications: HashSet::new(),
+                    alerts_suppressed: false,
+                    num_merge_overrides: 0,
+                    replace_override_enabled: false,
+                },
                 is_usable_as_instance: true,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
@@ -854,22 +703,24 @@ mod tests {
                 client_certificate_expiry: HashMap::from_iter([("machine a".to_string(), Some(2))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(0),
                 machine_reboot_attempts_in_failed_during_discovery: Some(0),
-                health_probe_alerts: HashSet::from_iter([
-                    ("bgp".parse().unwrap(), None),
-                    ("ntp".parse().unwrap(), None),
-                    ("FileExists".parse().unwrap(), Some("def.txt".to_string())),
-                    ("FileExists".parse().unwrap(), Some("abc.txt".to_string())),
-                ]),
-                health_alert_classifications: [
-                    "Class1".parse().unwrap(),
-                    "Class3".parse().unwrap(),
-                ]
-                .into_iter()
-                .collect(),
-                alerts_suppressed: false,
-                machine_id: "".to_string(),
-                num_merge_overrides: 0,
-                replace_override_enabled: false,
+                health: HealthObjectMetrics {
+                    object_id: "".to_string(),
+                    health_probe_alerts: HashSet::from_iter([
+                        ("bgp".parse().unwrap(), None),
+                        ("ntp".parse().unwrap(), None),
+                        ("FileExists".parse().unwrap(), Some("def.txt".to_string())),
+                        ("FileExists".parse().unwrap(), Some("abc.txt".to_string())),
+                    ]),
+                    health_alert_classifications: [
+                        "Class1".parse().unwrap(),
+                        "Class3".parse().unwrap(),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    alerts_suppressed: false,
+                    num_merge_overrides: 0,
+                    replace_override_enabled: false,
+                },
                 is_usable_as_instance: true,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::from_iter([(
@@ -899,12 +750,14 @@ mod tests {
                 client_certificate_expiry: HashMap::from_iter([("machine b".to_string(), Some(3))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(1),
                 machine_reboot_attempts_in_failed_during_discovery: Some(1),
-                health_probe_alerts: HashSet::new(),
-                health_alert_classifications: HashSet::new(),
-                alerts_suppressed: false,
-                machine_id: "".to_string(),
-                num_merge_overrides: 1,
-                replace_override_enabled: true,
+                health: HealthObjectMetrics {
+                    object_id: "".to_string(),
+                    health_probe_alerts: HashSet::new(),
+                    health_alert_classifications: HashSet::new(),
+                    alerts_suppressed: false,
+                    num_merge_overrides: 1,
+                    replace_override_enabled: true,
+                },
                 is_usable_as_instance: false,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
@@ -941,12 +794,14 @@ mod tests {
                 client_certificate_expiry: HashMap::from_iter([("machine b".to_string(), None)]),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(2),
                 machine_reboot_attempts_in_failed_during_discovery: Some(2),
-                health_probe_alerts: HashSet::new(),
-                health_alert_classifications: HashSet::new(),
-                alerts_suppressed: false,
-                machine_id: "".to_string(),
-                num_merge_overrides: 0,
-                replace_override_enabled: false,
+                health: HealthObjectMetrics {
+                    object_id: "".to_string(),
+                    health_probe_alerts: HashSet::new(),
+                    health_alert_classifications: HashSet::new(),
+                    alerts_suppressed: false,
+                    num_merge_overrides: 0,
+                    replace_override_enabled: false,
+                },
                 is_usable_as_instance: true,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
@@ -994,25 +849,27 @@ mod tests {
                 client_certificate_expiry: HashMap::default(),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
-                health_probe_alerts: [
-                    ("BgpStats".parse().unwrap(), None),
-                    (
-                        "HeartbeatTimeout".parse().unwrap(),
-                        Some("forge-dpu-agent".to_string()),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-                health_alert_classifications: [
-                    "Class1".parse().unwrap(),
-                    "Class2".parse().unwrap(),
-                ]
-                .into_iter()
-                .collect(),
-                alerts_suppressed: false,
-                machine_id: "".to_string(),
-                num_merge_overrides: 1,
-                replace_override_enabled: false,
+                health: HealthObjectMetrics {
+                    object_id: "".to_string(),
+                    health_probe_alerts: [
+                        ("BgpStats".parse().unwrap(), None),
+                        (
+                            "HeartbeatTimeout".parse().unwrap(),
+                            Some("forge-dpu-agent".to_string()),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    health_alert_classifications: [
+                        "Class1".parse().unwrap(),
+                        "Class2".parse().unwrap(),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    alerts_suppressed: false,
+                    num_merge_overrides: 1,
+                    replace_override_enabled: false,
+                },
                 is_usable_as_instance: false,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
@@ -1055,17 +912,21 @@ mod tests {
                 client_certificate_expiry: HashMap::default(),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
-                health_probe_alerts: [("BgpStats".parse().unwrap(), None)].into_iter().collect(),
-                health_alert_classifications: [
-                    "Class1".parse().unwrap(),
-                    "Class2".parse().unwrap(),
-                ]
-                .into_iter()
-                .collect(),
-                alerts_suppressed: false,
-                machine_id: "".to_string(),
-                num_merge_overrides: 0,
-                replace_override_enabled: true,
+                health: HealthObjectMetrics {
+                    object_id: "".to_string(),
+                    health_probe_alerts: [("BgpStats".parse().unwrap(), None)]
+                        .into_iter()
+                        .collect(),
+                    health_alert_classifications: [
+                        "Class1".parse().unwrap(),
+                        "Class2".parse().unwrap(),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    alerts_suppressed: false,
+                    num_merge_overrides: 0,
+                    replace_override_enabled: true,
+                },
                 is_usable_as_instance: false,
                 is_host_bios_password_set: false,
                 last_machine_validation_list: HashMap::new(),
@@ -1147,7 +1008,7 @@ mod tests {
 
         assert_eq!(iteration_metrics.hosts_total, 6);
         assert_eq!(
-            iteration_metrics.hosts_healthy,
+            iteration_metrics.health.healthy,
             HashMap::from_iter([
                 ((true, IsInUseByTenant(true)), 1),
                 ((false, IsInUseByTenant(true)), 2),
@@ -1156,7 +1017,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            iteration_metrics.unhealthy_hosts_by_probe_id,
+            iteration_metrics.health.unhealthy_by_probe_id,
             HashMap::from_iter([
                 (
                     ("BgpStats".parse().unwrap(), None, IsInUseByTenant(false)),
@@ -1191,7 +1052,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            iteration_metrics.unhealthy_hosts_by_classification_id,
+            iteration_metrics.health.unhealthy_by_classification_id,
             HashMap::from_iter([
                 (("Class1".parse().unwrap(), IsInUseByTenant(true)), 1),
                 (("Class1".parse().unwrap(), IsInUseByTenant(false)), 2),
@@ -1200,7 +1061,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            iteration_metrics.num_overrides,
+            iteration_metrics.health.num_overrides,
             HashMap::from_iter([
                 (("merge", IsInUseByTenant(true)), 0),
                 (("merge", IsInUseByTenant(false)), 2),

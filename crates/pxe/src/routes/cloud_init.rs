@@ -317,7 +317,7 @@ mod tests {
         let test_config = fs::read_to_string(format!("{TEST_DATA_DIR}/agent_config.toml")).unwrap();
         assert_eq!(config, test_config);
 
-        let data: toml::Value = config.parse().unwrap();
+        let data: toml::Value = toml::from_str(&config).unwrap();
 
         assert_eq!(
             data.get("machine")
@@ -350,7 +350,7 @@ mod tests {
             fs::read_to_string(format!("{TEST_DATA_DIR}/agent_config_external.toml")).unwrap();
         assert_eq!(config, test_config);
 
-        let data: toml::Value = config.parse().unwrap();
+        let data: toml::Value = toml::from_str(&config).unwrap();
 
         assert_eq!(
             data.get("forge-system")

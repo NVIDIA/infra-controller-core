@@ -18,10 +18,11 @@ use std::collections::HashMap;
 
 use axum::extract::{FromRequestParts, Path, Query};
 use axum::http::request::Parts;
+use axum_client_ip::ClientIp;
 use carbide_uuid::machine::MachineInterfaceId;
 use serde::{Deserialize, Serialize};
 
-use crate::common::MachineInterface;
+use crate::common::{MachineInterface, MachineLookup};
 use crate::extractors::machine_architecture::MachineArchitecture;
 use crate::rpc_error::PxeRequestError;
 
@@ -45,35 +46,6 @@ struct MaybeMachineInterface {
     asset: Option<String>,
 }
 
-impl TryFrom<MaybeMachineInterface> for MachineInterface {
-    type Error = PxeRequestError;
-
-    fn try_from(value: MaybeMachineInterface) -> Result<Self, Self::Error> {
-        let build_architecture = MachineArchitecture::try_from(value.build_architecture.as_str())?;
-
-        let uuid = match (value.uuid, value.uuid_as_param) {
-            (Some(uuid), _) => Ok(uuid),
-            (None, Some(uuid)) => {
-                uuid.parse()
-                    .map_err(|e: carbide_uuid::typed_uuids::UuidError| {
-                        PxeRequestError::UuidConversion(e.into())
-                    })
-            }
-            _ => Err(PxeRequestError::MissingMachineId),
-        }?;
-
-        Ok(MachineInterface {
-            architecture: Some(build_architecture),
-            interface_id: uuid,
-            platform: value.platform,
-            manufacturer: value.manufacturer,
-            product: value.product,
-            serial: value.serial,
-            asset: value.asset,
-        })
-    }
-}
-
 impl<S> FromRequestParts<S> for MachineInterface
 where
     S: Send + Sync,
@@ -81,17 +53,46 @@ where
     type Rejection = PxeRequestError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        if let Ok(maybe) = Query::<MaybeMachineInterface>::from_request_parts(parts, state).await {
-            let mut maybe_machine_interface = maybe.0;
-            maybe_machine_interface.uuid_as_param =
-                Path::<HashMap<String, String>>::from_request_parts(parts, state)
+        let Ok(maybe) = Query::<MaybeMachineInterface>::from_request_parts(parts, state).await
+        else {
+            // Query parsing only fails on the required build_architecture
+            // field; everything else is optional.
+            return Err(PxeRequestError::InvalidBuildArch);
+        };
+        let mut maybe = maybe.0;
+        maybe.uuid_as_param = Path::<HashMap<String, String>>::from_request_parts(parts, state)
+            .await
+            .ok()
+            .and_then(|params| params.0.get("uuid").cloned());
+
+        let build_architecture = MachineArchitecture::try_from(maybe.build_architecture.as_str())?;
+
+        // Prefer interface_id (DHCP option 43.70 path) when present.
+        // Otherwise fall back to the source IP -- ClientIp uses
+        // X-Forwarded-For when a proxy injects it, and the TCP socket
+        // peer otherwise.
+        let lookup = match (maybe.uuid, maybe.uuid_as_param) {
+            (Some(uuid), _) => MachineLookup::InterfaceId(uuid),
+            (None, Some(uuid)) => MachineLookup::InterfaceId(uuid.parse().map_err(
+                |e: carbide_uuid::typed_uuids::UuidError| PxeRequestError::UuidConversion(e.into()),
+            )?),
+            (None, None) => {
+                let client_ip = ClientIp::from_request_parts(parts, state)
                     .await
-                    .ok()
-                    .and_then(|params| params.0.get("uuid").cloned());
-            maybe_machine_interface.try_into()
-        } else {
-            // it can only fail to parse because of missing build arch, the other fields are optional.
-            Err(PxeRequestError::InvalidBuildArch)
-        }
+                    .map_err(PxeRequestError::MissingIp)?
+                    .0;
+                MachineLookup::SourceIp(client_ip)
+            }
+        };
+
+        Ok(MachineInterface {
+            architecture: Some(build_architecture),
+            lookup,
+            platform: maybe.platform,
+            manufacturer: maybe.manufacturer,
+            product: maybe.product,
+            serial: maybe.serial,
+            asset: maybe.asset,
+        })
     }
 }
