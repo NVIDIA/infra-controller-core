@@ -937,9 +937,9 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         .api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: rpc::forge::MachineArchitecture::X86 as i32,
-            interface_id: Some(host.interfaces[0].id),
             product: None,
-            client_ip: None,
+            client_ip: Some(host.interfaces[0].addresses[0].to_string()),
+            ..Default::default()
         }))
         .await
         .unwrap()

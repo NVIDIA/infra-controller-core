@@ -679,6 +679,7 @@ async fn test_max_one_interface_association(
             capacity: None,
             voltage: None,
         },
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };
@@ -734,6 +735,7 @@ async fn test_power_shelf_association(
             capacity: Some(10000),
             voltage: Some(480),
         },
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };

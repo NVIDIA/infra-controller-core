@@ -453,6 +453,67 @@ pub async fn validate_existing_mac_and_create(
     }
 }
 
+/// Ensure a a `machine_interface` exists for the `mac_address` with its reserved allocation,
+/// either falling into a Carbide-managed segment (when there is a match within a managed
+/// prefix), or into the `static_assignments` segment for IPs that are outside of managed
+/// networks.
+///
+/// Errors on conflicts that need operator attention, e.g.
+/// - The interface for this MAC exists but carries different addresses, or,
+/// - The IP is already allocated to a different MAC.
+///
+/// Called from the expected-machine handlers to do config time preallocation, and from
+/// the DHCP `discover()` path to re-allocate if needed (ensuring static DHCP reservations
+/// are maintained). Tbh it could probably just be in the DHCP `discover()` path only.
+pub async fn preallocate_machine_interface(
+    txn: &mut PgConnection,
+    mac_address: MacAddress,
+    static_ip: IpAddr,
+) -> DatabaseResult<()> {
+    let existing = find_by_mac_address(&mut *txn, mac_address).await?;
+    if let Some(iface) = existing.first() {
+        if iface.addresses.contains(&static_ip) {
+            return Ok(());
+        }
+        return Err(DatabaseError::InvalidArgument(format!(
+            "a machine interface already exists for MAC {mac_address} with addresses {:?}; use update to change the IP address",
+            iface.addresses,
+        )));
+    }
+
+    if let Some(existing_addr) =
+        crate::machine_interface_address::find_by_address(&mut *txn, static_ip).await?
+    {
+        return Err(DatabaseError::InvalidArgument(format!(
+            "IP address {static_ip} is already allocated to interface {} on segment {}; use 'machine-interfaces assign-address' to reassign it",
+            existing_addr.id, existing_addr.name,
+        )));
+    }
+
+    let segment = match db_network_segment::for_relay(&mut *txn, static_ip).await? {
+        Some(seg) => seg,
+        None => db_network_segment::static_assignments(&mut *txn).await?,
+    };
+
+    create(
+        txn,
+        std::slice::from_ref(&segment),
+        &mac_address,
+        true,
+        AddressSelectionStrategy::StaticAddress(static_ip),
+    )
+    .await?;
+
+    tracing::info!(
+        %mac_address,
+        %static_ip,
+        segment_id = %segment.id,
+        "Pre-allocated static machine interface"
+    );
+
+    Ok(())
+}
+
 pub async fn create(
     txn: &mut PgConnection,
     segments: &[NetworkSegment],

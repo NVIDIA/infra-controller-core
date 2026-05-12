@@ -1551,6 +1551,7 @@ pub async fn new_power_shelf(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config,
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };

@@ -328,6 +328,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     mh.instance_builer(&env)
@@ -428,6 +429,7 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let default_tenant_org = "best_org";

@@ -2575,8 +2575,17 @@ message InstanceConfig {
 
 // Desired network configuration for an instance
 message InstanceNetworkConfig {
-  // Configures how instance network interfaces are set up
+  // Configures how instance network interfaces are set up.
+  // Mutually exclusive with `auto`: when `auto` is true, this
+  // MUST be empty, When `auto` is false, this lists the explicit
+  // interface configuration the caller wants applied.
   repeated InstanceInterfaceConfig interfaces = 1;
+
+  // When true, NICO (or potentially some pluggable SDN backend) will
+  // auto-resolve the instance's network interfaces from the host's
+  // HostInband network segments. Only valid for instances on zero-DPU
+  // hosts (well, no DPU, *or* DPU in NIC mode).
+  bool auto = 2;
 }
 
 // Desired infiniband configuration for an instance
@@ -3552,6 +3561,11 @@ message DhcpDiscovery {
 
 message ExpireDhcpLeaseRequest {
   string ip_address = 1;
+  // Optional MAC of the expiring lease. When set, the handler only
+  // deletes the row whose (ip_address, mac) pair matches; Kea will
+  // set both. admin-cli calls may just set ip_address. We could
+  // probably just enforce that both must be set.
+  optional string mac_address = 2;
 }
 
 enum ExpireDhcpLeaseStatus {
@@ -4526,20 +4540,15 @@ message ForgeScoutErrorReportResult {
 
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
-  // interface_id is populated via DHCP option 43.70, either by
-  // carbide-dhcp or an operator DHCP server that integrates with
-  // carbide-api. If unset, we fall back to identifying the booting
-  // machine by its source IP (see client_ip below).
-  common.MachineInterfaceId interface_id = 2;
+  // DEPRECATED: interface_id is no longer read by carbide-api. The
+  // booting machine is now identified via client_ip (see below).
+  // We could potentially just drop this entirely and mark it as
+  // "reserved 2" in the future or similar.
+  common.MachineInterfaceId interface_id = 2 [deprecated = true];
   optional string product = 3;
   // client_ip is the IP carbide-pxe observed for the booting machine
   // -- read from X-Forwarded-For when carbide-pxe is fronted by a
   // proxy, or the TCP socket peer when reached directly.
-  // Used as the machine identifier when DHCP option 43.70 wasn't
-  // populated (and interface_id above isn't set). Resolved here via
-  // find_by_ip on machine_interface_addresses to fetch the matching
-  // interface_id. At least one of interface_id or client_ip must be
-  // set; interface_id wins if both are present.
   optional string client_ip = 4;
 }
 
@@ -7873,6 +7882,14 @@ enum ComputeTrayComponent {
   COMPUTE_TRAY_COMPONENT_UNKNOWN = 0;
   COMPUTE_TRAY_COMPONENT_BMC = 1;
   COMPUTE_TRAY_COMPONENT_BIOS = 2;
+  COMPUTE_TRAY_COMPONENT_CEC = 3;
+  COMPUTE_TRAY_COMPONENT_NIC = 4;
+  COMPUTE_TRAY_COMPONENT_CPLD_MB = 5;
+  COMPUTE_TRAY_COMPONENT_CPLD_PDB = 6;
+  COMPUTE_TRAY_COMPONENT_HGX_BMC = 7;
+  COMPUTE_TRAY_COMPONENT_COMBINED_BMC_UEFI = 8;
+  COMPUTE_TRAY_COMPONENT_GPU = 9;
+  COMPUTE_TRAY_COMPONENT_CX7 = 10;
 }
 
 message UpdateComputeTrayFirmwareTarget {
@@ -7932,9 +7949,20 @@ message ListComponentFirmwareVersionsRequest {
   }
 }
 
+// Per-component firmware versions for a compute tray. Since compute trays
+// don't use bundles, each component (BMC, BIOS, etc.) has its own set of
+// available firmware versions.
+message ComputeTrayFirmwareVersions {
+  ComputeTrayComponent component = 1;
+  repeated string versions = 2;
+}
+
 message DeviceFirmwareVersions {
   ComponentResult result = 1;
+  // Firmware Bundle IDs for switches, powershelves, and racks.
   repeated string versions = 2;
+  // Per-component firmware versions for compute trays.
+  repeated ComputeTrayFirmwareVersions compute_fw_versions = 3;
 }
 
 message ListComponentFirmwareVersionsResponse {

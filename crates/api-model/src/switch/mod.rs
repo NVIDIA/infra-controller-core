@@ -375,11 +375,7 @@ impl TryFrom<Switch> for rpc::Switch {
             enable_nmxc: src.config.enable_nmxc,
         };
 
-        let deleted = if src.deleted.is_some() {
-            Some(src.deleted.unwrap().into())
-        } else {
-            None
-        };
+        let deleted = src.deleted.map(Into::into);
         let state_version = src.controller_state.version.to_string();
         Ok(rpc::Switch {
             id: Some(src.id),

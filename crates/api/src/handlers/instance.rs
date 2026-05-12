@@ -1526,7 +1526,7 @@ pub async fn force_delete_instance(
 
     let network_segments_set: std::collections::HashSet<::carbide_uuid::network::NetworkSegmentId> =
         network_segment_ids_with_vpc.drain(..).collect();
-    network_segment_ids_with_vpc.extend(network_segments_set.into_iter());
+    network_segment_ids_with_vpc.extend(network_segments_set);
 
     // Mark all network ready for delete which were created for vpc_prefixes.
     if !network_segment_ids_with_vpc.is_empty() {

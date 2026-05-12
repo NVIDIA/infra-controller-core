@@ -23,6 +23,9 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::handlers::client_resolution::{
+    resolve_cloud_init_instructions, resolve_machine_interface,
+};
 use crate::ipxe::PxeInstructions;
 
 // The carbide pxe server makes this RPC call
@@ -34,45 +37,25 @@ pub(crate) async fn get_pxe_instructions(
 
     let mut txn = api.txn_begin().await?;
 
-    // interface_id is sent when carbide-dhcp (or a carbide-api integrated
-    // DHCP service) populates DHCP option 43.70. client_ip is sent when
-    // it didn't -- carbide-pxe forwards the client IP it observed (XFF if
-    // proxied, TCP socket peer otherwise). interface_id wins when both
-    // are present (it's already resolved -- saves a lookup). When only
-    // client_ip is present, resolve it to interface_id here so the rest
-    // of the model can take the same path.
-    let mut rpc_request = request.into_inner();
-    if rpc_request.interface_id.is_none() {
-        let ip_str = rpc_request.client_ip.as_deref().ok_or_else(|| {
-            CarbideError::InvalidArgument(
-                "PxeInstructionRequest requires either interface_id or client_ip".to_string(),
-            )
-        })?;
-        let ip: IpAddr = ip_str.parse().map_err(|e| {
-            CarbideError::InvalidArgument(format!("Failed parsing client_ip '{ip_str}': {e}"))
-        })?;
-        let iface = db::machine_interface::find_by_ip(txn.as_pgconn(), ip)
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "MachineInterface",
-                id: ip.to_string(),
-            })?;
-        rpc_request.interface_id = Some(iface.id);
-    }
+    let pxe_request: model::pxe::PxeInstructionRequest = request.into_inner().try_into()?;
 
-    // And now we can naturally continue, whether the request came in
-    // with DHCP option 43.70 (interface_id) or the client-IP (and the
-    // client_ip resolved to interface_id just above).
-    let target: model::pxe::PxeInstructionRequest = rpc_request.try_into()?;
-    let interface_id = target.interface_id;
-    let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, target).await?;
+    // Resolve the client_ip carbide-pxe observed (XFF or TCP peer) to
+    // a host machine_interface, either via direct machine_interface_addresses
+    // lookup or via instance_address for tenant-allocated machines.
+    let iface = resolve_machine_interface(txn.as_pgconn(), pxe_request.client_ip).await?;
+
+    let input = model::pxe::PxeInstructionsInput {
+        interface_id: iface.id,
+        arch: pxe_request.arch,
+        product: pxe_request.product,
+    };
+    let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, input).await?;
 
     // For interfaces on the static-assignments segment, include
     // URL overrides so external hosts can reach services via an
     // alternate hostname or IP they can resolve and/or connect
     // to for carbide-pxe and carbide-api.
     let (api_url_override, pxe_url_override, static_pxe_url_override) = {
-        let iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
         let is_external = iface.segment_id
             == db::network_segment::static_assignments(txn.as_pgconn())
                 .await
@@ -108,10 +91,6 @@ pub(crate) async fn get_cloud_init_instructions(
     request: Request<rpc::CloudInitInstructionsRequest>,
 ) -> Result<Response<rpc::CloudInitInstructions>, Status> {
     log_request_data(&request);
-    let cloud_name = "nvidia".to_string();
-    let platform = "forge".to_string();
-
-    let db = &api.database_connection;
 
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str
@@ -125,158 +104,10 @@ pub(crate) async fn get_cloud_init_instructions(
     // prefix, network segment, and IP allocators behind the scenes for supporting
     // dual stacking interfaces, none of that means much until DHCPv6 is working
     // to actually hand those addresses out.
-    let instructions = match db::instance_address::find_by_address(db, ip).await? {
-        None => {
-            // assume there is no instance associated with this IP and check if there is an interface associated with it
-            let machine_interface = db::machine_interface::find_by_ip(db, ip)
-                .await?
-                .ok_or_else(|| {
-                    CarbideError::internal(format!("No machine interface with IP {ip} was found"))
-                })?;
-
-            let domain_id = machine_interface.domain_id.ok_or_else(|| {
-                CarbideError::internal(format!(
-                    "Machine Interface did not have an associated domain {}",
-                    machine_interface.id
-                ))
-            })?;
-
-            let domain = db::dns::domain::find_by_uuid(db, domain_id)
-                .await
-                .map_err(CarbideError::from)?
-                .ok_or_else(|| {
-                    CarbideError::internal(format!("Could not find domain with id {domain_id}"))
-                })?
-                .to_owned();
-
-            // This custom pxe is different from a customer instance of pxe. It is more for testing one off
-            // changes until a real dev env is established and we can just override our existing code to test
-            // It is possible for the user data to be null if we are only trying to test the pxe, and this will
-            // follow the same code path and retrieve the non custom user data
-            let custom_cloud_init =
-                match db::machine_boot_override::find_optional(db, machine_interface.id).await? {
-                    Some(machine_boot_override) => machine_boot_override.custom_user_data,
-                    None => None,
-                };
-
-            let metadata: Option<rpc::CloudInitMetaData> = machine_interface
-                .machine_id
-                .as_ref()
-                .map(|machine_id| rpc::CloudInitMetaData {
-                    instance_id: machine_id.to_string(),
-                    cloud_name,
-                    platform,
-                });
-
-            // For interfaces on the static-assignments segment, include
-            // hostname or IP-based URL overrides so external hosts can
-            // reach carbide-api and carbide-pxe services. Just to reiterate,
-            // these can be either routable IPs, or externally resolvable
-            // hostnames to routable IPs.
-            let is_external = {
-                let mut conn = db.acquire().await.map_err(|e| {
-                    CarbideError::internal(format!("Failed to acquire database connection: {e}"))
-                })?;
-                machine_interface.segment_id
-                    == db::network_segment::static_assignments(&mut conn)
-                        .await
-                        .map(|s| s.id)
-                        .unwrap_or_default()
-            };
-
-            let (api_url_override, pxe_url_override) = if is_external {
-                (
-                    api.runtime_config.external_api_url.clone(),
-                    api.runtime_config.external_pxe_url.clone(),
-                )
-            } else {
-                (None, None)
-            };
-
-            rpc::CloudInitInstructions {
-                custom_cloud_init,
-                discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
-                    machine_interface: Some(machine_interface.into()),
-                    domain: Some(rpc::PxeDomain {
-                        domain: Some(rpc::pxe_domain::Domain::NewDomain(domain.into())),
-                    }),
-                    hbn_reps: api
-                        .runtime_config
-                        .vmaas_config
-                        .as_ref()
-                        .and_then(|vc| vc.hbn_reps.clone()),
-                    hbn_sfs: api
-                        .runtime_config
-                        .vmaas_config
-                        .as_ref()
-                        .and_then(|vc| vc.hbn_sfs.clone()),
-                    vf_intercept_bridge_name: api.runtime_config.vmaas_config.as_ref().and_then(
-                        |vc| {
-                            vc.bridging
-                                .as_ref()
-                                .map(|b| b.vf_intercept_bridge_name.clone())
-                        },
-                    ),
-                    host_intercept_bridge_name: api.runtime_config.vmaas_config.as_ref().and_then(
-                        |vc| {
-                            vc.bridging
-                                .as_ref()
-                                .map(|b| b.host_intercept_bridge_name.clone())
-                        },
-                    ),
-                    host_intercept_bridge_port: api.runtime_config.vmaas_config.as_ref().and_then(
-                        |vc| {
-                            vc.bridging
-                                .as_ref()
-                                .map(|b| b.host_intercept_bridge_port.clone())
-                        },
-                    ),
-                    vf_intercept_bridge_port: api.runtime_config.vmaas_config.as_ref().and_then(
-                        |vc| {
-                            vc.bridging
-                                .as_ref()
-                                .map(|b| b.vf_intercept_bridge_port.clone())
-                        },
-                    ),
-                    vf_intercept_bridge_sf: api.runtime_config.vmaas_config.as_ref().and_then(
-                        |vc| {
-                            vc.bridging
-                                .as_ref()
-                                .map(|b| b.vf_intercept_bridge_sf.clone())
-                        },
-                    ),
-                }),
-                metadata,
-                api_url_override,
-                pxe_url_override,
-            }
-        }
-
-        Some(instance_address) => {
-            let instance = db::instance::find_by_id(db, instance_address.instance_id)
-                .await?
-                .ok_or_else(|| {
-                    // Note that this isn't a NotFound error since it indicates an
-                    // inconsistent data model
-                    CarbideError::internal(format!(
-                        "Could not find an instance for {}",
-                        instance_address.instance_id
-                    ))
-                })?;
-
-            rpc::CloudInitInstructions {
-                custom_cloud_init: instance.config.os.user_data,
-                discovery_instructions: None,
-                metadata: Some(rpc::CloudInitMetaData {
-                    instance_id: instance.id.to_string(),
-                    cloud_name,
-                    platform,
-                }),
-                api_url_override: None,
-                pxe_url_override: None,
-            }
-        }
-    };
+    let mut conn = api.database_connection.acquire().await.map_err(|e| {
+        CarbideError::internal(format!("Failed to acquire database connection: {e}"))
+    })?;
+    let instructions = resolve_cloud_init_instructions(api, &mut conn, ip).await?;
 
     Ok(Response::new(instructions))
 }

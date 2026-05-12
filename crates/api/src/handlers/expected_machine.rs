@@ -25,9 +25,7 @@ use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::handlers::machine_interface_address::{
-    preallocate_machine_interface, update_preallocated_machine_interface,
-};
+use crate::handlers::machine_interface_address::update_preallocated_machine_interface;
 
 lazy_static! {
     // Verify what serial is alphanumeric string with, allows dashes '-' and underscores '_'
@@ -132,7 +130,8 @@ pub(crate) async fn preallocate_interfaces_for(
     validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
 
     if let Some(bmc_ip) = machine.data.bmc_ip_address {
-        preallocate_machine_interface(txn, machine.bmc_mac_address, bmc_ip).await?;
+        db::machine_interface::preallocate_machine_interface(txn, machine.bmc_mac_address, bmc_ip)
+            .await?;
     }
 
     for nic in &machine.data.host_nics {
@@ -140,7 +139,7 @@ pub(crate) async fn preallocate_interfaces_for(
             let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
                 CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
             })?;
-            preallocate_machine_interface(txn, nic.mac_address, ip).await?;
+            db::machine_interface::preallocate_machine_interface(txn, nic.mac_address, ip).await?;
         }
     }
 
@@ -437,7 +436,12 @@ async fn create_expected_machine(
     };
 
     if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
-        preallocate_machine_interface(txn, expected_machine.bmc_mac_address, bmc_ip).await?;
+        db::machine_interface::preallocate_machine_interface(
+            txn,
+            expected_machine.bmc_mac_address,
+            bmc_ip,
+        )
+        .await?;
     }
 
     db::expected_machine::create(txn, expected_machine).await?;

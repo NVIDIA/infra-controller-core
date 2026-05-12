@@ -102,7 +102,7 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
 
             let pxe_response = RpcContext::get_pxe_instructions(
                 arch.into(),
-                &contents.lookup,
+                contents.client_ip,
                 contents.product,
                 &state.runtime_config.internal_api_url,
                 &ForgeClientConfig::new(
