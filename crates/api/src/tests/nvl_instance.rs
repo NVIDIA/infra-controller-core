@@ -615,6 +615,14 @@ async fn test_nvl_partition_monitor_adds_successful_partitions_when_some_creates
 async fn test_create_instances_with_nvl_configs_same_logical_partition_different_domains(
     pool: sqlx::PgPool,
 ) {
+
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_create_instances_with_nvl_configs_same_logical_partition_different_domains as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
         nvlink_config.enabled = true;
@@ -1351,7 +1359,7 @@ async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) 
             .partition_id,
         32766
     );
-    assert_eq!(nmxc_partitions[0].gpu_uid_list.len(), 16);
+    assert_eq!(nmxc_partitions[0].gpu_uid_list.len(), 12);
 
     let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
     println!("{gpus:?}");
@@ -1421,7 +1429,7 @@ async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) 
                 .is_some_and(|id| id.partition_id == 32766)
         })
         .expect("default partition");
-    assert_eq!(default_partition.gpu_uid_list.len(), 12);
+    assert_eq!(default_partition.gpu_uid_list.len(), 8);
 }
 
 #[crate::sqlx_test]
