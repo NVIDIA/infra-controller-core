@@ -885,6 +885,7 @@ pub async fn initialize_and_start_controllers(
                 client,
                 join_set,
                 config.publish_timeout,
+                config.topic_prefix.clone(),
                 config.queue_capacity,
                 &meter,
                 cancel_token.clone(),
