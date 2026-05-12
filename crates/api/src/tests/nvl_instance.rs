@@ -615,7 +615,6 @@ async fn test_nvl_partition_monitor_adds_successful_partitions_when_some_creates
 async fn test_create_instances_with_nvl_configs_same_logical_partition_different_domains(
     pool: sqlx::PgPool,
 ) {
-
     if !nmxc_simulator_tests_enabled() {
         println!(
             "skipping test_create_instances_with_nvl_configs_same_logical_partition_different_domains as nmxc simulator tests are not enabled"
