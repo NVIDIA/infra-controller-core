@@ -45,7 +45,9 @@ fn generate_forge_agent_config(
     machine_interface_id: MachineInterfaceId,
     api_url_override: Option<&str>,
 ) -> String {
-    let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
+    // MachineInterfaceId wraps a valid UUID, so this round-trip can't fail.
+    let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string())
+        .expect("MachineInterfaceId always produces a valid UUID string");
     let config = agent_config::AgentConfigFromPxe {
         forge_system: api_url_override.map(|url| agent_config::ForgeSystemConfigFromPxe {
             api_server: url.to_string(),
@@ -53,7 +55,7 @@ fn generate_forge_agent_config(
         machine: agent_config::MachineConfigFromPxe { interface_id },
     };
 
-    toml::to_string(&config).unwrap()
+    toml::to_string(&config).unwrap_or_else(|e| format!("# serialization error: {e}"))
 }
 
 fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, String>) {
@@ -121,10 +123,9 @@ fn user_data_handler(
         .unwrap_or("".to_string());
     context.insert("forge_bmc_fw_update".to_string(), bmc_fw_update);
 
-    let start = SystemTime::now();
-    let seconds_since_epoch = start
+    let seconds_since_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
+        .unwrap_or(std::time::Duration::ZERO)
         .as_secs();
 
     context.insert(
