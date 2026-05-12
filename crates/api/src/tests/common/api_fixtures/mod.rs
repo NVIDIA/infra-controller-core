@@ -22,6 +22,7 @@ use std::default::Default;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
@@ -33,7 +34,7 @@ use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_nvlink_manager::nvlink::NmxmClientPool;
 use carbide_nvlink_manager::nvlink::test_support::NmxmSimClient;
-use carbide_redfish::libredfish::test_support::RedfishSim;
+use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_utils::test_support::test_meter::TestMeter;
@@ -123,6 +124,8 @@ use crate::state_controller::network_segment::handler::NetworkSegmentStateHandle
 use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
 use crate::state_controller::power_shelf::handler::PowerShelfStateHandler;
 use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
+use crate::state_controller::rack::handler::RackStateHandler;
+use crate::state_controller::rack::io::RackStateControllerIO;
 use crate::state_controller::spdm::handler::SpdmAttestationStateHandler;
 use crate::state_controller::spdm::io::SpdmStateControllerIO;
 use crate::state_controller::state_handler::{
@@ -256,6 +259,15 @@ pub struct TestEnvOverrides {
     // After n create_requests succeed, they will start failing.
     pub nmxm_fail_after_n_creates: Option<usize>,
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
+    pub redfish_overrides: Option<RedfishOverrides>,
+    pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RedfishOverrides {
+    pub no_component_integrities: bool,
+    pub firmware_for_component_error: bool,
+    pub get_task_trigger_evidence_returns_interrupted: bool,
 }
 
 impl TestEnvOverrides {
@@ -288,6 +300,7 @@ impl TestEnvOverrides {
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
                             tenant_leak_communities_accepted: false,
+                            accepted_leaks_from_underlay: vec![],
                         },
                     ),
                     (
@@ -300,6 +313,7 @@ impl TestEnvOverrides {
                             leak_default_route_from_underlay: false,
                             leak_tenant_host_routes_to_underlay: false,
                             tenant_leak_communities_accepted: false,
+                            accepted_leaks_from_underlay: vec![],
                         },
                     ),
                 ]),
@@ -345,6 +359,7 @@ pub struct TestEnv {
     network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
+    rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
     switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub reachability_params: ReachabilityParams,
     pub test_meter: TestMeter,
@@ -352,7 +367,7 @@ pub struct TestEnv {
     pub site_explorer: SiteExplorer,
     pub nmxm_sim: Arc<dyn NmxmClientPool>,
     pub endpoint_explorer: MockEndpointExplorer,
-    pub admin_segment: Option<NetworkSegmentId>,
+    pub admin_segments: Vec<NetworkSegmentId>,
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
@@ -364,6 +379,21 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
+    /// Returns the default admin network segment used by most tests.
+    pub fn admin_segment(&self) -> NetworkSegmentId {
+        *self
+            .admin_segments
+            .first()
+            .expect("test env should have an admin segment")
+    }
+
+    /// Returns a reference to the default admin network segment used by most tests.
+    pub fn admin_segment_ref(&self) -> &NetworkSegmentId {
+        self.admin_segments
+            .first()
+            .expect("test env should have an admin segment")
+    }
+
     /// Creates an instance of CommonStateHandlerServices that are suitable for this
     /// test environment
     pub fn state_handler_services(&self) -> CommonStateHandlerServices {
@@ -417,6 +447,7 @@ impl TestEnv {
                     model::machine::MachineState::Discovered { .. } => machine_state,
                     model::machine::MachineState::WaitingForLockdown { .. } => machine_state,
                     model::machine::MachineState::Measuring { .. } => machine_state,
+                    model::machine::MachineState::SpdmMeasuring { .. } => machine_state,
 
                     model::machine::MachineState::EnableIpmiOverLan => machine_state,
                     model::machine::MachineState::WaitingForBiosJob { .. } => machine_state,
@@ -444,6 +475,8 @@ impl TestEnv {
             ManagedHostState::DPUReprovision { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
+            ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),
+            ManagedHostState::StartAssignmentCycle => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
@@ -618,6 +651,17 @@ impl TestEnv {
     #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_switch_controller_iteration(&self) {
         self.switch_controller
+            .lock()
+            .await
+            .run_single_iteration()
+            .await;
+    }
+
+    /// Runs one iteration of the rack state controller handler with the services
+    /// in this test environment
+    #[allow(clippy::await_holding_refcell_ref)]
+    pub async fn run_rack_controller_iteration(&self) {
+        self.rack_controller
             .lock()
             .await
             .run_single_iteration()
@@ -832,10 +876,14 @@ impl TestEnv {
         Option<u32>,
         NetworkSegmentId,
     ) {
-        let vpc_details =
-            VpcCreationRequest::builder("test vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
-                .network_virtualization_type(vtype1)
-                .tonic_request();
+        let vpc_details = VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            .metadata(Metadata {
+                name: "test vpc".to_string(),
+                description: "".to_string(),
+                labels: Default::default(),
+            })
+            .network_virtualization_type(vtype1)
+            .tonic_request();
 
         let vpc = self.api.create_vpc(vpc_details).await.unwrap().into_inner();
 
@@ -852,10 +900,13 @@ impl TestEnv {
         self.run_network_segment_controller_iteration().await;
         self.run_network_segment_controller_iteration().await;
 
-        let peer_vpc_details =
-            VpcCreationRequest::builder("test peer vpc", "e65a9d69-39d2-4872-a53e-e5cb87c84e75")
-                .network_virtualization_type(vtype2)
-                .tonic_request();
+        let peer_vpc_details = VpcCreationRequest::builder("e65a9d69-39d2-4872-a53e-e5cb87c84e75")
+            .metadata(Metadata {
+                name: "test peer vpc".to_string(),
+                ..Default::default()
+            })
+            .network_virtualization_type(vtype2)
+            .tonic_request();
 
         let peer_vpc = self
             .api
@@ -889,7 +940,12 @@ impl TestEnv {
 
     pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
         self.create_vpc_and_tenant_segment_with_vpc_details(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93").rpc(),
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .rpc(),
         )
         .await
     }
@@ -899,7 +955,12 @@ impl TestEnv {
         segment_count: usize,
     ) -> Vec<NetworkSegmentId> {
         self.create_vpc_and_tenant_segments_with_vpc_details(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93").rpc(),
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .rpc(),
             segment_count,
         )
         .await
@@ -909,7 +970,11 @@ impl TestEnv {
         let vpc = self
             .api
             .create_vpc(
-                VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                    .metadata(Metadata {
+                        name: "test vpc 1".to_string(),
+                        ..Default::default()
+                    })
                     .tonic_request(),
             )
             .await
@@ -1223,7 +1288,7 @@ pub fn get_config() -> CarbideConfig {
             controller: StateControllerConfig::default(),
         },
         spdm: SpdmConfig {
-            enabled: true,
+            enabled: false,
             nras_config: Some(nras::Config::default()),
         },
         machine_identity: crate::cfg::file::MachineIdentityConfig {
@@ -1280,7 +1345,9 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
 }
 
 #[derive(Debug, Default)]
-pub struct VerifierSimImpl {}
+pub struct VerifierSimImpl {
+    should_fail_parsing: Arc<AtomicBool>,
+}
 
 #[async_trait::async_trait]
 impl Verifier for VerifierSimImpl {
@@ -1292,10 +1359,17 @@ impl Verifier for VerifierSimImpl {
         _nras_config: &nras::Config,
         _state: &RawAttestationOutcome,
     ) -> Result<ProcessedAttestationOutcome, NrasError> {
-        Ok(ProcessedAttestationOutcome {
-            attestation_passed: true,
-            devices: HashMap::new(),
-        })
+        if self.should_fail_parsing.load(Ordering::Relaxed) {
+            Ok(ProcessedAttestationOutcome {
+                attestation_passed: false,
+                devices: HashMap::new(),
+            })
+        } else {
+            Ok(ProcessedAttestationOutcome {
+                attestation_passed: true,
+                devices: HashMap::new(),
+            })
+        }
     }
 }
 
@@ -1358,7 +1432,18 @@ pub async fn create_test_env_with_overrides(
     ));
 
     let certificate_provider = Arc::new(TestCertificateProvider::new());
-    let redfish_sim = Arc::new(RedfishSim::default());
+
+    let redfish_sim = if let Some(redfish_overrides) = overrides.redfish_overrides {
+        Arc::new(RedfishSim::with_test_overrides(RedfishSimTestOverrides {
+            no_component_integrities: redfish_overrides.no_component_integrities,
+            firmware_for_component_error: redfish_overrides.firmware_for_component_error,
+            get_task_trigger_evidence_returns_interrupted: redfish_overrides
+                .get_task_trigger_evidence_returns_interrupted,
+        }))
+    } else {
+        Arc::new(RedfishSim::default())
+    };
+
     let nmxm_sim: Arc<dyn NmxmClientPool> =
         Arc::new(if let Some(n) = overrides.nmxm_fail_after_n_creates {
             NmxmSimClient::with_fail_after_n_creates(n)
@@ -1561,9 +1646,15 @@ pub async fn create_test_env_with_overrides(
         )),
     };
 
+    let verifier = VerifierSimImpl {
+        should_fail_parsing: overrides
+            .nras_should_fail_parsing
+            .unwrap_or(Arc::new(AtomicBool::new(false))),
+    };
+
     let spdm_swap = SwapHandler {
         inner: Arc::new(Mutex::new(SpdmAttestationStateHandler::new(
-            Arc::new(VerifierSimImpl::default()),
+            Arc::new(verifier),
             nras::Config::default(),
         ))),
     };
@@ -1659,6 +1750,15 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
+    let rack_controller = StateController::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_racks", test_meter.meter())
+        .processor_id(state_controller_id.clone())
+        .services(handler_services.clone())
+        .state_handler(Arc::new(RackStateHandler::default()))
+        .build_for_manual_iterations(cancel_token.clone())
+        .expect("Unable to build RackStateController");
+
     let fake_endpoint_explorer = MockEndpointExplorer {
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
         power_states: Arc::new(std::sync::Mutex::new(Default::default())),
@@ -1747,9 +1847,9 @@ pub async fn create_test_env_with_overrides(
         .unwrap()
         .unwrap();
 
-    let (admin_segment, underlay_segment) = if overrides.create_network_segments.unwrap_or(true) {
+    let (admin_segments, underlay_segment) = if overrides.create_network_segments.unwrap_or(true) {
         // Create admin network
-        let admin = Some(create_admin_network_segment(&api).await);
+        let admin_segments = vec![create_admin_network_segment(&api).await];
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
 
@@ -1765,9 +1865,9 @@ pub async fn create_test_env_with_overrides(
         network_controller.run_single_iteration().await;
         network_controller.run_single_iteration().await;
 
-        (admin, underlay)
+        (admin_segments, underlay)
     } else {
-        (None, None)
+        (Vec::new(), None)
     };
 
     TestEnv {
@@ -1786,13 +1886,14 @@ pub async fn create_test_env_with_overrides(
         switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
+        rack_controller: Arc::new(Mutex::new(rack_controller)),
         reachability_params,
         attestation_enabled,
         test_meter,
         site_explorer,
         nmxm_sim,
         endpoint_explorer: fake_endpoint_explorer,
-        admin_segment,
+        admin_segments,
         underlay_segment,
         domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),

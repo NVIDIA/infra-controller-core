@@ -465,6 +465,11 @@ pub async fn update_nvue(
                         vni: rt.vni,
                     })
                     .collect(),
+                accepted_leaks_from_underlay: rp
+                    .accepted_leaks_from_underlay
+                    .iter()
+                    .map(|l| l.prefix.to_owned())
+                    .collect(),
             })
         },
         bgp_leaf_session_password: nc.bgp_leaf_session_password.clone(),
@@ -870,13 +875,13 @@ async fn update_dhcp_via_grpc(
             )
         })?;
 
-    let dhcp_config = carbide_utils::models::dhcp::DhcpConfig::from_forge_dhcp_config(
+    let dhcp_config = carbide_rpc_utils::dhcp::DhcpConfig::from_forge_dhcp_config(
         pxe_ip_v4,
         ntpservers_v4,
         nameservers_v4,
         loopback_ip,
     )?;
-    let mut host_config = carbide_utils::models::dhcp::HostConfig::try_from(
+    let mut host_config = carbide_rpc_utils::dhcp::HostConfig::try_from(
         network_config.clone(),
         hbn_device_names.reps[0],
         hbn_device_names.virt_rep_begin,
@@ -1712,7 +1717,7 @@ mod tests {
 
     use ::rpc::{common as rpc_common, forge as rpc};
     use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
-    use carbide_utils::models::dhcp::{DhcpConfig, HostConfig};
+    use carbide_rpc_utils::dhcp::{DhcpConfig, HostConfig};
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
 
@@ -1721,7 +1726,7 @@ mod tests {
         InterfaceState, ServiceAddresses, needed_interface_state,
     };
     use crate::{HBNDeviceNames, dhcp, nvue};
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn setup() {
         carbide_host_support::init_logging().unwrap();
     }
@@ -2575,6 +2580,13 @@ mod tests {
                 leak_default_route_from_underlay: include_network_host_route_and_default_leaking,
                 leak_tenant_host_routes_to_underlay: include_network_host_route_and_default_leaking,
                 tenant_leak_communities_accepted: include_network_host_route_and_default_leaking,
+                accepted_leaks_from_underlay: if include_network_host_route_and_default_leaking {
+                    vec![rpc::PrefixFilterPolicyEntry {
+                        prefix: "10.255.0.0/24".to_string(),
+                    }]
+                } else {
+                    vec![]
+                },
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,
@@ -2828,6 +2840,7 @@ mod tests {
                 tenant_leak_communities_accepted: false,
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
+                accepted_leaks_from_underlay: vec![],
                 route_target_imports: vec![nvue::RouteTargetConfig {
                     asn: 44444,
                     vni: 55555,
@@ -3062,6 +3075,7 @@ mod tests {
                 tenant_leak_communities_accepted: false,
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
+                accepted_leaks_from_underlay: vec![],
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,

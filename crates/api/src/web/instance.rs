@@ -177,7 +177,7 @@ async fn fetch_instances(api: Arc<Api>) -> Result<forgerpc::InstanceList, tonic:
         });
         let next_instances = api.find_instances_by_ids(request).await?.into_inner();
 
-        instances.extend(next_instances.instances.into_iter());
+        instances.extend(next_instances.instances);
         offset += page_size;
     }
 
@@ -543,7 +543,12 @@ async fn get_interfaces_for_instance_detail(
             && let Some(vpc) = vpc_map.get(&vpc_id_val)
         {
             vpc_id = vpc.id.map(|id| id.to_string()).unwrap_or_default();
-            vpc_name = vpc.name.clone();
+            vpc_name = vpc
+                .metadata
+                .as_ref()
+                .map(|x| x.name.as_str())
+                .unwrap_or("<no name>")
+                .to_string();
         }
 
         let status = &if_status[i];

@@ -20,11 +20,13 @@ use ::rpc::forge as rpc;
 use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::NetworkSegmentId;
 use db::vpc::{self};
 use db::vpc_peering::get_prefixes_by_vpcs;
 use db::{self, ObjectColumnFilter, network_security_group};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+use model::machine::ManagedHostStateSnapshot;
 use model::network_prefix::NetworkPrefix;
 use model::network_security_group::{
     NetworkSecurityGroup, NetworkSecurityGroupRule, NetworkSecurityGroupRuleNet,
@@ -198,13 +200,44 @@ impl<'a> PrefixPair<'a> {
 
 pub async fn admin_network(
     txn: &mut PgConnection,
-    host_machine_id: &MachineId,
+    snapshot: &ManagedHostStateSnapshot,
     dpu_machine_id: &MachineId,
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
     booturl: &Option<String>,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
-    let admin_segment = db::network_segment::admin(txn).await?;
+    let admin_segments = db::network_segment::admin(txn).await?;
+    let admin_segment_ids = admin_segments
+        .iter()
+        .map(|s| s.id)
+        .collect::<Vec<NetworkSegmentId>>();
+
+    // Admin network interfaces are machine_interfaces records where the machine_id
+    // is a host machine ID and attached_dpu_machine_id is a DPU ID.
+    // If we loop through the machine interfaces for the host snapshot and look for
+    // that combo, the segment_id of that interface should be the network segment we want,
+    // but checking against known admin segments adds a little bit of defense.
+    let interface = snapshot.host_snapshot.interfaces.iter().find(|interface| {
+        interface.attached_dpu_machine_id.as_ref() == Some(dpu_machine_id)
+            && admin_segment_ids.contains(&interface.segment_id)
+    });
+
+    let host_machine_id = snapshot.host_snapshot.id;
+    let Some(interface) = interface else {
+        return Err(CarbideError::InvalidArgument(format!(
+            "No admin interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
+        ))
+        .into());
+    };
+
+    let admin_segment = admin_segments.iter().find(|v| v.id == interface.segment_id);
+
+    let Some(admin_segment) = admin_segment else {
+        return Err(CarbideError::internal(format!(
+            "Unknown admin segment `{}` attached on host: {host_machine_id} with dpu: {dpu_machine_id}", interface.segment_id
+        ))
+        .into());
+    };
 
     let prefix = match admin_segment.prefixes.first() {
         Some(p) => p,
@@ -233,37 +266,24 @@ pub async fn admin_network(
         None => "unknowndomain".to_string(),
     };
 
-    let interfaces =
-        db::machine_interface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
-            .await?;
-
-    let interface = interfaces.into_iter().find(|x| {
-        if let Some(id) = &x.attached_dpu_machine_id {
-            id == dpu_machine_id
-        } else {
-            false
-        }
-    });
-
-    let Some(interface) = interface else {
-        return Err(CarbideError::InvalidArgument(format!(
-            "No interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
-        ))
-        .into());
-    };
-
-    let address = db::machine_interface_address::find_ipv4_for_interface(txn, interface.id).await?;
+    let address = interface
+        .addresses
+        .iter()
+        .copied()
+        .find(|address| address.is_ipv4())
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument(format!(
+                "No IPv4 address found on host interface {} for dpu: {dpu_machine_id}",
+                interface.id
+            ))
+        })?;
 
     // On the admin network, the interface_prefix is always
     // just going to be a /32 derived from the machine interface
     // address.
-    let address_prefix =
-        IpNetwork::new(address.address, 32).map_err(|e| CarbideError::Internal {
-            message: format!(
-                "failed to build default admin address prefix for {}/32: {}",
-                address.address, e
-            ),
-        })?;
+    let address_prefix = IpNetwork::new(address, 32).map_err(|e| CarbideError::Internal {
+        message: format!("failed to build default admin address prefix for {address}/32: {e}"),
+    })?;
 
     let svi_ip = if !fnn_enabled_on_admin {
         None
@@ -335,10 +355,10 @@ pub async fn admin_network(
         },
         vpc_vni,
         gateway: prefix.gateway_cidr().unwrap_or_default(),
-        ip: address.address.to_string(),
+        ip: address.to_string(),
         interface_prefix: address_prefix.to_string(),
         vpc_prefixes: if fnn_enabled_on_admin {
-            vec![format!("{}/32", address.address.to_string())]
+            vec![format!("{address}/32")]
         } else {
             vec![]
         },

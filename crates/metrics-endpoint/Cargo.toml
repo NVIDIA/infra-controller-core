@@ -22,6 +22,10 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+# [local-dependencies]
+carbide-metrics-utils = { path = "../metrics-utils" }
+# [end local-dependencies]
+
 hyper = { workspace = true }
 hyper-util = { features = [
   "server",

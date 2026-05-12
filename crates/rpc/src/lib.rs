@@ -62,7 +62,11 @@ pub use crate::protos::{fmds, health, site_explorer};
 
 pub mod errors;
 pub mod forge_tls_client;
+pub mod libmlx;
+pub mod network;
 pub mod protos;
+pub mod secrets;
+pub mod utils;
 
 #[cfg(feature = "cli")]
 pub mod admin_cli;

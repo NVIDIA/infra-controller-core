@@ -48,7 +48,7 @@ async fn create_test_vpcs(
             Some(vtype) => env
                 .api
                 .create_vpc(
-                    VpcCreationRequest::builder(&name, "")
+                    VpcCreationRequest::builder("")
                         .metadata(Metadata {
                             name,
                             ..Default::default()
@@ -62,7 +62,7 @@ async fn create_test_vpcs(
             None => env
                 .api
                 .create_vpc(
-                    VpcCreationRequest::builder(&name, "")
+                    VpcCreationRequest::builder("")
                         .metadata(Metadata {
                             name,
                             ..Default::default()
@@ -106,6 +106,7 @@ async fn create_test_vpcs(
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
     mh.instance_builer(env)
         .network(instance_network)
@@ -369,6 +370,7 @@ async fn create_vpc_peering(
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     mh.instance_builer(env)

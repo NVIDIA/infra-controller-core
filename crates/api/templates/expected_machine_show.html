@@ -66,23 +66,23 @@
 </div>
 
 <div class="tab-content {% if active_tab == "all" %}active{% endif %}" id="tab-all">
-	{% call expected_machines_table(all_machines) %}
+	{% call expected_machines_table(all_machines) %}{% endcall %}
 </div>
 
 <div class="tab-content {% if active_tab == "completed" %}active{% endif %}" id="tab-completed">
-	{% call expected_machines_table(completed_machines) %}
+	{% call expected_machines_table(completed_machines) %}{% endcall %}
 </div>
 
 <div class="tab-content {% if active_tab == "unseen" %}active{% endif %}" id="tab-unseen">
-	{% call expected_machines_table(unseen_machines) %}
+	{% call expected_machines_table(unseen_machines) %}{% endcall %}
 </div>
 
 <div class="tab-content {% if active_tab == "unexplored" %}active{% endif %}" id="tab-unexplored">
-	{% call expected_machines_table(unexplored_machines) %}
+	{% call expected_machines_table(unexplored_machines) %}{% endcall %}
 </div>
 
 <div class="tab-content {% if active_tab == "unlinked" %}active{% endif %}" id="tab-unlinked">
-	{% call expected_machines_table(unlinked_machines) %}
+	{% call expected_machines_table(unlinked_machines) %}{% endcall %}
 </div>
 
 <div class="tab-content {% if active_tab == "unexpected" %}active{% endif %}" id="tab-unexpected">

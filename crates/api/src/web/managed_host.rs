@@ -22,8 +22,8 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use carbide_utils::managed_host_display::get_memory_details;
-use carbide_utils::{ManagedHostMetadata, reason_to_user_string};
+use carbide_rpc_utils::managed_host_display::get_memory_details;
+use carbide_rpc_utils::{ManagedHostMetadata, reason_to_user_string};
 use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
@@ -337,7 +337,8 @@ impl ManagedHostRowDisplay {
                 .dpus
                 .iter()
                 .map(|d| {
-                    filters::machine_id_link(d.machine_id.clone()).unwrap_or("UNKNOWN".to_string())
+                    filters::machine_link(d.machine_id.clone(), "machine")
+                        .unwrap_or("UNKNOWN".to_string())
                 })
                 .collect(),
             DpuProperty::BmcIp => self
@@ -649,7 +650,7 @@ pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
 async fn fetch_managed_hosts_with_metadata(
     AxumState(api): AxumState<Arc<Api>>,
     include_history: bool,
-) -> eyre::Result<Vec<carbide_utils::ManagedHostOutput>> {
+) -> eyre::Result<Vec<carbide_rpc_utils::ManagedHostOutput>> {
     let machine_ids = api
         .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
             include_dpus: true,
@@ -672,12 +673,12 @@ async fn fetch_managed_hosts_with_metadata(
         });
         let next_machines = api.find_machines_by_ids(request).await?.into_inner();
 
-        all_machines.extend(next_machines.machines.into_iter());
+        all_machines.extend(next_machines.machines);
         offset += page_size;
     }
 
     let managed_host_metadata = ManagedHostMetadata::lookup_from_api(all_machines, api).await;
-    let managed_hosts = carbide_utils::get_managed_host_output(managed_host_metadata);
+    let managed_hosts = carbide_rpc_utils::get_managed_host_output(managed_host_metadata);
     Ok(managed_hosts)
 }
 

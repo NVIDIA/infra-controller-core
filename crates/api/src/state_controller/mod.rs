@@ -17,6 +17,8 @@
 
 pub mod common_services;
 pub mod dpa_interface;
+pub(crate) mod external_service_error;
+pub mod health_metrics;
 pub mod ib_partition;
 pub mod machine;
 pub mod network_segment;

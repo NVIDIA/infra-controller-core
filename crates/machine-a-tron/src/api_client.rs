@@ -286,6 +286,7 @@ impl ApiClient {
             }),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![interface_config],
+                auto: false,
             }),
             network_security_group_id: None,
             infiniband: None,
@@ -406,7 +407,6 @@ impl ApiClient {
         self.0
             .create_vpc(rpc::forge::VpcCreationRequest {
                 id: None,
-                name: "".to_string(),
                 tenant_organization_id: "Forge-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
                 network_security_group_id: None,
@@ -462,7 +462,7 @@ impl ApiClient {
                 result: 0,
                 message: "".to_string(),
             }),
-            result: 0,
+            ..Default::default()
         };
 
         self.0
@@ -475,14 +475,15 @@ impl ApiClient {
     pub async fn get_pxe_instructions(
         &self,
         arch: rpc::forge::MachineArchitecture,
-        interface_id: MachineInterfaceId,
+        client_ip: std::net::IpAddr,
         product: Option<String>,
     ) -> ClientApiResult<PxeInstructions> {
         self.0
             .get_pxe_instructions(rpc::forge::PxeInstructionRequest {
                 arch: arch.into(),
-                interface_id: Some(interface_id),
                 product,
+                client_ip: Some(client_ip.to_string()),
+                ..Default::default()
             })
             .await
             .map_err(ClientApiError::InvocationError)

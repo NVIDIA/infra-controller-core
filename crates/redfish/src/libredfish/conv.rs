@@ -38,6 +38,7 @@ impl IntoLibredfish<libredfish::model::update_service::ComponentType> for Firmwa
             FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
             FirmwareComponentType::CombinedBmcUefi => ComponentType::Unknown,
             FirmwareComponentType::Gpu => ComponentType::Unknown,
+            FirmwareComponentType::Cx7 => ComponentType::Unknown,
             FirmwareComponentType::Unknown => ComponentType::Unknown,
         }
     }

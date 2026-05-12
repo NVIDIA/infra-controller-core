@@ -41,6 +41,7 @@ use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
 use model::vpc::UpdateVpcVirtualization;
 use prometheus_text_parser::ParsedPrometheusMetrics;
+use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
@@ -64,7 +65,11 @@ async fn test_advance_network_prefix_state(
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(rpc::forge::Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
                 .tonic_request(),
         )
         .await
@@ -151,9 +156,8 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 
     db::machine_interface::create(
         &mut txn,
-        &db_segment,
+        std::slice::from_ref(&db_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        None,
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -1007,21 +1011,28 @@ async fn test_update_svi_ip_admin_segment(
     db_init::create_admin_vpc(&env.pool, Some(10600)).await?;
 
     let mut txn = env.pool.begin().await?;
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
-    assert!(admin_segment.vpc_id.is_some());
-    let admin_vpc = db::vpc::find_by(
-        txn.as_mut(),
-        ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
-    )
-    .await?;
-    assert_eq!(
-        admin_vpc[0].network_virtualization_type,
-        VpcVirtualizationType::Fnn
-    );
+    let admin_segments = db::network_segment::admin(&mut txn).await?;
+
+    for admin_segment in admin_segments {
+        assert!(admin_segment.vpc_id.is_some());
+        let admin_vpc = db::vpc::find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
+        )
+        .await?;
+        assert_eq!(
+            admin_vpc[0].network_virtualization_type,
+            VpcVirtualizationType::Fnn
+        );
+    }
+
     db_init::update_network_segments_svi_ip(&env.pool).await?;
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
-    for prefix in admin_segment.prefixes {
-        assert!(prefix.svi_ip.is_some());
+    let admin_segments = db::network_segment::admin(&mut txn).await?;
+
+    for admin_segment in admin_segments {
+        for prefix in admin_segment.prefixes {
+            assert!(prefix.svi_ip.is_some());
+        }
     }
     Ok(())
 }
@@ -1169,7 +1180,11 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("dual-stack vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "dual-stack vpc".to_string(),
+                    ..Default::default()
+                })
                 .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
                 .tonic_request(),
         )
@@ -1250,12 +1265,14 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder(
-                "uncontained-ipv6-vpc",
-                "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
-            )
-            .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
-            .tonic_request(),
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "uncontained-ipv6-vpc".to_string(),
+                    description: "".to_string(),
+                    labels: vec![],
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
         )
         .await?
         .into_inner();

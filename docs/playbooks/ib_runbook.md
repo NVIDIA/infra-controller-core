@@ -8,10 +8,12 @@
 
 ### Installation
 
-UFM 6.19.0 and up is recommended for configuring UFM in more security mode.
+UFM `6.23.1-6` or later is the minimum supported version for this configuration.
+The InfiniBand switches must be updated accordingly before enabling these settings.
 
 * Follow the [prerequisites](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest/installing+ufm+server+software) guidance to install all required packages, including the HA part.
 * Follow the [HA installation](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest/installing+ufm+on+bare+metal+server+-+high+availability+mode) guidance to install the UFM in HA mode.
+* See the [NVIDIA UFM Enterprise REST API Guide v6.23.1](https://docs.nvidia.com/networking/display/ufmenterpriserestapiv6231) for REST API documentation.
 
 ### Configuration
 
@@ -56,6 +58,19 @@ sa_etm_max_num_srvcs 32
 sa_etm_max_num_event_subs 32
 …
 ```
+
+##### Initial OpenSM settings during UFM configuration
+
+As part of UFM configuration, set these initial parameters in `$UFM_HOME/ufm/files/conf/opensm/opensm.conf` to help reduce congestion:
+
+```
+max_op_vls 2
+ar_tree_asymmetric_flow 3
+```
+
+On an existing deployment, if either parameter is already present with a different value, change it to the values above so new and existing setups match this guideline.
+
+After editing OpenSM configuration, restart the UFM subnet manager (or UFM services) so the changes take effect.
 
 ##### Static Topology configuration
 
@@ -397,7 +412,7 @@ curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  h
 *  start date: Jun 18 02:52:24 2024 GMT
 *  expire date: Jul 18 02:52:54 2024 GMT
 *  subjectAltName: host "carbide-api.forge" matched cert's "carbide-api.forge"
-*  issuer: O=NVIDIA Corporation; CN=NVIDIA Forge Intermediate CA 2023 - pdx-qa2
+*  issuer: O=NVIDIA Corporation; CN=NVIDIA NICo Intermediate CA - <site-name>
 *  SSL certificate verify ok.
 } [5 bytes data]
 > GET /ufmRest/app/ufm_version HTTP/1.1
@@ -450,7 +465,7 @@ curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  h
 { [34 bytes data]
 * Connection #0 to host carbide-api.forge left intact
 {
-  "ufm_release_version": "6.14.5-2"
+  "ufm_release_version": "6.23.1-6"
 }
 ```
 
@@ -624,4 +639,4 @@ Did not support updating pool.pkey after configuration.
 ## Reference
 
 * [NVIDIA UFM Enterprise Quick Start Guide](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest)
-* [NVIDIA UFM Enterprise REST API](https://docs.nvidia.com/networking/display/ufmenterpriserestapilatest)
+* [NVIDIA UFM Enterprise REST API Guide v6.23.1](https://docs.nvidia.com/networking/display/ufmenterpriserestapiv6231)

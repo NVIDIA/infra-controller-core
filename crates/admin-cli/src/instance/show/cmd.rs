@@ -256,7 +256,8 @@ async fn convert_instance_to_nice_format(
                 (
                     "VPC NAME",
                     vpc.as_ref()
-                        .map(|v| v.name.as_str().into())
+                        .and_then(|v| v.metadata.as_ref())
+                        .map(|v| Cow::Borrowed(v.name.as_str()))
                         .unwrap_or("<not found>".into()),
                 ),
             ];
@@ -503,7 +504,7 @@ pub async fn handle_show(
             .await?;
 
         match sort_by {
-            SortField::PrimaryId => all_instances.instances.sort_by(|i1, i2| i1.id.cmp(&i2.id)),
+            SortField::PrimaryId => all_instances.instances.sort_by_key(|instance| instance.id),
             SortField::State => all_instances.instances.sort_by(|i1, i2| {
                 let tenant_status1 = i1
                     .status

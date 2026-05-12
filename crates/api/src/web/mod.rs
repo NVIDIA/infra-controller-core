@@ -27,11 +27,10 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
-use axum_extra::extract::Host;
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
-use http::{HeaderMap, Request, StatusCode, Uri};
+use http::{HeaderMap, Request, StatusCode};
 use itertools::Itertools;
 use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
@@ -121,11 +120,29 @@ impl HealthDetail {
 
 /// Reusable template for rendering a color-coded state bubble.
 /// Render with `{{ state_display|safe }}`.
-#[derive(Template)]
+#[derive(Debug, Clone, PartialEq, Eq, Template)]
 #[template(path = "state_display.html")]
 pub(crate) struct StateDisplay {
     pub state: String,
     pub time_in_state_above_sla: bool,
+}
+
+impl StateDisplay {
+    pub fn from_lifecycle(lifecycle: Option<&forgerpc::LifecycleStatus>) -> Self {
+        let state = lifecycle
+            .map(|lifecycle| lifecycle.state.clone())
+            .filter(|state| !state.is_empty())
+            .unwrap_or_else(|| r#"{ "state": "unknown" }"#.to_string());
+        let time_in_state_above_sla = lifecycle
+            .and_then(|lifecycle| lifecycle.sla.as_ref())
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or(false);
+
+        Self {
+            state,
+            time_in_state_above_sla,
+        }
+    }
 }
 
 /// Reusable template for rendering State SLA, time-in-state-above-SLA, and
@@ -759,22 +776,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
 }
 
 pub async fn auth_oauth2(
-    Host(hostname): Host,
     headers: HeaderMap,
     mut req: Request<AxumBody>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Remove the port (this matters on localhost) since a cookie for localhost:1079
-    // does not apply for the a page hosted on localhost:1079. Instead the cookie
-    // must be for localhost.
-
-    let Some(hostname) = Uri::try_from(hostname)
-        .ok()
-        .and_then(|uri| uri.host().map(|host| host.to_owned()))
-    else {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    };
-
     let oauth_extension_layer = match req.extensions().get::<Option<Oauth2Layer>>() {
         None => {
             tracing::error!("failed to find oauth2 extension layer");
@@ -848,7 +853,6 @@ pub async fn auth_oauth2(
     // during code exchange when they hit our callback URL.
     // Using this with a cookie is a little weird, but it'll be encrypted.
     let pkce_cookie = Cookie::build(("pkce_verifier", pkce_verifier.secret().to_owned()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -857,7 +861,6 @@ pub async fn auth_oauth2(
     // Store the csrf state so we can compare the state we get back from Azure
     // when they hit our callback URL.
     let csrf_cookie = Cookie::build(("csrf_state", csrf_state.secret().to_owned()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -872,7 +875,6 @@ pub async fn auth_oauth2(
             .unwrap_or_else(|| req.uri().path())
             .to_string(),
     ))
-    .domain(hostname)
     .path("/")
     .secure(true)
     .http_only(true)

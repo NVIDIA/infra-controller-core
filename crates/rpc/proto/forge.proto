@@ -768,10 +768,11 @@ service Forge {
   rpc FindInstancesByDpuExtensionService(FindInstancesByDpuExtensionServiceRequest) returns (FindInstancesByDpuExtensionServiceResponse);
 
   // SPDM attestation APIs start
-  rpc TriggerMachineAttestation(AttestationData) returns (google.protobuf.Empty);
-  rpc CancelMachineAttestation(AttestationData) returns (google.protobuf.Empty);
-  rpc FindMachineIdsUnderAttestation(AttestationIdsRequest) returns (common.MachineIdList);
-  rpc FindMachinesUnderAttestation(AttestationMachineList) returns (AttestationResponse);
+  rpc TriggerMachineAttestation(SpdmMachineAttestationTriggerRequest) returns (SpdmMachineAttestationTriggerResponse);
+  rpc CancelMachineAttestation(common.MachineId) returns (google.protobuf.Empty);
+  rpc FindMachineIdsUnderAttestation(google.protobuf.Empty) returns (common.MachineIdList);
+  rpc ListAttestationsForMachineId(common.MachineId) returns (SpdmListAttestationsResponse);
+  rpc GetMachineAttestationStatus(common.MachineId) returns (SpdmMachineAttestationStatusResponse);
   // SPDM attestation APIs end
 
   // SPIFFE Machine Identity APIs
@@ -933,37 +934,44 @@ message LifecycleStatus {
   StateSla sla = 4;
 }
 
+enum SpdmAttestationStatus{
+  SPDM_ATT_IN_PROGRESS = 0;
+  SPDM_ATT_CANCELLED = 1;
+  SPDM_ATT_PASSED = 2;
+  SPDM_ATT_FAILED = 3;
+}
+
 message AttestationIdsRequest {
 
 }
 
-message AttestationData {
+message SpdmMachineAttestationStatusResponse {
   common.MachineId machine_id = 1;
+  SpdmAttestationStatus attestation_status = 2;
 }
 
-message AttestationMachineList {
-  repeated common.MachineId machine_ids = 1;
+message SpdmMachineAttestationTriggerResponse {
+  common.MachineId machine_id = 1;
+  int32 devices_under_attestation = 2;
 }
 
-message AttestationResponse {
-  message AttestationDeviceData {
-    string device_id = 1;
-    common.UUID nonce = 2;
-    string state = 3;
-    optional string metadata = 4;
-  }
-  message AttestationMachineData {
-    common.MachineId machine_id = 1;
-    google.protobuf.Timestamp requested_at = 2;
-    optional google.protobuf.Timestamp started_at = 3;
-    optional google.protobuf.Timestamp canceled_at = 4;
-    string state = 5;
-    string state_version = 6;
-    optional string state_outcome = 7;
-    string status = 8;
-    repeated AttestationDeviceData device_data = 9;
-  }
-  repeated AttestationMachineData machines = 1;
+message SpdmAttestationDetails{
+  common.MachineId machine_id = 1;
+  string device_id = 2;
+  string state = 3;
+
+  google.protobuf.Timestamp started_at = 7;
+  optional google.protobuf.Timestamp cancelled_at = 8;
+  optional google.protobuf.Timestamp completed_at = 9;
+}
+
+message SpdmListAttestationsResponse {
+  repeated SpdmAttestationDetails attestations_details = 1;
+}
+
+message SpdmMachineAttestationTriggerRequest {
+  common.MachineId machine_id = 1;
+  uint32 redfish_timeout_secs = 2;
 }
 
 // Machine Identity - JWT-SVID token signing
@@ -1414,7 +1422,7 @@ message VpcStatus {
 
 message Vpc {
   common.VpcId id = 1;
-  string name = 2;
+  reserved 2;  // was: string name, replaced with metadata.name
   string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
   string version = 99;
@@ -1455,8 +1463,7 @@ message Vpc {
 }
 
 message VpcCreationRequest {
-  // TODO: Remove the name field as soon as cloud codes gets updated to using metadata.name.
-  string name = 2;
+  reserved 2;  // was: string name, replaced with metadata.name
   string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
   // this keyset will enable any key contained within it to access any instance associated with this VPC.
   optional string tenantKeysetId = 4; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
@@ -1517,8 +1524,7 @@ message VpcUpdateRequest {
   // a `message VpcConfig/VpcSettings`. However I don't feel like this would add
   // a lot for primitive types like Vpc.
 
-  // TODO: Remove the name field as soon as cloud codes gets updated to using metadata.name.
-  string name = 3;
+  reserved 3; // was string name, replaced with metadata.name
   reserved 4; // was tenantOrganizationId
   reserved 5; // was tenantKeysetId
 
@@ -1583,7 +1589,7 @@ enum PrefixMatchType {
 message VpcPrefix {
   common.VpcPrefixId id = 1;
   string prefix = 2; // Deprecated, use config instead
-  string name = 3; // Deprecated, use metadata instead
+  reserved 3; // was string name, replaced with metadata instead
   common.VpcId vpc_id = 4;
   reserved 5; // tenant_prefix_id
   uint32 total_31_segments = 6; // Deprecated, use status instead
@@ -1610,7 +1616,7 @@ message VpcPrefixCreationRequest {
   optional common.VpcPrefixId id = 1;
   // IPv4 or IPv6 prefix in CIDR notation
   string prefix = 2; // Deprecated, use config instead
-  string name = 3; // Deprecated, use config instead
+  reserved 3; // was string name, replaced with metadata
   common.VpcId vpc_id = 4;
   reserved 5; // tenant_prefix_id
   VpcPrefixConfig config = 6;
@@ -1648,7 +1654,7 @@ message VpcPrefixUpdateRequest {
   // 2. It is not larger than its containing site prefix.
   // 3. It contains all of its associated network segment prefixes.
   optional string prefix = 2; // Deprecated, use config instead
-  optional string name = 3;  // Deprecated, use metadata instead
+  reserved 3;  // was string name, replaced metadata
   VpcPrefixConfig config = 4;
   Metadata metadata = 5;
 }
@@ -2569,8 +2575,17 @@ message InstanceConfig {
 
 // Desired network configuration for an instance
 message InstanceNetworkConfig {
-  // Configures how instance network interfaces are set up
+  // Configures how instance network interfaces are set up.
+  // Mutually exclusive with `auto`: when `auto` is true, this
+  // MUST be empty, When `auto` is false, this lists the explicit
+  // interface configuration the caller wants applied.
   repeated InstanceInterfaceConfig interfaces = 1;
+
+  // When true, NICO (or potentially some pluggable SDN backend) will
+  // auto-resolve the instance's network interfaces from the host's
+  // HostInband network segments. Only valid for instances on zero-DPU
+  // hosts (well, no DPU, *or* DPU in NIC mode).
+  bool auto = 2;
 }
 
 // Desired infiniband configuration for an instance
@@ -3546,6 +3561,11 @@ message DhcpDiscovery {
 
 message ExpireDhcpLeaseRequest {
   string ip_address = 1;
+  // Optional MAC of the expiring lease. When set, the handler only
+  // deletes the row whose (ip_address, mac) pair matches; Kea will
+  // set both. admin-cli calls may just set ip_address. We could
+  // probably just enforce that both must be set.
+  optional string mac_address = 2;
 }
 
 enum ExpireDhcpLeaseStatus {
@@ -4230,6 +4250,8 @@ message AdminRebootResponse {
 message AdminBmcResetRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
+  // When true, reset the BMC via ipmitool instead of Redfish.
+  // ipmitool bmc reset requests may be silently ignored if the BMC is in lockdown mode.
   bool use_ipmitool = 3;
 }
 
@@ -4465,7 +4487,9 @@ message MachineCleanupInfo {
   // EFI variable MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829 must be set to 1
   CleanupStepResult mem_overwrite = 4;
   // Reset IB devices
-  CleanupStepResult ib = 5;
+  CleanupStepResult ib  = 5;
+  // HDD/SSD block device cleanup result
+  CleanupStepResult hdd = 6;
 
   CleanupResult result = 11;
 }
@@ -4516,8 +4540,16 @@ message ForgeScoutErrorReportResult {
 
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
-  common.MachineInterfaceId interface_id = 2;
+  // DEPRECATED: interface_id is no longer read by carbide-api. The
+  // booting machine is now identified via client_ip (see below).
+  // We could potentially just drop this entirely and mark it as
+  // "reserved 2" in the future or similar.
+  common.MachineInterfaceId interface_id = 2 [deprecated = true];
   optional string product = 3;
+  // client_ip is the IP carbide-pxe observed for the booting machine
+  // -- read from X-Forwarded-For when carbide-pxe is fronted by a
+  // proxy, or the TCP socket peer when reached directly.
+  optional string client_ip = 4;
 }
 
 message PxeInstructions {
@@ -4651,7 +4683,7 @@ message HealthReportEntry {
   HealthReportApplyMode mode = 2;
 }
 
-// Request to insert a health report source for a Machine.
+// Request to insert a health report source for a Host or DPU Machine.
 message InsertMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   HealthReportEntry health_report_entry = 2;
@@ -4712,7 +4744,7 @@ message ListHealthReportResponse {
   repeated HealthReportEntry health_report_entries = 1;
 }
 
-// Request to remove a health report source for a Machine.
+// Request to remove a health report source from a host or DPU Machine.
 message RemoveMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   string source = 2;
@@ -6774,12 +6806,13 @@ message Rack {
   common.RackId id = 1;
   // deprecated: Use status.lifecycle field
   string rack_state = 2;
-  repeated string expected_compute_trays = 3;
-  repeated string expected_power_shelves = 4;
-  repeated string expected_nvlink_switches = 5;
-  repeated common.MachineId compute_trays = 6;
-  repeated common.PowerShelfId power_shelves = 7;
-  repeated common.SwitchId switches = 8;
+
+  // Removed fields that can be derived from other API calls.
+  reserved 3, 4, 5, 6, 7, 8;
+  reserved "expected_compute_trays", "expected_power_shelves",
+    "expected_nvlink_switches", "compute_trays",
+    "power_shelves", "switches";
+
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
@@ -7529,16 +7562,31 @@ enum ScoutStreamErrorStatus {
   SCOUT_STREAM_ERROR_STATUS_INTERNAL = 0;
 }
 
+// Entries used for prefix-list policies on the DPUS.
+// Default behavior is max-len lte 32
+// We can change that with additional fields on this struct
+// if necessary in the future.
+message PrefixFilterPolicyEntry {
+  string prefix = 1;
+}
+
 message RoutingProfile {
-  repeated common.RouteTarget route_target_imports     = 1;
-  repeated common.RouteTarget route_targets_on_exports = 2;
-  bool leak_default_route_from_underlay                = 3;
-  bool leak_tenant_host_routes_to_underlay             = 4;
+  repeated common.RouteTarget route_target_imports             = 1;
+  repeated common.RouteTarget route_targets_on_exports         = 2;
+  bool leak_default_route_from_underlay                        = 3;
+  bool leak_tenant_host_routes_to_underlay                     = 4;
 
   // Are route-leak communities sent by the host OS honored by the DPU for allowing
   // routes advertised by the host OS to be leaked into the underlay?
-  bool tenant_leak_communities_accepted                = 5;
+  bool tenant_leak_communities_accepted                        = 5;
 
+  // An explicit/granular list of prefixes that should
+  // be allowed to leak from the default VRF into the tenant
+  // VRF.
+  //
+  // These are purely for routing purposes and will not have any
+  // impact on ACLs.
+  repeated PrefixFilterPolicyEntry accepted_leaks_from_underlay = 6;
 }
 
 // ============================================================================
@@ -7834,6 +7882,14 @@ enum ComputeTrayComponent {
   COMPUTE_TRAY_COMPONENT_UNKNOWN = 0;
   COMPUTE_TRAY_COMPONENT_BMC = 1;
   COMPUTE_TRAY_COMPONENT_BIOS = 2;
+  COMPUTE_TRAY_COMPONENT_CEC = 3;
+  COMPUTE_TRAY_COMPONENT_NIC = 4;
+  COMPUTE_TRAY_COMPONENT_CPLD_MB = 5;
+  COMPUTE_TRAY_COMPONENT_CPLD_PDB = 6;
+  COMPUTE_TRAY_COMPONENT_HGX_BMC = 7;
+  COMPUTE_TRAY_COMPONENT_COMBINED_BMC_UEFI = 8;
+  COMPUTE_TRAY_COMPONENT_GPU = 9;
+  COMPUTE_TRAY_COMPONENT_CX7 = 10;
 }
 
 message UpdateComputeTrayFirmwareTarget {
@@ -7893,9 +7949,20 @@ message ListComponentFirmwareVersionsRequest {
   }
 }
 
+// Per-component firmware versions for a compute tray. Since compute trays
+// don't use bundles, each component (BMC, BIOS, etc.) has its own set of
+// available firmware versions.
+message ComputeTrayFirmwareVersions {
+  ComputeTrayComponent component = 1;
+  repeated string versions = 2;
+}
+
 message DeviceFirmwareVersions {
   ComponentResult result = 1;
+  // Firmware Bundle IDs for switches, powershelves, and racks.
   repeated string versions = 2;
+  // Per-component firmware versions for compute trays.
+  repeated ComputeTrayFirmwareVersions compute_fw_versions = 3;
 }
 
 message ListComponentFirmwareVersionsResponse {

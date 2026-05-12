@@ -20,6 +20,7 @@ data:
     mock_bmc_ssh_server = true
     mock_bmc_ssh_port = 2222
     persist_dir = "/tmp/machine-a-tron-data"
+    register_expected_machines = true
 
     # machine-a-tron config generated from "just setup-k3s-env-ips"
     [machines.config]

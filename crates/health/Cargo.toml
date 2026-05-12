@@ -41,7 +41,7 @@ hyper-rustls = { workspace = true, features = ["http2"] }
 hyper-util = { workspace = true }
 mac_address = { workspace = true }
 prometheus = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["query", "json"] }
 rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 serde = { features = ["derive"], workspace = true }
@@ -72,11 +72,12 @@ nv-redfish = { workspace = true, features = [
   "processors",
   "sensors",
   "storages",
+  "thermal",
   "update-service",
   "resource-status",
 ] }
 rand = { workspace = true }
-url = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 
 # [local-dependencies]
 carbide-health-report = { path = "../health-report" }

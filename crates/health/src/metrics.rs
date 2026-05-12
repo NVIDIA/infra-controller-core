@@ -411,7 +411,7 @@ impl Collector for GaugeMetrics {
             gauge.set_value(data.value);
 
             let mut metric = proto::Metric::new();
-            metric.set_label(labels.into());
+            metric.set_label(labels);
             metric.set_gauge(gauge);
 
             family.mut_metric().push(metric);

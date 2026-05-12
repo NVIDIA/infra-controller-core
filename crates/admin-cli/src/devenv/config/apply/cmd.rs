@@ -144,7 +144,6 @@ async fn handle_overlay_vpc_prefix_creation(
         let new_prefix = VpcPrefixCreationRequest {
             id: Some(uuid::Uuid::new_v4().into()),
             prefix: String::new(),
-            name: String::new(),
             vpc_id: vpc.id,
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: network.to_string(),
@@ -157,11 +156,15 @@ async fn handle_overlay_vpc_prefix_creation(
             }),
         };
         let vpc_prefix = api_client.0.create_vpc_prefix(new_prefix).await?;
-
+        let vpc_prefix_name = vpc_prefix
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("");
         println!(
             "Created Vpc prefix {}, name: {} for network {network}.",
             vpc_prefix.id.unwrap(),
-            vpc_prefix.name
+            vpc_prefix_name
         );
     }
     Ok(())

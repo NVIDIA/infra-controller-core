@@ -71,6 +71,9 @@ const NETWORK_SECURITY_GROUP_RULE_COUNT_MAX: usize = 10000;
 /// into IPv4 and IPv6 buckets. Each bucket gets sequential indices
 /// starting at `start_index`. Unparseable prefixes are warned and
 /// dropped (because NVUE would fail on invalid addresses anyway).
+///
+/// start_index should usually be set to 1 to avoid nvue config complaints when
+/// using the output as part of policy generation.
 fn split_prefixes_by_family(prefixes: &[String], start_index: usize) -> (Vec<Prefix>, Vec<Prefix>) {
     let valid: Vec<_> = prefixes
         .iter()
@@ -122,13 +125,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     // profiles into FlatInterfaceConfig could change that.
     // For now, we clone later so that we can put this into each TmplVpc
     // and make a later transition easier.
-    let routing_profile = conf
-        .ct_routing_profile
-        .as_ref()
-        .map(|rt| TmplRoutingProfile {
+    let routing_profile = conf.ct_routing_profile.as_ref().map(|rt| {
+        let (v4leaks, v6leaks) = split_prefixes_by_family(&rt.accepted_leaks_from_underlay, 1);
+
+        TmplRoutingProfile {
             TenantLeakCommunitiesAccepted: rt.tenant_leak_communities_accepted,
             LeakDefaultRouteFromUnderlay: rt.leak_default_route_from_underlay,
             LeakTenantHostRoutesToUnderlay: rt.leak_tenant_host_routes_to_underlay,
+            AcceptedLeaksFromUnderlayIpv4: v4leaks,
+            AcceptedLeaksFromUnderlayIpv6: v6leaks,
             RouteTargetImports: rt
                 .route_target_imports
                 .iter()
@@ -145,7 +150,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     VNI: rt.vni,
                 })
                 .collect(),
-        });
+        }
+    });
 
     // There are two assumptions about pre-FNN...
     // 1 - ManagedHostNetworkConfigResponse only has rules inherited either from VPC or Instance,
@@ -338,6 +344,20 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 RoutingProfile: routing_profile.clone(),
                 PortPrefixes: port.VpcPrefixes.clone(),
                 PortPrefixesIpv6: port.VpcPrefixesIpv6.clone(),
+                HasLeaksFromUnderlayIpv4: routing_profile
+                    .as_ref()
+                    .map(|p| {
+                        p.LeakDefaultRouteFromUnderlay
+                            || !p.AcceptedLeaksFromUnderlayIpv4.is_empty()
+                    })
+                    .unwrap_or_default(),
+                HasLeaksFromUnderlayIpv6: routing_profile
+                    .as_ref()
+                    .map(|p| {
+                        p.LeakDefaultRouteFromUnderlay
+                            || !p.AcceptedLeaksFromUnderlayIpv6.is_empty()
+                    })
+                    .unwrap_or_default(),
             });
 
         port_configs.push(port);
@@ -429,7 +449,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     };
 
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
-    vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
+    vpcs.sort_by_key(|a| a.L3VNI);
 
     let (traffic_intercept_ipv4, traffic_intercept_ipv6) =
         split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, 1);
@@ -981,6 +1001,7 @@ pub struct RoutingProfile {
     pub route_target_imports: Vec<RouteTargetConfig>,
     pub route_targets_on_exports: Vec<RouteTargetConfig>,
     pub tenant_leak_communities_accepted: bool,
+    pub accepted_leaks_from_underlay: Vec<String>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -1265,6 +1286,8 @@ struct TmplRoutingProfile {
     RouteTargetImports: Vec<TmplRouteTargetConfig>,
     RouteTargetsOnExports: Vec<TmplRouteTargetConfig>,
     TenantLeakCommunitiesAccepted: bool,
+    AcceptedLeaksFromUnderlayIpv4: Vec<Prefix>,
+    AcceptedLeaksFromUnderlayIpv6: Vec<Prefix>,
 }
 
 #[allow(non_snake_case)]
@@ -1358,6 +1381,11 @@ struct TmplVpc {
     VpcPeerPrefixes: Vec<Prefix>,
     HasVpcPeerPrefixesIpv6: bool,
     VpcPeerPrefixesIpv6: Vec<Prefix>,
+
+    /// Whether there are _any_ leaks from the default
+    /// VRF into the tenant VRF being used.
+    HasLeaksFromUnderlayIpv4: bool,
+    HasLeaksFromUnderlayIpv6: bool,
 
     // The relationship between interface:VPC is 1:1 but VPC:interface is 1:M.
     // So, a single VPC could have multiple, per-port, VpcPrefixes.  We can
@@ -1678,6 +1706,7 @@ mod tests {
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],
             route_targets_on_exports: vec![],
+            accepted_leaks_from_underlay: vec![],
         });
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
@@ -1758,6 +1787,7 @@ mod tests {
 
             route_target_imports: vec![],
             route_targets_on_exports: vec![],
+            accepted_leaks_from_underlay: vec![],
         });
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
@@ -1841,6 +1871,7 @@ mod tests {
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],
             route_targets_on_exports: vec![],
+            accepted_leaks_from_underlay: vec![],
         });
         conf.ct_port_configs = vec![
             PortConfig {
@@ -1911,6 +1942,7 @@ mod tests {
             tenant_leak_communities_accepted: false,
             route_target_imports: vec![],
             route_targets_on_exports: vec![],
+            accepted_leaks_from_underlay: vec![],
         });
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
@@ -2072,6 +2104,7 @@ mod tests {
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],
             route_targets_on_exports: vec![],
+            accepted_leaks_from_underlay: vec![],
         }
     }
 

@@ -285,6 +285,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.RoutingProfile",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.PrefixFilterPolicyEntry",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.TrafficInterceptConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TrafficInterceptBridging", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
@@ -833,6 +837,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         ).type_attribute(
             "forge.PlacementInRack",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.SpdmListAttestationsResponse",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.SpdmAttestationDetails",
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.ForgeAgentControlResponse.ScoutFirmwareUpgradeTask", "#[derive(serde::Serialize, serde::Deserialize)]")

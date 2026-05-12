@@ -247,7 +247,7 @@ where
                             .unwrap_or_else(String::new);
 
                         request_span.record(
-                            opentelemetry_semantic_conventions::trace::RPC_GRPC_STATUS_CODE,
+                            opentelemetry_semantic_conventions::attribute::RPC_GRPC_STATUS_CODE,
                             code as u64,
                         );
                         request_span.record(

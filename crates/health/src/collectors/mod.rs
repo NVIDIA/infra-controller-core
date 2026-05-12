@@ -16,6 +16,7 @@
  */
 
 mod firmware;
+mod leak_detector;
 mod logs;
 mod nmxt;
 mod nvue;
@@ -23,6 +24,7 @@ mod runtime;
 mod sensors;
 
 pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
+pub use leak_detector::{LeakDetectorCollector, LeakDetectorCollectorConfig};
 pub use logs::{LogsCollector, LogsCollectorConfig, SseLogCollector, SseLogCollectorConfig};
 pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
 pub use nvue::gnmi::subscriber::spawn_gnmi_collector;

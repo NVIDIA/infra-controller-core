@@ -305,6 +305,7 @@ mod tests {
         let report = CollectorEvent::HealthReport(
             HealthReport {
                 source: ReportSource::BmcSensors,
+                target: None,
                 observed_at: None,
                 successes: vec![],
                 alerts: vec![HealthReportAlert {

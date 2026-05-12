@@ -22,7 +22,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use carbide_utils::managed_host_display::to_time;
+use carbide_rpc_utils::managed_host_display::to_time;
 use carbide_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use itertools::Itertools;
@@ -47,9 +47,7 @@ struct MachineShow {
 struct MachineRowDisplay {
     id: String,
     hostname: String,
-    state: String,
-    time_in_state: String,
-    time_in_state_above_sla: bool,
+    state_display: super::StateDisplay,
     associated_dpu_ids: Vec<String>,
     associated_host_id: String,
     sys_vendor: String,
@@ -130,16 +128,20 @@ impl MachineRowDisplay {
             })
             .unwrap_or_else(health_report::HealthReport::missing_report);
 
+        let time_in_state_above_sla = m
+            .state_sla
+            .as_ref()
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or_default();
+        let state_display = super::StateDisplay {
+            state: m.state,
+            time_in_state_above_sla,
+        };
+
         MachineRowDisplay {
             hostname,
             id: m.id.map(|id| id.to_string()).unwrap_or_default(),
-            state: m.state,
-            time_in_state: config_version::since_state_change_humanized(&m.state_version),
-            time_in_state_above_sla: m
-                .state_sla
-                .as_ref()
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
+            state_display,
             ip_address,
             mac_address,
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
@@ -418,7 +420,7 @@ pub async fn fetch_machines(
             .await?
             .into_inner();
 
-        machines.extend(next_machines.machines.into_iter());
+        machines.extend(next_machines.machines);
         offset += page_size;
     }
 
@@ -640,14 +642,14 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
         let host_id = m
             .associated_host_machine_id
             .map_or_else(String::default, |id| id.to_string());
-        let health_reports_url = if is_host || host_id.is_empty() {
-            format!("/admin/machine/{machine_id}/health")
+        let health_reports_link_text = if is_host {
+            "Go to Host health reports"
         } else {
-            format!("/admin/machine/{host_id}/health")
+            "Go to DPU health reports"
         };
         let health_detail = super::HealthDetail::new(
-            health_reports_url,
-            "Go to ManagedHost health reports",
+            format!("/admin/machine/{machine_id}/health"),
+            health_reports_link_text,
             m.health,
             m.health_sources,
         );

@@ -22,9 +22,10 @@ use super::context::{BmcClient, CollectorKind, DiscoveryLoopContext};
 use crate::HealthError;
 use crate::collectors::{
     BackoffConfig, Collector, CollectorStartContext, FirmwareCollector, FirmwareCollectorConfig,
-    LogsCollector, LogsCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
-    NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, SseLogCollector,
-    SseLogCollectorConfig, StreamingCollectorStartContext, spawn_gnmi_collector,
+    LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig,
+    NmxtCollector, NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig,
+    SensorCollector, SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig,
+    StreamingCollectorStartContext, spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
@@ -206,6 +207,49 @@ pub(super) async fn spawn_collectors_for_endpoint(
         }
     }
 
+    if let Configurable::Enabled(leak_detector_cfg) = &ctx.leak_detector_config
+        && !ctx.collectors.contains(CollectorKind::LeakDetector, &key)
+    {
+        let collector_registry =
+            Arc::new(ctx.metrics_manager.create_collector_registry(
+                format!("leak_detector_collector_{key}"),
+                metrics_prefix,
+            )?);
+        match Collector::start::<LeakDetectorCollector<BmcClient>>(
+            endpoint_arc.clone(),
+            LeakDetectorCollectorConfig {
+                data_sink: data_sink.clone(),
+                state_refresh_interval: leak_detector_cfg.state_refresh_interval,
+            },
+            CollectorStartContext {
+                limiter: ctx.limiter.clone(),
+                iteration_interval: leak_detector_cfg.poll_interval,
+                collector_registry,
+                metrics_manager: ctx.metrics_manager.clone(),
+                client: ctx.client.clone(),
+                health_options: ctx.config.clone(),
+            },
+        ) {
+            Ok(collector) => {
+                ctx.collectors
+                    .insert(CollectorKind::LeakDetector, key.clone(), collector);
+                tracing::info!(
+                    endpoint_key = %key,
+                    total_leak_detector_collectors =
+                        ctx.collectors.len(CollectorKind::LeakDetector),
+                    "Started leak detector collection for BMC endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "Could not start leak detector collector for: {:?}",
+                    endpoint.addr
+                )
+            }
+        }
+    }
+
     if let Configurable::Enabled(nmxt_cfg) = &ctx.nmxt_config
         && !ctx.collectors.contains(CollectorKind::Nmxt, &key)
         && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
@@ -374,6 +418,7 @@ mod tests {
                 password: Some("pass".to_string()),
             },
             Some(EndpointMetadata::Switch(SwitchData {
+                id: None,
                 serial: "switch-serial-1".to_string(),
             })),
             None,
@@ -388,6 +433,7 @@ mod tests {
         config.collectors.sensors = Configurable::Disabled;
         config.collectors.logs = Configurable::Disabled;
         config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
 
         let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
@@ -420,6 +466,7 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Logs), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Firmware), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::LeakDetector), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
     }

@@ -40,6 +40,7 @@ use crate::rack::firmware_update::{
     load_rack_switch_firmware_inventory, submit_firmware_update_batches,
 };
 use crate::rack::rms_client::SwitchSystemImageRmsClient;
+use crate::state_controller::external_service_error::rack_manager_error;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::fabric_manager::{
     get_scale_up_fabric_services_status, persist_fabric_manager_statuses, persist_primary_switch,
@@ -564,22 +565,35 @@ async fn rms_start_firmware_upgrade(
     for submission in submissions {
         match submission.response {
             Ok(response) => {
-                if !response.job_id.is_empty() {
-                    job.batch_job_ids.push(response.job_id.clone());
+                let batch_response = response.response.as_ref();
+                if let Some(batch_response) = batch_response
+                    && !batch_response.job_id.is_empty()
+                {
+                    job.batch_job_ids.push(batch_response.job_id.clone());
                 }
 
                 let child_jobs = response
                     .node_jobs
                     .iter()
-                    .map(|child| (child.node_id.as_str(), child.job_id.clone()))
+                    .map(|child| (child.node_id.clone(), child.job_id.clone()))
                     .collect::<std::collections::HashMap<_, _>>();
-                let node_errors = response
-                    .node_results
-                    .iter()
-                    .map(|result| (result.node_id.as_str(), result.error_message.clone()))
-                    .collect::<std::collections::HashMap<_, _>>();
-                let parent_job_id =
-                    (!response.job_id.is_empty()).then_some(response.job_id.clone());
+                let node_errors = batch_response
+                    .map(|batch_response| {
+                        batch_response
+                            .node_results
+                            .iter()
+                            .filter(|result| {
+                                result.status
+                                    != librms::protos::rack_manager::ReturnCode::Success as i32
+                                    || !result.error_message.is_empty()
+                            })
+                            .map(|result| (result.node_id.clone(), result.error_message.clone()))
+                            .collect::<std::collections::HashMap<_, _>>()
+                    })
+                    .unwrap_or_default();
+                let parent_job_id = batch_response.and_then(|batch_response| {
+                    (!batch_response.job_id.is_empty()).then(|| batch_response.job_id.clone())
+                });
 
                 let target_devices = match submission.display_name {
                     "Compute Node" => &mut job.machines,
@@ -598,10 +612,10 @@ async fn rms_start_firmware_upgrade(
                         error_message: None,
                     };
 
-                    if let Some(error_message) = node_errors.get(device.node_id.as_str()) {
+                    if let Some(error_message) = node_errors.get(&device.node_id) {
                         status.status = "failed".into();
                         status.error_message = Some(error_message.clone());
-                    } else if let Some(job_id) = child_jobs.get(device.node_id.as_str()) {
+                    } else if let Some(job_id) = child_jobs.get(&device.node_id) {
                         status.job_id = Some(job_id.clone());
                     } else {
                         status.status = "failed".into();
@@ -751,6 +765,7 @@ async fn rms_get_firmware_upgrade_status(
                 device.error_message = Some(message);
             }
             Err(error) => {
+                let error = rack_manager_error("get_firmware_job_status", error);
                 tracing::warn!(
                     job_id = %job_id,
                     error = %error,
@@ -819,29 +834,47 @@ async fn rms_start_nvos_update(
             ))
         })?;
 
-    if response.status != rms::ReturnCode::Success as i32
-        && response.job_id.is_empty()
+    let batch_response = response.response.as_ref();
+    let batch_status = batch_response
+        .map(|batch_response| batch_response.status)
+        .unwrap_or(rms::ReturnCode::Failure as i32);
+    let batch_job_id = batch_response
+        .map(|batch_response| batch_response.job_id.as_str())
+        .unwrap_or_default();
+    if batch_status != rms::ReturnCode::Success as i32
+        && batch_job_id.is_empty()
         && response.node_jobs.is_empty()
     {
-        let message = if response.message.is_empty() {
+        let message = batch_response
+            .map(|batch_response| batch_response.message.as_str())
+            .unwrap_or_default();
+        let message = if message.is_empty() {
             "RMS returned failure for UpdateSwitchSystemImage".to_string()
         } else {
-            response.message
+            message.to_string()
         };
         return Err(StateHandlerError::GenericError(eyre::eyre!(message)));
     }
 
-    let parent_job_id = (!response.job_id.is_empty()).then_some(response.job_id.clone());
+    let parent_job_id = (!batch_job_id.is_empty()).then(|| batch_job_id.to_string());
     let child_jobs = response
         .node_jobs
         .iter()
-        .map(|child| (child.node_id.as_str(), child.job_id.clone()))
+        .map(|child| (child.node_id.clone(), child.job_id.clone()))
         .collect::<std::collections::HashMap<_, _>>();
-    let node_errors = response
-        .node_results
-        .iter()
-        .map(|result| (result.node_id.as_str(), result.error_message.clone()))
-        .collect::<std::collections::HashMap<_, _>>();
+    let node_errors = batch_response
+        .map(|batch_response| {
+            batch_response
+                .node_results
+                .iter()
+                .filter(|result| {
+                    result.status != rms::ReturnCode::Success as i32
+                        || !result.error_message.is_empty()
+                })
+                .map(|result| (result.node_id.clone(), result.error_message.clone()))
+                .collect::<std::collections::HashMap<_, _>>()
+        })
+        .unwrap_or_default();
 
     let switches: Vec<_> = switches
         .into_iter()
@@ -853,13 +886,13 @@ async fn rms_start_nvos_update(
                 nvos_ip: switch.os_ip.unwrap_or_default(),
                 status: "pending".into(),
                 job_id: child_jobs
-                    .get(switch.node_id.as_str())
+                    .get(&switch.node_id)
                     .cloned()
                     .or_else(|| parent_job_id.clone()),
                 error_message: None,
             };
 
-            if let Some(error_message) = node_errors.get(switch.node_id.as_str()) {
+            if let Some(error_message) = node_errors.get(&switch.node_id) {
                 status.status = "failed".into();
                 status.error_message = Some(error_message.clone());
             } else if status.job_id.is_none() {
@@ -1754,13 +1787,8 @@ pub async fn handle_maintenance(
                 {
                     Ok(response) => response,
                     Err(error) => {
-                        return transition_to_rack_error(
-                            id,
-                            state,
-                            format!("RMS GetDeviceInfoByDeviceList failed: {}", error),
-                            ctx,
-                        )
-                        .await;
+                        let error = rack_manager_error("get_device_info_by_device_list", error);
+                        return transition_to_rack_error(id, state, error.to_string(), ctx).await;
                     }
                 };
                 let primary_switch =
@@ -1805,6 +1833,7 @@ pub async fn handle_maintenance(
                 {
                     Ok(response) => response,
                     Err(error) => {
+                        let error = rack_manager_error("configure_scale_up_fabric_manager", error);
                         tracing::error!(
                             rack_id = %id,
                             primary_switch = %primary_switch.device.node_id,

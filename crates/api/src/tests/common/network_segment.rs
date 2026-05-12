@@ -70,8 +70,7 @@ pub async fn create_network_segment_with_api(
     let vpc_id = if use_vpc {
         env.api
             .create_vpc(
-                VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
-                    .tonic_request(),
+                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93").tonic_request(),
             )
             .await
             .unwrap()
@@ -142,10 +141,9 @@ pub async fn text_history(txn: &mut PgConnection, segment_id: NetworkSegmentId) 
 
     // // Check that version numbers are always incrementing by 1
     if !entries.is_empty() {
-        let mut version = entries[0].state_version.version_nr();
-        for entry in &entries[1..] {
-            assert_eq!(entry.state_version.version_nr(), version + 1);
-            version += 1;
+        let first_version = entries[0].state_version.version_nr();
+        for (expected_version, entry) in ((first_version + 1)..).zip(&entries[1..]) {
+            assert_eq!(entry.state_version.version_nr(), expected_version);
         }
     }
 

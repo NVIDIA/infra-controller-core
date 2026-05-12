@@ -25,20 +25,24 @@ mod events;
 mod health_report;
 mod log_file;
 pub(crate) mod otlp;
+mod power_shelf_health_report;
 mod prometheus;
 mod rack_health_report;
+mod switch_health_report;
 mod tracing;
 
 pub use composite::CompositeDataSink;
 pub use events::{
     Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
-    HealthReportSuccess, LogRecord, Probe, PushedMetricSample, PushedMetricSource, ReportSource,
-    SensorHealthContext, SensorHealthData,
+    HealthReportSuccess, HealthReportTarget, LogRecord, Probe, PushedMetricSample,
+    PushedMetricSource, ReportSource, SensorHealthContext, SensorHealthData,
 };
 pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;
+pub use power_shelf_health_report::PowerShelfHealthReportSink;
 pub use prometheus::PrometheusSink;
 pub use rack_health_report::RackHealthReportSink;
+pub use switch_health_report::SwitchHealthReportSink;
 pub use tracing::TracingSink;
 
 #[cfg(not(feature = "bench-hooks"))]

@@ -224,7 +224,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
     let new_vpc = env
         .api
         .create_vpc(
-            common::rpc_builder::VpcCreationRequest::builder("", tenant_org)
+            common::rpc_builder::VpcCreationRequest::builder(tenant_org)
                 .metadata(rpc::forge::Metadata {
                     name: "Forge".to_string(),
                     description: "".to_string(),

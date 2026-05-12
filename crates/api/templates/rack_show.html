@@ -24,19 +24,13 @@
                             <tr>
                                 <th>ID</th>
                                 <th>State</th>
-                                <th>Compute Trays (current / expected)</th>
-                                <th>Power Shelves (current / expected)</th>
-                                <th>Switches (current / expected)</th>
                             </tr>
                             </thead>
                             <tbody>
                             {% for rack in racks %}
                             <tr>
-                                <td>{{ rack.id|option_fmt|rack_id_link|safe }}</td>
-                                <td>{{ rack.rack_state }}</td>
-                                <td>{{ rack.compute_trays.len() }} / {{ rack.expected_compute_trays.len() }}</td>
-                                <td>{{ rack.power_shelves.len() }} / {{ rack.expected_power_shelves.len() }}</td>
-                                <td>{{ rack.switches.len() }} / {{ rack.expected_nvlink_switches.len() }}</td>
+                                <td>{{ rack.id|rack_id_link|safe }}</td>
+                                <td>{{ rack.state_display|safe }}</td>
                             </tr>
                             {% endfor %}
                             </tbody>

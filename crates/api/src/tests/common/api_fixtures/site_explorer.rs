@@ -39,7 +39,8 @@ use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
     BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
     FailureSource, LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
-    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, SpdmMeasuringState,
+    ValidationState,
 };
 use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
@@ -653,6 +654,25 @@ impl<'a> MockExploredHost<'a> {
             }
 
             inject_machine_measurements(self.test_env, host_machine_id).await;
+        }
+
+        // if SPDM attestation is enabled, we need to drive it to completion
+        if self.test_env.config.spdm.enabled {
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_matches(
+                    &host_machine_id,
+                    10,
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::SpdmMeasuring {
+                            spdm_measuring_state: SpdmMeasuringState::PollResult,
+                        },
+                    },
+                )
+                .await;
+
+            for _ in 0..10 {
+                self.test_env.run_spdm_controller_iteration().await;
+            }
         }
 
         self.test_env
@@ -1531,6 +1551,7 @@ pub async fn new_power_shelf(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config,
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };
@@ -1828,7 +1849,7 @@ pub async fn create_expected_switches(
             .await
             .expect("unable to create expected switch");
 
-        let network_segment = db::network_segment::admin(txn)
+        let network_segments = db::network_segment::admin(txn)
             .await
             .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
             .unwrap();
@@ -1836,9 +1857,8 @@ pub async fn create_expected_switches(
         for nvos_mac in &result.nvos_mac_addresses.clone() {
             db::machine_interface::create(
                 txn,
-                &network_segment,
+                &network_segments,
                 nvos_mac,
-                network_segment.subdomain_id,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
             )
@@ -1853,9 +1873,8 @@ pub async fn create_expected_switches(
 
         db::machine_interface::create(
             txn,
-            &overlay_network_segment,
+            std::slice::from_ref(&overlay_network_segment),
             &result.bmc_mac_address.clone(),
-            overlay_network_segment.subdomain_id,
             false,
             AddressSelectionStrategy::NextAvailableIp,
         )

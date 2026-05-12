@@ -295,12 +295,6 @@ impl From<Rack> for rpc::forge::Rack {
         rpc::forge::Rack {
             id: Some(value.id),
             rack_state: value.controller_state.value.to_string(),
-            expected_compute_trays: vec![],
-            expected_power_shelves: vec![],
-            expected_nvlink_switches: vec![],
-            compute_trays: vec![],
-            power_shelves: vec![],
-            switches: vec![],
             created: Some(Timestamp::from(value.created)),
             updated: Some(Timestamp::from(value.updated)),
             deleted: value.deleted.map(Timestamp::from),
@@ -329,7 +323,7 @@ impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
     }
 }
 
-fn derive_rack_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
+pub fn derive_rack_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
     if let Some(replace) = &sources.replace {
         return replace.clone();
     }

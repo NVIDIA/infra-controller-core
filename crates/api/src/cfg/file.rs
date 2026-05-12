@@ -985,6 +985,15 @@ pub struct FnnRoutingProfileConfig {
     #[serde(default)]
     pub tenant_leak_communities_accepted: bool,
 
+    /// An explicit/granular list of prefixes that should
+    /// be allowed to leak from the default VRF into the tenant
+    /// VRF.
+    ///
+    /// These are purely for routing purposes and will not have any
+    /// impact on ACLs.
+    #[serde(default)]
+    pub accepted_leaks_from_underlay: Vec<PrefixFilterPolicyEntry>,
+
     /// Currently controls which profiles a tenant can use
     /// when creating VPCs.  Lower value means broader access.
     /// A tenant can create a VPC with a routing profile of the same or broader access.
@@ -996,6 +1005,15 @@ pub struct FnnRoutingProfileConfig {
     /// - A tenant with INTERNAL could only create INTERNAL VPCs.
     #[serde(default)]
     pub access_tier: u32,
+}
+
+/// Entries used for prefix-list policies on the DPUS.
+/// Default behavior is max-len lte 32
+/// We can change that with additional fields on this struct
+/// if necessary in the future.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct PrefixFilterPolicyEntry {
+    pub prefix: IpNetwork,
 }
 
 /// FNN configuration specific to the admin network.
@@ -3640,6 +3658,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::result_large_err)] // complains about figma::Error which we don't control
     fn deserialize_env_patched_full_config() {
         figment::Jail::expect_with(|jail| {
             jail.set_env("CARBIDE_API_DATABASE_URL", "postgres://othersql");

@@ -34,6 +34,10 @@ cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml", "dep:csv"]
 carbide-http-connector = { path = "../http-connector" }
 carbide-tls = { path = "../tls" }
 carbide-health-report = { path = "../health-report" }
+carbide-libmlx-model = { path = "../libmlx-model" }
+carbide-secrets = { path = "../secrets" }
+carbide-network = { path = "../network" }
+carbide-utils = { path = "../utils" }
 tonic-client-wrapper = { path = "../tonic-client-wrapper", default-features = false }
 dns-record = { path = "../dns-record" }
 carbide-uuid = { path = "../uuid" }
@@ -93,6 +97,9 @@ data-encoding = { workspace = true }
 sha2 = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 csv = { optional = true, workspace = true }
+
+[dev-dependencies]
+carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

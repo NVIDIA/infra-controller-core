@@ -66,6 +66,9 @@ impl<T: UuidSubtype + Send + Sync> prost::Message for TypedUuid<T> {
         // Decode through the shim type, which has the identical wire layout.
         let mut tmp = crate::CommonUuidPlaceholder::default();
         prost::Message::merge_field(&mut tmp, tag, wire_type, buf, ctx)?;
+        // Deprecation: if they remove DecodeError::new, they hopefully will provide some other way
+        // to impl prost::Message.
+        #[allow(deprecated)]
         let parsed = uuid::Uuid::parse_str(&tmp.value)
             .map_err(|_| prost::DecodeError::new(format!("invalid UUID: {}", tmp.value)))?;
         *self = parsed.into();

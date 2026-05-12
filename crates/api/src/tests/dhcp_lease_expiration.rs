@@ -40,7 +40,7 @@ async fn test_expire_releases_allocation(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:01").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -52,6 +52,7 @@ async fn test_expire_releases_allocation(
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
             ip_address: ip.to_string(),
+            mac_address: None,
         }))
         .await?;
 
@@ -84,6 +85,7 @@ async fn test_expire_nonexistent_address_returns_not_found(
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
             ip_address: "10.99.99.99".to_string(),
+            mac_address: None,
         }))
         .await?;
 
@@ -104,6 +106,7 @@ async fn test_expire_invalid_address_fails(
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
             ip_address: "not-an-ip".to_string(),
+            mac_address: None,
         }))
         .await;
 
@@ -120,6 +123,7 @@ async fn test_expire_ipv6_address(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
             ip_address: "fd00::42".to_string(),
+            mac_address: None,
         }))
         .await?;
 
@@ -159,6 +163,7 @@ async fn test_discover_reallocates_after_expiration(
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
             ip_address: original_ip.clone(),
+            mac_address: None,
         }))
         .await?
         .into_inner();
@@ -197,12 +202,15 @@ async fn test_expire_does_not_delete_static_allocation(
 
     // Create an interface with a static IP via the proper create path.
     let mut txn = env.pool.begin().await?;
-    let segment = db::network_segment::admin(&mut txn).await?;
+    let segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &segment,
+        std::slice::from_ref(&segment),
         &MacAddress::from_str("aa:bb:cc:dd:ee:08").unwrap(),
-        segment.subdomain_id,
         true,
         AddressSelectionStrategy::StaticAddress(static_ip),
     )
@@ -216,6 +224,7 @@ async fn test_expire_does_not_delete_static_allocation(
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
             ip_address: static_ip.to_string(),
+            mac_address: None,
         }))
         .await?
         .into_inner();
@@ -244,12 +253,15 @@ async fn test_static_address_survives_expiration_and_rediscover(
 
     // Create an interface with a static IP via the proper create path.
     let mut txn = env.pool.begin().await?;
-    let segment = db::network_segment::admin(&mut txn).await?;
+    let segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &segment,
+        std::slice::from_ref(&segment),
         &mac,
-        segment.subdomain_id,
         true,
         AddressSelectionStrategy::StaticAddress(static_ip),
     )
@@ -263,6 +275,7 @@ async fn test_static_address_survives_expiration_and_rediscover(
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
             ip_address: static_ip.to_string(),
+            mac_address: None,
         }))
         .await?
         .into_inner();
@@ -291,6 +304,85 @@ async fn test_static_address_survives_expiration_and_rediscover(
         interface.id,
         "should reuse the same interface"
     );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_expire_with_matching_mac_releases(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let relay: std::net::IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let mac = MacAddress::from_str("aa:bb:cc:dd:ee:0a").unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let interface = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        mac,
+        std::slice::from_ref(&relay),
+        None,
+    )
+    .await?;
+    let ip = interface.addresses[0];
+    txn.commit().await?;
+
+    let response = env
+        .api
+        .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
+            ip_address: ip.to_string(),
+            mac_address: Some(mac.to_string()),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(response.status(), ExpireDhcpLeaseStatus::Released);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_expire_with_mismatched_mac_is_no_op(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Simulates a race where MacAddressA expires after the IP was already
+    // re-allocated to MacAddressB. This late expiration hook should not
+    // delete MacAddressB's record/row.
+    let env = create_test_env(pool).await;
+    let relay: std::net::IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let mac_b = MacAddress::from_str("aa:bb:cc:dd:ee:0b").unwrap();
+    let mac_a_stale = MacAddress::from_str("aa:bb:cc:dd:ee:0c").unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let interface = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        mac_b,
+        std::slice::from_ref(&relay),
+        None,
+    )
+    .await?;
+    let ip = interface.addresses[0];
+    txn.commit().await?;
+
+    // Slow expire hook for the MacAddressA at this IP.
+    let response = env
+        .api
+        .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
+            ip_address: ip.to_string(),
+            mac_address: Some(mac_a_stale.to_string()),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(
+        response.status(),
+        ExpireDhcpLeaseStatus::NotFound,
+        "late expire hook with previous MAC must not delete new record"
+    );
+
+    // Verify MacAddressB's record is still in tact.
+    let mut txn = env.pool.begin().await?;
+    let addr =
+        db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await?;
+    assert_eq!(addr.address, ip, "MacAddressB address should still exist");
 
     Ok(())
 }
