@@ -65,12 +65,23 @@ async fn get_pxe_instructions(
     arch: rpc::forge::MachineArchitecture,
     product: Option<String>,
 ) -> rpc::forge::PxeInstructions {
+    let mut txn = env.pool.begin().await.unwrap();
+    let iface = db::machine_interface::find_one(txn.as_mut(), interface_id)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    let client_ip = iface
+        .addresses
+        .first()
+        .expect("interface must have at least one address to PXE boot")
+        .to_string();
+
     env.api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: arch as i32,
-            interface_id: Some(interface_id),
             product,
-            client_ip: None,
+            client_ip: Some(client_ip),
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -651,52 +662,12 @@ async fn test_cloud_init_url_overrides_none_for_internal_host(pool: sqlx::PgPool
     );
 }
 
-// When the DHCP server (carbide-dhcp or another DHCP server that happens to
-// be integrated with carbide-api) didn't populate option 43.70, the iPXE chain
-// script falls through to the client-IP path. carbide-pxe observes the client
-// IP (X-Forwarded-For if proxied, TCP socket peer otherwise) and forwards it
-// to carbide-api as PxeInstructionRequest.client_ip (with interface_id unset);
-// this makes sure the API resolves the IP to the same interface_id and returns
-// the same script as the uuid path.
-#[crate::sqlx_test]
-async fn test_pxe_instructions_resolves_client_ip_to_interface_id(pool: sqlx::PgPool) {
-    let env = create_env_with_external_urls(pool).await;
-
-    let ip = "10.99.0.60";
-    let (interface_id, _ip) = preallocate_external_interface(&env, "AA:BB:CC:DD:EE:10", ip).await;
-
-    let by_uuid = get_pxe_instructions(
-        &env,
-        interface_id,
-        rpc::forge::MachineArchitecture::X86,
-        None,
-    )
-    .await;
-
-    let by_client_ip = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: rpc::forge::MachineArchitecture::X86 as i32,
-            interface_id: None,
-            product: None,
-            client_ip: Some(ip.to_string()),
-        }))
-        .await
-        .expect("client_ip-based get_pxe_instructions returned an error")
-        .into_inner();
-
-    assert_eq!(
-        by_client_ip.pxe_script, by_uuid.pxe_script,
-        "client_ip fallback should resolve to the same pxe_script as the uuid path"
-    );
-    assert_eq!(by_client_ip.api_url_override, by_uuid.api_url_override);
-    assert_eq!(by_client_ip.pxe_url_override, by_uuid.pxe_url_override);
-    assert_eq!(
-        by_client_ip.static_pxe_url_override,
-        by_uuid.static_pxe_url_override
-    );
-}
-
+// carbide-pxe identifies the booting machine by the client IP it observed
+// and forwards it to carbide-api. An IP that doesn't map to any interface
+// in machine_interface_addresses should NotFound cleanly. (The happy path
+// -- known IP resolves to the right interface -- is exercised by every
+// other test in this module that calls get_pxe_instructions, since the
+// helper now goes through the client_ip lookup.)
 #[crate::sqlx_test]
 async fn test_pxe_instructions_unknown_client_ip_returns_not_found(pool: sqlx::PgPool) {
     let env = create_env_with_external_urls(pool).await;
@@ -705,53 +676,12 @@ async fn test_pxe_instructions_unknown_client_ip_returns_not_found(pool: sqlx::P
         .api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: rpc::forge::MachineArchitecture::X86 as i32,
-            interface_id: None,
             product: None,
             client_ip: Some("203.0.113.99".to_string()),
+            ..Default::default()
         }))
         .await;
 
     let status = result.expect_err("expected NotFound for unknown client_ip");
     assert_eq!(status.code(), tonic::Code::NotFound, "got: {status:?}");
-}
-
-// interface_id is sent when carbide-dhcp populates DHCP option 43.70;
-// client_ip is sent on the client-IP path (when 43.70 is not present).
-// interface_id takes priority when both are present -- as in we use
-// the "pre-resolved" ID and ignore the client_ip, even if the IP would
-// have resolved to a different interface (or no interface at all). Send
-// a deliberately "unknown" IP alongside a valid machine interface ID to
-// prove the handler is actually ignoring the `client_ip` field, and not
-// coincidentally agreeing with it.
-#[crate::sqlx_test]
-async fn test_pxe_instructions_prefers_interface_id_when_both_set(pool: sqlx::PgPool) {
-    let env = create_env_with_external_urls(pool).await;
-
-    let (interface_id, _ip) =
-        preallocate_external_interface(&env, "AA:BB:CC:DD:EE:11", "10.99.0.61").await;
-
-    let by_uuid_only = get_pxe_instructions(
-        &env,
-        interface_id,
-        rpc::forge::MachineArchitecture::X86,
-        None,
-    )
-    .await;
-
-    let with_unknown_client_ip = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: rpc::forge::MachineArchitecture::X86 as i32,
-            interface_id: Some(interface_id),
-            product: None,
-            // Deliberately-unknown IP. If the handler weren't preferring
-            // interface_id, this would NotFound. Instead, the client_ip
-            // is ignored and the script comes from the uuid lookup.
-            client_ip: Some("203.0.113.99".to_string()),
-        }))
-        .await
-        .expect("uuid wins; unknown client_ip should be ignored, not validated")
-        .into_inner();
-
-    assert_eq!(with_unknown_client_ip.pxe_script, by_uuid_only.pxe_script);
 }
