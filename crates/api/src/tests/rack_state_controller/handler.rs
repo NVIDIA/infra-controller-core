@@ -1453,17 +1453,19 @@ async fn test_firmware_upgrade_start_transitions_to_wait_for_complete(
     env.rms_sim
         .queue_update_firmware_response(
             librms::protos::rack_manager::UpdateFirmwareByDeviceListResponse {
-                status: librms::protos::rack_manager::ReturnCode::Success as i32,
-                message: "queued".to_string(),
-                total_nodes: 1,
-                successful_updates: 1,
-                failed_updates: 0,
-                job_id: "batch-job-1".to_string(),
+                response: Some(librms::protos::rack_manager::NodeBatchResponse {
+                    status: librms::protos::rack_manager::ReturnCode::Success as i32,
+                    message: "queued".to_string(),
+                    total_nodes: 1,
+                    successful_nodes: 1,
+                    failed_nodes: 0,
+                    job_id: "batch-job-1".to_string(),
+                    ..Default::default()
+                }),
                 node_jobs: vec![librms::protos::rack_manager::NodeFirmwareJobInfo {
                     node_id: host.host_snapshot.id.to_string(),
                     job_id: "child-job-1".to_string(),
                 }],
-                ..Default::default()
             },
         )
         .await;
@@ -2130,8 +2132,11 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     env.rms_sim
         .queue_update_switch_system_image_response(
             librms::protos::rack_manager::UpdateSwitchSystemImageResponse {
-                status: librms::protos::rack_manager::ReturnCode::Success as i32,
-                job_id: "nvos-job-1".to_string(),
+                response: Some(librms::protos::rack_manager::NodeBatchResponse {
+                    status: librms::protos::rack_manager::ReturnCode::Success as i32,
+                    job_id: "nvos-job-1".to_string(),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
         )

@@ -302,6 +302,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
 
     mh.instance_builer(&env).network(network).build().await;

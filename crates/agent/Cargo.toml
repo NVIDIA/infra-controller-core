@@ -114,7 +114,7 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 prost = { workspace = true }
 reqwest = { default-features = false, features = [
-  "rustls-tls",
+  "rustls",
   "stream",
 ], workspace = true }
 tower = { workspace = true }
