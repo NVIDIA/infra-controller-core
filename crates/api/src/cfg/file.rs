@@ -3670,6 +3670,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::result_large_err)] // complains about figma::Error which we don't control
     fn deserialize_env_patched_full_config() {
         figment::Jail::expect_with(|jail| {
             jail.set_env("CARBIDE_API_DATABASE_URL", "postgres://othersql");

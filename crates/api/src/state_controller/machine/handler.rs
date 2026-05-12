@@ -3134,8 +3134,7 @@ async fn check_fw_component_version(
                 fw_component
                     .known_firmware
                     .iter()
-                    .filter(|fw_entry| !fw_entry.preingestion_exclusive_config)
-                    .next_back()
+                    .rfind(|fw_entry| !fw_entry.preingestion_exclusive_config)
                     .cloned()
             })
             .map(|f| f.version)
