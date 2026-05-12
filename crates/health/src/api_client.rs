@@ -217,6 +217,9 @@ impl ApiClientWrapper {
                 EndpointMetadata::Machine(MachineData {
                     machine_id,
                     machine_serial: info.dmi_data.map(|dmi| dmi.chassis_serial),
+                    slot_number: None,
+                    tray_index: None,
+                    nvlink_domain_uuid: None,
                 })
             });
 

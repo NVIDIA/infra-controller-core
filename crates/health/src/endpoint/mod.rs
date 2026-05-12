@@ -35,7 +35,9 @@ mod tests {
 
     use super::*;
     use crate::HealthError;
-    use crate::config::{StaticBmcEndpoint, StaticPowerShelfEndpoint, StaticSwitchEndpoint};
+    use crate::config::{
+        StaticBmcEndpoint, StaticMachineEndpoint, StaticPowerShelfEndpoint, StaticSwitchEndpoint,
+    };
 
     fn make_test_endpoint(mac: MacAddress) -> BmcEndpoint {
         BmcEndpoint::with_fixed_credentials(
@@ -227,6 +229,55 @@ mod tests {
                 assert_eq!(power_shelf.serial, "PS-001");
             }
             other => panic!("expected PowerShelf metadata, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_static_machine_endpoint_sets_placement_and_nvlink_metadata() {
+        let machine_id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+            .parse()
+            .expect("valid machine id");
+        let domain_uuid = "00000000-0000-0000-0000-000000000000"
+            .parse()
+            .expect("valid NVLink domain UUID");
+        let configs = vec![StaticBmcEndpoint {
+            ip: "10.0.1.2".to_string(),
+            port: Some(443),
+            mac: "11:22:33:44:55:11".to_string(),
+            username: "admin".to_string(),
+            password: Some("pass".to_string()),
+            machine: Some(StaticMachineEndpoint {
+                id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string(),
+                serial: Some("MN-001".to_string()),
+                slot_number: Some(15),
+                tray_index: Some(5),
+                nvlink_domain_uuid: Some("00000000-0000-0000-0000-000000000000".to_string()),
+            }),
+            power_shelf: None,
+            switch: None,
+            rack_id: Some("RACK_1".to_string()),
+        }];
+
+        let source = StaticEndpointSource::from_config(&configs);
+        let endpoints = source.fetch_bmc_hosts().await.unwrap();
+
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(
+            endpoints[0]
+                .rack_id
+                .as_ref()
+                .map(|rack_id| rack_id.as_str()),
+            Some("RACK_1")
+        );
+        match &endpoints[0].metadata {
+            Some(EndpointMetadata::Machine(machine)) => {
+                assert_eq!(machine.machine_id, machine_id);
+                assert_eq!(machine.machine_serial.as_deref(), Some("MN-001"));
+                assert_eq!(machine.slot_number, Some(15));
+                assert_eq!(machine.tray_index, Some(5));
+                assert_eq!(machine.nvlink_domain_uuid, Some(domain_uuid));
+            }
+            other => panic!("expected Machine metadata, got {other:?}"),
         }
     }
 

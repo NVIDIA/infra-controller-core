@@ -111,6 +111,9 @@ pub struct StaticBmcEndpoint {
 pub struct StaticMachineEndpoint {
     pub id: String,
     pub serial: Option<String>,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
+    pub nvlink_domain_uuid: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1389,6 +1392,39 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
     }
 
     #[test]
+    fn test_static_machine_endpoint_accepts_placement_and_nvlink_metadata() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "admin"
+password = "pass"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse static machine endpoint config");
+
+        let machine = config.endpoint_sources.static_bmc_endpoints[0]
+            .machine
+            .as_ref()
+            .expect("machine metadata");
+
+        assert_eq!(machine.slot_number, Some(15));
+        assert_eq!(machine.tray_index, Some(5));
+        assert_eq!(
+            machine.nvlink_domain_uuid.as_deref(),
+            Some("00000000-0000-0000-0000-000000000000")
+        );
+    }
+
+    #[test]
     fn test_static_endpoint_rejects_multiple_identity_types() {
         let toml_content = r#"
 [endpoint_sources.carbide_api]
@@ -1428,6 +1464,17 @@ switch = { serial = "SN-SW-001" }
             config.endpoint_sources.static_bmc_endpoints[0]
                 .switch
                 .is_none()
+        );
+        let machine = config.endpoint_sources.static_bmc_endpoints[0]
+            .machine
+            .as_ref()
+            .expect("machine metadata");
+        assert_eq!(machine.serial.as_deref(), Some("MN-001"));
+        assert_eq!(machine.slot_number, Some(15));
+        assert_eq!(machine.tray_index, Some(5));
+        assert_eq!(
+            machine.nvlink_domain_uuid.as_deref(),
+            Some("00000000-0000-0000-0000-000000000000")
         );
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[1]
