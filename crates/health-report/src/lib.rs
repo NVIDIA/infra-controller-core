@@ -730,6 +730,8 @@ pub enum HealthReportConversionError {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -754,6 +756,34 @@ mod tests {
     fn prevent_deletion_classification_string() {
         let c = HealthAlertClassification::prevent_deletion();
         assert_eq!(c.as_str(), "PreventDeletion");
+    }
+
+    #[test]
+    fn request_online_repair_merge_includes_prevent_deletion() {
+        // Shape matches admin-cli `HealthReportTemplates::RequestOnlineRepair` (merge source
+        // `request-online-repair`, probe id `RequestOnlineRepair`).
+        let report = HealthReport {
+            source: "request-online-repair".to_string(),
+            triggered_by: None,
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert {
+                id: HealthProbeId::from_str("RequestOnlineRepair").unwrap(),
+                target: Some("request-online-repair".to_string()),
+                in_alert_since: None,
+                message: "test".to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    HealthAlertClassification::prevent_allocations(),
+                    HealthAlertClassification::suppress_external_alerting(),
+                    HealthAlertClassification::prevent_deletion(),
+                ],
+            }],
+        };
+        assert!(
+            report.has_classification(&HealthAlertClassification::prevent_deletion()),
+            "RequestOnlineRepair template must include PreventDeletion for release gating"
+        );
     }
 
     #[test]
