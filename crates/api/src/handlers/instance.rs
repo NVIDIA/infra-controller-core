@@ -640,7 +640,12 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
 /// (repair tenant and regular tenant) described below.
 ///
 /// **PreventDeletion:** If aggregate host health includes a [`HealthAlertClassification::prevent_deletion`]
-/// alert, `ReleaseInstance` is rejected until the alert is cleared. Admin machine force-delete does not use this check.
+/// alert, `ReleaseInstance` is rejected until the alert is cleared (only when the instance is not already
+/// marked deleted). Admin machine force-delete does not use this check.
+///
+/// **Already deleted:** If the instance row is already marked deleted, this handler still runs repair-tenant
+/// (and regular-tenant issue) health logic so the repair system can clear or update overrides, then returns
+/// success without calling `mark_as_deleted` again.
 ///
 /// ## Repair Tenant Workflow
 /// When `is_repair_tenant=true`, this indicates the RepairSystem is releasing an instance after
@@ -678,20 +683,16 @@ pub(crate) async fn release(
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
-    if instance.deleted.is_some() {
-        tracing::info!(
-            instance_id = %delete_instance.instance_id,
-            "Instance is already marked for deletion.",
-        );
-        return Ok(Response::new(rpc::InstanceReleaseResult {}));
+    // Only enforce PreventDeletion for a real release (instance not yet marked deleted). Repair-tenant
+    // follow-up calls after deletion may still need to adjust health overrides below.
+    if instance.deleted.is_none() {
+        ensure_instance_release_not_blocked_by_prevent_deletion(
+            &mut txn,
+            &instance.machine_id,
+            api.runtime_config.host_health,
+        )
+        .await?;
     }
-
-    ensure_instance_release_not_blocked_by_prevent_deletion(
-        &mut txn,
-        &instance.machine_id,
-        api.runtime_config.host_health,
-    )
-    .await?;
 
     // Instance Release called from the Repair tenant.
     if delete_instance.is_repair_tenant == Some(true) {
@@ -744,6 +745,15 @@ pub(crate) async fn release(
         .map_err(|e| CarbideError::Internal {
             message: e.to_string(),
         })?;
+    }
+
+    if instance.deleted.is_some() {
+        tracing::info!(
+            instance_id = %delete_instance.instance_id,
+            "Instance is already marked for deletion.",
+        );
+        txn.commit().await?;
+        return Ok(Response::new(rpc::InstanceReleaseResult {}));
     }
 
     // TODO: This is racy. If the instance just got deleted we still
