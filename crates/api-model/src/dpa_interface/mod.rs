@@ -20,13 +20,13 @@ use std::fmt::Display;
 use std::net::IpAddr;
 use std::str::FromStr;
 
+use carbide_libmlx_model::device::info::MlxDeviceInfo;
+use carbide_libmlx_model::firmware::result::FirmwareFlashReport;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use itertools::Itertools;
-use libmlx::device::info::MlxDeviceInfo;
-use libmlx::firmware::result::FirmwareFlashReport;
 use mac_address::MacAddress;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -197,7 +197,7 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
 
 #[cfg(test)]
 mod tests {
-    use libmlx::device::info::MlxDeviceInfo;
+    use carbide_libmlx_model::device::info::MlxDeviceInfo;
 
     use super::*;
 

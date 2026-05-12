@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
+use forge_secrets::credentials::Credentials;
 use mac_address::MacAddress;
 use model::component_manager::{FirmwareState, PowerAction, PowerShelfComponent};
 
@@ -16,6 +17,7 @@ pub struct PowerShelfEndpoint {
     pub pmc_ip: IpAddr,
     pub pmc_mac: MacAddress,
     pub pmc_vendor: PowerShelfVendor,
+    pub pmc_credentials: Credentials,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

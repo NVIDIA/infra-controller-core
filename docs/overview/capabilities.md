@@ -64,7 +64,7 @@ NICo maintains a consistent hardware baseline across the fleet on an ongoing bas
 
 For GB200 NVL72 SuperCluster deployments, NICo extends lifecycle management to the rack level:
 
-**Rack-Level Administration (RLA)** treats racks and NVL domains as first-class management entities rather than collections of individual hosts. It sequences power operations, firmware updates, and maintenance workflows safely across rack components,preventing unsafe actions and ensuring correct ordering across dense, multi-tray systems.
+**NICo Flow** treats racks and NVL domains as first-class management entities rather than collections of individual hosts. It sequences power operations, firmware updates, and maintenance workflows safely across rack components, preventing unsafe actions and ensuring correct ordering across dense, multi-tray systems.
 
 **NVLink Clustering** manages NVLink domain formation, health monitoring, and partition management. NICo gates instance allocation on cluster readiness — if the NVLink fabric is not healthy or fully formed, provisioning is blocked until it is.
 

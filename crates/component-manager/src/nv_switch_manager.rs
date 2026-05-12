@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
+use forge_secrets::credentials::Credentials;
 use mac_address::MacAddress;
 use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 
@@ -17,6 +18,8 @@ pub struct SwitchEndpoint {
     pub bmc_mac: MacAddress,
     pub nvos_ip: IpAddr,
     pub nvos_mac: MacAddress,
+    pub bmc_credentials: Credentials,
+    pub nvos_credentials: Credentials,
 }
 
 #[derive(Debug, Clone)]

@@ -642,14 +642,14 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
         let host_id = m
             .associated_host_machine_id
             .map_or_else(String::default, |id| id.to_string());
-        let health_reports_url = if is_host || host_id.is_empty() {
-            format!("/admin/machine/{machine_id}/health")
+        let health_reports_link_text = if is_host {
+            "Go to Host health reports"
         } else {
-            format!("/admin/machine/{host_id}/health")
+            "Go to DPU health reports"
         };
         let health_detail = super::HealthDetail::new(
-            health_reports_url,
-            "Go to ManagedHost health reports",
+            format!("/admin/machine/{machine_id}/health"),
+            health_reports_link_text,
             m.health,
             m.health_sources,
         );

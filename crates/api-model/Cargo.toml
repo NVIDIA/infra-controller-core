@@ -31,7 +31,7 @@ name = "model"
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-dpf = { path = "../dpf" }
 config-version = { path = "../config-version", features = ["sqlx"] }
-carbide-libmlx = { path = "../libmlx" }
+carbide-libmlx-model = { path = "../libmlx-model" }
 carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }

@@ -1388,6 +1388,7 @@ impl ApiClient {
             os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: interface_configs,
+                auto: false,
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,

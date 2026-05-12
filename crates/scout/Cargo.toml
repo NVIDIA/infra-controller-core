@@ -63,7 +63,7 @@ tryhard = { workspace = true }
 tss-esapi = { workspace = true }
 uuid = { workspace = true }
 reqwest = { default-features = false, features = [
-  "rustls-tls",
+  "rustls",
   "stream",
 ], workspace = true }
 sha2 = { workspace = true }

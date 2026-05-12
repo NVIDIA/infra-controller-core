@@ -40,7 +40,7 @@ async fn test_expire_releases_allocation(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:01").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -197,12 +197,15 @@ async fn test_expire_does_not_delete_static_allocation(
 
     // Create an interface with a static IP via the proper create path.
     let mut txn = env.pool.begin().await?;
-    let segment = db::network_segment::admin(&mut txn).await?;
+    let segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &segment,
+        std::slice::from_ref(&segment),
         &MacAddress::from_str("aa:bb:cc:dd:ee:08").unwrap(),
-        segment.subdomain_id,
         true,
         AddressSelectionStrategy::StaticAddress(static_ip),
     )
@@ -244,12 +247,15 @@ async fn test_static_address_survives_expiration_and_rediscover(
 
     // Create an interface with a static IP via the proper create path.
     let mut txn = env.pool.begin().await?;
-    let segment = db::network_segment::admin(&mut txn).await?;
+    let segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let interface = db::machine_interface::create(
         &mut txn,
-        &segment,
+        std::slice::from_ref(&segment),
         &mac,
-        segment.subdomain_id,
         true,
         AddressSelectionStrategy::StaticAddress(static_ip),
     )

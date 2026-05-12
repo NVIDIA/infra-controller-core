@@ -1726,7 +1726,7 @@ mod tests {
         InterfaceState, ServiceAddresses, needed_interface_state,
     };
     use crate::{HBNDeviceNames, dhcp, nvue};
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn setup() {
         carbide_host_support::init_logging().unwrap();
     }

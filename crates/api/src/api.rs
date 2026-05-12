@@ -773,12 +773,7 @@ impl Forge for Api {
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         log_request_data(&request);
 
-        Ok(crate::dhcp::discover::discover_dhcp(
-            self,
-            request,
-            Some(self.runtime_config.rack_management_enabled),
-        )
-        .await?)
+        Ok(crate::dhcp::discover::discover_dhcp(self, request).await?)
     }
 
     async fn expire_dhcp_lease(
