@@ -18,6 +18,13 @@
 
 syntax = "proto3";
 
+// Upstream NMX-C API style (camelCase fields, legacy service name, 4-space indent) does not
+// match this repository's default protolint rules; keep wire/API compatibility.
+// protolint:disable FIELD_NAMES_LOWER_SNAKE_CASE
+// protolint:disable SERVICE_NAMES_UPPER_CAMEL_CASE
+// protolint:disable INDENT
+// protolint:disable ENUM_NAMES_UPPER_CAMEL_CASE
+
 package nmx_c;
 
 enum ProtoMsgMajorVersion {
