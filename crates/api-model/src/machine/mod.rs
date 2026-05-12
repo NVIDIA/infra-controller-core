@@ -67,6 +67,7 @@ use crate::machine::health_override::HealthReportSources;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
+use crate::rpc_conv::instance::snapshot::instance_snapshot_derive_status;
 use crate::state_history::StateHistoryRecord;
 
 pub mod slas;
@@ -704,7 +705,8 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
                     e.to_string(),
                 )
             })?;
-        let status = instance.derive_status(
+        let status = instance_snapshot_derive_status(
+            &instance,
             dpu_id_to_device_map,
             snapshot.managed_state.clone(),
             reprovision_request,

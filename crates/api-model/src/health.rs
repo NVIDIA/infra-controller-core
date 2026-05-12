@@ -67,15 +67,6 @@ impl HealthReportSources {
     }
 }
 
-impl From<HealthHistoryRecord> for rpc::forge::HealthHistoryRecord {
-    fn from(record: HealthHistoryRecord) -> rpc::forge::HealthHistoryRecord {
-        rpc::forge::HealthHistoryRecord {
-            health: Some(record.health.into()),
-            time: Some(record.time.into()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

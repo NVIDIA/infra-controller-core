@@ -15,25 +15,13 @@
  * limitations under the License.
  */
 
-// This is temporary module that will be moved to rpc crate once all
-// rpc-related code will be isolated here.
+use crate::health::HealthHistoryRecord;
 
-pub mod allocation_type;
-pub mod attestation;
-pub mod bmc_info;
-pub mod compute_allocation;
-pub mod controller_outcome;
-pub mod dhcp_record;
-pub mod dns;
-pub mod dpa_interface;
-pub mod dpu_remediation;
-pub mod expected_machine;
-pub mod expected_power_shelf;
-pub mod expected_rack;
-pub mod expected_switch;
-pub mod extension_service;
-pub mod hardware_info;
-pub mod health;
-pub mod ib_partition;
-pub mod instance;
-pub mod instance_type;
+impl From<HealthHistoryRecord> for rpc::forge::HealthHistoryRecord {
+    fn from(record: HealthHistoryRecord) -> rpc::forge::HealthHistoryRecord {
+        rpc::forge::HealthHistoryRecord {
+            health: Some(record.health.into()),
+            time: Some(record.time.into()),
+        }
+    }
+}
