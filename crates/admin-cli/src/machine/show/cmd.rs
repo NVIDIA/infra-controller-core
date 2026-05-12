@@ -334,7 +334,7 @@ async fn show_all_machines(
         .await?;
 
     match sort_by {
-        SortField::PrimaryId => machines.machines.sort_by(|m1, m2| m1.id.cmp(&m2.id)),
+        SortField::PrimaryId => machines.machines.sort_by_key(|machine| machine.id),
         SortField::State => machines.machines.sort_by(|m1, m2| m1.state.cmp(&m2.state)),
     };
 
