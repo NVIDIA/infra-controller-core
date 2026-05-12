@@ -60,7 +60,7 @@ pub struct ForgeSystemConfigFromPxe {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct MachineConfigFromPxe {
-    pub interface_id: uuid::Uuid,
+    pub interface_id: carbide_uuid::machine::MachineInterfaceId,
 }
 
 /// Describes the format of the configuration files that is used by Forge agents
