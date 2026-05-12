@@ -210,18 +210,28 @@ impl ApiClientWrapper {
             ));
         };
         let addr = BmcAddr::try_from(bmc_info)?;
-        let metadata = machine
-            .id
-            .zip(machine.discovery_info.clone())
-            .map(|(machine_id, info)| {
-                EndpointMetadata::Machine(MachineData {
-                    machine_id,
-                    machine_serial: info.dmi_data.map(|dmi| dmi.chassis_serial),
-                    slot_number: None,
-                    tray_index: None,
-                    nvlink_domain_uuid: None,
-                })
-            });
+        let metadata = machine.id.map(|machine_id| {
+            EndpointMetadata::Machine(MachineData {
+                machine_id,
+                machine_serial: machine
+                    .discovery_info
+                    .as_ref()
+                    .and_then(|info| info.dmi_data.as_ref())
+                    .map(|dmi| dmi.chassis_serial.clone()),
+                slot_number: machine
+                    .placement_in_rack
+                    .as_ref()
+                    .and_then(|placement| placement.slot_number),
+                tray_index: machine
+                    .placement_in_rack
+                    .as_ref()
+                    .and_then(|placement| placement.tray_index),
+                nvlink_domain_uuid: machine
+                    .nvlink_info
+                    .as_ref()
+                    .and_then(|info| info.domain_uuid),
+            })
+        });
 
         self.endpoint_with_auth(addr, metadata, machine.rack_id.clone())
             .await
