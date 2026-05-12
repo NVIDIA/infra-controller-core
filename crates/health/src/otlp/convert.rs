@@ -42,10 +42,23 @@ fn string_value(s: String) -> Option<AnyValue> {
     })
 }
 
+fn int_value(value: i64) -> Option<AnyValue> {
+    Some(AnyValue {
+        value: Some(any_value::Value::IntValue(value)),
+    })
+}
+
 fn kv(key: &str, val: String) -> KeyValue {
     KeyValue {
         key: key.to_string(),
         value: string_value(val),
+    }
+}
+
+fn int_kv(key: &str, value: i64) -> KeyValue {
+    KeyValue {
+        key: key.to_string(),
+        value: int_value(value),
     }
 }
 
@@ -57,6 +70,15 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     ];
     if let Some(machine_id) = context.machine_id() {
         attrs.push(kv("machine.id", machine_id.to_string()));
+    }
+    if let Some(slot) = context.slot_number() {
+        attrs.push(int_kv("machine.slot_number", i64::from(slot)));
+    }
+    if let Some(tray) = context.tray_index() {
+        attrs.push(int_kv("machine.tray_index", i64::from(tray)));
+    }
+    if let Some(domain) = context.nvlink_domain_uuid() {
+        attrs.push(kv("nvlink.domain.uuid", domain.to_string()));
     }
     attrs
 }
@@ -168,10 +190,11 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_uuid::nvlink::NvLinkDomainId;
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::BmcAddr;
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::sink::{
         Classification, HealthReport, HealthReportAlert, LogRecord, Probe, ReportSource,
     };
@@ -188,6 +211,61 @@ mod tests {
             metadata: None,
             rack_id: None,
         }
+    }
+
+    fn attr_value<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
+        attrs
+            .iter()
+            .find(|attr| attr.key == key)
+            .and_then(|attr| attr.value.as_ref())
+            .and_then(|value| match value.value.as_ref()? {
+                any_value::Value::StringValue(value) => Some(value.as_str()),
+                _ => None,
+            })
+    }
+
+    fn attr_int_value(attrs: &[KeyValue], key: &str) -> Option<i64> {
+        attrs
+            .iter()
+            .find(|attr| attr.key == key)
+            .and_then(|attr| attr.value.as_ref())
+            .and_then(|value| match value.value.as_ref()? {
+                any_value::Value::IntValue(value) => Some(*value),
+                _ => None,
+            })
+    }
+
+    #[test]
+    fn resource_attributes_include_machine_metadata_when_present() {
+        let domain_uuid = NvLinkDomainId::nil();
+        let context = EventContext {
+            endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").expect("valid mac"),
+            },
+            collector_type: "test",
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+                machine_serial: None,
+                slot_number: Some(15),
+                tray_index: Some(5),
+                nvlink_domain_uuid: Some(domain_uuid),
+            })),
+            rack_id: None,
+        };
+
+        let attrs = resource_attributes(&context);
+
+        assert_eq!(attr_int_value(&attrs, "machine.slot_number"), Some(15));
+        assert_eq!(attr_int_value(&attrs, "machine.tray_index"), Some(5));
+        assert_eq!(
+            attr_value(&attrs, "nvlink.domain.uuid"),
+            Some("00000000-0000-0000-0000-000000000000")
+        );
     }
 
     #[test]
