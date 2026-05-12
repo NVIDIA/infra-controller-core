@@ -215,8 +215,9 @@ pub(crate) async fn get_configuration(
             allowed_audiences: cfg.allowed_audiences.0.clone(),
             token_ttl_sec: cfg.token_ttl_sec as u32,
             subject_prefix: Some(cfg.subject_prefix.clone()),
-            rotate_key: false,
+            rotate_key: cfg.response_rotate_key(),
             signing_key_overlap_sec: cfg.signing_key_overlap_sec.map(|v| v as u32),
+            ..Default::default()
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
@@ -386,8 +387,9 @@ pub(crate) async fn set_configuration(
             allowed_audiences: cfg.allowed_audiences.0.clone(),
             token_ttl_sec: cfg.token_ttl_sec as u32,
             subject_prefix: Some(cfg.subject_prefix.clone()),
-            rotate_key: false,
+            rotate_key: cfg.response_rotate_key(),
             signing_key_overlap_sec: cfg.signing_key_overlap_sec.map(|v| v as u32),
+            ..Default::default()
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),

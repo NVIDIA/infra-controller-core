@@ -19,8 +19,6 @@
 //! PEM/JWK encoding helpers live in `crate::machine_identity`; persisted config in `tenant_identity_config`.
 //! Public signing metadata uses `signing_key_public_*` JSON (`kid`, `alg`, `public_pem`).
 
-use std::convert::TryFrom;
-
 use ::rpc::forge::{
     self as rpc, Jwks, JwksKind, JwksRequest, MachineIdentityResponse, OpenIdConfigRequest,
     OpenIdConfiguration,

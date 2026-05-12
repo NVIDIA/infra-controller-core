@@ -296,6 +296,21 @@ impl TenantIdentityConfig {
                 .ok_or("missing encrypted_signing_key_2 for current_signing_key_slot"),
         }
     }
+
+    /// Value for `TenantIdentityConfig.rotate_key` on **Get/Set responses**: `true` while an
+    /// active JWKS overlap window is in progress (both published public slots are present and
+    /// `non_active_slot_expires_at` is still in the future). `false` otherwise, including
+    /// single-key configs and post-overlap rows (after GC clears the inactive slot).
+    #[must_use]
+    pub fn response_rotate_key(&self) -> bool {
+        let Some(expires) = self.non_active_slot_expires_at else {
+            return false;
+        };
+        if expires <= Utc::now() {
+            return false;
+        }
+        self.signing_key_public_1.is_some() && self.signing_key_public_2.is_some()
+    }
 }
 
 /// [`TenantIdentityConfig`] row plus decrypted token-delegation JSON for handlers / `TryInto` RPC.

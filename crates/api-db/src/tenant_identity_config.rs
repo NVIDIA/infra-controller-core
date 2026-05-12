@@ -19,7 +19,7 @@
 //! Stores per-org identity config and signing keys in `tenant_identity_config` table.
 
 use carbide_uuid::machine::MachineId;
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use model::tenant::identity_config::SigningKeyPublicV1;
 use model::tenant::{
     EncryptedTokenDelegationAuthConfig, IdentityConfig, SigningKeyMaterial, TenantIdentityConfig,
@@ -64,10 +64,29 @@ fn tenant_identity_row_select_expr(table_alias: Option<&str>) -> String {
         .join(", ")
 }
 
+/// `FROM` / `JOIN` / `WHERE` for [`find_by_machine_id`]. Macro so the GC org scalar query and the
+/// main `SELECT` share one definition (`concat!` cannot reference `const` str slices).
+macro_rules! tenant_identity_find_by_machine_id_clause {
+    () => {
+        r"
+FROM tenant_identity_config tic
+INNER JOIN instances i ON tic.organization_id = i.tenant_org
+WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true"
+    };
+}
+
 /// After `non_active_slot_expires_at`, clears the non-current slot (public + private ciphertext).
 pub async fn gc_expired_non_active_signing_key(
     org_id: &TenantOrganizationId,
     txn: &mut PgConnection,
+) -> DatabaseResult<()> {
+    gc_expired_non_active_signing_key_at(org_id, txn, Utc::now()).await
+}
+
+async fn gc_expired_non_active_signing_key_at(
+    org_id: &TenantOrganizationId,
+    txn: &mut PgConnection,
+    now: DateTime<Utc>,
 ) -> DatabaseResult<()> {
     let Some(row) = find(org_id, txn).await? else {
         return Ok(());
@@ -75,7 +94,7 @@ pub async fn gc_expired_non_active_signing_key(
     let Some(expires) = row.non_active_slot_expires_at else {
         return Ok(());
     };
-    if expires > Utc::now() {
+    if expires > now {
         return Ok(());
     }
 
@@ -115,6 +134,44 @@ fn signing_public_json_from_material(
     Ok(Json(doc))
 }
 
+/// Refuses rotation only when signing-slot metadata is inconsistent with
+/// [`gc_expired_non_active_signing_key_at`] invariants.
+fn ensure_rotation_allowed_for_existing(
+    ex: &TenantIdentityConfig,
+    now: DateTime<Utc>,
+) -> DatabaseResult<()> {
+    let both_public = ex.signing_key_public_1.is_some() && ex.signing_key_public_2.is_some();
+    if both_public {
+        let Some(expires_at) = ex.non_active_slot_expires_at else {
+            return Err(DatabaseError::InvalidArgument(
+                "cannot rotate signing key: both JWKS public key slots are populated but \
+                 non_active_slot_expires_at is NULL (inconsistent tenant_identity_config state)"
+                    .into(),
+            ));
+        };
+        if expires_at <= now {
+            return Err(DatabaseError::InvalidArgument(
+                "cannot rotate signing key: overlap period has ended but both JWKS public key slots are \
+                 still populated (inconsistent tenant_identity_config state after GC; retry the request \
+                 or repair the row)"
+                    .into(),
+            ));
+        }
+        return Ok(());
+    }
+    if ex
+        .non_active_slot_expires_at
+        .is_some_and(|expires_at| expires_at > now)
+    {
+        return Err(DatabaseError::InvalidArgument(
+            "cannot rotate signing key: non_active_slot_expires_at is in the future but only one \
+             JWKS public key slot is populated (inconsistent tenant_identity_config state)"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Set identity config for an org.
 /// When creating new or rotating key, caller must provide `key_material` (generated key pair, encrypted private key).
 /// Caller must ensure tenant exists and global machine-identity is enabled.
@@ -126,7 +183,8 @@ pub async fn set(
     key_material: Option<SigningKeyMaterial>,
     txn: &mut PgConnection,
 ) -> DatabaseResult<TenantIdentityConfig> {
-    gc_expired_non_active_signing_key(org_id, txn).await?;
+    let now = Utc::now();
+    gc_expired_non_active_signing_key_at(org_id, txn, now).await?;
 
     let allowed: Vec<String> = if config.allowed_audiences.is_empty() {
         vec![config.default_audience.clone()]
@@ -155,20 +213,7 @@ pub async fn set(
             ));
         }
         (Some(ex), true, Some(km)) => {
-            if ex.signing_key_public_1.is_some()
-                && ex.signing_key_public_2.is_some()
-                && let Some(expires_at) = ex.non_active_slot_expires_at
-                && expires_at > Utc::now()
-            {
-                let now = Utc::now();
-                let remain = (expires_at - now).num_seconds().max(0);
-                return Err(DatabaseError::InvalidArgument(format!(
-                    "cannot rotate signing key while the previous key is still in the overlap period \
-                     (overlap ends at {expires_at}; about {remain}s remaining). \
-                     Call SetTenantIdentityConfiguration again with rotate_key and an explicit \
-                     signing_key_overlap_sec after that time, or wait until the overlap window ends."
-                )));
-            }
+            ensure_rotation_allowed_for_existing(ex, now)?;
             let pub_doc = signing_public_json_from_material(&km)?;
             let new_enc = km.encrypted_signing_key;
             let other = ex.current_signing_key_slot.other();
@@ -297,12 +342,10 @@ pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> DatabaseResult<TenantIdentityConfig> {
-    const ORG_FOR_GC: &str = r#"
-SELECT tic.organization_id::text
-FROM tenant_identity_config tic
-INNER JOIN instances i ON tic.organization_id = i.tenant_org
-WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true
-"#;
+    const ORG_FOR_GC: &str = concat!(
+        "SELECT tic.organization_id::text",
+        tenant_identity_find_by_machine_id_clause!()
+    );
     if let Some(org_raw) = sqlx::query_scalar::<_, String>(ORG_FOR_GC)
         .bind(machine_id)
         .fetch_optional(&mut *txn)
@@ -326,12 +369,8 @@ WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true
 
     let select_list = tenant_identity_row_select_expr(Some("tic"));
     let query = format!(
-        r#"
-SELECT {select_list}
-FROM tenant_identity_config tic
-INNER JOIN instances i ON tic.organization_id = i.tenant_org
-WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true
-"#
+        "SELECT {select_list}{}",
+        tenant_identity_find_by_machine_id_clause!()
     );
     let row = sqlx::query_as::<_, TenantIdentityConfig>(&query)
         .bind(machine_id)
@@ -419,6 +458,7 @@ pub async fn delete_token_delegation(
 mod tests {
     use std::collections::HashMap;
 
+    use chrono::Utc;
     use forge_secrets::key_encryption;
     use model::metadata::Metadata;
     use model::tenant::identity_config::SigningAlgorithm;
@@ -428,7 +468,42 @@ mod tests {
     };
 
     use super::*;
-    use crate::tenant;
+    use crate::{DatabaseError, tenant};
+
+    /// Synthetic P-256 SPKI public PEMs for tests (not secret). Prefer real PEM so validation stays
+    /// aligned with `SigningKeyPublicV1` / JWKS expectations.
+    const TEST_ES256_PUB_0: &str = r#"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElFrs3yp8XhslMB6ZG6BG3Hvas7kR
+tvTLdqh3uulBnXIXQBabKdLH8wuNfgO3xQrcRrm+Z0yucj/zCyGoJ8Iizw==
+-----END PUBLIC KEY-----"#;
+    const TEST_ES256_PUB_1: &str = r#"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE9tKNx7BW5TgNSJY31g4vT48RNl50
+qbRrVHjvFz02cAUcng9QGX/8L/DVb51jVFq/F1tOjXEyhDON7R9plMicHQ==
+-----END PUBLIC KEY-----"#;
+    const TEST_ES256_PUB_2: &str = r#"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE9/p2rFtxVIP09iS6CPHdcxRXBiqn
++tk2afmDFptBAWTP09T6M1MTiYWbdKzuOal+rEzv8y1VdqQDJ1egup0A2w==
+-----END PUBLIC KEY-----"#;
+    const TEST_ES256_PUB_3: &str = r#"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMRBa5hEaWbdQn25IDNJLSfFXjXuT
+1UHxIJ/3NgMa/v7PLcgmfz2WW9wfTivfbhD5g2ndLCpQLXrgtirqbhvFWQ==
+-----END PUBLIC KEY-----"#;
+    const TEST_ES256_PUB_4: &str = r#"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE9BbItCsp6q5/UdMxyCUy2VkDT5Zk
+wLQJxr5OM1I00HA5WIuuYplqWIPWP5Lz3s6Qlh8Op4T51wMktUTYuO9lRA==
+-----END PUBLIC KEY-----"#;
+    const TEST_ES256_PUB_5: &str = r#"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELpyN493ciT/h189YhNpnndwua7Qo
+CNBIXgZ2VUqZWsz+pNejmtX2i/sRs5mdGBmWxz5cEEXNQCAS9bSsVV9f3Q==
+-----END PUBLIC KEY-----"#;
+    const TEST_ES256_PUB_6: &str = r#"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVxhVG7gUkOkuGsTRlewt9srrggiK
+SPemXUDmBH8uKkQlKQwzJRPfzpKNi+pcEJRLQI5IWP+ktuWwc/ZZrkEXAQ==
+-----END PUBLIC KEY-----"#;
+    const TEST_ES256_PUB_7: &str = r#"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKE0d2hbZdPmTpVKkmfMNi6ZmtnCa
+ecbC7Qcisdw2/9l8bk/zfF9gvu4kh3hXZzMWgk+vj1e8KSX+NYswYiacQA==
+-----END PUBLIC KEY-----"#;
 
     fn test_org_id() -> TenantOrganizationId {
         "IdentityConfigTestOrg".parse().unwrap()
@@ -456,11 +531,29 @@ mod tests {
     }
 
     fn placeholder_key_material() -> SigningKeyMaterial {
-        let pem = "PLACEHOLDER_PUBLIC_KEY";
+        test_signing_key_material_from_es256_public_pem(TEST_ES256_PUB_0)
+    }
+
+    fn test_signing_key_material_from_es256_public_pem(pem: &'static str) -> SigningKeyMaterial {
         SigningKeyMaterial {
             key_id: KeyId::from_public_key_material(pem),
             encrypted_signing_key: "PLACEHOLDER_ENCRYPTED_KEY".parse().unwrap(),
             signing_key_public: pem.parse().unwrap(),
+        }
+    }
+
+    fn base_identity_config(rotate_key: bool, overlap: Option<i32>) -> IdentityConfig {
+        IdentityConfig {
+            issuer: "https://issuer.example.com".parse().unwrap(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec!["api".to_string(), "other".to_string()],
+            token_ttl_sec: 3600,
+            subject_prefix: "spiffe://issuer.example.com/org-x".to_string(),
+            enabled: true,
+            rotate_key,
+            algorithm: SigningAlgorithm::Es256,
+            encryption_key_id: "test-master".parse().unwrap(),
+            signing_key_overlap_sec: overlap,
         }
     }
 
@@ -575,5 +668,162 @@ mod tests {
             .unwrap();
         assert!(cleared.token_endpoint.is_none());
         assert!(cleared.auth_method.is_none());
+    }
+
+    #[crate::sqlx_test]
+    async fn test_tenant_identity_second_rotation_ok_while_overlap_active(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let org_id = test_org_id();
+        ensure_tenant(&mut txn, &org_id).await;
+
+        let initial = base_identity_config(false, None);
+        set(
+            &org_id,
+            &initial,
+            Some(test_signing_key_material_from_es256_public_pem(
+                TEST_ES256_PUB_1,
+            )),
+            &mut txn,
+        )
+        .await
+        .unwrap();
+
+        let once = base_identity_config(true, Some(86_400));
+        set(
+            &org_id,
+            &once,
+            Some(test_signing_key_material_from_es256_public_pem(
+                TEST_ES256_PUB_2,
+            )),
+            &mut txn,
+        )
+        .await
+        .unwrap();
+
+        let twice = base_identity_config(true, Some(3600));
+        let cfg = set(
+            &org_id,
+            &twice,
+            Some(test_signing_key_material_from_es256_public_pem(
+                TEST_ES256_PUB_3,
+            )),
+            &mut txn,
+        )
+        .await
+        .unwrap();
+
+        assert!(cfg.signing_key_public_1.is_some());
+        assert!(cfg.signing_key_public_2.is_some());
+        assert!(
+            cfg.non_active_slot_expires_at
+                .is_some_and(|ex| ex > Utc::now()),
+            "new overlap deadline should be in the future"
+        );
+    }
+
+    #[crate::sqlx_test]
+    async fn test_tenant_identity_rotate_rejects_dual_public_without_overlap_deadline(
+        pool: sqlx::PgPool,
+    ) {
+        let mut txn = pool.begin().await.unwrap();
+        let org_id = test_org_id();
+        ensure_tenant(&mut txn, &org_id).await;
+
+        let initial = base_identity_config(false, None);
+        set(
+            &org_id,
+            &initial,
+            Some(test_signing_key_material_from_es256_public_pem(
+                TEST_ES256_PUB_4,
+            )),
+            &mut txn,
+        )
+        .await
+        .unwrap();
+
+        let rotated = base_identity_config(true, Some(3600));
+        set(
+            &org_id,
+            &rotated,
+            Some(test_signing_key_material_from_es256_public_pem(
+                TEST_ES256_PUB_5,
+            )),
+            &mut txn,
+        )
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"UPDATE tenant_identity_config
+               SET non_active_slot_expires_at = NULL
+               WHERE organization_id = $1"#,
+        )
+        .bind(org_id.as_str())
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+
+        let again = base_identity_config(true, Some(3600));
+        let err = set(
+            &org_id,
+            &again,
+            Some(test_signing_key_material_from_es256_public_pem(
+                TEST_ES256_PUB_6,
+            )),
+            &mut txn,
+        )
+        .await
+        .unwrap_err();
+        let DatabaseError::InvalidArgument(msg) = err else {
+            panic!("expected InvalidArgument, got {err:?}");
+        };
+        assert!(msg.contains("non_active_slot_expires_at is NULL"), "{msg}");
+    }
+
+    #[crate::sqlx_test]
+    async fn test_tenant_identity_rotate_rejects_future_overlap_with_single_public(
+        pool: sqlx::PgPool,
+    ) {
+        let mut txn = pool.begin().await.unwrap();
+        let org_id = test_org_id();
+        ensure_tenant(&mut txn, &org_id).await;
+
+        let initial = base_identity_config(false, None);
+        set(
+            &org_id,
+            &initial,
+            Some(test_signing_key_material_from_es256_public_pem(
+                TEST_ES256_PUB_7,
+            )),
+            &mut txn,
+        )
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"UPDATE tenant_identity_config
+               SET non_active_slot_expires_at = NOW() + INTERVAL '3600 seconds'
+               WHERE organization_id = $1"#,
+        )
+        .bind(org_id.as_str())
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+
+        let rotated = base_identity_config(true, Some(3600));
+        let err = set(
+            &org_id,
+            &rotated,
+            Some(test_signing_key_material_from_es256_public_pem(
+                TEST_ES256_PUB_0,
+            )),
+            &mut txn,
+        )
+        .await
+        .unwrap_err();
+        let DatabaseError::InvalidArgument(msg) = err else {
+            panic!("expected InvalidArgument, got {err:?}");
+        };
+        assert!(msg.contains("only one JWKS public key slot"), "{msg}");
     }
 }

@@ -91,7 +91,7 @@ carbide-secrets = { path = "../secrets" }
 lazy_static = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing" }
-tracing-subscriber = { features = ["env-filter"], workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 ctor = { workspace = true }
 
 [lints]
