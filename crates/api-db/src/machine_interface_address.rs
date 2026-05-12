@@ -206,6 +206,32 @@ pub async fn delete_by_address(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Delete an address allocation for a given (ip, mac) pair, which
+/// of course only actually deletes when the pair matches.
+///
+/// Returns true if a matching allocation was found and deleted.
+pub async fn delete_by_address_and_mac(
+    txn: &mut PgConnection,
+    address: IpAddr,
+    mac_address: mac_address::MacAddress,
+    allocation_type: AllocationType,
+) -> Result<bool, DatabaseError> {
+    let query = "DELETE FROM machine_interface_addresses mia
+        USING machine_interfaces mi
+        WHERE mia.interface_id = mi.id
+          AND mia.address = $1::inet
+          AND mia.allocation_type = $2
+          AND mi.mac_address = $3::macaddr";
+    sqlx::query(query)
+        .bind(address)
+        .bind(allocation_type)
+        .bind(mac_address)
+        .execute(txn)
+        .await
+        .map(|r| r.rows_affected() > 0)
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 /// Check whether an interface has any address assigned for the
 /// given address family.
 ///

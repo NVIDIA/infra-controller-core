@@ -551,17 +551,12 @@ impl Default for LeakDetectorCollectorConfig {
 
 /// SSE is the preferred mode for real-time log streaming.
 /// Periodic polling is retained as a fallback for BMCs that lack SSE support.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogCollectionMode {
+    #[default]
     Sse,
     Periodic,
-}
-
-impl Default for LogCollectionMode {
-    fn default() -> Self {
-        Self::Sse
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

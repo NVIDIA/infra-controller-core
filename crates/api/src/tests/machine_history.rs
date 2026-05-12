@@ -282,10 +282,9 @@ async fn test_old_machine_state_history(
 fn json_history(history: &[StateHistoryRecord]) -> serde_json::Result<Vec<serde_json::Value>> {
     // // Check that version numbers are always incrementing by 1
     if !history.is_empty() {
-        let mut version = history[0].state_version.version_nr();
-        for entry in &history[1..] {
-            assert_eq!(entry.state_version.version_nr(), version + 1);
-            version += 1;
+        let first_version = history[0].state_version.version_nr();
+        for (expected_version, entry) in ((first_version + 1)..).zip(&history[1..]) {
+            assert_eq!(entry.state_version.version_nr(), expected_version);
         }
     }
 

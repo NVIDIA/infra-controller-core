@@ -293,14 +293,9 @@ fn show_managed_host_details_view(m: carbide_rpc_utils::ManagedHostOutput) -> Ca
         writeln!(&mut lines, "    Reason        : {}", m.state_reason)?;
     }
 
-    if m.maintenance_reference.is_some() {
+    if let Some(maintenance_reference) = &m.maintenance_reference {
         writeln!(&mut lines, "Host is in maintenance mode")?;
-        writeln!(
-            &mut lines,
-            "  Reference  : {}",
-            m.maintenance_reference
-                .expect("Host in maintenance mode without reference - impossible")
-        )?;
+        writeln!(&mut lines, "  Reference  : {maintenance_reference}")?;
         writeln!(
             &mut lines,
             "  Started at : {}",
