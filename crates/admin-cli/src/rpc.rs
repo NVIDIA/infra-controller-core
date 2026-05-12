@@ -617,6 +617,7 @@ impl ApiClient {
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
+        dpu_mode: Option<::rpc::forge::DpuMode>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
@@ -699,9 +700,7 @@ impl ApiClient {
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
-            // Patch doesn't expose `--dpu-mode` yet; preserve the existing
-            // server-side value.
-            dpu_mode: expected_machine.dpu_mode,
+            dpu_mode: dpu_mode.map(|m| m as i32).or(expected_machine.dpu_mode),
             host_lifecycle_profile: host_lifecycle_profile
                 .or(expected_machine.host_lifecycle_profile),
         };

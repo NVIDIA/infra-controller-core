@@ -2769,6 +2769,65 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
     Ok(())
 }
 
+/// Verify the update RPC (for update/patch flows) actually flips
+/// `dpu_mode` as expected.
+#[crate::sqlx_test]
+async fn test_update_changes_dpu_mode(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let mac = "5A:5B:5C:5D:5E:80";
+    let base = rpc::forge::ExpectedMachine {
+        bmc_mac_address: mac.into(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "EM-DPU-UPDATE".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(base.clone()))
+        .await?;
+
+    for mode in [
+        rpc::forge::DpuMode::NicMode,
+        rpc::forge::DpuMode::NoDpu,
+        rpc::forge::DpuMode::DpuMode,
+    ] {
+        env.api
+            .update_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                dpu_mode: Some(mode as i32),
+                ..base.clone()
+            }))
+            .await?;
+
+        let retrieved = env
+            .api
+            .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: mac.into(),
+                id: None,
+            }))
+            .await?
+            .into_inner();
+
+        // DpuMode is the column default and the wire-default; the model
+        // collapses it to `None` on the way out (see `From<ExpectedMachine>
+        // for rpc::forge::ExpectedMachine`), so compare accordingly.
+        let expected_wire = match mode {
+            rpc::forge::DpuMode::DpuMode | rpc::forge::DpuMode::Unspecified => None,
+            other => Some(other as i32),
+        };
+        assert_eq!(
+            retrieved.dpu_mode, expected_wire,
+            "update to {mode:?} should persist and round-trip on the wire"
+        );
+    }
+
+    Ok(())
+}
+
 /// Make sure expected_machines.json, which uses create_missing_from,
 /// follows the shared codepath for handling interface allocation.
 #[crate::sqlx_test]
