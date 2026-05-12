@@ -682,7 +682,10 @@ mod tests {
             })
             .collect();
 
-        InstanceNetworkConfig { interfaces }
+        InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        }
     }
 
     #[test]

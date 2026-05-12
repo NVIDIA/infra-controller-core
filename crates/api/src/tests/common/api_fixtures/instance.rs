@@ -204,6 +204,7 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     }
 }
 
@@ -236,7 +237,10 @@ pub fn single_interface_network_config_with_vfs(
         }),
     );
 
-    rpc::InstanceNetworkConfig { interfaces }
+    rpc::InstanceNetworkConfig {
+        interfaces,
+        auto: false,
+    }
 }
 
 pub fn interface_network_config_with_devices(
@@ -257,7 +261,10 @@ pub fn interface_network_config_with_devices(
             ipv6_interface_config: None,
         })
         .collect();
-    rpc::InstanceNetworkConfig { interfaces }
+    rpc::InstanceNetworkConfig {
+        interfaces,
+        auto: false,
+    }
 }
 
 pub fn single_interface_network_config_with_vpc_prefix(
@@ -274,6 +281,7 @@ pub fn single_interface_network_config_with_vpc_prefix(
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     }
 }
 

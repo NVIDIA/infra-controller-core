@@ -777,6 +777,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -839,6 +840,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -894,6 +896,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -978,6 +981,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -1045,6 +1049,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -1130,6 +1135,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -1192,6 +1198,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -1320,6 +1327,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -1382,6 +1390,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -1496,6 +1505,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             ip_address: Some("5.5.5.1".to_string()),
                             ipv6_interface_config: None,
                         }],
+                        auto: false,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1533,6 +1543,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             ip_address: Some("192.1.4.0".to_string()),
                             ipv6_interface_config: None,
                         }],
+                        auto: false,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1572,6 +1583,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             ip_address: Some(expected_ip.to_string()),
                             ipv6_interface_config: None,
                         }],
+                        auto: false,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1704,6 +1716,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 ipv6_interface_config: None,
                             },
                         ],
+                        auto: false,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1758,6 +1771,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 ipv6_interface_config: None,
                             },
                         ],
+                        auto: false,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1812,6 +1826,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 ipv6_interface_config: None,
                             },
                         ],
+                        auto: false,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
