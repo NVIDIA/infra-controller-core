@@ -320,7 +320,7 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   machine_free_client_type(machine_client_type);
 }
 
-void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
+void set_vendor_options(Pkt4Ptr response4_ptr) {
   OptionPtr option_vendor(
       new Option(Option::V4, DHO_VENDOR_ENCAPSULATED_OPTIONS));
   LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_vendor->toText());
@@ -334,19 +334,7 @@ void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
   vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
   option_vendor->addOption(vendor_option_6);
 
-  // Option 70 we're using to set the UUID of the machine
-  OptionPtr vendor_option_70 = option_vendor->getOption(70);
-  if (vendor_option_70) {
-    option_vendor->delOption(70);
-  }
-  char *machine_uuid = machine_get_uuid(machine);
-  if (strlen(machine_uuid) > 0) {
-    vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
-    option_vendor->addOption(vendor_option_70);
-  }
-
   response4_ptr->addOption(option_vendor);
-  machine_free_uuid(machine_uuid);
 }
 
 extern "C" {
@@ -531,7 +519,7 @@ int pkt4_send(CalloutHandle &handle) {
   /*
    * Encapsulate some PXE options in the vendor encapsulated
    */
-  set_vendor_options(response4_ptr, machine.get());
+  set_vendor_options(response4_ptr);
 
   LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND)
       .arg(response4_ptr->toText());
