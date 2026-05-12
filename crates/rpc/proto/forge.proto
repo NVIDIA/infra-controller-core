@@ -3197,6 +3197,7 @@ message BmcInfo {
   optional string version = 3;
   optional string firmware_version = 4;
   optional uint32 port = 5;
+  optional common.MachineInterfaceId machine_interface_id = 6;
 }
 
 message Machine {
@@ -3478,6 +3479,11 @@ enum InterfaceAssociationType {
   POWERSHELF = 3;
 }
 
+enum InterfaceType {
+  INTERFACE_TYPE_DATA = 0;
+  INTERFACE_TYPE_BMC = 1;
+}
+
 message MachineInterface {
   common.MachineInterfaceId id = 1;
   optional common.MachineId attached_dpu_machine_id = 2;
@@ -3497,11 +3503,12 @@ message MachineInterface {
   google.protobuf.Timestamp created = 11;
   optional google.protobuf.Timestamp last_dhcp = 12;
 
-  optional bool is_bmc = 13;
+  optional bool is_bmc = 13 [deprecated = true];
   optional common.PowerShelfId power_shelf_id = 14;
   optional common.SwitchId switch_id = 15;
 
   optional InterfaceAssociationType association_type = 16;
+  optional InterfaceType interface_type = 17;
 }
 
 // Infiniband interface status description

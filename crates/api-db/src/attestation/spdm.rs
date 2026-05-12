@@ -298,10 +298,27 @@ pub async fn load_snapshot_for_machine_and_device_id(
     let query = r#"
         SELECT
             mda.*,
-            to_jsonb(mt.topology->'bmc_info') AS bmc_info
+            jsonb_strip_nulls(
+                COALESCE(mt.topology->'bmc_info', '{}'::jsonb) ||
+                jsonb_build_object(
+                    'machine_interface_id', mi.id,
+                    'ip', host(mia.address),
+                    'mac', mi.mac_address::text
+                )
+            ) AS bmc_info
         FROM spdm_machine_devices_attestation AS mda
-        JOIN machine_topologies AS mt
+        LEFT JOIN machine_topologies AS mt
             ON mt.machine_id = mda.machine_id
+        JOIN machine_interfaces AS mi
+            ON mi.machine_id = mda.machine_id
+            AND mi.interface_type = 'Bmc'
+        LEFT JOIN LATERAL (
+            SELECT address
+            FROM machine_interface_addresses
+            WHERE interface_id = mi.id
+            ORDER BY family(address), address
+            LIMIT 1
+        ) AS mia ON true
         WHERE mda.machine_id = $1
             AND mda.device_id  = $2;
     "#;

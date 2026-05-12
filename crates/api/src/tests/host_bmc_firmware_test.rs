@@ -661,9 +661,9 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         &mut txn,
     )
     .await?;
-    db::machine_topology::update_firmware_version_by_bmc_address(
+    db::machine_topology::update_firmware_version_by_machine_id(
         &mut txn,
-        &host.bmc_info.ip_addr().unwrap(),
+        &host.id,
         "6.00.30.00",
         "1.2.3",
     )
@@ -739,7 +739,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         "0"
     );
 
-    // Validate update_firmware_version_by_bmc_address behavior
+    // Validate update_firmware_version_by_machine_id behavior
     assert_eq!(
         host.bmc_info.firmware_version,
         Some("6.00.30.00".to_string())
@@ -1607,9 +1607,9 @@ async fn test_instance_upgrading_actual_part_2(
     )
     .await
     .unwrap();
-    db::machine_topology::update_firmware_version_by_bmc_address(
+    db::machine_topology::update_firmware_version_by_machine_id(
         &mut txn,
-        &host.bmc_info.ip_addr().unwrap(),
+        &host.id,
         "6.00.30.00",
         "1.2.3",
     )
@@ -1728,7 +1728,7 @@ async fn test_instance_upgrading_actual_part_2(
 
     txn.commit().await.unwrap();
 
-    // Validate update_firmware_version_by_bmc_address behavior
+    // Validate update_firmware_version_by_machine_id behavior
     assert_eq!(
         host.bmc_info.firmware_version,
         Some("6.00.30.00".to_string())

@@ -18,6 +18,7 @@ use std::fmt::{Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 
+use carbide_uuid::machine::MachineInterfaceId;
 use eyre::{Report, eyre};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,7 @@ use crate::errors::{ModelError, ModelResult};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BmcInfo {
+    pub machine_interface_id: Option<MachineInterfaceId>,
     pub ip: Option<String>,
     pub port: Option<u16>,
     pub mac: Option<MacAddress>,

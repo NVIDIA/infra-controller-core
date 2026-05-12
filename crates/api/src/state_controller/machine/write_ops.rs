@@ -82,8 +82,8 @@ pub enum MachineWriteOp {
         verified: Option<bool>,
         attempts: i32,
     },
-    UpdateFirmwareVersionByBmcAddress {
-        bmc_address: IpAddr,
+    UpdateFirmwareVersionByMachineId {
+        machine_id: MachineId,
         bmc_version: String,
         bios_version: String,
     },
@@ -175,14 +175,14 @@ impl WriteOp for MachineWriteOp {
                 )
                 .await?
             }
-            UpdateFirmwareVersionByBmcAddress {
-                bmc_address,
+            UpdateFirmwareVersionByMachineId {
+                machine_id,
                 bmc_version,
                 bios_version,
             } => {
-                db::machine_topology::update_firmware_version_by_bmc_address(
+                db::machine_topology::update_firmware_version_by_machine_id(
                     txn,
-                    &bmc_address,
+                    &machine_id,
                     &bmc_version,
                     &bios_version,
                 )

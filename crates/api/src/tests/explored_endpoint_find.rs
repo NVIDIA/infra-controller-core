@@ -207,7 +207,8 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let e = api_result.unwrap_err();
     assert!(e.code() == Code::NotFound);
 
-    // Check that we fail with an internal error if MAC is missing from BMC details.
+    // The topology copy may be missing the MAC, but machine_id lookup should
+    // still recover it from the linked BMC machine_interface.
     let mut txn = db_pool.begin().await?;
 
     let query = format!(
@@ -225,11 +226,11 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         use_ipmitool: false,
     });
     let api_result = env.api.admin_bmc_reset(req).await;
-    let e = api_result.unwrap_err();
-    assert!(e.code() == Code::Internal);
-    assert!(e.message().contains("does not have associated MAC"));
+    assert!(api_result.is_ok());
 
-    // Check that we fail with an internal error if IP is missing from BMC details.
+    // The topology copy may be missing the IP or contain stale MAC data, but
+    // machine_id lookup should still recover the current endpoint data from
+    // the linked BMC machine_interface.
     let mut txn = db_pool.begin().await?;
 
     let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}',  '{\"mac\": \"C8:4B:D6:7A:DB:66\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}', false) WHERE machine_id = $1";
@@ -245,9 +246,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         use_ipmitool: false,
     });
     let api_result = env.api.admin_bmc_reset(req).await;
-    let e = api_result.unwrap_err();
-    assert!(e.code() == Code::Internal);
-    assert!(e.message().contains("BMC IP is missing"));
+    assert!(api_result.is_ok());
 
     Ok(())
 }
