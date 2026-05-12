@@ -30,7 +30,7 @@ use carbide_dpf::{
     ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 
-use crate::cfg::file::DpfServiceConfig;
+use crate::cfg::file::{DEFAULT_DPF_IMAGE_PULL_SECRET, DpfServiceConfig};
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
@@ -147,6 +147,7 @@ pub(crate) fn default_dts_service() -> DpfServiceConfig {
         helm_version: DTS_SERVICE_HELM_VERSION.to_string(),
         docker_repo_url: String::new(),
         docker_image_tag: String::new(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
     }
 }
 
@@ -158,6 +159,7 @@ pub(crate) fn default_doca_hbn_service() -> DpfServiceConfig {
         helm_version: DOCA_HBN_SERVICE_HELM_VERSION.to_string(),
         docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_HBN_SERVICE_IMAGE_NAME}"),
         docker_image_tag: DOCA_HBN_SERVICE_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
     }
 }
 
@@ -169,6 +171,7 @@ pub(crate) fn default_dpu_agent_service() -> DpfServiceConfig {
         helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
         docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DPU_AGENT_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
     }
 }
 
@@ -182,6 +185,7 @@ pub(crate) fn default_dhcp_server_service() -> DpfServiceConfig {
             "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DHCP_SERVER_SERVICE_IMAGE_NAME}"
         ),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
     }
 }
 
@@ -193,6 +197,7 @@ pub(crate) fn default_fmds_service() -> DpfServiceConfig {
         helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
         docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{FMDS_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
     }
 }
 
@@ -206,6 +211,7 @@ pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
             "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{OTEL_COLLECTOR_SERVICE_IMAGE_NAME}"
         ),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
     }
 }
 
@@ -231,7 +237,7 @@ pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
                         "secretKey": "password",
                     },
                 },
-            },
+            }
         })),
 
         config_values: Some(serde_json::json!({
@@ -290,7 +296,7 @@ pub fn dpu_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             },
             "imagePullSecrets": [
                 {
-                    "name": "dpf-pull-secret"
+                    "name": cfg.docker_image_pull_secret
                 }
             ]
         })),
@@ -329,7 +335,7 @@ pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             },
             "imagePullSecrets": [
                 {
-                    "name": "dpf-pull-secret"
+                    "name": cfg.docker_image_pull_secret
                 }
             ]
         })),
@@ -365,7 +371,7 @@ pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             },
             "imagePullSecrets": [
                 {
-                    "name": "dpf-pull-secret"
+                    "name": cfg.docker_image_pull_secret
                 }
             ]
         })),
@@ -401,7 +407,7 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             },
             "imagePullSecrets": [
                 {
-                    "name": "dpf-pull-secret"
+                    "name": cfg.docker_image_pull_secret
                 }
             ]
         })),
