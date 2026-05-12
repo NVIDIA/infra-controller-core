@@ -78,6 +78,10 @@ pub mod test_support {
             Arc<Mutex<Vec<rms::SetPowerStateByDeviceListRequest>>>,
         queued_set_power_state_by_device_list_responses:
             Arc<Mutex<VecDeque<Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>>>>,
+        submitted_switch_system_password_requests:
+            Arc<Mutex<Vec<rms::UpdateSwitchSystemPasswordRequest>>>,
+        queued_switch_system_password_responses:
+            Arc<Mutex<VecDeque<Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError>>>>,
     }
 
     impl Default for RmsSim {
@@ -98,6 +102,8 @@ pub mod test_support {
                 queued_set_power_state_by_device_list_responses: Arc::new(Mutex::new(
                     VecDeque::new(),
                 )),
+                submitted_switch_system_password_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_switch_system_password_responses: Arc::new(Mutex::new(VecDeque::new())),
             }
         }
     }
@@ -136,6 +142,12 @@ pub mod test_support {
                     .clone(),
                 queued_set_power_state_by_device_list_responses: self
                     .queued_set_power_state_by_device_list_responses
+                    .clone(),
+                submitted_switch_system_password_requests: self
+                    .submitted_switch_system_password_requests
+                    .clone(),
+                queued_switch_system_password_responses: self
+                    .queued_switch_system_password_responses
                     .clone(),
             }
         }
@@ -242,12 +254,31 @@ pub mod test_support {
                 .push_back(response);
         }
 
+        pub async fn queue_update_switch_system_password_response(
+            &self,
+            response: Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError>,
+        ) {
+            self.queued_switch_system_password_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
         /// Snapshot the recorded `SetPowerStateByDeviceList` requests, in
         /// the order they were received.
         pub async fn submitted_set_power_state_by_device_list_requests(
             &self,
         ) -> Vec<rms::SetPowerStateByDeviceListRequest> {
             self.submitted_set_power_state_by_device_list_requests
+                .lock()
+                .await
+                .clone()
+        }
+
+        pub async fn submitted_switch_system_password_requests(
+            &self,
+        ) -> Vec<rms::UpdateSwitchSystemPasswordRequest> {
+            self.submitted_switch_system_password_requests
                 .lock()
                 .await
                 .clone()
@@ -274,6 +305,10 @@ pub mod test_support {
             Arc<Mutex<Vec<rms::SetPowerStateByDeviceListRequest>>>,
         queued_set_power_state_by_device_list_responses:
             Arc<Mutex<VecDeque<Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>>>>,
+        submitted_switch_system_password_requests:
+            Arc<Mutex<Vec<rms::UpdateSwitchSystemPasswordRequest>>>,
+        queued_switch_system_password_responses:
+            Arc<Mutex<VecDeque<Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError>>>>,
     }
 
     #[async_trait::async_trait]
@@ -310,9 +345,17 @@ pub mod test_support {
         }
         async fn update_switch_system_password(
             &self,
-            _cmd: rms::UpdateSwitchSystemPasswordRequest,
+            cmd: rms::UpdateSwitchSystemPasswordRequest,
         ) -> Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError> {
-            Ok(rms::UpdateSwitchSystemPasswordResponse::default())
+            self.submitted_switch_system_password_requests
+                .lock()
+                .await
+                .push(cmd);
+            self.queued_switch_system_password_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or_else(|| Ok(successful_switch_system_password_response()))
         }
         async fn set_power_state(
             &self,
@@ -570,6 +613,16 @@ pub mod test_support {
                     error_message: "mock switch system image job not found".to_string(),
                     ..Default::default()
                 }))
+        }
+    }
+
+    fn successful_switch_system_password_response() -> rms::UpdateSwitchSystemPasswordResponse {
+        rms::UpdateSwitchSystemPasswordResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                message: "Updated switch system password on 0 of 0 devices".to_string(),
+                ..Default::default()
+            }),
         }
     }
 }
