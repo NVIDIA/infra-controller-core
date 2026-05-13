@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::BTreeMap;
+
 use ::rpc::common::MachineIdList;
 use ::rpc::forge::{self as rpc};
 use carbide_uuid::machine::MachineId;
@@ -32,6 +34,9 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
+
+const PRODUCT_GB200: &str = "GB200 NVL";
+const PRODUCT_GB300: &str = "GB300 NVL";
 
 pub(crate) async fn trigger_machine_attestation(
     api: &Api,
@@ -131,7 +136,7 @@ pub async fn trigger_attestation(
         Err(_) => {
             return Err(CarbideError::Internal {
                 message: format!(
-                    "redfish service_root could not finish in {} secods",
+                    "redfish service_root could not finish in {} seconds",
                     redfish_timeout_duration.as_secs()
                 ),
             });
@@ -140,6 +145,28 @@ pub async fn trigger_attestation(
 
     if service_root.component_integrity.is_none() {
         // let's treat 0 devices under attestation as NotSupported
+        return Ok(0);
+    }
+
+    // do we support attestation for a given machine type?
+    // check the ServiceRoot.Product
+    let product = match service_root.product {
+        Some(product_name) => product_name,
+        None => {
+            tracing::info!(
+                "ServiceRoot.Product is None, not scheduling SPDM attestation for machine: {}",
+                machine_id
+            );
+            return Ok(0);
+        }
+    };
+
+    if !is_supported_product(&product) {
+        tracing::info!(
+            "ServiceRoot.Product - {} - is not supported, not scheduling SPDM attestation for machine: {}",
+            product,
+            machine_id
+        );
         return Ok(0);
     }
 
@@ -156,14 +183,14 @@ pub async fn trigger_attestation(
             Err(_) => {
                 return Err(CarbideError::Internal {
                     message: format!(
-                        "redfish get_component_integrities could not finish in {} secods",
+                        "redfish get_component_integrities could not finish in {} seconds",
                         redfish_timeout_duration.as_secs()
                     ),
                 });
             }
         };
 
-    let components = get_components_supporting_spdm(&component_integrities);
+    let components = get_supported_components(&product, &component_integrities);
 
     if components.is_empty() {
         // let's treat 0 devices under attestation as NotSupported
@@ -178,6 +205,7 @@ pub async fn trigger_attestation(
     // Remove existing device list and over-write with this list.
     let time_now = Utc::now();
     let device_attestations = components
+        .clone()
         .into_iter()
         .map(|x| from_component_integrity(x.clone(), machine_id, &time_now, bmc_info))
         .collect_vec();
@@ -205,9 +233,12 @@ pub async fn trigger_attestation(
         .map_err(|e| AnnotatedSqlxError::new("trigger_attestation commit", e))?;
 
     tracing::info!(
-        "SPDM attestation commenced for machine {}, scheduled {} SPDM device attestations",
+        "SPDM attestation commenced for machine {}, scheduled {} SPDM device attestations. Attestations scheduled are: {}",
         machine_id,
-        records_inserted
+        records_inserted,
+        components.iter().fold("".to_string(), |acc, &elem| {
+            format!("{} {}", acc, elem.id)
+        })
     );
 
     Ok(records_inserted)
@@ -418,8 +449,14 @@ pub(crate) async fn attest_quote(
 // ComponentIntegrityTypeVersion should be >= 1.1.0.
 // ComponentIntegrityType should be SPDM.
 // ComponentIntegrityEnabled should be true.
+// A device must be of supported type.
 // Once these all conditions are true, a device can be proceed with attestation.
-fn get_components_supporting_spdm(integrities: &ComponentIntegrities) -> Vec<&ComponentIntegrity> {
+fn get_supported_components<'a>(
+    product: &str,
+    integrities: &'a ComponentIntegrities,
+) -> Vec<&'a ComponentIntegrity> {
+    let supported_devices = BTreeMap::from([(PRODUCT_GB200, ["HGX_IRoT_GPU"])]);
+
     let supported_versions = ["1.1.0"]; // This can be configurable value.
     let mut supported_components = vec![];
 
@@ -438,6 +475,17 @@ fn get_components_supporting_spdm(integrities: &ComponentIntegrities) -> Vec<&Co
             continue;
         }
 
+        let is_supported = match supported_devices.get(product) {
+            Some(device_id_stems) => device_id_stems
+                .iter()
+                .any(|device_id_stem| component.id.contains(device_id_stem)),
+            None => false,
+        };
+
+        if !is_supported {
+            continue;
+        }
+
         supported_components.push(component);
     }
 
@@ -453,6 +501,7 @@ fn from_component_integrity(
     let ca_certificate_link = integrity
         .spdm
         .map(|x| x.identity_authentication)
+        .map(|x| x.responder_authentication)
         .map(|x| x.component_certificate)
         .map(|x| x.odata_id);
 
@@ -480,6 +529,10 @@ fn from_component_integrity(
         cancelled_at: None,
         completed_at: None,
     }
+}
+
+fn is_supported_product(product: &str) -> bool {
+    matches!(product, PRODUCT_GB200 | PRODUCT_GB300)
 }
 
 #[cfg(not(feature = "linux-build"))]
