@@ -137,6 +137,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                     },
                 ),
             ]),
+            use_vpc_vrf_loopback: false,
         })),
     )
     .await;

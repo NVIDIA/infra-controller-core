@@ -303,6 +303,7 @@ impl TestEnvOverrides {
                         },
                     ),
                 ]),
+                use_vpc_vrf_loopback: false,
             })
         });
 

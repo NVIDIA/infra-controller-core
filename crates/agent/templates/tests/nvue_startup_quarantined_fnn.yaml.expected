@@ -184,11 +184,6 @@
                   any: {}
           DPU_TO_EVPN_DROP_PREFIX_LIST:
             rule:
-              '10':
-                action: permit
-                match:
-                  10.217.5.125/32: {}
-                  10.217.5.124/32: {}
               '65535':
                 action: deny
                 match:
@@ -529,10 +524,6 @@
           enable: on
           vni:
             '1025186': {} 
-        loopback:
-          ip:
-            address:
-              10.217.5.125/32: {} 
         router:
           bgp:
             path-selection:
@@ -632,10 +623,6 @@
           enable: on
           vni:
             '1025197': {} 
-        loopback:
-          ip:
-            address:
-              10.217.5.124/32: {} 
         router:
           bgp:
             path-selection:
