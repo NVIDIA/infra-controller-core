@@ -26,6 +26,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
@@ -302,23 +303,27 @@ pub async fn find_or_create_machine_interface(
     txn: &mut PgConnection,
     machine_id: Option<MachineId>,
     mac_address: MacAddress,
-    relay: IpAddr,
+    relays: &[IpAddr],
     host_nic: Option<ExpectedHostNic>,
     is_primary: Option<bool>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
+    let relaystr = relays
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<String>>()
+        .join(", ");
     match machine_id {
         None => {
             tracing::info!(
                 %mac_address,
-                %relay,
-                "Found no existing machine with mac address {mac_address} using network with relay {relay}",
+                "Found no existing machine with mac address {mac_address} using networks with relays {relaystr}",
             );
             // validate_existing_mac_and_create hardcodes primary_interface: true
             // at creation. If the caller has explicitly declared a *different*
             // NIC as this machine's primary (i.e. is_primary == false), override the
             // true/default here.
             let mut interface =
-                validate_existing_mac_and_create(&mut *txn, mac_address, relay, host_nic).await?;
+                validate_existing_mac_and_create(&mut *txn, mac_address, relays, host_nic).await?;
             if is_primary == Some(false) && interface.primary_interface {
                 set_primary_interface(&interface.id, false, &mut *txn).await?;
                 interface.primary_interface = false;
@@ -332,7 +337,7 @@ pub async fn find_or_create_machine_interface(
                 n => {
                     tracing::warn!(
                         %mac_address,
-                        relay_ip = %relay,
+                        relay_ips = %relaystr,
                         num_mac_address = n,
                         "Duplicate mac address for network segment",
                     );
@@ -349,7 +354,7 @@ pub async fn find_or_create_machine_interface(
 pub async fn validate_existing_mac_and_create(
     txn: &mut PgConnection,
     mac_address: MacAddress,
-    relay: IpAddr,
+    relays: &[IpAddr],
     host_nic: Option<ExpectedHostNic>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut interface_snapshot = find_by_mac_address(&mut *txn, mac_address).await?;
@@ -377,22 +382,24 @@ pub async fn validate_existing_mac_and_create(
                 None
             };
 
-            let network_segment = if let Some(network_segment_type) = segment_type {
+            let network_segments = if let Some(network_segment_type) = segment_type {
                 // only if forcing a segment type
-                db_network_segment::for_segment_type(txn, relay, network_segment_type).await?
+                db_network_segment::for_segment_type_all(txn, relays, network_segment_type).await?
             } else {
-                db_network_segment::for_relay(txn, relay).await?
+                db_network_segment::for_relay_all(txn, relays).await?
             };
 
-            if let Some(segment) = network_segment {
+            if !network_segments.is_empty() {
                 // If the segment only allows static reservations, reject
                 // dynamic allocation. The device must have a pre-existing
                 // static reservation to get an IP on this segment.
-                if segment.allocation_strategy == AllocationStrategy::Reserved {
-                    return Err(DatabaseError::internal(format!(
-                        "segment {} configured for static DHCP leases only; no static reservation for MAC {mac_address}",
-                        segment.name,
-                    )));
+                for segment in network_segments.iter() {
+                    if segment.allocation_strategy == AllocationStrategy::Reserved {
+                        return Err(DatabaseError::internal(format!(
+                            "segment {} configured for static DHCP leases only; no static reservation for MAC {mac_address}",
+                            segment.name,
+                        )));
+                    }
                 }
 
                 // If a fixed IP is specified for this NIC, use static
@@ -410,19 +417,12 @@ pub async fn validate_existing_mac_and_create(
                     AddressSelectionStrategy::NextAvailableIp
                 };
 
-                let v = create(
-                    txn,
-                    &segment,
-                    &mac_address,
-                    segment.subdomain_id,
-                    true,
-                    strategy,
-                )
-                .await?;
+                let v = create(txn, &network_segments, &mac_address, true, strategy).await?;
                 Ok(v)
             } else {
                 Err(DatabaseError::internal(format!(
-                    "No network segment defined for relay address: {relay}"
+                    "No network segment defined for relay addresses: {:?}",
+                    relays
                 )))
             }
         }
@@ -431,18 +431,19 @@ pub async fn validate_existing_mac_and_create(
                 %mac_address,
                 "Mac address exists, validating the relay and returning it",
             );
+
             // TODO(chet): I don't like that it's mut here, but this seems to be
             // a pattern in this module in general, especially since we may or may
             // not update the interface. Consider having reconcile_interface_segment
             // just return the interface, which would probably look a lot better.
             let mut existing_interface = interface_snapshot.remove(0);
-            reconcile_interface_segment(txn, &mut existing_interface, relay).await?;
+            reconcile_interface_segment(txn, &mut existing_interface, relays).await?;
             Ok(existing_interface)
         }
         _ => {
             tracing::warn!(
                 %mac_address,
-                %relay,
+                // A MAC address should identify a single machine interface within a segment.
                 "More than one existing mac address for network segment",
             );
             Err(DatabaseError::NetworkSegmentDuplicateMacAddress(
@@ -452,31 +453,91 @@ pub async fn validate_existing_mac_and_create(
     }
 }
 
+/// Ensure a a `machine_interface` exists for the `mac_address` with its reserved allocation,
+/// either falling into a Carbide-managed segment (when there is a match within a managed
+/// prefix), or into the `static_assignments` segment for IPs that are outside of managed
+/// networks.
+///
+/// Errors on conflicts that need operator attention, e.g.
+/// - The interface for this MAC exists but carries different addresses, or,
+/// - The IP is already allocated to a different MAC.
+///
+/// Called from the expected-machine handlers to do config time preallocation, and from
+/// the DHCP `discover()` path to re-allocate if needed (ensuring static DHCP reservations
+/// are maintained). Tbh it could probably just be in the DHCP `discover()` path only.
+pub async fn preallocate_machine_interface(
+    txn: &mut PgConnection,
+    mac_address: MacAddress,
+    static_ip: IpAddr,
+) -> DatabaseResult<()> {
+    let existing = find_by_mac_address(&mut *txn, mac_address).await?;
+    if let Some(iface) = existing.first() {
+        if iface.addresses.contains(&static_ip) {
+            return Ok(());
+        }
+        return Err(DatabaseError::InvalidArgument(format!(
+            "a machine interface already exists for MAC {mac_address} with addresses {:?}; use update to change the IP address",
+            iface.addresses,
+        )));
+    }
+
+    if let Some(existing_addr) =
+        crate::machine_interface_address::find_by_address(&mut *txn, static_ip).await?
+    {
+        return Err(DatabaseError::InvalidArgument(format!(
+            "IP address {static_ip} is already allocated to interface {} on segment {}; use 'machine-interfaces assign-address' to reassign it",
+            existing_addr.id, existing_addr.name,
+        )));
+    }
+
+    let segment = match db_network_segment::for_relay(&mut *txn, static_ip).await? {
+        Some(seg) => seg,
+        None => db_network_segment::static_assignments(&mut *txn).await?,
+    };
+
+    create(
+        txn,
+        std::slice::from_ref(&segment),
+        &mac_address,
+        true,
+        AddressSelectionStrategy::StaticAddress(static_ip),
+    )
+    .await?;
+
+    tracing::info!(
+        %mac_address,
+        %static_ip,
+        segment_id = %segment.id,
+        "Pre-allocated static machine interface"
+    );
+
+    Ok(())
+}
+
 pub async fn create(
     txn: &mut PgConnection,
-    segment: &NetworkSegment,
+    segments: &[NetworkSegment],
     macaddr: &MacAddress,
-    domain_id: Option<DomainId>,
     primary_interface: bool,
     address_strategy: AddressSelectionStrategy,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     match address_strategy {
         AddressSelectionStrategy::NextAvailableIp | AddressSelectionStrategy::Automatic => {
-            create_fast_path(txn, segment, macaddr, domain_id, primary_interface).await
+            create_fast_path(txn, segments, macaddr, primary_interface).await
         }
         AddressSelectionStrategy::StaticAddress(addr) => {
-            create_static_path(txn, segment, macaddr, domain_id, primary_interface, addr).await
+            create_static_path(txn, segments, macaddr, primary_interface, addr).await
         }
+        //
         AddressSelectionStrategy::NextAvailablePrefix(_) => {
-            create_slow_path(
-                txn,
-                segment,
-                macaddr,
-                domain_id,
-                primary_interface,
-                address_strategy,
-            )
-            .await
+            let [segment] = segments else {
+                return Err(DatabaseError::InvalidArgument(
+                    "NextAvailablePrefix allocation requires exactly one candidate segment"
+                        .to_string(),
+                ));
+            };
+
+            create_slow_path(txn, segment, macaddr, primary_interface, address_strategy).await
         }
     }
 }
@@ -484,57 +545,69 @@ pub async fn create(
 #[allow(txn_held_across_await)]
 async fn create_fast_path(
     txn: &mut PgConnection,
-    segment: &NetworkSegment,
+    segments: &[NetworkSegment],
     macaddr: &MacAddress,
-    domain_id: Option<DomainId>,
     primary_interface: bool,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
-    for _ in 0..FAST_PATH_MAX_RETRIES {
-        let mut fast_txn = Transaction::begin_inner(txn).await?;
+    for segments_idx in 0..segments.len() {
+        let segment = &segments[segments_idx];
+        for _ in 0..FAST_PATH_MAX_RETRIES {
+            let mut fast_txn = Transaction::begin_inner(txn).await?;
 
-        // Make sure we're mutually exclusive with the slow path: a shared lock means many fast-path
-        // allocations can happen concurrently, but the slow path will hold this exclusively
-        // (waiting on any shared locks to complete)
-        lock_network_segment_shared(&mut fast_txn, segment).await?;
+            // Make sure we're mutually exclusive with the slow path: a shared lock means many fast-path
+            // allocations can happen concurrently, but the slow path will hold this exclusively
+            // (waiting on any shared locks to complete)
+            lock_network_segment_shared(&mut fast_txn, segment).await?;
 
-        match try_create_fast_path(
-            &mut fast_txn,
-            segment,
-            macaddr,
-            domain_id,
-            primary_interface,
-        )
-        .await
-        {
-            Ok(interface_id) => {
-                fast_txn.commit().await?;
-                return Ok(
-                    find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))
-                        .await?
-                        .remove(0),
-                );
-            }
-            Err(err) if err.is_fqdn_conflict() => {
-                // Another simultaneous create got the same FQDN, try again.
-            }
-            Err(DatabaseError::TryAgain) => {
-                // All the IP's in the batch we grabbed from the database got taken by other
-                // concurrent calls to create_fast_path. Try again.
-            }
-            Err(err) => {
-                // Some other error, roll back the inner transaction
-                fast_txn.rollback().await?;
-                return Err(err);
+            let segment_exhausted = match try_create_fast_path(
+                &mut fast_txn,
+                segment,
+                macaddr,
+                primary_interface,
+            )
+            .await
+            {
+                Ok(interface_id) => {
+                    fast_txn.commit().await?;
+                    return Ok(
+                        find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))
+                            .await?
+                            .remove(0),
+                    );
+                }
+                Err(err) if err.is_fqdn_conflict() => {
+                    // Another simultaneous create got the same FQDN, try again.
+                    false
+                }
+                Err(DatabaseError::TryAgain) => {
+                    // All the IP's in the batch we grabbed from the database got taken by other
+                    // concurrent calls to create_fast_path. Try again.
+                    false
+                }
+                Err(DatabaseError::ResourceExhausted(_)) if segments_idx < segments.len() - 1 => {
+                    // If there are more segments to check, we just need to signal that this one was exhausted.
+                    true
+                }
+                Err(err) => {
+                    // Some other error, roll back the inner transaction
+                    fast_txn.rollback().await?;
+                    return Err(err);
+                }
+            };
+
+            fast_txn.rollback().await?;
+            tokio::task::yield_now().await;
+
+            // If this segment is exhausted, go to the next segment.
+            if segment_exhausted {
+                break;
             }
         }
-
-        fast_txn.rollback().await?;
-        tokio::task::yield_now().await;
     }
 
     Err(DatabaseError::internal(format!(
-        "unable to create machine interface in fast path for segment {} after {} retries",
-        segment.id, FAST_PATH_MAX_RETRIES
+        "unable to create machine interface in fast path out of segments {:?} after {} retries",
+        segments, FAST_PATH_MAX_RETRIES
     )))
 }
 
@@ -542,17 +615,34 @@ async fn create_fast_path(
 /// A perfect compliment to create_fast_path and create_slow_path.
 async fn create_static_path(
     txn: &mut PgConnection,
-    segment: &NetworkSegment,
+    segments: &[NetworkSegment],
     macaddr: &MacAddress,
-    domain_id: Option<DomainId>,
     primary_interface: bool,
     address: IpAddr,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
+    // For the staic path, we need to be a little forgiving since
+    // we expect to allow static assignment even if the requested
+    // assignment is outside any network segment as long as
+    // there is a "static assignment segment".
+    // To identify the owning segment:
+    //  - pick a segment whose prefix contains the static IP (we guard against overlap so there could be at most 1)
+    //  - otherwise allow the special static-assignments segment
+    //  - otherwise return an error
+    let segment = segments
+                .iter()
+                .find(|s| s.prefixes.iter().any(|p| p.prefix.contains(address)))
+                .or_else(|| segments.iter().find(|s| s.name == crate::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME))
+                .ok_or_else(|| DatabaseError::internal(format!(
+                    "unable to find network segment that contains requested IP {address} in network segments: {}",
+                    segments.iter().map(|s| s.id.to_string()).join(", "),
+                ))
+    )?;
+
     let interface_id = create_inner(
         txn,
         segment,
         macaddr,
-        domain_id,
+        segment.subdomain_id,
         primary_interface,
         &[address],
         AllocationType::Static,
@@ -578,7 +668,6 @@ pub async fn create_slow_path(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
     macaddr: &MacAddress,
-    domain_id: Option<DomainId>,
     primary_interface: bool,
     address_strategy: AddressSelectionStrategy,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
@@ -623,7 +712,7 @@ pub async fn create_slow_path(
         inner_txn.as_pgconn(),
         segment,
         macaddr,
-        domain_id,
+        segment.subdomain_id,
         primary_interface,
         &allocated_addresses,
         AllocationType::Dhcp,
@@ -647,7 +736,6 @@ async fn try_create_fast_path(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
     macaddr: &MacAddress,
-    domain_id: Option<DomainId>,
     primary_interface: bool,
 ) -> DatabaseResult<MachineInterfaceId> {
     let allocated_addresses = allocate_addresses_from_segment(txn, segment).await?;
@@ -656,7 +744,7 @@ async fn try_create_fast_path(
         txn,
         segment,
         macaddr,
-        domain_id,
+        segment.subdomain_id,
         primary_interface,
         &allocated_addresses,
         AllocationType::Dhcp,
@@ -1078,9 +1166,8 @@ pub async fn move_predicted_machine_interface_to_machine(
             // This host has never DHCP'd before, create a new machine_interface for it
             let machine_interface = create(
                 txn,
-                &network_segment,
+                &[network_segment],
                 &predicted_machine_interface.mac_address,
-                network_segment.subdomain_id,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
             )
@@ -1112,18 +1199,22 @@ pub async fn create_host_machine_dpu_interface_proactively(
     hardware_info: Option<&HardwareInfo>,
     dpu_id: &MachineId,
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
-    let admin_network = crate::network_segment::admin(txn).await?;
+    let admin_networks = crate::network_segment::admin(txn).await?;
 
     // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
     // segment.
-    let prefix = admin_network
-        .prefixes
-        .iter()
-        .filter(|x| x.prefix.is_ipv4())
-        .next_back()
-        .ok_or(DatabaseError::AdminNetworkNotConfigured)?;
+    let mut gateways = vec![];
+    let mut existing_machine = None;
 
-    let Some(gateway) = prefix.gateway else {
+    for admin_network in admin_networks {
+        for prefix in admin_network.prefixes {
+            if let Some(gateway) = prefix.gateway {
+                gateways.push(gateway);
+            }
+        }
+    }
+
+    if gateways.is_empty() {
         return Err(DatabaseError::AdminNetworkNotConfigured);
     };
 
@@ -1135,10 +1226,16 @@ pub async fn create_host_machine_dpu_interface_proactively(
             id: dpu_id.to_string(),
         })??;
 
-    let existing_machine = crate::machine::find_existing_machine(txn, host_mac, gateway).await?;
+    for gateway in gateways.iter() {
+        existing_machine =
+            crate::machine::find_existing_machine(txn, host_mac, gateway.to_owned()).await?;
+        if existing_machine.is_some() {
+            break;
+        }
+    }
 
     let machine_interface =
-        find_or_create_machine_interface(txn, existing_machine, host_mac, gateway, None, None)
+        find_or_create_machine_interface(txn, existing_machine, host_mac, &gateways, None, None)
             .await?;
     associate_interface_with_dpu_machine(&machine_interface.id, dpu_id, txn).await?;
 
@@ -1197,19 +1294,23 @@ pub async fn update_segment_id(
 async fn reconcile_interface_segment(
     txn: &mut PgConnection,
     existing_interface: &mut MachineInterfaceSnapshot,
-    relay: IpAddr,
+    relays: &[IpAddr],
 ) -> DatabaseResult<()> {
-    let relay_segment = crate::network_segment::for_relay(txn, relay)
-        .await?
-        .ok_or_else(|| {
-            DatabaseError::internal(format!(
-                "No network segment defined for DHCP relay address: {relay}"
-            ))
-        })?;
+    let relay_segments = crate::network_segment::for_relay_all(txn, relays).await?;
 
-    // If it's the same segment, then we're good! Nothing
-    // to do here.
-    if relay_segment.id == existing_interface.segment_id {
+    if relay_segments.is_empty() {
+        return Err(DatabaseError::internal(format!(
+            "No network segment defined for DHCP relay addresses: {}",
+            relays.iter().join(", ")
+        )));
+    };
+
+    // If the existing interface belongs to any candidate segment, it is valid.
+    // This handles proactive DPU ingestion where all admin gateways are candidates.
+    if relay_segments
+        .iter()
+        .any(|n| n.id == existing_interface.segment_id)
+    {
         return Ok(());
     }
 
@@ -1225,6 +1326,13 @@ async fn reconcile_interface_segment(
     // removed the static allocation on purpose, and now we're waiting for
     // the device to DHCP so we can see what segment it's coming in on.
     if on_static_assignments && existing_interface.addresses.is_empty() {
+        let [relay_segment] = relay_segments.as_slice() else {
+            return Err(DatabaseError::internal(format!(
+                "Cannot move interface from static-assignments with multiple candidate relays: {} ",
+                relays.iter().join(", ")
+            )));
+        };
+
         tracing::info!(
             mac_address = %existing_interface.mac_address,
             old_segment_id = %existing_interface.segment_id,
@@ -1253,7 +1361,13 @@ async fn reconcile_interface_segment(
         // integration.
         return Err(DatabaseError::internal(format!(
             "Network segment mismatch for existing MAC address: {} expected: {} actual from network switch: {}",
-            existing_interface.mac_address, existing_interface.segment_id, relay_segment.id,
+            existing_interface.mac_address,
+            existing_interface.segment_id,
+            relay_segments
+                .iter()
+                .map(|ns| ns.id.to_string())
+                .collect::<Vec<String>>()
+                .join(", "),
         )));
     }
 

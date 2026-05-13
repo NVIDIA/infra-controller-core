@@ -277,11 +277,23 @@ pub mod test_support {
                 .pop_front()
                 .unwrap_or_default())
         }
+        async fn update_switch_system_password(
+            &self,
+            _cmd: rms::UpdateSwitchSystemPasswordRequest,
+        ) -> Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError> {
+            Ok(rms::UpdateSwitchSystemPasswordResponse::default())
+        }
         async fn set_power_state(
             &self,
             _cmd: rms::SetPowerStateRequest,
         ) -> Result<rms::SetPowerStateResponse, RackManagerError> {
             Ok(rms::SetPowerStateResponse::default())
+        }
+        async fn set_power_state_by_device_list(
+            &self,
+            _cmd: rms::SetPowerStateByDeviceListRequest,
+        ) -> Result<rms::SetPowerStateByDeviceListResponse, RackManagerError> {
+            Ok(rms::SetPowerStateByDeviceListResponse::default())
         }
         async fn get_power_state(
             &self,

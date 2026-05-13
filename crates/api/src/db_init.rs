@@ -246,29 +246,34 @@ pub(crate) async fn create_admin_vpc(
 
     let mut txn = Transaction::begin(db_pool).await?;
 
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
+    let admin_segments = db::network_segment::admin(&mut txn).await?;
     let existing_vpc = db::vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
-    if let Some(existing_vpc) = existing_vpc.first() {
-        if let Some(vpc_id) = admin_segment.vpc_id {
-            if vpc_id != existing_vpc.id {
-                return Err(CarbideError::internal(format!(
-                    "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",
-                    existing_vpc.id
-                )));
-            }
 
-            // All good here. We have valid admin vpc and it is attached to valid segment.
-            return Ok(());
-        } else {
-            // Somehow vni field is not updated in network segment table. do it now.
-            db::network_segment::set_vpc_id_and_can_stretch(
-                &admin_segment,
-                &mut txn,
-                existing_vpc.id,
-            )
-            .await?;
-            return Ok(());
+    if let Some(existing_vpc) = existing_vpc.first() {
+        for admin_segment in admin_segments {
+            if let Some(vpc_id) = admin_segment.vpc_id {
+                if vpc_id != existing_vpc.id {
+                    return Err(CarbideError::internal(format!(
+                        "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",
+                        existing_vpc.id
+                    )));
+                }
+
+                // All good here. We have valid admin vpc and it is attached to valid segment.
+            } else {
+                // Somehow vni field is not updated in network segment table. do it now.
+                db::network_segment::set_vpc_id_and_can_stretch(
+                    &admin_segment,
+                    &mut txn,
+                    existing_vpc.id,
+                )
+                .await?;
+            }
         }
+
+        txn.commit().await?;
+
+        return Ok(());
     }
 
     // Let's create admin vpc.
@@ -297,8 +302,10 @@ pub(crate) async fn create_admin_vpc(
     )
     .await?;
 
-    // Attach it to admin network segment.
-    db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;
+    // Attach it to admin network segments.
+    for admin_segment in admin_segments {
+        db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;
+    }
 
     txn.commit().await?;
 

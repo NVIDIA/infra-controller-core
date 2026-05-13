@@ -774,6 +774,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     ip_address: None,
                     ipv6_interface_config: None,
                 }],
+                auto: false,
             }),
             infiniband: None,
             network_security_group_id: None,

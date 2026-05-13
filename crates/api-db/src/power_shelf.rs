@@ -58,6 +58,17 @@ impl ColumnInfo<'_> for NameColumn {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct BmcMacAddressColumn;
+impl ColumnInfo<'_> for BmcMacAddressColumn {
+    type TableType = PowerShelf;
+    type ColumnType = mac_address::MacAddress;
+
+    fn column_name(&self) -> &'static str {
+        "bmc_mac_address"
+    }
+}
+
 pub async fn create(
     txn: &mut PgConnection,
     new_power_shelf: &NewPowerShelf,
@@ -82,7 +93,7 @@ pub async fn create(
     };
 
     let query = sqlx::query_as::<_, PowerShelfId>(
-        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
+        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, bmc_mac_address, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
     );
     let _: PowerShelfId = query
         .bind(new_power_shelf.id)
@@ -90,6 +101,7 @@ pub async fn create(
         .bind(sqlx::types::Json(&new_power_shelf.config))
         .bind(sqlx::types::Json(&state))
         .bind(controller_state_version)
+        .bind(new_power_shelf.bmc_mac_address)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(version)
@@ -103,6 +115,7 @@ pub async fn create(
         config: new_power_shelf.config.clone(),
         status: None,
         deleted: None,
+        bmc_mac_address: new_power_shelf.bmc_mac_address,
         controller_state: Versioned {
             value: state,
             version: controller_state_version,
@@ -160,6 +173,21 @@ pub async fn find_by_id(
     }
 }
 
+// TODO(chet): Per Issue #925, the goal is to link machines to BMCs via
+// the machine_interfaces table, but for now this is going to be like
+// this until I take care of the issue.
+pub async fn find_by_bmc_mac_address(
+    txn: &mut PgConnection,
+    bmc_mac_address: mac_address::MacAddress,
+) -> DatabaseResult<Option<PowerShelf>> {
+    let power_shelves = find_by(
+        txn,
+        ObjectColumnFilter::One(BmcMacAddressColumn, &bmc_mac_address),
+    )
+    .await?;
+    Ok(power_shelves.into_iter().next())
+}
+
 pub async fn find_ids(
     txn: impl DbReader<'_>,
     filter: model::power_shelf::PowerShelfSearchFilter,
@@ -172,9 +200,9 @@ pub async fn find_ids(
 
     qb.push(" WHERE TRUE");
 
-    if filter.rack_id.is_some() {
+    if let Some(rack_id) = filter.rack_id {
         qb.push(" AND ps.rack_id = ");
-        qb.push_bind(filter.rack_id.unwrap());
+        qb.push_bind(rack_id);
     }
     match filter.deleted {
         model::DeletedFilter::Exclude => qb.push(" AND ps.deleted IS NULL"),

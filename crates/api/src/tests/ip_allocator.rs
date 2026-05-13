@@ -21,10 +21,12 @@ use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{
-    NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
+    AllocationStrategy, NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
 
-use crate::tests::common::api_fixtures::create_test_env;
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_test_env, create_test_env_with_overrides,
+};
 
 /// Test that machine_interface::create allocates the correct IPv4 address
 /// from the admin segment (192.0.2.0/24 with num_reserved=3, gateway=.1).
@@ -35,7 +37,11 @@ async fn test_machine_interface_create_with_ipv4_prefix(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     let network_prefix = network_segment
         .prefixes
         .first()
@@ -60,9 +66,8 @@ async fn test_machine_interface_create_with_ipv4_prefix(
 
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -82,9 +87,8 @@ async fn test_machine_interface_create_with_ipv4_prefix(
     // Allocate a second interface and verify it gets a different address
     let interface2 = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &MacAddress::from_str("ff:ff:ff:ff:ff:fe").unwrap(),
-        Some(env.domain.into()),
         false,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -99,6 +103,89 @@ async fn test_machine_interface_create_with_ipv4_prefix(
     Ok(())
 }
 
+/// Verify that machine_interface::create falls through to a later candidate
+/// admin segment when the first candidate is exhausted.
+#[crate::sqlx_test]
+async fn test_machine_interface_create_falls_through_admin_segments(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    let mut txn = env.pool.begin().await?;
+
+    let admin_segment = |name: &str, prefix: &str, gateway: &str| NewNetworkSegment {
+        name: name.to_string(),
+        subdomain_id: None,
+        vpc_id: None,
+        mtu: 1500,
+        prefixes: vec![NewNetworkPrefix {
+            prefix: prefix.parse().unwrap(),
+            gateway: Some(gateway.parse().unwrap()),
+            num_reserved: 2,
+        }],
+        vlan_id: None,
+        vni: None,
+        segment_type: NetworkSegmentType::Admin,
+        id: uuid::Uuid::new_v4().into(),
+        can_stretch: None,
+        allocation_strategy: AllocationStrategy::Dynamic,
+    };
+
+    // Create two tiny admin segments with one allocatable address each.
+    let first_segment = db::network_segment::persist(
+        admin_segment("ADMIN_TINY_1", "192.0.20.0/30", "192.0.20.1"),
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+    let second_segment = db::network_segment::persist(
+        admin_segment("ADMIN_TINY_2", "192.0.21.0/30", "192.0.21.1"),
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+    let candidate_segments = [first_segment.clone(), second_segment.clone()];
+
+    // Allocate the only usable address from the first candidate segment.
+    let first_interface = db::machine_interface::create(
+        &mut txn,
+        &candidate_segments,
+        &MacAddress::from_str("aa:bb:cc:dd:ee:10").unwrap(),
+        true,
+        AddressSelectionStrategy::NextAvailableIp,
+    )
+    .await?;
+    assert_eq!(first_interface.segment_id, first_segment.id);
+    assert_eq!(
+        first_interface.addresses,
+        vec![IpAddr::V4("192.0.20.2".parse()?)]
+    );
+
+    // Allocate again with the same candidates and verify it falls through.
+    let second_interface = db::machine_interface::create(
+        &mut txn,
+        &candidate_segments,
+        &MacAddress::from_str("aa:bb:cc:dd:ee:11").unwrap(),
+        false,
+        AddressSelectionStrategy::NextAvailableIp,
+    )
+    .await?;
+
+    let second_interface_id = second_interface.id;
+    txn.commit().await?;
+
+    // Re-read the second interface to verify the persisted segment and address.
+    let mut txn = env.pool.begin().await?;
+    let persisted_interface =
+        db::machine_interface::find_one(txn.as_mut(), second_interface_id).await?;
+    assert_eq!(persisted_interface.segment_id, second_segment.id);
+    assert_eq!(
+        persisted_interface.addresses,
+        vec![IpAddr::V4("192.0.21.2".parse()?)]
+    );
+
+    Ok(())
+}
+
 /// Verify that machine_interface::create allocates from an IPv6-only segment.
 #[crate::sqlx_test]
 async fn test_machine_interface_create_with_ipv6_prefix(
@@ -107,7 +194,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let domain = db::dns::domain::find_by_name(&mut txn, "dwrt1.com")
+    let domain = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com")
         .await?
         .into_iter()
         .next()
@@ -129,6 +216,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
         segment_type: NetworkSegmentType::Underlay,
         id: uuid::Uuid::new_v4().into(),
         can_stretch: None,
+        allocation_strategy: AllocationStrategy::Dynamic,
     };
     let network_segment =
         db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
@@ -136,9 +224,8 @@ async fn test_machine_interface_create_with_ipv6_prefix(
 
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &MacAddress::from_str("aa:bb:cc:dd:ee:01").unwrap(),
-        Some(domain.id),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -158,9 +245,8 @@ async fn test_machine_interface_create_with_ipv6_prefix(
     // Allocate a second interface to verify sequential allocation works
     let interface2 = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &MacAddress::from_str("aa:bb:cc:dd:ee:02").unwrap(),
-        Some(domain.id),
         false,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -189,7 +275,7 @@ async fn test_machine_interface_create_dual_stack(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let domain = db::dns::domain::find_by_name(&mut txn, "dwrt1.com")
+    let domain = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com")
         .await?
         .into_iter()
         .next()
@@ -217,6 +303,7 @@ async fn test_machine_interface_create_dual_stack(
         segment_type: NetworkSegmentType::Underlay,
         id: uuid::Uuid::new_v4().into(),
         can_stretch: None,
+        allocation_strategy: AllocationStrategy::Dynamic,
     };
     let network_segment =
         db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
@@ -224,9 +311,8 @@ async fn test_machine_interface_create_dual_stack(
 
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &MacAddress::from_str("aa:bb:cc:00:00:01").unwrap(),
-        Some(domain.id),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )
@@ -260,9 +346,8 @@ async fn test_machine_interface_create_dual_stack(
     // Allocate a second interface and verify both families get new addresses
     let interface2 = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &MacAddress::from_str("aa:bb:cc:00:00:02").unwrap(),
-        Some(domain.id),
         false,
         AddressSelectionStrategy::NextAvailableIp,
     )

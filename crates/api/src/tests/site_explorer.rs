@@ -72,11 +72,11 @@ struct FakeMachine {
 }
 
 impl FakeMachine {
-    fn new(mac: &str, vendor: &str, segment: &Option<NetworkSegmentId>) -> Self {
+    fn new(mac: &str, vendor: &str, segment: NetworkSegmentId) -> Self {
         Self {
             mac: mac.parse().unwrap(),
             dhcp_vendor: vendor.to_string(),
-            segment: segment.unwrap(),
+            segment,
             ip: String::new(),
         }
     }
@@ -200,7 +200,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     let mut machines = vec![FakeMachine::new(
         "6a:6b:6c:6d:6e:6f",
         "Vendor1",
-        &env.underlay_segment,
+        env.underlay_segment.unwrap(),
     )];
     machines.discover_dhcp(&env).await?;
 
@@ -350,7 +350,11 @@ async fn test_handle_redfish_error_powers_on_machine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let mut machine = FakeMachine::new("6a:6b:6c:6d:6e:70", "Vendor1", &env.underlay_segment);
+    let mut machine = FakeMachine::new(
+        "6a:6b:6c:6d:6e:70",
+        "Vendor1",
+        env.underlay_segment.unwrap(),
+    );
     machine.discover_dhcp(&env).await?;
     let bmc_ip: IpAddr = machine.ip.parse()?;
 
@@ -439,16 +443,28 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // to a panic if the machine is queried
     let mut machines = vec![
         // machines[0] is a DPU belonging to machines[1]
-        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1", &env.underlay_segment),
+        FakeMachine::new(
+            "B8:3F:D2:90:97:A6",
+            "Vendor1",
+            env.underlay_segment.unwrap(),
+        ),
         // machines[1] has 1 dpu (machines[0])
-        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2", &env.underlay_segment),
+        FakeMachine::new(
+            "AA:AB:AC:AD:AA:02",
+            "Vendor2",
+            env.underlay_segment.unwrap(),
+        ),
         // machines[2] has no DPUs
-        FakeMachine::new("AA:AB:AC:AD:AA:03", "Vendor3", &env.underlay_segment),
+        FakeMachine::new(
+            "AA:AB:AC:AD:AA:03",
+            "Vendor3",
+            env.underlay_segment.unwrap(),
+        ),
         // machines[3] is not on the underlay network and should not be searched.
         FakeMachine::new(
             "AA:AB:AC:AD:BB:01",
             "VendorInvalidSegment",
-            &env.admin_segment,
+            env.admin_segment(),
         ),
     ];
     machines.discover_dhcp(&env).await?;
@@ -461,7 +477,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         3
     );
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, env.admin_segment_ref())
             .await
             .unwrap(),
         1
@@ -810,20 +826,48 @@ async fn test_site_explorer_audit_exploration_results(
         // This will be our expected DPU, and it will have the
         // expected serial number, but we assume no DPUs are expected,
         // should it still shouldn't be counted as `expected`        .
-        FakeMachine::new("5a:5b:5c:5d:5e:5f", "Vendor1", &env.underlay_segment),
+        FakeMachine::new(
+            "5a:5b:5c:5d:5e:5f",
+            "Vendor1",
+            env.underlay_segment.unwrap(),
+        ),
         // This will be expected but unauthorized, and the serial is mismatched
-        FakeMachine::new("0a:0b:0c:0d:0e:0f", "Vendor3", &env.underlay_segment),
+        FakeMachine::new(
+            "0a:0b:0c:0d:0e:0f",
+            "Vendor3",
+            env.underlay_segment.unwrap(),
+        ),
         // This host will be expected but missing credentials, and the serial is mismatched
-        FakeMachine::new("1a:1b:1c:1d:1e:1f", "Vendor3", &env.underlay_segment),
+        FakeMachine::new(
+            "1a:1b:1c:1d:1e:1f",
+            "Vendor3",
+            env.underlay_segment.unwrap(),
+        ),
         // This host will be expected, but the serial number will be mismatched.
-        FakeMachine::new("2a:2b:2c:2d:2e:2f", "Vendor3", &env.underlay_segment),
+        FakeMachine::new(
+            "2a:2b:2c:2d:2e:2f",
+            "Vendor3",
+            env.underlay_segment.unwrap(),
+        ),
         // This will be expected, with a good serial number.
         // It will also have associated DPUs and should get a managed host.
-        FakeMachine::new("3a:3b:3c:3d:3e:3f", "Vendor3", &env.underlay_segment),
+        FakeMachine::new(
+            "3a:3b:3c:3d:3e:3f",
+            "Vendor3",
+            env.underlay_segment.unwrap(),
+        ),
         // This host is not expected.
-        FakeMachine::new("ab:cd:ef:ab:cd:ef", "Vendor3", &env.underlay_segment),
+        FakeMachine::new(
+            "ab:cd:ef:ab:cd:ef",
+            "Vendor3",
+            env.underlay_segment.unwrap(),
+        ),
         // This DPU is really not expected. (i.e. no DB entry)
-        FakeMachine::new("ef:cd:ab:ef:cd:ab", "Vendor3", &env.underlay_segment),
+        FakeMachine::new(
+            "ef:cd:ab:ef:cd:ab",
+            "Vendor3",
+            env.underlay_segment.unwrap(),
+        ),
     ];
 
     machines.discover_dhcp(&env).await?;
@@ -1156,8 +1200,16 @@ async fn test_site_explorer_reexplore(
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     let mut machines = vec![
-        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1", &env.underlay_segment),
-        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2", &env.underlay_segment),
+        FakeMachine::new(
+            "B8:3F:D2:90:97:A6",
+            "Vendor1",
+            env.underlay_segment.unwrap(),
+        ),
+        FakeMachine::new(
+            "AA:AB:AC:AD:AA:02",
+            "Vendor2",
+            env.underlay_segment.unwrap(),
+        ),
     ];
 
     machines.discover_dhcp(&env).await?;
@@ -1433,9 +1485,9 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", &env.underlay_segment);
+    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", env.underlay_segment.unwrap());
 
-    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", &env.underlay_segment);
+    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", env.underlay_segment.unwrap());
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu, &mut host1] {
@@ -2238,7 +2290,11 @@ async fn test_site_explorer_unknown_vendor(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let mut machine = FakeMachine::new("B8:3F:D2:90:97:A7", "Vendor1", &env.underlay_segment);
+    let mut machine = FakeMachine::new(
+        "B8:3F:D2:90:97:A7",
+        "Vendor1",
+        env.underlay_segment.unwrap(),
+    );
     machine.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
@@ -2455,9 +2511,9 @@ async fn test_machine_creation_with_sku(
     const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", &env.underlay_segment);
+    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", env.underlay_segment.unwrap());
 
-    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", &env.underlay_segment);
+    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", env.underlay_segment.unwrap());
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu, &mut host1] {
@@ -2612,9 +2668,21 @@ async fn test_expected_machine_device_type_metrics(
 
     // Create fake machines with network interfaces so they can be discovered
     let mut machines = vec![
-        FakeMachine::new(EXPECTED_MACHINE_1_MAC, "Vendor1", &env.underlay_segment),
-        FakeMachine::new(EXPECTED_MACHINE_2_MAC, "Vendor2", &env.underlay_segment),
-        FakeMachine::new(EXPECTED_MACHINE_3_MAC, "Vendor3", &env.underlay_segment),
+        FakeMachine::new(
+            EXPECTED_MACHINE_1_MAC,
+            "Vendor1",
+            env.underlay_segment.unwrap(),
+        ),
+        FakeMachine::new(
+            EXPECTED_MACHINE_2_MAC,
+            "Vendor2",
+            env.underlay_segment.unwrap(),
+        ),
+        FakeMachine::new(
+            EXPECTED_MACHINE_3_MAC,
+            "Vendor3",
+            env.underlay_segment.unwrap(),
+        ),
     ];
     machines.discover_dhcp(&env).await?;
 
@@ -5043,6 +5111,310 @@ async fn test_orphan_managed_host_alert_emitted(
         !alerts.iter().any(|a| a.id == "OrphanManagedHost"),
         "expected no OrphanManagedHost alert after re-adding expected_machines, got: {alerts:#?}"
     );
+
+    Ok(())
+}
+
+fn explored_managed_switch_fixture(
+    bmc_ip: IpAddr,
+    nvos_mac: MacAddress,
+    chassis_serial: Option<&str>,
+) -> model::site_explorer::ExploredManagedSwitch {
+    let chassis = Chassis {
+        id: "mgx_nvswitch_0".to_string(),
+        manufacturer: Some("NVIDIA".to_string()),
+        model: Some("Switch".to_string()),
+        serial_number: chassis_serial.map(String::from),
+        part_number: chassis_serial.map(String::from),
+        ..Default::default()
+    };
+    model::site_explorer::ExploredManagedSwitch {
+        bmc_ip,
+        nv_os_mac_addresses: vec![nvos_mac],
+        report: EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+            chassis: vec![chassis],
+            model: Some("Switch".to_string()),
+            ..Default::default()
+        },
+    }
+}
+
+fn expected_switch_fixture(
+    bmc_mac: MacAddress,
+    nvos_mac: MacAddress,
+    serial: &str,
+) -> model::expected_switch::ExpectedSwitch {
+    model::expected_switch::ExpectedSwitch {
+        expected_switch_id: None,
+        bmc_mac_address: bmc_mac,
+        nvos_mac_addresses: vec![nvos_mac],
+        serial_number: serial.to_string(),
+        bmc_username: "ADMIN".to_string(),
+        bmc_password: "Pwd2023".to_string(),
+        nvos_username: None,
+        nvos_password: None,
+        bmc_ip_address: None,
+        metadata: Metadata {
+            name: format!("Test Switch {serial}"),
+            description: String::new(),
+            labels: HashMap::new(),
+        },
+        rack_id: None,
+        bmc_retain_credentials: None,
+    }
+}
+
+/// When a switch is rediscovered with a chassis serial that hashes to a new
+/// `SwitchId`, the BMC MAC check must keep us from inserting a second record.
+#[crate::sqlx_test]
+async fn switch_skips_creation_when_bmc_mac_already_used(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let bmc_mac: MacAddress = "B8:3F:D2:90:97:D0".parse().unwrap();
+    let nvos_mac: MacAddress = "B8:3F:D2:90:97:D1".parse().unwrap();
+
+    let expected_switch = expected_switch_fixture(bmc_mac, nvos_mac, "SW-DRIFT");
+    let mut txn = env.pool.begin().await?;
+    db::expected_switch::create(&mut txn, expected_switch.clone()).await?;
+    txn.commit().await?;
+
+    let switch_creator =
+        carbide_site_explorer::SwitchCreator::new(env.pool.clone(), SiteExplorerConfig::default());
+
+    // First discovery, we get a real serial, which succeeds,
+    // and inserts a switches row.
+    assert!(
+        switch_creator
+            .create_managed_switch(
+                &explored_managed_switch_fixture(
+                    "10.0.0.1".parse().unwrap(),
+                    nvos_mac,
+                    Some("SW-DRIFT-v1"),
+                ),
+                &expected_switch,
+                &env.pool,
+            )
+            .await?,
+        "first discovery must create a switch row"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let ids_after_first = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
+    txn.commit().await?;
+    assert_eq!(ids_after_first.len(), 1);
+    let original_id = ids_after_first[0];
+
+    // Second discovery, we hit the same BMC MAC, but get a different chassis serial.
+    // Without the BMC MAC check, this would give us a different SwitchId and insert
+    // a second record.
+    assert!(
+        !switch_creator
+            .create_managed_switch(
+                &explored_managed_switch_fixture(
+                    "10.0.0.1".parse().unwrap(),
+                    nvos_mac,
+                    Some("SW-DRIFT-v2"),
+                ),
+                &expected_switch,
+                &env.pool,
+            )
+            .await?,
+        "second discovery with drifted fingerprint must not create a duplicate row"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let ids_after_second =
+        db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
+    txn.commit().await?;
+    assert_eq!(
+        ids_after_second,
+        vec![original_id],
+        "exactly one switch row, original ID preserved"
+    );
+
+    Ok(())
+}
+
+/// A switch BMC reporting `"NA"` for its chassis serial is treated as a
+/// missing serial: `generate_switch_id` should error with
+/// `MissingHardwareInfo::Serial` rather than give us a junk `SwitchId`, and
+/// no record gets created. The next exploration cycle picks the switch up
+/// once a real serial is reported.
+#[crate::sqlx_test]
+async fn switch_treats_na_chassis_serial_as_missing(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let bmc_mac: MacAddress = "B8:3F:D2:90:97:D2".parse().unwrap();
+    let nvos_mac: MacAddress = "B8:3F:D2:90:97:D3".parse().unwrap();
+
+    let expected_switch = expected_switch_fixture(bmc_mac, nvos_mac, "SW-NA");
+    let mut txn = env.pool.begin().await?;
+    db::expected_switch::create(&mut txn, expected_switch.clone()).await?;
+    txn.commit().await?;
+
+    let switch_creator =
+        carbide_site_explorer::SwitchCreator::new(env.pool.clone(), SiteExplorerConfig::default());
+
+    let result = switch_creator
+        .create_managed_switch(
+            &explored_managed_switch_fixture("10.0.0.2".parse().unwrap(), nvos_mac, Some("NA")),
+            &expected_switch,
+            &env.pool,
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "placeholder NA chassis serial must surface as an error, got: {result:?}"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let ids = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
+    txn.commit().await?;
+    assert!(
+        ids.is_empty(),
+        "no switch row must be inserted when chassis serial is NA"
+    );
+
+    Ok(())
+}
+
+/// Power-shelf companion to `switch_skips_creation_when_bmc_mac_already_used`:
+/// a second call to `create_power_shelf` for the same BMC MAC must not insert
+/// a second row, even if the inputs we'd hash into a `PowerShelfId` differ.
+#[crate::sqlx_test]
+async fn power_shelf_skips_creation_when_bmc_mac_already_used(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let bmc_mac: MacAddress = "B8:3F:D2:90:97:E0".parse().unwrap();
+    let bmc_ip: IpAddr = "192.168.1.200".parse().unwrap();
+
+    // Seed an `expected_power_shelves` record so the foreign key on
+    // power_shelves.bmc_mac_address (which references
+    // expected_power_shelves.bmc_mac_address) is satisfied.
+    let mut txn = env.pool.begin().await?;
+    db::expected_power_shelf::create(
+        &mut txn,
+        model::expected_power_shelf::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac,
+            bmc_username: "admin".to_string(),
+            bmc_password: "password".to_string(),
+            serial_number: "PS-EXISTING".to_string(),
+            bmc_ip_address: Some(bmc_ip),
+            metadata: Metadata {
+                name: "PS-EXISTING-NAME".to_string(),
+                description: String::new(),
+                labels: HashMap::new(),
+            },
+            rack_id: None,
+            bmc_retain_credentials: None,
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        SiteExplorerConfig {
+            create_power_shelves: Arc::new(true.into()),
+            ..Default::default()
+        },
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
+    );
+
+    let explored_endpoint = ExploredEndpoint {
+        address: bmc_ip,
+        report: EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+            chassis: vec![Chassis::default()],
+            ..Default::default()
+        },
+        report_version: ConfigVersion::initial(),
+        preingestion_state: PreingestionState::Complete,
+        waiting_for_explorer_refresh: false,
+        exploration_requested: false,
+        last_redfish_bmc_reset: None,
+        last_ipmitool_bmc_reset: None,
+        last_redfish_reboot: None,
+        last_redfish_powercycle: None,
+        pause_remediation: false,
+        boot_interface_mac: None,
+        pause_ingestion_and_poweron: false,
+    };
+
+    let expected_first = model::expected_power_shelf::ExpectedPowerShelf {
+        expected_power_shelf_id: None,
+        bmc_mac_address: bmc_mac,
+        bmc_username: "admin".to_string(),
+        bmc_password: "password".to_string(),
+        serial_number: "PS-EXISTING".to_string(),
+        bmc_ip_address: Some(bmc_ip),
+        metadata: Metadata {
+            name: "PS-name-v1".to_string(),
+            description: String::new(),
+            labels: HashMap::new(),
+        },
+        rack_id: None,
+        bmc_retain_credentials: None,
+    };
+    assert!(
+        explorer
+            .create_power_shelf(explored_endpoint.clone(), &expected_first, &env.pool)
+            .await?,
+        "first discovery must create a power_shelves row"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let after_first = db::power_shelf::find_by(
+        &mut txn,
+        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
+    )
+    .await?;
+    txn.commit().await?;
+    assert_eq!(after_first.len(), 1);
+    let original_id = after_first[0].id;
+
+    // Second discovery for the same BMC MAC but a different name (which is
+    // what currently feeds `PowerShelfId` generation). Without the BMC MAC
+    // check, this would insert a second record.
+    let expected_second = model::expected_power_shelf::ExpectedPowerShelf {
+        metadata: Metadata {
+            name: "PS-name-v2".to_string(),
+            description: String::new(),
+            labels: HashMap::new(),
+        },
+        ..expected_first
+    };
+    assert!(
+        !explorer
+            .create_power_shelf(explored_endpoint, &expected_second, &env.pool)
+            .await?,
+        "second discovery with same BMC MAC must not create a duplicate row"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let after_second = db::power_shelf::find_by(
+        &mut txn,
+        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
+    )
+    .await?;
+    txn.commit().await?;
+    assert_eq!(after_second.len(), 1, "exactly one power_shelves row");
+    assert_eq!(after_second[0].id, original_id, "original ID preserved");
 
     Ok(())
 }

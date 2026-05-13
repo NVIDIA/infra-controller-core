@@ -39,7 +39,7 @@ async fn test_assign_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:10").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -74,7 +74,7 @@ async fn test_assign_replaces_existing_static(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:11").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -131,7 +131,7 @@ async fn test_assign_takes_over_dhcp_allocation(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:12").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -182,7 +182,7 @@ async fn test_remove_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:13").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -233,7 +233,7 @@ async fn test_remove_nonexistent_returns_not_found(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:14").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -268,7 +268,7 @@ async fn test_remove_dhcp_address_returns_not_found(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:25").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -313,7 +313,7 @@ async fn test_find_interface_addresses_shows_types(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:15").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -345,8 +345,13 @@ async fn test_assign_remove_then_dhcp_reallocates(
     // First, create the interface, clear its DHCP address, and
     // a assign static one.
     let mut txn = env.pool.begin().await?;
-    let interface =
-        db::machine_interface::validate_existing_mac_and_create(&mut txn, mac, relay, None).await?;
+    let interface = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        mac,
+        std::slice::from_ref(&relay),
+        None,
+    )
+    .await?;
     db::machine_interface_address::delete(&mut txn, &interface.id).await?;
     txn.commit().await?;
 
@@ -421,7 +426,7 @@ async fn test_assign_moves_interface_to_correct_segment(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:20").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -429,7 +434,7 @@ async fn test_assign_moves_interface_to_correct_segment(
     txn.commit().await?;
 
     // Interface is on the admin segment (192.0.2.0/24).
-    assert_eq!(interface.segment_id, env.admin_segment.unwrap());
+    assert_eq!(interface.segment_id, env.admin_segment());
 
     // Assign a static IP in the underlay segment's range (192.0.1.0/24).
     env.api
@@ -465,14 +470,14 @@ async fn test_assign_external_ip_moves_to_static_assignments(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:21").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
     db::machine_interface_address::delete(&mut txn, &interface.id).await?;
     txn.commit().await?;
 
-    assert_eq!(interface.segment_id, env.admin_segment.unwrap());
+    assert_eq!(interface.segment_id, env.admin_segment());
 
     // Assign an external IP (not in any managed segment).
     env.api
@@ -512,7 +517,7 @@ async fn test_assign_within_same_segment_no_move(
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:22").unwrap(),
-        relay,
+        std::slice::from_ref(&relay),
         None,
     )
     .await?;
@@ -614,7 +619,7 @@ async fn test_dhcp_moves_interface_back_from_static_assignments(
     let updated = db::machine_interface::find_one(&mut *txn, interface_id).await?;
     assert_eq!(
         updated.segment_id,
-        env.admin_segment.unwrap(),
+        env.admin_segment(),
         "interface should have moved back to admin segment from static-assignments"
     );
     assert!(
@@ -716,19 +721,22 @@ async fn test_reserved_segment_serves_static_reservation(
     // Set the admin segment to reserved allocation strategy.
     let mut txn = env.pool.begin().await?;
     sqlx::query("UPDATE network_segments SET allocation_strategy = 'reserved' WHERE id = $1")
-        .bind(env.admin_segment.unwrap())
+        .bind(env.admin_segment())
         .execute(&mut *txn)
         .await?;
     txn.commit().await?;
 
     // Create a static reservation for this MAC on the admin segment.
     let mut txn = env.pool.begin().await?;
-    let admin_seg = db::network_segment::admin(&mut txn).await?;
+    let admin_seg = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
     db::machine_interface::create(
         &mut txn,
-        &admin_seg,
+        std::slice::from_ref(&admin_seg),
         &bmc_mac,
-        admin_seg.subdomain_id,
         true,
         model::address_selection_strategy::AddressSelectionStrategy::StaticAddress(reserved_ip),
     )
@@ -766,7 +774,7 @@ async fn test_reserved_segment_rejects_unknown_mac(
     // Set the admin segment to reserved allocation strategy.
     let mut txn = env.pool.begin().await?;
     sqlx::query("UPDATE network_segments SET allocation_strategy = 'reserved' WHERE id = $1")
-        .bind(env.admin_segment.unwrap())
+        .bind(env.admin_segment())
         .execute(&mut *txn)
         .await?;
     txn.commit().await?;

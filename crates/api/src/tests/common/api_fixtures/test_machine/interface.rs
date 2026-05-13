@@ -34,11 +34,23 @@ impl TestMachineInterface {
     }
 
     pub async fn get_pxe_instructions(&self, arch: MachineArchitecture) -> PxeInstructions {
+        let mut txn = self.api.txn_begin().await.unwrap();
+        let iface = db::machine_interface::find_one(txn.as_pgconn(), self.id)
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+        let client_ip = iface
+            .addresses
+            .first()
+            .expect("interface must have at least one address to PXE boot")
+            .to_string();
+
         self.api
             .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
                 arch: arch as i32,
-                interface_id: Some(self.id),
                 product: None,
+                client_ip: Some(client_ip),
+                ..Default::default()
             }))
             .await
             .unwrap()

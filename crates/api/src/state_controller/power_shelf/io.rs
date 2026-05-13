@@ -28,8 +28,8 @@ use model::{DeletedFilter, StateSla};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
-use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContextObjects;
+use crate::state_controller::power_shelf::metrics::PowerShelfMetricsEmitter;
 
 /// State Controller IO implementation for PowerShelves
 #[derive(Default, Debug)]
@@ -40,7 +40,7 @@ impl StateControllerIO for PowerShelfStateControllerIO {
     type ObjectId = PowerShelfId;
     type State = PowerShelf;
     type ControllerState = PowerShelfControllerState;
-    type MetricsEmitter = NoopMetricsEmitter;
+    type MetricsEmitter = PowerShelfMetricsEmitter;
     type ContextObjects = PowerShelfStateHandlerContextObjects;
 
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "power_shelf_controller_iteration_ids";

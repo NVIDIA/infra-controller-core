@@ -40,6 +40,7 @@ pub mod slas;
 pub struct NewPowerShelf {
     pub id: PowerShelfId,
     pub config: PowerShelfConfig,
+    pub bmc_mac_address: Option<MacAddress>,
     pub metadata: Option<Metadata>,
     pub rack_id: Option<RackId>,
 }
@@ -63,6 +64,7 @@ impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
         Ok(NewPowerShelf {
             id,
             config,
+            bmc_mac_address: None,
             metadata: None,
             rack_id: None,
         })
@@ -96,6 +98,8 @@ pub struct PowerShelf {
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+
+    pub bmc_mac_address: Option<MacAddress>,
 
     /// The rack that this power shelf is associated with.
     pub rack_id: Option<RackId>,
@@ -132,6 +136,7 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             config: config.0,
             status: status.map(|s| s.0),
             deleted: row.try_get("deleted")?,
+            bmc_mac_address: row.try_get("bmc_mac_address").ok().flatten(),
             controller_state: Versioned {
                 value: controller_state.0,
                 version: row.try_get("controller_state_version")?,
@@ -157,7 +162,7 @@ impl TryFrom<rpc::PowerShelfConfig> for PowerShelfConfig {
     }
 }
 
-fn derive_power_shelf_aggregate_health(
+pub fn derive_power_shelf_aggregate_health(
     sources: &HealthReportSources,
 ) -> health_report::HealthReport {
     if let Some(replace) = &sources.replace {
@@ -233,11 +238,7 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             voltage: src.config.voltage.map(|v| v as i32),
         };
 
-        let deleted = if src.deleted.is_some() {
-            Some(src.deleted.unwrap().into())
-        } else {
-            None
-        };
+        let deleted = src.deleted.map(Into::into);
         let state_version = src.controller_state.version.to_string();
         Ok(rpc::PowerShelf {
             id: Some(src.id),

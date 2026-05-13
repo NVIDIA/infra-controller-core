@@ -673,7 +673,7 @@ async fn fetch_managed_hosts_with_metadata(
         });
         let next_machines = api.find_machines_by_ids(request).await?.into_inner();
 
-        all_machines.extend(next_machines.machines.into_iter());
+        all_machines.extend(next_machines.machines);
         offset += page_size;
     }
 

@@ -23,6 +23,7 @@ use ::rpc::forge::{
     InstanceDpuExtensionServiceConfig, InstanceDpuExtensionServicesConfig,
     ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
+use common::api_fixtures::network_segment::create_network_segment;
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
 use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use model::machine::network::ManagedHostQuarantineMode;
@@ -243,12 +244,26 @@ async fn test_managed_host_network_config_errors_when_sitewide_bgp_password_miss
 
 #[crate::sqlx_test]
 async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
-    // Given: A managed host with 2 DPUs
     let env = api_fixtures::create_test_env(pool).await;
+
+    // Given: A managed host with 2 DPUs.
     let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
+
     let host_machine = mh.host().rpc_machine().await;
     let dpu_1_id = host_machine.associated_dpu_machine_ids[0];
     let dpu_2_id = host_machine.associated_dpu_machine_ids[1];
+
+    // And: Multiple admin segments exist when the DPU network config is rendered.
+    let _second_admin_segment = create_network_segment(
+        &env.api,
+        "ADMIN_2",
+        "192.0.12.0/24",
+        "192.0.12.1",
+        rpc::forge::NetworkSegmentType::Admin,
+        None,
+        true,
+    )
+    .await;
 
     // Then: Get the managed host network config version via DPU 1's ID and DPU 2's ID
     let dpu_1_network_config = env
@@ -267,6 +282,24 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
         .await
         .expect("Error getting DPU1 network config")
         .into_inner();
+
+    let configs = [&dpu_1_network_config, &dpu_2_network_config];
+
+    // Assert: Both DPUs are still on the singular admin-interface path.
+    for config in configs {
+        assert!(config.use_admin_network);
+        assert!(config.admin_interface.is_some());
+        assert!(config.tenant_interfaces.is_empty());
+    }
+
+    // Assert: Only the primary DPU is active on the admin network.
+    assert_eq!(
+        configs
+            .iter()
+            .filter(|config| config.is_primary_dpu)
+            .count(),
+        1,
+    );
 
     // Assert: Both DPUs report the same managed_host_config_version, because
     // it's the host's network_config_version and group-sync keeps every member
@@ -295,6 +328,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     mh.instance_builer(&env)
@@ -395,6 +429,7 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
             ip_address: None,
             ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let default_tenant_org = "best_org";

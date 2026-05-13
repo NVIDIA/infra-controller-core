@@ -119,7 +119,7 @@ async fn fetch_keysets(api: Arc<Api>) -> Result<forgerpc::TenantKeySetList, toni
             .await?
             .into_inner();
 
-        keyset.extend(next_keysets.keyset.into_iter());
+        keyset.extend(next_keysets.keyset);
         offset += page_size;
     }
 

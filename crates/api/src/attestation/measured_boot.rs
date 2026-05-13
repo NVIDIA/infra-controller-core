@@ -331,8 +331,7 @@ fn attestation_unsupported_error() -> CarbideError {
 pub mod linux_build {
     use asn1_rs::FromDer;
     use model::hardware_info::TpmEkCertificate;
-    use num_bigint_dig::BigUint;
-    use rsa::RsaPublicKey;
+    use rsa::{BigUint, RsaPublicKey};
     use sha2::Digest;
     use tss_esapi::structures::Signature::RsaPss;
     use tss_esapi::structures::{Attest, AttestInfo, Public, Signature};
