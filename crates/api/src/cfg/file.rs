@@ -55,11 +55,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::state_controller::config::IterationConfig;
 
-static BF2_NIC: &str = "24.47.2682";
+static BF2_NIC: &str = "24.97.2052";
 static BF2_BMC: &str = "BF-25.10-20";
 static BF2_CEC: &str = "4-15";
 static BF2_UEFI: &str = "4.13.2-12-g943a91640d";
-static BF3_NIC: &str = "32.47.2682";
+static BF3_NIC: &str = "32.97.2052";
 static BF3_BMC: &str = "BF-25.10-20";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
 static BF3_UEFI: &str = "4.13.2-12-g943a91640d";
