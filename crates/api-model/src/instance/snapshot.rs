@@ -17,13 +17,12 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network_security_group::NetworkSecurityGroupId;
 use chrono::{DateTime, Utc};
-use config_version::{ConfigVersion, Versioned};
+use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -34,10 +33,7 @@ use crate::instance::config::extension_services::InstanceExtensionServicesConfig
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::nvlink::InstanceNvLinkConfig;
 use crate::instance::config::tenant_config::TenantConfig;
-use crate::instance::status::{InstanceStatus, InstanceStatusObservations};
-use crate::machine::infiniband::MachineInfinibandStatusObservation;
-use crate::machine::nvlink::MachineNvLinkStatusObservation;
-use crate::machine::{ManagedHostState, ReprovisionRequest};
+use crate::instance::status::InstanceStatusObservations;
 use crate::metadata::Metadata;
 use crate::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
 use crate::tenant::TenantOrganizationId;
@@ -107,38 +103,6 @@ pub struct InstanceSnapshot {
     // pub(crate) requested: chrono::DateTime<chrono::Utc>,
     // pub(crate) started: chrono::DateTime<chrono::Utc>,
     // pub(crate) finished: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl InstanceSnapshot {
-    /// Derives the tenant and site-admin facing [`InstanceStatus`] from the
-    /// snapshot information about the instance
-    pub fn derive_status(
-        &self,
-        dpu_id_to_device_map: HashMap<String, Vec<MachineId>>,
-        managed_host_state: ManagedHostState,
-        reprovision_request: Option<ReprovisionRequest>,
-        ib_status: Option<&MachineInfinibandStatusObservation>,
-        nvlink_status: Option<&MachineNvLinkStatusObservation>,
-    ) -> Result<InstanceStatus, RpcDataConversionError> {
-        InstanceStatus::from_config_and_observation(
-            dpu_id_to_device_map,
-            Versioned::new(&self.config, self.config_version),
-            Versioned::new(&self.config.network, self.network_config_version),
-            Versioned::new(&self.config.infiniband, self.ib_config_version),
-            Versioned::new(
-                &self.config.extension_services,
-                self.extension_services_config_version,
-            ),
-            Versioned::new(&self.config.nvlink, self.nvlink_config_version),
-            &self.observations,
-            managed_host_state,
-            self.deleted.is_some(),
-            reprovision_request,
-            ib_status,
-            nvlink_status,
-            self.update_network_config_request.is_some(),
-        )
-    }
 }
 
 /// This represents the structure of an instance we get from postgres via the row_to_json or
@@ -401,6 +365,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::os::{InlineIpxe, OperatingSystemVariant};
 
     fn minimal_pg_json() -> InstanceSnapshotPgJson {
         let version = ConfigVersion::initial().version_string();

@@ -27,6 +27,7 @@ pub mod dhcp_record;
 pub mod dns;
 pub mod dpa_interface;
 pub mod dpu_remediation;
+pub mod instance;
 pub mod operating_system_definition;
 pub mod os;
 pub mod power_manager;
