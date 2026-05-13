@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
@@ -187,7 +188,7 @@ pub async fn allocate_network(
     // This is needed so that last_used_prefix is not modified by multiple clients at same time.
     // Keep values in mut Hashmap and update last_used_prefix in the end of this function.
     // Also Validate:
-    // 1. All vpc_prefix_ids should point to same vpc.
+    // 1. vpc_prefix_ids can span VPCs only when every VPC is FNN.
     // 2. Pointed vpc'organization id must be same as instance's tenant_org.
     // 3. If no vpc_prefix_id is mentioned, return.
 
@@ -220,21 +221,37 @@ pub async fn allocate_network(
 
     // This can be empty also if vpc_prefix_id is not configured at carbide.
     // In this case error 'Unknown VPC prefix id' will be thrown.
-    if vpc_prefixes
+    let vpc_ids = vpc_prefixes
         .values()
         .map(|x| x.vpc_id)
-        .collect::<HashSet<_>>()
-        .len()
-        > 1
-    {
-        return Err(CarbideError::internal(format!(
-            "Interface config contains interfaces from multiple vpcs {:?}.",
-            vpc_prefixes
-                .values()
-                .map(|x| (x.id, x.vpc_id))
-                .collect_vec()
-        )));
-    };
+        .collect::<HashSet<_>>();
+    if vpc_ids.len() > 1 {
+        let vpc_ids = vpc_ids.into_iter().collect_vec();
+        let vpcs = db::vpc::find_by(
+            &mut *txn,
+            ObjectColumnFilter::List(db::vpc::IdColumn, &vpc_ids),
+        )
+        .await?;
+
+        if vpcs.len() != vpc_ids.len()
+            || vpcs
+                .iter()
+                .any(|x| x.network_virtualization_type != VpcVirtualizationType::Fnn)
+        {
+            return Err(CarbideError::InvalidConfiguration(
+                ConfigValidationError::InvalidValue(format!(
+                    "Interface config contains interfaces from multiple VPCs, which is only supported when all VPCs use FNN: prefixes={:?}, vpcs={:?}.",
+                    vpc_prefixes
+                        .values()
+                        .map(|x| (x.id, x.vpc_id))
+                        .collect_vec(),
+                    vpcs.iter()
+                        .map(|x| (x.id, x.network_virtualization_type))
+                        .collect_vec()
+                )),
+            ));
+        }
+    }
 
     // Allocate linknet prefixes for each interface's VPC prefix(es).
     for interface in &mut network_config.interfaces {
@@ -299,16 +316,25 @@ pub async fn allocate_network(
                 // Dual-stack: if IPv6 config is set, add a v6 linknet to the same segment.
                 if let Some(ref v6_config) = interface.ipv6_interface_config {
                     let v6_prefix_id = &v6_config.vpc_prefix_id;
-                    let (v6_vpc_prefix, v6_last_used) = {
+                    let (v6_vpc_id, v6_vpc_prefix, v6_last_used) = {
                         vpc_prefixes
                             .get(v6_prefix_id)
-                            .map(|vpc| (vpc.config.prefix, vpc.status.last_used_prefix))
+                            .map(|vpc| (vpc.vpc_id, vpc.config.prefix, vpc.status.last_used_prefix))
                             .ok_or_else(|| {
                                 CarbideError::internal(format!(
                                     "Unknown VPC prefix id: {v6_prefix_id}"
                                 ))
                             })?
                     };
+
+                    if v6_vpc_id != vpc_id {
+                        return Err(CarbideError::InvalidConfiguration(
+                            ConfigValidationError::InvalidValue(format!(
+                                "dual-stack VPC prefixes must belong to the same VPC: primary_vpc_prefix_id={vpc_prefix_id}, primary_vpc_id={vpc_id}, ipv6_vpc_prefix_id={v6_prefix_id}, ipv6_vpc_id={v6_vpc_id}",
+                            )),
+                        ));
+                    }
+
                     let v6_linknet_prefix = 127;
                     let v6_requested_prefix = v6_config
                         .requested_ip_addr
