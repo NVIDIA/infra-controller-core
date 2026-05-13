@@ -15,24 +15,12 @@
  * limitations under the License.
  */
 
-// This is temporary module that will be moved to rpc crate once all
-// rpc-related code will be isolated here.
+use crate::trim_table::TrimTableTarget;
 
-pub mod allocation_type;
-pub mod attestation;
-pub mod bmc_info;
-pub mod compute_allocation;
-pub mod controller_outcome;
-pub mod dhcp_record;
-pub mod dns;
-pub mod dpa_interface;
-pub mod dpu_remediation;
-pub mod site_explorer;
-pub mod sku;
-pub mod state_history;
-pub mod storage;
-pub mod switch;
-pub mod tenant;
-pub mod trim_table;
-pub mod vpc;
-pub mod vpc_prefix;
+impl From<rpc::forge::TrimTableTarget> for TrimTableTarget {
+    fn from(target: rpc::forge::TrimTableTarget) -> Self {
+        match target {
+            rpc::forge::TrimTableTarget::MeasuredBoot => TrimTableTarget::MeasuredBoot,
+        }
+    }
+}
