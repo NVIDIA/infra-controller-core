@@ -2360,7 +2360,7 @@ mod tests {
                 )
                 .unwrap()
                 .map(|ip| ip.to_string()),
-                tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
+                tenant_vrf_loopback_ip: None,
                 is_l2_segment: true,
                 network_security_group: None,
                 internal_uuid: None,
@@ -2390,7 +2390,7 @@ mod tests {
                 )
                 .unwrap()
                 .map(|ip| ip.to_string()),
-                tenant_vrf_loopback_ip: Some("10.217.5.125".to_string()),
+                tenant_vrf_loopback_ip: None,
                 is_l2_segment: second_interface_l2,
                 network_security_group: if !include_network_security_group {
                     None
