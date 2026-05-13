@@ -42,7 +42,7 @@ pub async fn build_component_manager(
     db: Option<PgPool>,
 ) -> Result<ComponentManager, ComponentManagerError> {
     let nv_switch: Arc<dyn NvSwitchManager> = match config.nv_switch_backend.as_str() {
-        "nsm" => {
+        crate::nsm::NsmSwitchBackend::BACKEND_NAME => {
             let endpoint = config.nsm.as_ref().ok_or_else(|| {
                 ComponentManagerError::InvalidArgument(
                     "nv_switch_backend is 'nsm' but [component_manager.nsm] config is missing"
