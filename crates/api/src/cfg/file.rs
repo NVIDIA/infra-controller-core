@@ -960,6 +960,12 @@ pub struct FnnConfig {
     /// Named routing profiles that define per-VPC route target import/export policies.
     #[serde(default)]
     pub routing_profiles: HashMap<String, FnnRoutingProfileConfig>,
+
+    /// Whether IPs should be allocated for VPC loopbacks.
+    /// The VPC loopback pool will not be used if this false and
+    /// no VPC/VRF loopback IP will be sent to the DPU.
+    #[serde(default)]
+    pub use_vpc_vrf_loopback: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]

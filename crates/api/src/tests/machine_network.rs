@@ -30,7 +30,9 @@ use model::machine::network::ManagedHostQuarantineMode;
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 
-use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
+use crate::cfg::file::{
+    AdminFnnConfig, FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry,
+};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
@@ -127,6 +129,7 @@ async fn test_managed_host_network_config_includes_routing_profile_accepted_leak
                     ..Default::default()
                 },
             )]),
+            use_vpc_vrf_loopback: false,
         })),
     )
     .await;
@@ -188,6 +191,214 @@ async fn test_managed_host_network_config_includes_routing_profile_accepted_leak
         .map(|leak| leak.prefix)
         .collect();
     assert_eq!(actual_leaks, expected_leaks);
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_omits_fnn_vrf_loopback_by_default(pool: sqlx::PgPool) {
+    let env = api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default().with_fnn_config(None),
+    )
+    .await;
+
+    // Create a tenant and FNN segment with the default disabled loopback setting.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "fnn-loopback-default".to_string(),
+            routing_profile_type: Some("INTERNAL".to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "fnn-loopback-default".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant.organization_id.as_str())
+                .metadata(Metadata {
+                    name: "fnn loopback default vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type("INTERNAL".to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Allocate a managed host on the FNN segment.
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+    mh.instance_builer(&env)
+        .tenant_org(tenant.organization_id)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    // Fetch the DPU config and verify no tenant VRF loopback is sent.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(!response.tenant_interfaces.is_empty());
+    assert!(
+        response
+            .tenant_interfaces
+            .iter()
+            .all(|iface| iface.tenant_vrf_loopback_ip.is_none())
+    );
+
+    // Verify the DB did not allocate a VPC/DPU loopback row.
+    let mut txn = env.db_txn().await;
+    let vpc = db::vpc::find_by_segment(txn.as_mut(), segment_id)
+        .await
+        .unwrap();
+    let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &vpc.id)
+        .await
+        .unwrap();
+    assert!(loopback.is_none());
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled(
+    pool: sqlx::PgPool,
+) {
+    let mut overrides = TestEnvOverrides::default().with_fnn_config(None);
+    overrides.fnn_config.as_mut().unwrap().use_vpc_vrf_loopback = true;
+
+    let env = api_fixtures::create_test_env_with_overrides(pool, overrides).await;
+
+    // Create a tenant and FNN segment with loopback allocation enabled.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "fnn-loopback-enabled".to_string(),
+            routing_profile_type: Some("INTERNAL".to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "fnn-loopback-enabled".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant.organization_id.as_str())
+                .metadata(Metadata {
+                    name: "fnn loopback enabled vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type("INTERNAL".to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Allocate a managed host on the FNN segment.
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+    mh.instance_builer(&env)
+        .tenant_org(tenant.organization_id)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    // Fetch the DPU config and verify the tenant VRF loopback is sent.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let loopback_ip = response.tenant_interfaces[0]
+        .tenant_vrf_loopback_ip
+        .clone()
+        .expect("loopback should be present when enabled");
+
+    // Verify the DB allocation matches the response.
+    let mut txn = env.db_txn().await;
+    let vpc = db::vpc::find_by_segment(txn.as_mut(), segment_id)
+        .await
+        .unwrap();
+    let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &vpc.id)
+        .await
+        .unwrap()
+        .expect("loopback allocation should be persisted");
+    assert_eq!(loopback.loopback_ip.to_string(), loopback_ip);
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_omits_admin_fnn_vrf_loopback_by_default(
+    pool: sqlx::PgPool,
+) {
+    let mut overrides = TestEnvOverrides::default().with_fnn_config(None);
+    overrides.fnn_config.as_mut().unwrap().admin_vpc = Some(AdminFnnConfig {
+        enabled: true,
+        vpc_vni: Some(10000),
+        routing_profile: FnnRoutingProfileConfig::default(),
+    });
+
+    let env = api_fixtures::create_test_env_with_overrides(pool, overrides).await;
+
+    // Attach the FNN admin VPC because test env setup does not run production setup hooks.
+    crate::db_init::create_admin_vpc(&env.pool, Some(10000))
+        .await
+        .unwrap();
+    crate::db_init::update_network_segments_svi_ip(&env.pool)
+        .await
+        .unwrap();
+
+    // Create a managed host that stays on the admin network.
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+
+    // Fetch the DPU config and verify the FNN admin interface has no loopback.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let admin_interface = response
+        .admin_interface
+        .as_ref()
+        .expect("admin interface should be present");
+
+    assert!(response.use_admin_network);
+    assert_eq!(admin_interface.vpc_vni, 10000);
+    assert!(admin_interface.tenant_vrf_loopback_ip.is_none());
+
+    // Verify the admin VPC also did not allocate a VPC/DPU loopback row.
+    let mut txn = env.db_txn().await;
+    let admin_segment = db::network_segment::admin(txn.as_mut())
+        .await
+        .unwrap()
+        .remove(0);
+    let admin_vpc_id = admin_segment
+        .vpc_id
+        .expect("admin segment should be attached to an FNN VPC");
+    let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &admin_vpc_id)
+        .await
+        .unwrap();
+    assert!(loopback.is_none());
 }
 
 #[crate::sqlx_test]

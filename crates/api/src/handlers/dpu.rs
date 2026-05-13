@@ -180,6 +180,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
         use_fnn_over_admin_nw = true;
         network_virtualization_type = VpcVirtualizationType::Fnn;
     }
+    let use_vpc_vrf_loopback = api
+        .runtime_config
+        .fnn
+        .as_ref()
+        .is_some_and(|c| c.use_vpc_vrf_loopback);
 
     let booturl_override = if snapshot
         .host_snapshot
@@ -200,6 +205,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         use_fnn_over_admin_nw,
         &api.common_pools,
         &booturl_override,
+        use_vpc_vrf_loopback,
     )
     .await?;
 
@@ -361,7 +367,9 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             // TODO: VPC loopbacks are currently blocked from being advertised out on the DPU.
             // This must become per-interface/per-VPC before VPC loopbacks can be allowed out.
-            let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
+            let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type
+                && use_vpc_vrf_loopback
+            {
                 let tenant_loopback_ip = db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
                     &api.common_pools,
                     &mut txn,
