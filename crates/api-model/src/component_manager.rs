@@ -49,6 +49,17 @@ pub enum NvSwitchComponent {
     Nvos,
 }
 
+impl std::fmt::Display for NvSwitchComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bmc => f.write_str("BMC"),
+            Self::Cpld => f.write_str("CPLD"),
+            Self::Bios => f.write_str("BIOS"),
+            Self::Nvos => f.write_str("NVOS"),
+        }
+    }
+}
+
 /// Updatable components of a PowerShelf.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PowerShelfComponent {
