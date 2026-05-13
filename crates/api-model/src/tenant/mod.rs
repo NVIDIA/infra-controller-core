@@ -38,9 +38,9 @@ pub mod identity_config;
 pub use identity_config::{
     EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, EncryptionKeyId,
     EncryptionKeyIdTag, EnvelopeCiphertext, InvalidIssuer, InvalidNonEmptyStr, Issuer, KeyId,
-    NonEmptyStr, SigningPublicKeyPem, TenantIdentitySigningKeyIdTag,
-    TenantSigningPrivateKeyCiphertextTag, TenantSigningPublicKeyPemTag,
-    TokenDelegationEncryptedAuthConfigTag,
+    NonEmptyStr, SigningKeyPublicV1, SigningPublicKeyPem, TenantIdentityCurrentSigningKeySlot,
+    TenantIdentitySigningKeyIdTag, TenantSigningPrivateKeyCiphertextTag,
+    TenantSigningPublicKeyPemTag, TokenDelegationEncryptedAuthConfigTag,
 };
 pub use identity_config_policy::{
     validate_token_endpoint_domain_allowlist_patterns, validate_trust_domain_allowlist_patterns,
@@ -243,10 +243,13 @@ pub struct TenantIdentityConfig {
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub encrypted_signing_key: EncryptedSigningPrivateKey,
-    pub signing_key_public: SigningPublicKeyPem,
-    pub key_id: KeyId,
-    pub algorithm: identity_config::SigningAlgorithm,
+    pub encrypted_signing_key_1: Option<EncryptedSigningPrivateKey>,
+    pub encrypted_signing_key_2: Option<EncryptedSigningPrivateKey>,
+    pub signing_key_public_1: Option<Json<identity_config::SigningKeyPublicV1>>,
+    pub signing_key_public_2: Option<Json<identity_config::SigningKeyPublicV1>>,
+    pub current_signing_key_slot: identity_config::TenantIdentityCurrentSigningKeySlot,
+    pub signing_key_overlap_sec: Option<i32>,
+    pub non_active_slot_expires_at: Option<DateTime<Utc>>,
     pub encryption_key_id: EncryptionKeyId,
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
@@ -259,6 +262,42 @@ pub struct TenantIdentityConfig {
     pub token_delegation_created_at: Option<DateTime<Utc>>,
 }
 
+impl TenantIdentityConfig {
+    /// Signing public JSON for [`Self::current_signing_key_slot`].
+    pub fn current_signing_public(
+        &self,
+    ) -> Result<&identity_config::SigningKeyPublicV1, &'static str> {
+        match self.current_signing_key_slot {
+            identity_config::TenantIdentityCurrentSigningKeySlot::SigningKey1 => self
+                .signing_key_public_1
+                .as_ref()
+                .map(|j| &j.0)
+                .ok_or("missing signing_key_public_1 for current_signing_key_slot"),
+            identity_config::TenantIdentityCurrentSigningKeySlot::SigningKey2 => self
+                .signing_key_public_2
+                .as_ref()
+                .map(|j| &j.0)
+                .ok_or("missing signing_key_public_2 for current_signing_key_slot"),
+        }
+    }
+
+    /// Encrypted private PEM for [`Self::current_signing_key_slot`].
+    pub fn current_encrypted_signing_key(
+        &self,
+    ) -> Result<&EncryptedSigningPrivateKey, &'static str> {
+        match self.current_signing_key_slot {
+            identity_config::TenantIdentityCurrentSigningKeySlot::SigningKey1 => self
+                .encrypted_signing_key_1
+                .as_ref()
+                .ok_or("missing encrypted_signing_key_1 for current_signing_key_slot"),
+            identity_config::TenantIdentityCurrentSigningKeySlot::SigningKey2 => self
+                .encrypted_signing_key_2
+                .as_ref()
+                .ok_or("missing encrypted_signing_key_2 for current_signing_key_slot"),
+        }
+    }
+}
+
 /// [`TenantIdentityConfig`] row plus decrypted token-delegation JSON for handlers / `TryInto` RPC.
 /// `row.encrypted_auth_method_config` stays ciphertext from the database; plaintext is only in
 /// `auth_method_config`. Do not log.
@@ -269,8 +308,11 @@ pub struct TenantIdentityConfigDecrypted {
     pub auth_method_config: Option<String>,
 }
 
-/// Key material for a new or rotated signing key.
-/// Caller generates the key pair, encrypts the private key, and computes key_id = hex(sha256(public_key)).
+/// Key material for a new or rotated signing key (caller-generated pair + encrypted private PEM).
+///
+/// [`Self::key_id`] is the same JWKS `kid` as in the persisted [`SigningKeyPublicV1`] built from
+/// [`Self::signing_key_public`]; it is not stored as a separate DB column. Kept for handler/logging
+/// and tests alongside the PEM-backed document.
 #[derive(Clone, Debug)]
 pub struct SigningKeyMaterial {
     pub key_id: KeyId,
@@ -291,6 +333,8 @@ pub struct IdentityConfig {
     pub rotate_key: bool,
     pub algorithm: identity_config::SigningAlgorithm,
     pub encryption_key_id: EncryptionKeyId,
+    /// Stored `signing_key_overlap_sec` override; `None` = SQL NULL (use site default when rotating).
+    pub signing_key_overlap_sec: Option<i32>,
 }
 
 /// Validation bounds for IdentityConfig. Passed from site config (machine_identity).
@@ -302,6 +346,10 @@ pub struct IdentityConfigValidationBounds {
     pub encryption_key_id: EncryptionKeyId,
     /// Site policy: JWT issuer trust domain must match at least one entry. Empty = no extra check.
     pub trust_domain_allowlist: Vec<String>,
+    /// Default overlap (seconds) when `signing_key_overlap_sec` is NULL at rotate time.
+    pub signing_key_overlap_default_sec: u32,
+    /// Max allowed overlap (seconds) for tenant override.
+    pub signing_key_overlap_max_sec: u32,
 }
 
 #[derive(thiserror::Error, Debug)]

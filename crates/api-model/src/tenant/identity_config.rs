@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// JWT `alg` for per-tenant signing keys. Only ES256 (ECDSA P-256) is implemented end-to-end.
 pub const TENANT_IDENTITY_SIGNING_JWT_ALG: &str = "ES256";
 
-/// Per-tenant JWT signing algorithm persisted in `tenant_identity_config.algorithm` and site config.
+/// Per-tenant JWT signing algorithm persisted inside `signing_key_public_*` JSON (`alg`) and site config.
 /// Only [`SigningAlgorithm::Es256`] is implemented end-to-end today; the enum leaves room for more JOSE `alg` values later.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -293,11 +293,11 @@ pub struct EncryptionKeyIdTag;
 /// Selects the AES key under `machine_identity.encryption_keys` and labels encryption envelopes.
 pub type EncryptionKeyId = NonEmptyStr<EncryptionKeyIdTag>;
 
-/// Marker for JWT `kid` / `tenant_identity_config.key_id` (e.g. hex digest of public key material).
+/// Marker for JWT `kid` inside `signing_key_public_*` JSON (e.g. hex digest of public key material).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TenantIdentitySigningKeyIdTag;
 
-/// Per-tenant signing key identifier stored in `key_id` (JWT `kid`); must be non-empty.
+/// Per-tenant signing key identifier (JWT `kid`), stored in `signing_key_public_*` JSON; must be non-empty.
 pub type KeyId = NonEmptyStr<TenantIdentitySigningKeyIdTag>;
 
 impl KeyId {
@@ -313,22 +313,86 @@ impl KeyId {
     }
 }
 
-/// Marker for `tenant_identity_config.signing_key_public` (SPKI PEM text).
+/// Marker for `tenant_identity_config` PEM text embedded in signing public JSON (`public_pem`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TenantSigningPublicKeyPemTag;
 
-/// ES256 public key in PEM form (`signing_key_public` column).
+/// ES256 public key in PEM form (stored in `signing_key_public_* .public_pem`).
 pub type SigningPublicKeyPem = NonEmptyStr<TenantSigningPublicKeyPemTag>;
+
+/// Versioned signing public metadata JSON (`tenant_identity_config.signing_key_public_1|2`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SigningKeyPublicV1 {
+    pub v: u32,
+    pub kid: String,
+    pub alg: String,
+    pub public_pem: String,
+}
+
+impl SigningKeyPublicV1 {
+    /// Builds version-1 JSON content for an ES256 SPKI PEM (canonical `kid` from [`KeyId::from_public_key_material`]).
+    pub fn es256_from_public_pem(public_pem: &str) -> Result<Self, String> {
+        let kid = KeyId::from_public_key_material(public_pem);
+        Ok(Self {
+            v: 1,
+            kid: kid.as_str().to_string(),
+            alg: TENANT_IDENTITY_SIGNING_JWT_ALG.to_string(),
+            public_pem: public_pem.trim().to_string(),
+        })
+    }
+
+    /// Ensures `kid` / `alg` match `public_pem` and only ES256 is allowed.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.v != 1 {
+            return Err(format!(
+                "unsupported tenant signing public document version {}",
+                self.v
+            ));
+        }
+        let expected_kid = KeyId::from_public_key_material(&self.public_pem);
+        if expected_kid.as_str() != self.kid {
+            return Err("signing public kid does not match public_pem".to_string());
+        }
+        let alg: SigningAlgorithm = self
+            .alg
+            .parse()
+            .map_err(|e: UnsupportedTenantSigningAlgorithm| e.to_string())?;
+        if alg != SigningAlgorithm::Es256 {
+            return Err("only ES256 tenant signing keys are supported".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Database enum `tenant_identity_current_signing_key_slot_t`: which slot signs new JWTs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "tenant_identity_current_signing_key_slot_t")]
+pub enum TenantIdentityCurrentSigningKeySlot {
+    #[sqlx(rename = "signing_key_1")]
+    SigningKey1,
+    #[sqlx(rename = "signing_key_2")]
+    SigningKey2,
+}
+
+impl TenantIdentityCurrentSigningKeySlot {
+    #[must_use]
+    pub const fn other(self) -> Self {
+        match self {
+            Self::SigningKey1 => Self::SigningKey2,
+            Self::SigningKey2 => Self::SigningKey1,
+        }
+    }
+}
 
 /// Non-empty UTF-8 string holding a `key_encryption` JSON envelope (base64). `M` distinguishes
 /// what plaintext the ciphertext wraps so distinct columns are not interchangeable.
 pub type EnvelopeCiphertext<M> = NonEmptyStr<M>;
 
-/// Marker for `tenant_identity_config.encrypted_signing_key` (encrypted ES256 private PEM).
+/// Marker for `tenant_identity_config.encrypted_signing_key_*` (encrypted ES256 private PEM).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TenantSigningPrivateKeyCiphertextTag;
 
-/// Ciphertext for stored signing private key (`encrypted_signing_key`).
+/// Ciphertext for a stored signing private key slot (`encrypted_signing_key_1` / `_2`).
 pub type EncryptedSigningPrivateKey = EnvelopeCiphertext<TenantSigningPrivateKeyCiphertextTag>;
 
 /// Marker for token-delegation auth config ciphertext (`encrypted_auth_method_config`).

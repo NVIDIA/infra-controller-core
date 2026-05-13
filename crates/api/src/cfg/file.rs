@@ -818,6 +818,12 @@ pub struct MachineIdentityConfig {
     /// Same pattern syntax as [`Self::trust_domain_allowlist`].
     #[serde(default)]
     pub token_endpoint_domain_allowlist: Vec<String>,
+    /// When per-row `signing_key_overlap_sec` is NULL, new rotations use this default (seconds).
+    #[serde(default = "machine_identity_default_signing_key_overlap_default_sec")]
+    pub signing_key_overlap_default_sec: u32,
+    /// Upper bound for tenant `signing_key_overlap_sec` (seconds).
+    #[serde(default = "machine_identity_default_signing_key_overlap_max_sec")]
+    pub signing_key_overlap_max_sec: u32,
 }
 
 fn machine_identity_default_enabled() -> bool {
@@ -832,6 +838,12 @@ fn machine_identity_default_token_ttl_min_sec() -> u32 {
 fn machine_identity_default_token_ttl_max_sec() -> u32 {
     86400
 }
+fn machine_identity_default_signing_key_overlap_default_sec() -> u32 {
+    86400
+}
+fn machine_identity_default_signing_key_overlap_max_sec() -> u32 {
+    604800
+}
 
 impl Default for MachineIdentityConfig {
     fn default() -> Self {
@@ -844,6 +856,9 @@ impl Default for MachineIdentityConfig {
             current_encryption_key_id: None,
             trust_domain_allowlist: Vec::new(),
             token_endpoint_domain_allowlist: Vec::new(),
+            signing_key_overlap_default_sec:
+                machine_identity_default_signing_key_overlap_default_sec(),
+            signing_key_overlap_max_sec: machine_identity_default_signing_key_overlap_max_sec(),
         }
     }
 }
@@ -865,6 +880,8 @@ impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBoun
                     "current_encryption_key_id must be non-empty when machine identity is enabled",
                 ),
             trust_domain_allowlist: mi.trust_domain_allowlist,
+            signing_key_overlap_default_sec: mi.signing_key_overlap_default_sec,
+            signing_key_overlap_max_sec: mi.signing_key_overlap_max_sec,
         }
     }
 }

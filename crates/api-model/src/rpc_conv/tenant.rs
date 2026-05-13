@@ -18,6 +18,7 @@ use std::str::FromStr;
 
 use carbide_uuid::UuidConversionError;
 use carbide_uuid::instance::InstanceId;
+use config_version::ConfigVersion;
 use rpc::errors::RpcDataConversionError;
 use rpc::forge as rpc_forge;
 
@@ -86,6 +87,32 @@ impl TryFrom<Tenant> for rpc::forge::UpdateTenantResponse {
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
         Ok(rpc::forge::UpdateTenantResponse {
             tenant: Some(value.try_into()?),
+        })
+    }
+}
+
+impl TryFrom<rpc::forge::Tenant> for Tenant {
+    type Error = RpcDataConversionError;
+
+    fn try_from(src: rpc::forge::Tenant) -> Result<Self, Self::Error> {
+        let metadata = src
+            .metadata
+            .ok_or(RpcDataConversionError::MissingArgument("metadata"))?;
+        let version = src
+            .version
+            .parse::<ConfigVersion>()
+            .map_err(|_| RpcDataConversionError::InvalidConfigVersion(src.version))?;
+        let organization_id = src
+            .organization_id
+            .clone()
+            .try_into()
+            .map_err(|_| RpcDataConversionError::InvalidTenantOrg(src.organization_id))?;
+
+        Ok(Self {
+            organization_id,
+            metadata: metadata.try_into()?,
+            routing_profile_type: src.routing_profile_type,
+            version,
         })
     }
 }
@@ -433,6 +460,14 @@ pub fn identity_config_try_from_proto(
             "default_audience must be in allowed_audiences".to_string(),
         ));
     }
+    if let Some(s) = value.signing_key_overlap_sec
+        && s > bounds.signing_key_overlap_max_sec
+    {
+        return Err(IdentityConfigValidationError(format!(
+            "signing_key_overlap_sec must not exceed {} seconds",
+            bounds.signing_key_overlap_max_sec
+        )));
+    }
     Ok(IdentityConfig {
         issuer,
         default_audience: value.default_audience,
@@ -443,6 +478,7 @@ pub fn identity_config_try_from_proto(
         rotate_key: value.rotate_key,
         algorithm: bounds.algorithm,
         encryption_key_id: bounds.encryption_key_id.clone(),
+        signing_key_overlap_sec: None,
     })
 }
 
@@ -538,6 +574,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -545,6 +582,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test-master".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86_400,
+            signing_key_overlap_max_sec: 604_800,
         };
         let config = identity_config_try_from_proto(proto, &bounds).unwrap();
         assert_eq!(config.issuer.as_str(), "https://issuer.example.com");
@@ -568,6 +607,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -575,6 +615,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test-master".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let config = identity_config_try_from_proto(proto, &bounds).unwrap();
         assert_eq!(config.issuer.as_str(), "https://issuer.example.com/wl");
@@ -591,6 +633,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -598,6 +641,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("issuer is required"));
@@ -613,6 +658,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -620,6 +666,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("default_audience is required"));
@@ -635,6 +683,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: Some("spiffe://issuer.example.com/workloads".to_string()),
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -642,6 +691,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let config = identity_config_try_from_proto(proto, &bounds).unwrap();
         assert_eq!(
@@ -660,6 +711,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: Some(String::new()),
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -667,6 +719,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let config = identity_config_try_from_proto(proto, &bounds).unwrap();
         assert_eq!(config.subject_prefix, "spiffe://issuer.example.com");
@@ -682,6 +736,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: Some("https://issuer.example.com/p".to_string()),
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -689,6 +744,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("spiffe://"));
@@ -704,6 +761,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: Some("spiffe://other.example/wl".to_string()),
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -711,6 +769,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("does not match"));
@@ -726,6 +786,7 @@ mod tests {
             token_ttl_sec: 0,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -733,6 +794,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec"));
@@ -748,6 +811,7 @@ mod tests {
             token_ttl_sec: 30,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -755,6 +819,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec must be between"));
@@ -770,6 +836,7 @@ mod tests {
             token_ttl_sec: 100000,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -777,6 +844,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec![],
+            signing_key_overlap_default_sec: 86400,
+            signing_key_overlap_max_sec: 604800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec must be between"));
@@ -792,6 +861,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -799,6 +869,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec!["login.example.com".to_string()],
+            signing_key_overlap_default_sec: 86_400,
+            signing_key_overlap_max_sec: 604_800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("trust domain"));
@@ -815,6 +887,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -822,6 +895,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: vec!["**.login.example.com".to_string()],
+            signing_key_overlap_default_sec: 86_400,
+            signing_key_overlap_max_sec: 604_800,
         };
         let config = identity_config_try_from_proto(proto, &bounds).unwrap();
         assert_eq!(config.subject_prefix, "spiffe://auth.login.example.com");
@@ -846,6 +921,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -853,6 +929,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: allowlist,
+            signing_key_overlap_default_sec: 86_400,
+            signing_key_overlap_max_sec: 604_800,
         };
         let config = identity_config_try_from_proto(proto, &bounds).unwrap();
         assert_eq!(config.issuer.as_str(), "https://idp.other.example/oidc");
@@ -873,6 +951,7 @@ mod tests {
             token_ttl_sec: 3600,
             subject_prefix: None,
             rotate_key: false,
+            signing_key_overlap_sec: None,
         };
         let bounds = IdentityConfigValidationBounds {
             token_ttl_min_sec: 60,
@@ -880,6 +959,8 @@ mod tests {
             algorithm: identity_config::SigningAlgorithm::Es256,
             encryption_key_id: "test".parse().unwrap(),
             trust_domain_allowlist: allowlist,
+            signing_key_overlap_default_sec: 86_400,
+            signing_key_overlap_max_sec: 604_800,
         };
         let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("allowlist"));

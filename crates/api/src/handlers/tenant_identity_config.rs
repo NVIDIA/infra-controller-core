@@ -26,15 +26,18 @@ use ::rpc::Timestamp;
 use ::rpc::forge::{
     GetTenantIdentityConfigRequest, GetTokenDelegationRequest, SetTenantIdentityConfigRequest,
     TenantIdentityConfig as ProtoTenantIdentityConfig, TenantIdentityConfigResponse,
-    TokenDelegationRequest, TokenDelegationResponse, token_delegation,
+    TenantIdentitySigningKey, TokenDelegationRequest, TokenDelegationResponse, token_delegation,
 };
 use db::{WithTransaction, tenant, tenant_identity_config};
 use forge_secrets::credentials::CredentialReader;
 use forge_secrets::key_encryption;
+use model::tenant::identity_config::TenantIdentityCurrentSigningKeySlot;
+use model::rpc_conv::tenant::identity_config_try_from_proto;
 use model::tenant::{
-    EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfigValidationError,
-    InvalidNonEmptyStr, InvalidTenantOrg, KeyId, SigningKeyMaterial, SigningPublicKeyPem,
-    TenantIdentityConfig, TenantIdentityConfigDecrypted, TenantOrganizationId, TokenDelegation,
+    EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfigValidationBounds,
+    IdentityConfigValidationError, InvalidNonEmptyStr,
+    InvalidTenantOrg, KeyId, SigningKeyMaterial, SigningPublicKeyPem, TenantIdentityConfig,
+    TenantIdentityConfigDecrypted, TenantOrganizationId, TokenDelegation,
     TokenDelegationValidationBounds, TokenDelegationValidationError,
 };
 use tonic::{Request, Response, Status};
@@ -97,6 +100,54 @@ fn format_token_delegation_request_redacted(req: &TokenDelegationRequest) -> Str
 
 // --- Tenant identity configuration handlers ---
 
+/// Builds [`TenantIdentitySigningKey`] entries from slotted public JSON; exactly one has
+/// `current_signer == true`.
+fn tenant_identity_signing_keys_response(
+    cfg: &TenantIdentityConfig,
+) -> Result<Vec<TenantIdentitySigningKey>, Status> {
+    let mut keys = Vec::new();
+    if let Some(ref doc) = cfg.signing_key_public_1 {
+        doc.0.validate().map_err(|e| {
+            Status::from(CarbideError::InvalidArgument(format!(
+                "signing_key_public_1: {e}"
+            )))
+        })?;
+        keys.push(TenantIdentitySigningKey {
+            kid: doc.0.kid.clone(),
+            alg: doc.0.alg.clone(),
+            current_signer: cfg.current_signing_key_slot
+                == TenantIdentityCurrentSigningKeySlot::SigningKey1,
+        });
+    }
+    if let Some(ref doc) = cfg.signing_key_public_2 {
+        doc.0.validate().map_err(|e| {
+            Status::from(CarbideError::InvalidArgument(format!(
+                "signing_key_public_2: {e}"
+            )))
+        })?;
+        keys.push(TenantIdentitySigningKey {
+            kid: doc.0.kid.clone(),
+            alg: doc.0.alg.clone(),
+            current_signer: cfg.current_signing_key_slot
+                == TenantIdentityCurrentSigningKeySlot::SigningKey2,
+        });
+    }
+    let n_current = keys.iter().filter(|k| k.current_signer).count();
+    if keys.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "tenant identity config has no published signing keys".to_string(),
+        )
+        .into());
+    }
+    if n_current != 1 {
+        return Err(CarbideError::InvalidArgument(format!(
+            "expected exactly one current signer in signing_keys; found {n_current}"
+        ))
+        .into());
+    }
+    Ok(keys)
+}
+
 /// `Forge::get_tenant_identity_configuration`: fetches per-org identity config.
 pub(crate) async fn get_configuration(
     api: &Api,
@@ -120,7 +171,12 @@ pub(crate) async fn get_configuration(
 
     let cfg = api
         .database_connection
-        .with_txn(|txn| Box::pin(async move { tenant_identity_config::find(&org_id, txn).await }))
+        .with_txn(|txn| {
+            Box::pin(async move {
+                tenant_identity_config::gc_expired_non_active_signing_key(&org_id, txn).await?;
+                tenant_identity_config::find(&org_id, txn).await
+            })
+        })
         .await??;
 
     let cfg = match cfg {
@@ -134,6 +190,8 @@ pub(crate) async fn get_configuration(
         }
     };
 
+    let signing_keys = tenant_identity_signing_keys_response(&cfg)?;
+
     Ok(Response::new(TenantIdentityConfigResponse {
         organization_id: org_id_str,
         config: Some(ProtoTenantIdentityConfig {
@@ -144,10 +202,11 @@ pub(crate) async fn get_configuration(
             token_ttl_sec: cfg.token_ttl_sec as u32,
             subject_prefix: Some(cfg.subject_prefix.clone()),
             rotate_key: false,
+            signing_key_overlap_sec: cfg.signing_key_overlap_sec.map(|v| v as u32),
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
-        key_id: cfg.key_id.as_str().to_string(),
+        signing_keys,
     }))
 }
 
@@ -216,13 +275,13 @@ pub(crate) async fn set_configuration(
     let proto = req.config.ok_or_else(|| {
         CarbideError::InvalidArgument("TenantIdentityConfig is required".to_string())
     })?;
-    let config = model::rpc_conv::tenant::identity_config_try_from_proto(
+    let overlap_from_request = proto.signing_key_overlap_sec;
+    let mut config = identity_config_try_from_proto(
         proto,
-        &model::tenant::IdentityConfigValidationBounds::from(
-            api.runtime_config.machine_identity.clone(),
-        ),
+        &IdentityConfigValidationBounds::from(api.runtime_config.machine_identity.clone()),
     )
     .map_err(|e: IdentityConfigValidationError| CarbideError::InvalidArgument(e.0))?;
+
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
@@ -241,6 +300,15 @@ pub(crate) async fn set_configuration(
             Box::pin(async move { tenant_identity_config::find(&org_id_for_find, txn).await })
         })
         .await??;
+
+    let signing_key_overlap_sec = match overlap_from_request {
+        None => existing.as_ref().and_then(|e| e.signing_key_overlap_sec),
+        Some(0) => None,
+        Some(s) => Some(i32::try_from(s).map_err(|_| {
+            CarbideError::InvalidArgument("signing_key_overlap_sec out of range".to_string())
+        })?),
+    };
+    config.signing_key_overlap_sec = signing_key_overlap_sec;
 
     let key_material = match (&existing, config.rotate_key) {
         (None, _) | (_, true) => {
@@ -271,6 +339,10 @@ pub(crate) async fn set_configuration(
         (Some(_), false) => None,
     };
 
+    let site_overlap_default = api
+        .runtime_config
+        .machine_identity
+        .signing_key_overlap_default_sec;
     let cfg = api
         .database_connection
         .with_txn(|txn| {
@@ -282,12 +354,21 @@ pub(crate) async fn set_configuration(
                         id: org_id.as_str().to_string(),
                     });
                 }
-                let cfg = tenant_identity_config::set(&org_id, &config, key_material, txn).await?;
+                let cfg = tenant_identity_config::set(
+                    &org_id,
+                    &config,
+                    key_material,
+                    site_overlap_default,
+                    txn,
+                )
+                .await?;
                 tenant::increment_version(org_id.as_str(), txn).await?;
                 Ok(cfg)
             })
         })
         .await??;
+
+    let signing_keys = tenant_identity_signing_keys_response(&cfg)?;
 
     Ok(Response::new(TenantIdentityConfigResponse {
         organization_id: org_id_str,
@@ -299,10 +380,11 @@ pub(crate) async fn set_configuration(
             token_ttl_sec: cfg.token_ttl_sec as u32,
             subject_prefix: Some(cfg.subject_prefix.clone()),
             rotate_key: false,
+            signing_key_overlap_sec: cfg.signing_key_overlap_sec.map(|v| v as u32),
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
-        key_id: cfg.key_id.as_str().to_string(),
+        signing_keys,
     }))
 }
 
