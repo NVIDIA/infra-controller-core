@@ -10,13 +10,31 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 - **Simplified deployment**: Added NICo deployment [prerequisite tool](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs) `helm-prereqs` to install required dependencies and enable easy NICo deployment.
 - **Rack Level Administration (RLA)**: Significantly expanded rack/tray operations via REST APIs (validation, power, firmware, bring-up, task query), gated by a site-config flag.
 
+### Compatibility Matrix
+
+The following components are supported for this release:
+
+| Component            | Version |
+|----------------------|---------|
+| Cloud API            | v1.4.2  |
+| Carbide              | v0.8.0  |
+| Elektra (site agent) | v0.8.0  |
+
+The following dependencies have been validated for this release:
+
+| Component              | Version         |
+|------------------------|-----------------|
+| DPU NIC Firmware (BF3) | 32.47.2682      |
+| HBN                    | 3.2.2-doca3.2.2 |
+
 ### Improvements
 
 #### Deployment and Operations
 
 - `helm-prereqs` deployment tool (Core):
-  - Helm/Helmfile-driven installation of NICo prerequisites to simplify deployment.
+  - Helm/Helmfile-driven installation of NICo prerequisites--including MetalLB, Zalando PostgreSQL Operator, cert-manager, HashiCorp Vault, and external-secrets--along with the main NICo components--NICo Core and NICo REST.
   - Includes orchestration and automation scripts such as `helmfile.yaml`, `setup.sh`, `preflight.sh`, and `clean.sh`.
+  - This tool significantly reduces installation time compared to manual installation.
   - Location: [https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs)
 
 #### Rack Level Administration (RLA)
@@ -46,7 +64,7 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 
 #### Health and Observability
 
-- Health alerts now carry a severity level.
+- Health alerts can now have a specified severity level, which is "Critical" by default. If the alert classification is greater than or equal to the severity level, it will appear as an alert. Otherwise, it will be ignored. Refer to the `crates/health/example/config.example.toml` file for more details.
 - The REST API now supports NVUE health checks.
 - NICo now supports NMX-T metric collection for switches.
 
