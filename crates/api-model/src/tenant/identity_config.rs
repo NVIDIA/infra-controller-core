@@ -91,7 +91,8 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for SigningAlgorithm {
 // --- JWT issuer (`iss`) ---
 
 /// Normalized JWT issuer URL or SPIFFE ID.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(transparent, type_name = "VARCHAR")]
 pub struct Issuer(String);
 
 impl Issuer {
@@ -175,28 +176,6 @@ impl FromStr for Issuer {
     }
 }
 
-impl sqlx::Type<sqlx::Postgres> for Issuer {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl sqlx::Encode<'_, sqlx::Postgres> for Issuer {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.0, buf)
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Issuer {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Self::try_from(s).map_err(|e: InvalidIssuer| sqlx::Error::Decode(Box::new(e)).into())
-    }
-}
-
 // --- Non-empty string newtype (shared) and machine-identity ciphertext types ---
 
 /// Owned UTF-8 string that is not empty and not only whitespace (`trim()` non-empty).
@@ -268,6 +247,10 @@ impl<S> sqlx::Type<sqlx::Postgres> for NonEmptyStr<S> {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         <String as sqlx::Type<sqlx::Postgres>>::type_info()
     }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
 }
 
 impl<S> sqlx::Encode<'_, sqlx::Postgres> for NonEmptyStr<S> {
@@ -320,54 +303,126 @@ pub struct TenantSigningPublicKeyPemTag;
 /// ES256 public key in PEM form (stored in `signing_key_public_* .public_pem`).
 pub type SigningPublicKeyPem = NonEmptyStr<TenantSigningPublicKeyPemTag>;
 
+fn serialize_signing_algorithm_as_jwt_alg_str<S>(
+    alg: &SigningAlgorithm,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(alg.as_jwt_alg_str())
+}
+
 /// Versioned signing public metadata JSON (`tenant_identity_config.signing_key_public_1|2`).
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// Fields are private; use [`Self::v`], [`Self::kid`], [`Self::alg`], [`Self::public_pem`].
+/// `serde::Deserialize` trims `public_pem` before recomputing [`KeyId`], matching [`Self::es256_from_public_pem`].
+/// JSON `alg` remains a JWT string (e.g. `"ES256"`), not an enum object — see [`serialize_signing_algorithm_as_jwt_alg_str`].
+/// `kid` and `public_pem` are trimmed on build/deserialize so values match [`KeyId::from_public_key_material`].
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct SigningKeyPublicV1 {
-    pub v: u32,
-    pub kid: String,
-    pub alg: String,
-    pub public_pem: String,
+    v: u32,
+    kid: String,
+    #[serde(serialize_with = "serialize_signing_algorithm_as_jwt_alg_str")]
+    alg: SigningAlgorithm,
+    public_pem: String,
+}
+
+#[derive(Deserialize)]
+struct SigningKeyPublicV1Wire {
+    v: u32,
+    kid: String,
+    alg: String,
+    public_pem: String,
+}
+
+impl<'de> Deserialize<'de> for SigningKeyPublicV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = SigningKeyPublicV1Wire::deserialize(deserializer)?;
+        let alg: SigningAlgorithm = wire.alg.parse().map_err(serde::de::Error::custom)?;
+        Self::try_from_parts(wire.v, wire.kid, alg, wire.public_pem)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 impl SigningKeyPublicV1 {
-    /// Builds version-1 JSON content for an ES256 SPKI PEM (canonical `kid` from [`KeyId::from_public_key_material`]).
-    ///
-    /// PEM is trimmed before hashing and storage so `kid` always matches [`Self::validate`] (which
-    /// recomputes the id from stored `public_pem`). Generated PEM often ends with a trailing newline.
-    pub fn es256_from_public_pem(public_pem: &str) -> Result<Self, String> {
+    /// Only [`SigningAlgorithm::Es256`] is accepted for v1 documents, even if more variants are
+    /// added to [`SigningAlgorithm`] later (e.g. for other config surfaces).
+    fn try_from_parts(
+        v: u32,
+        kid: String,
+        alg: SigningAlgorithm,
+        public_pem: String,
+    ) -> Result<Self, String> {
         let public_pem = public_pem.trim();
         if public_pem.is_empty() {
             return Err("signing public PEM is empty".to_string());
         }
-        let kid = KeyId::from_public_key_material(public_pem);
-        Ok(Self {
-            v: 1,
-            kid: kid.as_str().to_string(),
-            alg: TENANT_IDENTITY_SIGNING_JWT_ALG.to_string(),
-            public_pem: public_pem.to_string(),
-        })
-    }
-
-    /// Ensures `kid` / `alg` match `public_pem` and only ES256 is allowed.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.v != 1 {
+        let public_pem = public_pem.to_string();
+        if v != 1 {
             return Err(format!(
-                "unsupported tenant signing public document version {}",
-                self.v
+                "unsupported tenant signing public document version {v}"
             ));
         }
-        let expected_kid = KeyId::from_public_key_material(&self.public_pem);
-        if expected_kid.as_str() != self.kid {
+        let kid = kid.trim();
+        if kid.is_empty() {
+            return Err("signing public kid is empty".to_string());
+        }
+        let expected_kid = KeyId::from_public_key_material(&public_pem);
+        if expected_kid.as_str() != kid {
             return Err("signing public kid does not match public_pem".to_string());
         }
-        let alg: SigningAlgorithm = self
-            .alg
-            .parse()
-            .map_err(|e: UnsupportedTenantSigningAlgorithm| e.to_string())?;
+        let kid = kid.to_string();
         if alg != SigningAlgorithm::Es256 {
             return Err("only ES256 tenant signing keys are supported".to_string());
         }
-        Ok(())
+        Ok(Self {
+            v,
+            kid,
+            alg,
+            public_pem,
+        })
+    }
+
+    #[must_use]
+    pub const fn v(&self) -> u32 {
+        self.v
+    }
+
+    #[must_use]
+    pub fn kid(&self) -> &str {
+        self.kid.as_str()
+    }
+
+    #[must_use]
+    pub const fn alg(&self) -> SigningAlgorithm {
+        self.alg
+    }
+
+    #[must_use]
+    pub fn public_pem(&self) -> &str {
+        self.public_pem.as_str()
+    }
+
+    /// Builds version-1 JSON content for an ES256 SPKI PEM (canonical `kid` from [`KeyId::from_public_key_material`]).
+    ///
+    /// PEM is trimmed before hashing and storage so `kid` always matches persisted `public_pem`.
+    /// Generated PEM often ends with a trailing newline.
+    pub fn es256_from_public_pem(public_pem: &str) -> Result<Self, String> {
+        let trimmed = public_pem.trim();
+        if trimmed.is_empty() {
+            return Err("signing public PEM is empty".to_string());
+        }
+        let kid = KeyId::from_public_key_material(trimmed);
+        Self::try_from_parts(
+            1,
+            kid.as_str().to_string(),
+            SigningAlgorithm::Es256,
+            trimmed.to_string(),
+        )
     }
 }
 
@@ -412,6 +467,8 @@ pub type EncryptedTokenDelegationAuthConfig =
 
 #[cfg(test)]
 mod key_id_tests {
+    use serde_json::json;
+
     use super::{KeyId, SigningKeyPublicV1};
 
     #[test]
@@ -425,11 +482,27 @@ mod key_id_tests {
     }
 
     #[test]
-    fn es256_public_doc_trailing_newline_passes_validate() {
+    fn es256_public_doc_trims_trailing_newline() {
         let base = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
         let pem = format!("{base}\n");
         let doc = SigningKeyPublicV1::es256_from_public_pem(&pem).expect("build doc");
-        assert_eq!(doc.public_pem, base);
-        doc.validate().expect("kid must match trimmed PEM");
+        assert_eq!(doc.public_pem(), base);
+        assert_eq!(doc.kid(), KeyId::from_public_key_material(base).as_str());
+    }
+
+    #[test]
+    fn signing_public_doc_trims_whitespace_around_kid() {
+        let base = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
+        let canonical = SigningKeyPublicV1::es256_from_public_pem(base).expect("build doc");
+        let loose_kid = format!(" \t{} \n", canonical.kid());
+        let v = json!({
+            "v": 1,
+            "kid": loose_kid,
+            "alg": "ES256",
+            "public_pem": canonical.public_pem(),
+        });
+        let doc: SigningKeyPublicV1 = serde_json::from_value(v).expect("deserialize");
+        assert_eq!(doc.kid(), canonical.kid());
+        assert_eq!(doc, canonical);
     }
 }

@@ -109,16 +109,11 @@ fn tenant_identity_signing_keys_response(
 ) -> Result<Vec<TenantIdentitySigningKey>, Status> {
     let mut keys = Vec::new();
     if let Some(ref doc) = cfg.signing_key_public_1 {
-        doc.0.validate().map_err(|e| {
-            Status::from(CarbideError::InvalidArgument(format!(
-                "signing_key_public_1: {e}"
-            )))
-        })?;
         let current_signer =
             cfg.current_signing_key_slot == TenantIdentityCurrentSigningKeySlot::SigningKey1;
         keys.push(TenantIdentitySigningKey {
-            kid: doc.0.kid.clone(),
-            alg: doc.0.alg.clone(),
+            kid: doc.0.kid().to_string(),
+            alg: doc.0.alg().to_string(),
             current_signer,
             expire_at: if current_signer {
                 None
@@ -128,16 +123,11 @@ fn tenant_identity_signing_keys_response(
         });
     }
     if let Some(ref doc) = cfg.signing_key_public_2 {
-        doc.0.validate().map_err(|e| {
-            Status::from(CarbideError::InvalidArgument(format!(
-                "signing_key_public_2: {e}"
-            )))
-        })?;
         let current_signer =
             cfg.current_signing_key_slot == TenantIdentityCurrentSigningKeySlot::SigningKey2;
         keys.push(TenantIdentitySigningKey {
-            kid: doc.0.kid.clone(),
-            alg: doc.0.alg.clone(),
+            kid: doc.0.kid().to_string(),
+            alg: doc.0.alg().to_string(),
             current_signer,
             expire_at: if current_signer {
                 None

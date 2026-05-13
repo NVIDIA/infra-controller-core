@@ -22,58 +22,69 @@ use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use model::tenant::identity_config::SigningKeyPublicV1;
 use model::tenant::{
-    EncryptedTokenDelegationAuthConfig, IdentityConfig, SigningKeyMaterial, TenantIdentityConfig,
-    TenantIdentityCurrentSigningKeySlot, TenantOrganizationId, TokenDelegation,
-    TokenDelegationAuthMethod,
+    EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfig,
+    SigningKeyMaterial, TenantIdentityConfig, TenantIdentityCurrentSigningKeySlot,
+    TenantOrganizationId, TokenDelegation, TokenDelegationAuthMethod,
 };
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
 use crate::{DatabaseError, DatabaseResult};
 
-/// Column expressions for mapping a row into [`TenantIdentityConfig`], optionally qualified
-/// (e.g. `Some("tic")` → `tic.organization_id`, …) for `FROM tenant_identity_config tic` joins.
-fn tenant_identity_row_select_expr(table_alias: Option<&str>) -> String {
-    const COLS: &[&str] = &[
-        "organization_id",
-        "issuer::text AS issuer",
-        "default_audience::text AS default_audience",
-        "allowed_audiences",
-        "token_ttl_sec",
-        "subject_prefix::text AS subject_prefix",
-        "enabled",
-        "created_at",
-        "updated_at",
-        "encrypted_signing_key_1",
-        "encrypted_signing_key_2",
-        "signing_key_public_1",
-        "signing_key_public_2",
-        "current_signing_key_slot",
-        "non_active_slot_expires_at",
-        "encryption_key_id::text AS encryption_key_id",
-        "token_endpoint::text AS token_endpoint",
-        "auth_method",
-        "encrypted_auth_method_config",
-        "subject_token_audience::text AS subject_token_audience",
-        "token_delegation_created_at",
-    ];
-    let prefix = table_alias.map_or_else(String::new, |a| format!("{a}."));
-    COLS.iter()
-        .map(|c| format!("{prefix}{c}"))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// `FROM` / `JOIN` / `WHERE` for [`find_by_machine_id`]. Macro so the GC org scalar query and the
-/// main `SELECT` share one definition (`concat!` cannot reference `const` str slices).
-macro_rules! tenant_identity_find_by_machine_id_clause {
-    () => {
-        r"
+/// Resolve tenant identity config for machine-identity RPCs: one join query, then overlap GC, then
+/// reload by org PK so the row matches the post-GC database state (GC may clear a JWKS slot).
+const TENANT_IDENTITY_FIND_BY_MACHINE_SQL: &str = r"
+SELECT tic.*
 FROM tenant_identity_config tic
 INNER JOIN instances i ON tic.organization_id = i.tenant_org
-WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true"
-    };
-}
+WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true";
+
+const TENANT_IDENTITY_FIND_BY_ORG_SQL: &str =
+    "SELECT * FROM tenant_identity_config WHERE organization_id = $1";
+
+const UPSERT_TENANT_IDENTITY_CONFIG_SQL: &str = r#"
+        INSERT INTO tenant_identity_config (
+            organization_id, issuer, default_audience, allowed_audiences,
+            token_ttl_sec, subject_prefix, enabled, created_at, updated_at,
+            encrypted_signing_key_1, encrypted_signing_key_2,
+            signing_key_public_1, signing_key_public_2,
+            current_signing_key_slot, non_active_slot_expires_at,
+            encryption_key_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10, $11, $12, $13, $14)
+        ON CONFLICT (organization_id) DO UPDATE SET
+            issuer = EXCLUDED.issuer,
+            default_audience = EXCLUDED.default_audience,
+            allowed_audiences = EXCLUDED.allowed_audiences,
+            token_ttl_sec = EXCLUDED.token_ttl_sec,
+            subject_prefix = EXCLUDED.subject_prefix,
+            enabled = EXCLUDED.enabled,
+            updated_at = NOW(),
+            encrypted_signing_key_1 = EXCLUDED.encrypted_signing_key_1,
+            encrypted_signing_key_2 = EXCLUDED.encrypted_signing_key_2,
+            signing_key_public_1 = EXCLUDED.signing_key_public_1,
+            signing_key_public_2 = EXCLUDED.signing_key_public_2,
+            current_signing_key_slot = EXCLUDED.current_signing_key_slot,
+            non_active_slot_expires_at = EXCLUDED.non_active_slot_expires_at,
+            encryption_key_id = EXCLUDED.encryption_key_id
+        RETURNING tenant_identity_config.*
+    "#;
+
+const UPDATE_TENANT_IDENTITY_TOKEN_DELEGATION_SQL: &str = r#"
+        UPDATE tenant_identity_config
+        SET token_endpoint = $2, auth_method = $3, encrypted_auth_method_config = $4,
+            subject_token_audience = $5, updated_at = NOW(),
+            token_delegation_created_at = COALESCE(token_delegation_created_at, NOW())
+        WHERE organization_id = $1
+        RETURNING tenant_identity_config.*
+    "#;
+
+const CLEAR_TENANT_IDENTITY_TOKEN_DELEGATION_SQL: &str = r#"
+        UPDATE tenant_identity_config
+        SET token_endpoint = NULL, auth_method = NULL, encrypted_auth_method_config = NULL,
+            subject_token_audience = NULL, token_delegation_created_at = NULL, updated_at = NOW()
+        WHERE organization_id = $1
+        RETURNING tenant_identity_config.*
+    "#;
 
 /// After `non_active_slot_expires_at`, clears the non-current slot (public + private ciphertext).
 pub async fn gc_expired_non_active_signing_key(
@@ -130,7 +141,6 @@ fn signing_public_json_from_material(
 ) -> DatabaseResult<Json<SigningKeyPublicV1>> {
     let doc = SigningKeyPublicV1::es256_from_public_pem(km.signing_key_public.as_str())
         .map_err(DatabaseError::InvalidArgument)?;
-    doc.validate().map_err(DatabaseError::InvalidArgument)?;
     Ok(Json(doc))
 }
 
@@ -172,6 +182,16 @@ fn ensure_rotation_allowed_for_existing(
     Ok(())
 }
 
+/// Signing-key slot ciphertext / JWKS JSON plus overlap deadline for [`set`]'s upsert row.
+struct KeyRows {
+    enc1: Option<EncryptedSigningPrivateKey>,
+    enc2: Option<EncryptedSigningPrivateKey>,
+    pub1: Option<Json<SigningKeyPublicV1>>,
+    pub2: Option<Json<SigningKeyPublicV1>>,
+    current_slot: TenantIdentityCurrentSigningKeySlot,
+    non_active_expires_at: Option<DateTime<Utc>>,
+}
+
 /// Set identity config for an org.
 /// When creating new or rotating key, caller must provide `key_material` (generated key pair, encrypted private key).
 /// Caller must ensure tenant exists and global machine-identity is enabled.
@@ -199,14 +219,7 @@ pub async fn set(
 
     let existing = find(org_id, &mut *txn).await?;
 
-    let (enc1, enc2, pub1, pub2, current_slot, non_active_expires): (
-        Option<_>,
-        Option<_>,
-        Option<_>,
-        Option<_>,
-        TenantIdentityCurrentSigningKeySlot,
-        Option<_>,
-    ) = match (&existing, config.rotate_key, key_material) {
+    let key_rows = match (&existing, config.rotate_key, key_material) {
         (None, _, None) | (_, true, None) => {
             return Err(DatabaseError::InvalidArgument(
                 "key_material is required when creating or rotating signing key".into(),
@@ -229,44 +242,44 @@ pub async fn set(
             })?;
             let expires = Some(Utc::now() + ChronoDuration::seconds(i64::from(overlap_for_expiry)));
             match other {
-                TenantIdentityCurrentSigningKeySlot::SigningKey1 => (
-                    Some(new_enc),
-                    ex.encrypted_signing_key_2.clone(),
-                    Some(pub_doc),
-                    ex.signing_key_public_2.clone(),
-                    TenantIdentityCurrentSigningKeySlot::SigningKey1,
-                    expires,
-                ),
-                TenantIdentityCurrentSigningKeySlot::SigningKey2 => (
-                    ex.encrypted_signing_key_1.clone(),
-                    Some(new_enc),
-                    ex.signing_key_public_1.clone(),
-                    Some(pub_doc),
-                    TenantIdentityCurrentSigningKeySlot::SigningKey2,
-                    expires,
-                ),
+                TenantIdentityCurrentSigningKeySlot::SigningKey1 => KeyRows {
+                    enc1: Some(new_enc),
+                    enc2: ex.encrypted_signing_key_2.clone(),
+                    pub1: Some(pub_doc),
+                    pub2: ex.signing_key_public_2.clone(),
+                    current_slot: TenantIdentityCurrentSigningKeySlot::SigningKey1,
+                    non_active_expires_at: expires,
+                },
+                TenantIdentityCurrentSigningKeySlot::SigningKey2 => KeyRows {
+                    enc1: ex.encrypted_signing_key_1.clone(),
+                    enc2: Some(new_enc),
+                    pub1: ex.signing_key_public_1.clone(),
+                    pub2: Some(pub_doc),
+                    current_slot: TenantIdentityCurrentSigningKeySlot::SigningKey2,
+                    non_active_expires_at: expires,
+                },
             }
         }
         (None, _, Some(km)) => {
             let pub_doc = signing_public_json_from_material(&km)?;
             let new_enc = km.encrypted_signing_key;
-            (
-                Some(new_enc),
-                None,
-                Some(pub_doc),
-                None,
-                TenantIdentityCurrentSigningKeySlot::SigningKey1,
-                None,
-            )
+            KeyRows {
+                enc1: Some(new_enc),
+                enc2: None,
+                pub1: Some(pub_doc),
+                pub2: None,
+                current_slot: TenantIdentityCurrentSigningKeySlot::SigningKey1,
+                non_active_expires_at: None,
+            }
         }
-        (Some(ex), false, None) => (
-            ex.encrypted_signing_key_1.clone(),
-            ex.encrypted_signing_key_2.clone(),
-            ex.signing_key_public_1.clone(),
-            ex.signing_key_public_2.clone(),
-            ex.current_signing_key_slot,
-            ex.non_active_slot_expires_at,
-        ),
+        (Some(ex), false, None) => KeyRows {
+            enc1: ex.encrypted_signing_key_1.clone(),
+            enc2: ex.encrypted_signing_key_2.clone(),
+            pub1: ex.signing_key_public_1.clone(),
+            pub2: ex.signing_key_public_2.clone(),
+            current_slot: ex.current_signing_key_slot,
+            non_active_expires_at: ex.non_active_slot_expires_at,
+        },
         (Some(_), false, Some(_)) => {
             return Err(DatabaseError::InvalidArgument(
                 "key_material must not be set when rotate_key is false".into(),
@@ -274,37 +287,7 @@ pub async fn set(
         }
     };
 
-    let returning = tenant_identity_row_select_expr(None);
-    let query = format!(
-        r#"
-        INSERT INTO tenant_identity_config (
-            organization_id, issuer, default_audience, allowed_audiences,
-            token_ttl_sec, subject_prefix, enabled, created_at, updated_at,
-            encrypted_signing_key_1, encrypted_signing_key_2,
-            signing_key_public_1, signing_key_public_2,
-            current_signing_key_slot, non_active_slot_expires_at,
-            encryption_key_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10, $11, $12, $13, $14)
-        ON CONFLICT (organization_id) DO UPDATE SET
-            issuer = EXCLUDED.issuer,
-            default_audience = EXCLUDED.default_audience,
-            allowed_audiences = EXCLUDED.allowed_audiences,
-            token_ttl_sec = EXCLUDED.token_ttl_sec,
-            subject_prefix = EXCLUDED.subject_prefix,
-            enabled = EXCLUDED.enabled,
-            updated_at = NOW(),
-            encrypted_signing_key_1 = EXCLUDED.encrypted_signing_key_1,
-            encrypted_signing_key_2 = EXCLUDED.encrypted_signing_key_2,
-            signing_key_public_1 = EXCLUDED.signing_key_public_1,
-            signing_key_public_2 = EXCLUDED.signing_key_public_2,
-            current_signing_key_slot = EXCLUDED.current_signing_key_slot,
-            non_active_slot_expires_at = EXCLUDED.non_active_slot_expires_at,
-            encryption_key_id = EXCLUDED.encryption_key_id
-        RETURNING {returning}
-    "#
-    );
-
-    sqlx::query_as(&query)
+    sqlx::query_as(UPSERT_TENANT_IDENTITY_CONFIG_SQL)
         .bind(org_id.as_str())
         .bind(&config.issuer)
         .bind(&config.default_audience)
@@ -312,78 +295,52 @@ pub async fn set(
         .bind(token_ttl_i32)
         .bind(&config.subject_prefix)
         .bind(config.enabled)
-        .bind(enc1)
-        .bind(enc2)
-        .bind(pub1)
-        .bind(pub2)
-        .bind(current_slot)
-        .bind(non_active_expires)
+        .bind(key_rows.enc1)
+        .bind(key_rows.enc2)
+        .bind(key_rows.pub1)
+        .bind(key_rows.pub2)
+        .bind(key_rows.current_slot)
+        .bind(key_rows.non_active_expires_at)
         .bind(&config.encryption_key_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(UPSERT_TENANT_IDENTITY_CONFIG_SQL, e))
 }
 
 pub async fn find(
     org_id: &TenantOrganizationId,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Option<TenantIdentityConfig>> {
-    let select_list = tenant_identity_row_select_expr(None);
-    let query =
-        format!("SELECT {select_list} FROM tenant_identity_config WHERE organization_id = $1");
-    sqlx::query_as(&query)
+    sqlx::query_as(TENANT_IDENTITY_FIND_BY_ORG_SQL)
         .bind(org_id.as_str())
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(TENANT_IDENTITY_FIND_BY_ORG_SQL, e))
 }
 
 pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> DatabaseResult<TenantIdentityConfig> {
-    const ORG_FOR_GC: &str = concat!(
-        "SELECT tic.organization_id::text",
-        tenant_identity_find_by_machine_id_clause!()
-    );
-    if let Some(org_raw) = sqlx::query_scalar::<_, String>(ORG_FOR_GC)
+    let row = sqlx::query_as::<_, TenantIdentityConfig>(TENANT_IDENTITY_FIND_BY_MACHINE_SQL)
         .bind(machine_id)
         .fetch_optional(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(ORG_FOR_GC, e))?
-    {
-        match org_raw.parse::<TenantOrganizationId>() {
-            Ok(oid) => {
-                gc_expired_non_active_signing_key(&oid, txn).await?;
-            }
-            Err(e) => {
-                tracing::warn!(
-                    %machine_id,
-                    organization_id = %org_raw,
-                    error = %e,
-                    "tenant_identity_config.organization_id from join failed TenantOrganizationId parse; skipping non-active signing key GC"
-                );
-            }
-        }
-    }
-
-    let select_list = tenant_identity_row_select_expr(Some("tic"));
-    let query = format!(
-        "SELECT {select_list}{}",
-        tenant_identity_find_by_machine_id_clause!()
-    );
-    let row = sqlx::query_as::<_, TenantIdentityConfig>(&query)
-        .bind(machine_id)
-        .fetch_optional(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(TENANT_IDENTITY_FIND_BY_MACHINE_SQL, e))?;
     let Some(cfg) = row else {
         return Err(DatabaseError::NotFoundError {
             kind: "machine_identity",
             id: machine_id.to_string(),
         });
     };
-    Ok(cfg)
+    let org_id = cfg.organization_id.clone();
+    gc_expired_non_active_signing_key(&org_id, txn).await?;
+    find(&org_id, txn)
+        .await?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "machine_identity",
+            id: machine_id.to_string(),
+        })
 }
 
 /// Set token delegation for an org. Identity config must exist first.
@@ -396,18 +353,7 @@ pub async fn set_token_delegation(
     encrypted_auth_method_config: &EncryptedTokenDelegationAuthConfig,
     txn: &mut PgConnection,
 ) -> DatabaseResult<TenantIdentityConfig> {
-    let returning = tenant_identity_row_select_expr(None);
-    let query = format!(
-        r#"
-        UPDATE tenant_identity_config
-        SET token_endpoint = $2, auth_method = $3, encrypted_auth_method_config = $4,
-            subject_token_audience = $5, updated_at = NOW(),
-            token_delegation_created_at = COALESCE(token_delegation_created_at, NOW())
-        WHERE organization_id = $1
-        RETURNING {returning}
-    "#
-    );
-    let row = sqlx::query_as(&query)
+    let row = sqlx::query_as(UPDATE_TENANT_IDENTITY_TOKEN_DELEGATION_SQL)
         .bind(org_id.as_str())
         .bind(&config.token_endpoint)
         .bind(auth_method)
@@ -415,7 +361,7 @@ pub async fn set_token_delegation(
         .bind(Some(config.subject_token_audience.as_str()))
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(UPDATE_TENANT_IDENTITY_TOKEN_DELEGATION_SQL, e))?;
     row.ok_or_else(|| DatabaseError::NotFoundError {
         kind: "tenant_identity_config",
         id: org_id.as_str().to_string(),
@@ -437,21 +383,11 @@ pub async fn delete_token_delegation(
     org_id: &TenantOrganizationId,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Option<TenantIdentityConfig>> {
-    let returning = tenant_identity_row_select_expr(None);
-    let query = format!(
-        r#"
-        UPDATE tenant_identity_config
-        SET token_endpoint = NULL, auth_method = NULL, encrypted_auth_method_config = NULL,
-            subject_token_audience = NULL, token_delegation_created_at = NULL, updated_at = NOW()
-        WHERE organization_id = $1
-        RETURNING {returning}
-    "#
-    );
-    sqlx::query_as(&query)
+    sqlx::query_as(CLEAR_TENANT_IDENTITY_TOKEN_DELEGATION_SQL)
         .bind(org_id.as_str())
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(CLEAR_TENANT_IDENTITY_TOKEN_DELEGATION_SQL, e))
 }
 
 #[cfg(test)]

@@ -91,12 +91,11 @@ fn push_jwk_from_signing_public_doc(
     doc: &model::tenant::identity_config::SigningKeyPublicV1,
     jwk_key_use: crate::machine_identity::JwkPublicKeyUse,
 ) -> Result<(), CarbideError> {
-    doc.validate().map_err(CarbideError::InvalidArgument)?;
     keys.push(
         crate::machine_identity::public_pem_to_jwk_value(
-            &doc.public_pem,
-            doc.kid.as_str(),
-            doc.alg.as_str(),
+            doc.public_pem(),
+            doc.kid(),
+            doc.alg().as_jwt_alg_str(),
             jwk_key_use,
         )
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?,
@@ -207,7 +206,7 @@ pub(crate) async fn sign_machine_identity(
     let active_pub = identity_row
         .current_signing_public()
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-    let signer = Es256Signer::new(&private_pem, active_pub.kid.as_str())
+    let signer = Es256Signer::new(&private_pem, active_pub.kid())
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
 
     let now = Utc::now().timestamp();
@@ -406,7 +405,7 @@ pub(crate) async fn get_open_id_configuration(
         spiffe_jwks_uri: spiffe_jwks_uri_for_issuer(cfg.issuer.as_ref()),
         response_types_supported: vec!["token".into()],
         subject_types_supported: vec!["public".into()],
-        id_token_signing_alg_values_supported: vec![active_pub.alg.clone()],
+        id_token_signing_alg_values_supported: vec![active_pub.alg().to_string()],
     }))
 }
 
