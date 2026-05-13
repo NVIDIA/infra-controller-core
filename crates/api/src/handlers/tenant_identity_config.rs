@@ -31,16 +31,15 @@ use ::rpc::forge::{
 use db::{WithTransaction, tenant, tenant_identity_config};
 use forge_secrets::credentials::CredentialReader;
 use forge_secrets::key_encryption;
-use model::tenant::identity_config::TenantIdentityCurrentSigningKeySlot;
 use model::rpc_conv::tenant::{
     identity_config_try_from_proto, validate_identity_overlap_for_rotation,
 };
+use model::tenant::identity_config::TenantIdentityCurrentSigningKeySlot;
 use model::tenant::{
     EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfigValidationBounds,
-    IdentityConfigValidationError, InvalidNonEmptyStr,
-    InvalidTenantOrg, KeyId, SigningKeyMaterial, SigningPublicKeyPem, TenantIdentityConfig,
-    TenantIdentityConfigDecrypted, TenantOrganizationId, TokenDelegation,
-    TokenDelegationValidationBounds, TokenDelegationValidationError,
+    IdentityConfigValidationError, InvalidNonEmptyStr, InvalidTenantOrg, KeyId, SigningKeyMaterial,
+    SigningPublicKeyPem, TenantIdentityConfig, TenantIdentityConfigDecrypted, TenantOrganizationId,
+    TokenDelegation, TokenDelegationValidationBounds, TokenDelegationValidationError,
 };
 use tonic::{Request, Response, Status};
 
@@ -206,8 +205,7 @@ pub(crate) async fn get_configuration(
             token_ttl_sec: cfg.token_ttl_sec as u32,
             subject_prefix: Some(cfg.subject_prefix.clone()),
             rotate_key: cfg.response_rotate_key(),
-            signing_key_overlap_sec: cfg.signing_key_overlap_sec.map(|v| v as u32),
-            ..Default::default()
+            signing_key_overlap_sec: None,
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
@@ -280,8 +278,7 @@ pub(crate) async fn set_configuration(
     let proto = req.config.ok_or_else(|| {
         CarbideError::InvalidArgument("TenantIdentityConfig is required".to_string())
     })?;
-    let overlap_from_request = proto.signing_key_overlap_sec;
-    let mut config = identity_config_try_from_proto(
+    let config = identity_config_try_from_proto(
         proto,
         &IdentityConfigValidationBounds::from(api.runtime_config.machine_identity.clone()),
     )
@@ -306,14 +303,6 @@ pub(crate) async fn set_configuration(
         })
         .await??;
 
-    let signing_key_overlap_sec = match overlap_from_request {
-        None => existing.as_ref().and_then(|e| e.signing_key_overlap_sec),
-        Some(0) => None,
-        Some(s) => Some(i32::try_from(s).map_err(|_| {
-            CarbideError::InvalidArgument("signing_key_overlap_sec out of range".to_string())
-        })?),
-    };
-    config.signing_key_overlap_sec = signing_key_overlap_sec;
     validate_identity_overlap_for_rotation(&config)
         .map_err(|e: IdentityConfigValidationError| CarbideError::InvalidArgument(e.0))?;
 
@@ -378,8 +367,7 @@ pub(crate) async fn set_configuration(
             token_ttl_sec: cfg.token_ttl_sec as u32,
             subject_prefix: Some(cfg.subject_prefix.clone()),
             rotate_key: cfg.response_rotate_key(),
-            signing_key_overlap_sec: cfg.signing_key_overlap_sec.map(|v| v as u32),
-            ..Default::default()
+            signing_key_overlap_sec: None,
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),

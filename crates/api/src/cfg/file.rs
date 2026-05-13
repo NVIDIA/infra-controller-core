@@ -818,7 +818,7 @@ pub struct MachineIdentityConfig {
     /// Same pattern syntax as [`Self::trust_domain_allowlist`].
     #[serde(default)]
     pub token_endpoint_domain_allowlist: Vec<String>,
-    /// Upper bound for `TenantIdentityConfig.signing_key_overlap_sec` on rotate (seconds).
+    /// Upper bound for `signing_key_overlap_sec` on `SetTenantIdentityConfiguration` when `rotate_key` is true (seconds).
     #[serde(default = "machine_identity_default_signing_key_overlap_max_sec")]
     pub signing_key_overlap_max_sec: u32,
 }

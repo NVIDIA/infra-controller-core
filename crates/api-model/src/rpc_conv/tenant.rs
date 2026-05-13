@@ -495,8 +495,7 @@ pub fn identity_config_try_from_proto(
     })
 }
 
-/// After merging optional request overlap with any stored row (see `set_tenant_identity_configuration`),
-/// ensure rotation uses an overlap window at least as long as token TTL.
+/// Ensures rotation requests carry overlap at least [`IdentityConfig::token_ttl_sec`] (see docs).
 pub fn validate_identity_overlap_for_rotation(
     config: &IdentityConfig,
 ) -> Result<(), IdentityConfigValidationError> {
