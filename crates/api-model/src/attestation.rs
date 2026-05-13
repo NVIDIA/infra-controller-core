@@ -308,19 +308,6 @@ pub mod spdm {
         }
     }
 
-    impl From<SpdmDeviceAttestationDetails> for rpc::forge::SpdmAttestationDetails {
-        fn from(value: SpdmDeviceAttestationDetails) -> Self {
-            rpc::forge::SpdmAttestationDetails {
-                machine_id: Some(value.machine_id),
-                completed_at: value.completed_at.map(|x| x.into()),
-                started_at: Some(value.started_at.into()),
-                cancelled_at: value.cancelled_at.map(|x| x.into()),
-                state: format!("{:?}", value.state),
-                device_id: value.device_id,
-            }
-        }
-    }
-
     #[async_trait::async_trait]
     pub trait Verifier: std::fmt::Debug + Send + Sync + 'static {
         fn client(&self, nras_config: nras::Config) -> Box<dyn nras::VerifierClient>;

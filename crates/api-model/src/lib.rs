@@ -85,6 +85,7 @@ pub mod rack_type;
 pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
+pub mod rpc_conv;
 pub mod site_explorer;
 pub mod sku;
 pub mod state_history;
