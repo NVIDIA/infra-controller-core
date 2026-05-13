@@ -112,7 +112,7 @@ impl TryFrom<Rack> for RackData {
         Ok(Self {
             id: value.id.ok_or(RvsError::MissingField("Rack.id"))?,
             state: value.rack_state,
-            compute_tray_ids: value.compute_trays,
+            compute_tray_ids: value.compute_tray_ids,
         })
     }
 }
