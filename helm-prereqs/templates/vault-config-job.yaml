@@ -9,11 +9,11 @@
 ##   container:     wait for site-root Secret, then:
 ##     - Import site-root CA into Vault PKI engine (forgeca)
 ##     - Configure PKI role (forge-cluster) with SPIFFE URI SANs
-##     - Optionally configure PKI role for NICo CLI client certificates
+##     - Optionally configure PKI role for Infra Controller CLI client certificates
 ##     - Enable Kubernetes auth, bind cert-manager SA
 ##     - Create cert-manager-forge-policy + forge-vault-policy
 ##     - Enable KV v2 at secrets/
-##     - Enable AppRole, create carbide role
+##     - Enable AppRole, create the Infra Controller AppRole named carbide
 ##
 ## Token read from vaultroottoken K8s secret (written by unseal_vault.sh).
 ## =============================================================================
@@ -41,10 +41,6 @@ rules:
     resources: ["secrets"]
     verbs: ["get"]
     resourceNames: ["site-root"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["patch"]
-    resourceNames: ["carbide-vault-approle-tokens"]
   - apiGroups: ["cert-manager.io"]
     resources: ["certificates"]
     verbs: ["get"]
@@ -108,13 +104,6 @@ spec:
               echo "Vault is unsealed, waiting 15s for leader election to stabilize..."
               sleep 15
               echo "Vault ready"
-      volumes:
-        ## Shared emptyDir: configure container writes AppRole credentials here,
-        ## patch-approle-secret container reads them and patches the K8s secret.
-        ## The vault image only has busybox wget (no kubectl) so the patch is done
-        ## by a separate kubectl container that mounts the same volume.
-        - name: approle-creds
-          emptyDir: {}
       containers:
         ## ---------------------------------------------------------------
         ## Configure Vault PKI using only vault CLI + busybox tools
@@ -132,9 +121,6 @@ spec:
                 secretKeyRef:
                   name: carbide-vault-token
                   key: token
-          volumeMounts:
-            - name: approle-creds
-              mountPath: /approle-creds
           command:
             - /bin/sh
             - -c
@@ -187,7 +173,7 @@ spec:
                 use_csr_common_name=true
 
               {{ if .Values.vault.nicoCliClientRole.enabled }}
-              # ---- Create NICo CLI client PKI role ----
+              # ---- Create Infra Controller CLI client PKI role ----
               echo "Creating PKI role {{ .Values.vault.nicoCliClientRole.name }}..."
               vault write {{ .Values.vault.pkiMount }}/roles/{{ .Values.vault.nicoCliClientRole.name }} \
                 allow_any_name=true \
@@ -220,7 +206,10 @@ spec:
               echo "Writing forge-vault-policy..."
               vault policy write forge-vault-policy - << 'POLICY'
               path "{{ .Values.vault.kvMount }}/data/*" {
-                capabilities = ["read", "list"]
+                capabilities = ["create", "read", "update", "delete", "list"]
+              }
+              path "{{ .Values.vault.kvMount }}/metadata/*" {
+                capabilities = ["list", "read", "delete"]
               }
               path "{{ .Values.vault.pkiMount }}/issue/{{ .Values.vault.pkiRole }}" {
                 capabilities = ["create", "update"]
@@ -236,12 +225,12 @@ spec:
                 ttl=1h
 
               {{ if .Values.vault.carbideApiK8sAuth.enabled }}
-              # ---- K8s auth role for carbide-api ----
+              # ---- K8s auth role for Infra Controller Core API ----
               # carbide-api authenticates to in-cluster Vault via its SA JWT
               # (vault SDK auto-detects /var/run/secrets/kubernetes.io/serviceaccount/token)
               # and reads BMC credentials from the KV mount (forge-vault-policy
               # grants read on {{ .Values.vault.kvMount }}/data/*).
-              echo "Creating K8s auth role for carbide-api..."
+              echo "Creating K8s auth role for Infra Controller Core API..."
               vault write auth/kubernetes/role/{{ .Values.vault.carbideApiK8sAuth.serviceAccountName }} \
                 bound_service_account_names={{ .Values.vault.carbideApiK8sAuth.serviceAccountName }} \
                 bound_service_account_namespaces="{{ .Values.namespace }}" \
@@ -261,38 +250,37 @@ spec:
                 token_ttl=1h \
                 token_max_ttl=4h
 
-              echo "Fetching AppRole credentials..."
-              vault read -field=role_id auth/approle/role/carbide/role-id \
-                > /approle-creds/role-id
-              vault write -f -field=secret_id auth/approle/role/carbide/secret-id \
-                > /approle-creds/secret-id
-              touch /approle-creds/done
-              echo "AppRole credentials written to shared volume"
+              # ---- Write AppRole credentials to Vault KV for ESO sync ----
+              # ESO reads these and patches carbide-vault-approle-tokens (creationPolicy:Merge),
+              # replacing the placeholder values written by secrets.yaml at install time.
+              # secret-id generation is idempotent: each run creates a new secret-id but does
+              # not invalidate existing tokens issued from previous secret-ids.
+              echo "Reading AppRole credentials and writing to KV for ESO sync..."
+              ROLE_ID=$(vault read -field=role_id auth/approle/role/carbide/role-id)
+              SECRET_ID=$(vault write -f -field=secret_id auth/approle/role/carbide/secret-id)
+              vault kv put {{ .Values.vault.kvMount }}/carbide/approle \
+                VAULT_ROLE_ID="${ROLE_ID}" \
+                VAULT_SECRET_ID="${SECRET_ID}"
+
+              # ---- Policy: ESO reads only the approle KV path ----
+              echo "Writing eso-approle-policy..."
+              vault policy write eso-approle-policy - << 'POLICY'
+              path "{{ .Values.vault.kvMount }}/data/carbide/approle" {
+                capabilities = ["read"]
+              }
+              path "{{ .Values.vault.kvMount }}/metadata/carbide/approle" {
+                capabilities = ["read"]
+              }
+              POLICY
+
+              # ---- K8s auth role for ESO (external-secrets SA) ----
+              echo "Creating K8s auth role for ESO approle sync..."
+              vault write auth/kubernetes/role/eso-approle-sync \
+                bound_service_account_names=external-secrets \
+                bound_service_account_namespaces=external-secrets \
+                policies=eso-approle-policy \
+                ttl=1h
 
               echo ""
               echo "=== Vault PKI configuration complete ==="
-        ## ---------------------------------------------------------------
-        ## Patch carbide-vault-approle-tokens with real AppRole credentials.
-        ## Runs alongside configure; waits for /approle-creds/done sentinel
-        ## written by the configure container before patching.
-        ## Uses a kubectl image since the vault image has no kubectl.
-        ## ---------------------------------------------------------------
-        - name: patch-approle-secret
-          image: {{ .Values.vault.configJob.kubectlImage | quote }}
-          volumeMounts:
-            - name: approle-creds
-              mountPath: /approle-creds
-          command:
-            - sh
-            - -c
-            - |
-              echo "Waiting for AppRole credentials from configure container..."
-              until [ -f /approle-creds/done ]; do sleep 2; done
-              _ROLE_ID=$(cat /approle-creds/role-id)
-              _SECRET_ID=$(cat /approle-creds/secret-id)
-              kubectl patch secret carbide-vault-approle-tokens \
-                -n {{ .Values.namespace }} \
-                --type=merge \
-                -p "{\"stringData\":{\"VAULT_ROLE_ID\":\"${_ROLE_ID}\",\"VAULT_SECRET_ID\":\"${_SECRET_ID}\"}}"
-              echo "carbide-vault-approle-tokens patched with real AppRole credentials"
 {{- end }}

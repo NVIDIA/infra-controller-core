@@ -1,5 +1,5 @@
 # =============================================================================
-# NCX site-agent standalone chart values
+# Infra Controller site-agent standalone chart values
 #
 # Used by setup.sh for: helm upgrade --install carbide-rest-site-agent
 #   -f helm-prereqs/values/ncx-site-agent.yaml
@@ -16,8 +16,6 @@
 global:
   image:
     pullPolicy: IfNotPresent
-  imagePullSecrets:
-    - name: image-pull-secret
   # Cert issued by vault-forge-issuer so carbide-api (same Vault PKI CA) trusts
   # the site-agent's client cert for mTLS.  The ca.crt in the issued secret is
   # the Vault PKI CA which the site-agent also uses as ServerCAPath to verify
