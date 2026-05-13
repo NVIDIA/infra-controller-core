@@ -35,6 +35,7 @@ impl TryFrom<rpc::BmcInfo> for BmcInfo {
         };
 
         Ok(BmcInfo {
+            machine_interface_id: value.machine_interface_id,
             ip: value.ip,
             port: value.port.map(|p| p as u16),
             mac,
@@ -47,6 +48,7 @@ impl TryFrom<rpc::BmcInfo> for BmcInfo {
 impl From<BmcInfo> for rpc::BmcInfo {
     fn from(value: BmcInfo) -> Self {
         rpc::BmcInfo {
+            machine_interface_id: value.machine_interface_id,
             ip: value.ip,
             port: value.port.map(|p| p as u32),
             mac: value.mac.map(|mac| mac.to_string()),

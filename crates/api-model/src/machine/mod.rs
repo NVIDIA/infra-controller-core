@@ -64,6 +64,7 @@ use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
 use crate::machine::health_override::HealthReportSources;
+use crate::machine_interface::InterfaceType;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
@@ -2603,6 +2604,7 @@ impl ManagedHostState {
 pub struct MachineInterfaceSnapshot {
     pub id: MachineInterfaceId,
     pub hostname: String,
+    pub interface_type: InterfaceType,
     pub primary_interface: bool,
     pub mac_address: MacAddress,
     pub attached_dpu_machine_id: Option<MachineId>,
@@ -2630,6 +2632,7 @@ impl MachineInterfaceSnapshot {
             segment_id: uuid::Uuid::nil().into(),
             mac_address,
             hostname: String::new(),
+            interface_type: InterfaceType::Data,
             primary_interface: true,
             addresses: Vec::new(),
             vendors: Vec::new(),
@@ -2644,7 +2647,10 @@ impl MachineInterfaceSnapshot {
 }
 
 impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
+    #[allow(deprecated)]
     fn from(machine_interface: MachineInterfaceSnapshot) -> rpc::MachineInterface {
+        let is_bmc = machine_interface.interface_type == InterfaceType::Bmc;
+
         rpc::MachineInterface {
             id: Some(machine_interface.id),
             attached_dpu_machine_id: machine_interface.attached_dpu_machine_id,
@@ -2663,7 +2669,8 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
             created: Some(machine_interface.created.into()),
             last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
             power_shelf_id: machine_interface.power_shelf_id,
-            is_bmc: None,
+            is_bmc: Some(is_bmc),
+            interface_type: Some(machine_interface.interface_type as i32),
             switch_id: machine_interface.switch_id,
             association_type: machine_interface.association_type.map(|t| t as i32),
         }
@@ -3016,6 +3023,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             segment_id: row.try_get("segment_id")?,
             domain_id: row.try_get("domain_id")?,
             hostname: row.try_get("hostname")?,
+            interface_type: row.try_get("interface_type")?,
             mac_address: row.try_get("mac_address")?,
             primary_interface: row.try_get("primary_interface")?,
             created: row.try_get("created")?,

@@ -45,6 +45,7 @@ use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
@@ -1441,7 +1442,8 @@ impl SiteExplorer {
         let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
-                underlay_segments.contains(&iface.segment_id) && iface.machine_id.is_none()
+                underlay_segments.contains(&iface.segment_id)
+                    && (iface.machine_id.is_none() || iface.interface_type == InterfaceType::Bmc)
             })
             .collect();
 
@@ -1684,13 +1686,20 @@ impl SiteExplorer {
                 && let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc)
                 && let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi)
             {
-                db::machine_topology::update_firmware_version_by_bmc_address(
-                    &mut txn,
-                    &address,
-                    bmc_version,
-                    uefi_version,
-                )
-                .await?;
+                let machine_id = match report.machine_id.as_ref().copied() {
+                    Some(machine_id) => Some(machine_id),
+                    None => db::machine::find_id_by_bmc_ip(&mut txn, &address).await?,
+                };
+
+                if let Some(machine_id) = machine_id {
+                    db::machine_topology::update_firmware_version_by_machine_id(
+                        &mut txn,
+                        &machine_id,
+                        bmc_version,
+                        uefi_version,
+                    )
+                    .await?;
+                }
             }
 
             match endpoint.last_explored {

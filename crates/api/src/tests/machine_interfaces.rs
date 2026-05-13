@@ -19,7 +19,9 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::str::FromStr;
 
-use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
+use common::api_fixtures::{
+    FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host_with_config, create_test_env,
+};
 use db::dhcp_entry::DhcpEntry;
 use db::{self};
 use itertools::Itertools;
@@ -27,6 +29,7 @@ use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_id::from_hardware_info;
+use model::machine_interface::InterfaceType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use rpc::forge::InterfaceSearchQuery;
 use rpc::forge::forge_server::Forge;
@@ -585,6 +588,146 @@ async fn test_delete_bmc_interface_with_machine(
             }
         }
     }
+}
+
+#[crate::sqlx_test]
+async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_config = env.managed_host_config();
+    let host_bmc_mac = host_config.bmc_mac_address;
+    let dpu_bmc_mac = host_config.get_and_assert_single_dpu().bmc_mac_address;
+    let managed_host = create_managed_host_with_config(&env, host_config).await;
+
+    let mut txn = pool.begin().await?;
+    let host_machine = managed_host.host().db_machine(&mut txn).await;
+    let dpu_machine = managed_host.dpu().db_machine(&mut txn).await;
+    let interfaces = db::machine_interface::find_all(&mut txn).await?;
+
+    let host_bmc_interface = interfaces
+        .iter()
+        .find(|interface| {
+            interface.machine_id == Some(host_machine.id)
+                && interface.interface_type == InterfaceType::Bmc
+        })
+        .expect("host BMC interface must exist");
+    let host_bmc_interface_id = host_bmc_interface.id;
+    let host_bmc_interface_mac = host_bmc_interface.mac_address;
+    let host_bmc_interface_ip = host_bmc_interface
+        .addresses
+        .first()
+        .expect("host BMC interface must have an address")
+        .to_string();
+    assert_eq!(host_bmc_interface_mac, host_bmc_mac);
+
+    let dpu_bmc_interface = interfaces
+        .iter()
+        .find(|interface| {
+            interface.machine_id == Some(dpu_machine.id)
+                && interface.interface_type == InterfaceType::Bmc
+        })
+        .expect("DPU BMC interface must exist");
+    let dpu_bmc_interface_id = dpu_bmc_interface.id;
+    let dpu_bmc_interface_mac = dpu_bmc_interface.mac_address;
+    let dpu_bmc_interface_ip = dpu_bmc_interface
+        .addresses
+        .first()
+        .expect("DPU BMC interface must have an address")
+        .to_string();
+    assert_eq!(dpu_bmc_interface_mac, dpu_bmc_mac);
+
+    assert_eq!(
+        host_machine.bmc_info.machine_interface_id,
+        Some(host_bmc_interface_id)
+    );
+    assert_eq!(host_machine.bmc_info.mac, Some(host_bmc_interface_mac));
+    assert_eq!(
+        host_machine.bmc_info.ip.as_deref(),
+        Some(host_bmc_interface_ip.as_str())
+    );
+    assert!(
+        host_machine
+            .interfaces
+            .iter()
+            .all(|interface| interface.interface_type != InterfaceType::Bmc
+                && interface.id != host_bmc_interface_id)
+    );
+
+    assert_eq!(
+        dpu_machine.bmc_info.machine_interface_id,
+        Some(dpu_bmc_interface_id)
+    );
+    assert_eq!(dpu_machine.bmc_info.mac, Some(dpu_bmc_interface_mac));
+    assert_eq!(
+        dpu_machine.bmc_info.ip.as_deref(),
+        Some(dpu_bmc_interface_ip.as_str())
+    );
+    assert!(
+        dpu_machine
+            .interfaces
+            .iter()
+            .all(|interface| interface.interface_type != InterfaceType::Bmc
+                && interface.id != dpu_bmc_interface_id)
+    );
+
+    txn.commit().await?;
+
+    let host_rpc_machine = managed_host.host().rpc_machine().await;
+    let dpu_rpc_machine = managed_host.dpu().rpc_machine().await;
+    let rpc_bmc_type = rpc::forge::InterfaceType::Bmc as i32;
+    let host_bmc_interface_mac = host_bmc_interface_mac.to_string();
+    let dpu_bmc_interface_mac = dpu_bmc_interface_mac.to_string();
+
+    let host_bmc_info = host_rpc_machine
+        .bmc_info
+        .as_ref()
+        .expect("host RPC BMC info must exist");
+    assert_eq!(
+        host_bmc_info.machine_interface_id,
+        Some(host_bmc_interface_id)
+    );
+    assert_eq!(
+        host_bmc_info.mac.as_deref(),
+        Some(host_bmc_interface_mac.as_str())
+    );
+    assert_eq!(
+        host_bmc_info.ip.as_deref(),
+        Some(host_bmc_interface_ip.as_str())
+    );
+    assert!(
+        host_rpc_machine
+            .interfaces
+            .iter()
+            .all(|interface| interface.interface_type != Some(rpc_bmc_type)
+                && interface.id != Some(host_bmc_interface_id))
+    );
+
+    let dpu_bmc_info = dpu_rpc_machine
+        .bmc_info
+        .as_ref()
+        .expect("DPU RPC BMC info must exist");
+    assert_eq!(
+        dpu_bmc_info.machine_interface_id,
+        Some(dpu_bmc_interface_id)
+    );
+    assert_eq!(
+        dpu_bmc_info.mac.as_deref(),
+        Some(dpu_bmc_interface_mac.as_str())
+    );
+    assert_eq!(
+        dpu_bmc_info.ip.as_deref(),
+        Some(dpu_bmc_interface_ip.as_str())
+    );
+    assert!(
+        dpu_rpc_machine
+            .interfaces
+            .iter()
+            .all(|interface| interface.interface_type != Some(rpc_bmc_type)
+                && interface.id != Some(dpu_bmc_interface_id))
+    );
+
+    Ok(())
 }
 
 #[crate::sqlx_test]
