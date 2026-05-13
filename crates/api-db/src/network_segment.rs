@@ -293,15 +293,19 @@ pub async fn all_stored_defs(
         .collect())
 }
 
-/// Insert the `NetworkDefinition` snapshot for a network that has never been
-/// seeded. Callers must check with `stored_def` / `all_stored_defs` before
-/// calling this, and skip the insert when a snapshot is present.
+/// Insert the `NetworkDefinition` snapshot for a network that has never
+/// been seeded. Callers must check with `stored_def` / `all_stored_defs`
+/// before calling this, and skip the insert when a snapshot is present.
+///
+/// `segment_id` must reference an existing row in `network_segments`.
 pub async fn insert_network_def(
     txn: &mut PgConnection,
     name: &str,
+    segment_id: NetworkSegmentId,
     def: &NetworkDefinition,
 ) -> Result<(), DatabaseError> {
-    let query = "INSERT INTO network_def (name, definition, seeded_at) VALUES ($1, $2, NOW())";
+    let query = "INSERT INTO network_def (name, segment_id, definition, seeded_at) \
+                 VALUES ($1, $2, $3, NOW())";
     let definition = serde_json::to_value(def).map_err(|e| {
         DatabaseError::InvalidArgument(format!(
             "NetworkDefinition: {def:?} could not be serialized to JSON: {e}"
@@ -310,6 +314,7 @@ pub async fn insert_network_def(
 
     sqlx::query(query)
         .bind(name)
+        .bind(segment_id)
         .bind(definition)
         .execute(&mut *txn)
         .await
@@ -319,12 +324,11 @@ pub async fn insert_network_def(
 
 pub async fn segment_exists(txn: &mut PgConnection, name: &str) -> Result<bool, DatabaseError> {
     let query = "SELECT EXISTS(SELECT 1 FROM network_segments WHERE name = $1)";
-    let (exists,): (bool,) = sqlx::query_as(query)
+    sqlx::query_scalar(query)
         .bind(name)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    Ok(exists)
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// Reconcile declared network definitions against what was previously seeded.
@@ -332,12 +336,11 @@ pub async fn segment_exists(txn: &mut PgConnection, name: &str) -> Result<bool, 
 ///   1. **New** (no snapshot, no segment): no-op. The caller's
 ///      segment-creation path is responsible for both creating the segment
 ///      and writing the snapshot.
-///   2. **Backfill** (no snapshot, segment present): record the snapshot.
+///   2. **Backfill** (no snapshot, segment present): record the snapshot,
+///      linking it to the existing segment's id.
 ///   3. **In sync** (snapshot matches declaration): no-op.
 ///   4. **Drift** (snapshot differs from declaration, segment present):
 ///      warn and leave both in place. Operator must reconcile by hand.
-///   5. **Anomaly** (snapshot present, segment absent): error-log and skip.
-///      Indicates a partial restore or manual deletion.
 ///
 /// Networks that appear in the snapshot table but are no longer declared
 /// ("dropped" from `InitialObjectsConfig.networks`) are warned about, but
@@ -351,16 +354,6 @@ pub async fn reconcile_network_defs(
     for (name, def) in declared {
         let exists = segment_exists(&mut *txn, name).await?;
         match (stored.get(name), exists) {
-            // Snapshot exists but network segment is missing from network_segments.
-            // Anomaly: e.g. partial DB restore.  Don't auto-heal - operator must reconcile by hand
-            (Some(stored_def), false) => {
-                tracing::error!(
-                    network_name = name,
-                    stored = ?stored_def,
-                    "NetworkDefinition snapshot exists but network_segments has no rows for it; \
-                     manual recovery required"
-                );
-            }
             // Already seeded with the current declaration
             (Some(stored_def), true) if stored_def == def => {}
             // Declaration has drifted since seed. Warn don't reapply
@@ -373,19 +366,45 @@ pub async fn reconcile_network_defs(
                 );
             }
             // Network segment exists, but has no snapshot yet.
-            // Pre-migration deployment or a network was re-added after a snapshot was
-            // manually deleted.  Record the snapshot only
+            // Pre-migration deployment or a network was re-added after a
+            // snapshot was manually deleted.
+            //
+            // TOML-declared names are unique by nature, but
+            // `network_segments.name` has no UNIQUE constraint at the DB
+            // layer — multiple segments can share a name. If we
+            // see more than one match, we can't tell which one the
+            // operator originally seeded, so we skip the backfill and
+            // log; the operator can resolve by inserting `network_def`
+            // by hand.
             (None, true) => {
-                insert_network_def(txn, name, def).await?;
-                tracing::info!(
-                    network_name = name,
-                    "Backfilled NetworkDefinition snapshot for pre-existing network segment"
-                );
+                let query = "SELECT id FROM network_segments WHERE name = $1 LIMIT 2";
+                let candidates: Vec<NetworkSegmentId> = sqlx::query_scalar(query)
+                    .bind(name)
+                    .fetch_all(&mut *txn)
+                    .await
+                    .map_err(|e| DatabaseError::query(query, e))?;
+                if let [segment_id] = candidates.as_slice() {
+                    insert_network_def(txn, name, *segment_id, def).await?;
+                    tracing::info!(
+                        network_name = name,
+                        "Backfilled NetworkDefinition snapshot for pre-existing network segment"
+                    );
+                } else {
+                    tracing::warn!(
+                        network_name = name,
+                        count = candidates.len(),
+                        "Backfill skipped: multiple network_segments share this name; \
+                         operator must reconcile by hand",
+                    );
+                }
             }
             // New networks are seeded by the caller (`create_initial_networks`),
             // which both expands the definition into a `NewNetworkSegment` and
             // writes the snapshot in the same transaction.
             (None, false) => {}
+            (Some(_), false) => {
+                unreachable!("network_def.segment_id is FK; snapshot cannot outlive its segment")
+            }
         }
     }
 
@@ -843,15 +862,17 @@ mod tests {
     use super::*;
 
     // Insert just enough into `network_segments` to make
-    // `segment_exists(name)` all other columns have DEFAULTs;
-    // only `version` is VARCHAR(64) NOT NULL with no default, so we
-    // supply a placeholder.
-    async fn minimum_segment_data(pool: &sqlx::PgPool, name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("INSERT INTO network_segments (name, version) VALUES ($1, 'V1-T0')")
-            .bind(name)
-            .execute(pool)
-            .await?;
-        Ok(())
+    // `segment_exists(name)` return true;
+    async fn minimum_segment_data(
+        pool: &sqlx::PgPool,
+        name: &str,
+    ) -> Result<NetworkSegmentId, sqlx::Error> {
+        sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version) VALUES ($1, 'V1-T0') RETURNING id",
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await
     }
     // A brand-new network is declared but no segment exists yet and no
     // snapshot has been recorded.
@@ -936,11 +957,11 @@ mod tests {
     async fn reconcile_network_defs_in_sync_is_noop(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        minimum_segment_data(&pool, "stable").await?;
+        let segment_id = minimum_segment_data(&pool, "stable").await?;
 
         let mut txn = pool.begin().await?;
         let def = def("192.168.1.0/24", "192.168.1.1");
-        insert_network_def(&mut txn, "stable", &def).await?;
+        insert_network_def(&mut txn, "stable", segment_id, &def).await?;
 
         reconcile_network_defs(&mut txn, &declared_one("stable", def.clone())).await?;
 
@@ -961,12 +982,12 @@ mod tests {
     async fn reconcile_network_defs_drift_does_not_apply(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        minimum_segment_data(&pool, "drifty").await?;
+        let segment_id = minimum_segment_data(&pool, "drifty").await?;
 
         let mut txn = pool.begin().await?;
         let original = def("192.168.1.0/24", "192.168.168.1");
         let drifted = def("10.0.0.0/24", "10.0.0.1");
-        insert_network_def(&mut txn, "drifty", &original).await?;
+        insert_network_def(&mut txn, "drifty", segment_id, &original).await?;
 
         reconcile_network_defs(&mut txn, &declared_one("drifty", drifted.clone())).await?;
 
@@ -980,33 +1001,6 @@ mod tests {
         Ok(())
     }
 
-    // Snapshot exists, but no segment row — indicates a partial restore or
-    // manual deletion. Reconcile must error.
-    #[crate::sqlx_test]
-    async fn reconcile_network_defs_snapshot_without_segment_logs_error(
-        pool: sqlx::PgPool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut txn = pool.begin().await?;
-        let def = def("192.168.1.0/24", "192.168.1.1");
-        insert_network_def(&mut txn, "orphan-snapshot", &def).await?;
-
-        reconcile_network_defs(&mut txn, &declared_one("orphan-snapshot", def.clone())).await?;
-
-        // Snapshot is preserved; no segment was created in recovery.
-        let stored = stored_def(txn.as_mut(), "orphan-snapshot").await?;
-        assert_eq!(
-            stored.as_ref(),
-            Some(&def),
-            "anomaly path must leave the snapshot alone",
-        );
-        assert!(
-            !segment_exists(&mut txn, "orphan-snapshot").await?,
-            "anomaly path must not auto-create a network_segments row",
-        );
-        txn.rollback().await?;
-        Ok(())
-    }
-
     // A snapshot exists for a network that is no longer mentioned in any
     // declared config — typical of an operator removing the definition.
     // Reconcile must warn but not delete the snapshot
@@ -1014,11 +1008,11 @@ mod tests {
     async fn reconcile_network_defs_dropped_declaration_is_orphaned(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        minimum_segment_data(&pool, "abandoned").await?;
+        let segment_id = minimum_segment_data(&pool, "abandoned").await?;
 
         let mut txn = pool.begin().await?;
         let def = def("192.168.1.0/24", "192.168.1.1");
-        insert_network_def(&mut txn, "abandoned", &def).await?;
+        insert_network_def(&mut txn, "abandoned", segment_id, &def).await?;
 
         let empty: HashMap<String, NetworkDefinition> = HashMap::new();
         reconcile_network_defs(&mut txn, &empty).await?;
@@ -1032,6 +1026,62 @@ mod tests {
         assert!(
             segment_exists(&mut txn, "abandoned").await?,
             "dropped declarations must not be deleted from network_segments",
+        );
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    // Deleting a segment via `final_delete` must cascade-delete its
+    // `network_def` snapshot.
+    #[crate::sqlx_test]
+    async fn final_delete_cascades_to_network_def(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let segment_id = minimum_segment_data(&pool, "doomed").await?;
+
+        // Seed the snapshot in its own committed transaction so it
+        // survives into the next one where we run `final_delete`.
+        let mut txn = pool.begin().await?;
+        let def = def("192.168.1.0/24", "192.168.1.1");
+        insert_network_def(&mut txn, "doomed", segment_id, &def).await?;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        final_delete(segment_id, &mut txn).await?;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        assert!(
+            stored_def(txn.as_mut(), "doomed").await?.is_none(),
+            "deleting a segment must cascade-delete its network_def snapshot",
+        );
+        assert!(
+            !segment_exists(&mut txn, "doomed").await?,
+            "segment row should be gone after final_delete",
+        );
+        Ok(())
+    }
+
+    // `network_segments.name` is not UNIQUE at the DB layer, so two rows
+    // can share a name Reconcile's backfill
+    // path can't tell which one to attach a snapshot to, so it must
+    // skip rather than guess.
+    #[crate::sqlx_test]
+    async fn reconcile_network_defs_skips_backfill_on_duplicate_names(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Two segments, same name, neither has a snapshot.
+        minimum_segment_data(&pool, "ambiguous").await?;
+        minimum_segment_data(&pool, "ambiguous").await?;
+
+        let mut txn = pool.begin().await?;
+        let def = def("192.168.1.0/24", "192.168.1.1");
+
+        reconcile_network_defs(&mut txn, &declared_one("ambiguous", def.clone())).await?;
+
+        assert!(
+            stored_def(txn.as_mut(), "ambiguous").await?.is_none(),
+            "backfill must skip when multiple segments share the declared name",
         );
         txn.rollback().await?;
         Ok(())

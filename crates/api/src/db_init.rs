@@ -98,11 +98,14 @@ pub async fn create_initial_networks(
         }
         let mut ns = NewNetworkSegment::build_from(name, domain_id, def)?;
         ns.can_stretch = Some(true);
+        // Capture before `save` moves `ns`. `insert_network_def` needs
+        // the id because `network_def.segment_id` is FK-bound to it.
+        let segment_id = ns.id;
         // update_network_segments_svi_ip will take care of allocating svi ip.
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
         // Snapshot the network definition in the same transaction as the network_segment row,
         // so the two stay consistent across restarts.
-        db::network_segment::insert_network_def(&mut txn, name, def).await?;
+        db::network_segment::insert_network_def(&mut txn, name, segment_id, def).await?;
         tracing::info!("Created network segment {name}");
     }
 

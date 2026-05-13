@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::Path;
@@ -97,6 +97,10 @@ use crate::state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::{attestation, db_init, ethernet_virtualization, listener};
+
+/// The resolved set of network declarations passed from `start_api` into
+/// `initialize_and_start_controllers`.
+pub(crate) type NetworkDefinitionSources<'a> = Cow<'a, HashMap<String, NetworkDefinition>>;
 
 /// Parse an `InitialObjectsConfig` file (the file pointed at by
 pub fn parse_initial_objects_config(path: &Path) -> eyre::Result<InitialObjectsConfig> {
@@ -231,18 +235,18 @@ fn resolve_initial_pools(
 /// Determines the authoritative set of network definitions to reconcile
 /// against the database at startup, merging `InitialObjectsConfig.networks`
 /// with the legacy `CarbideConfig.networks` source.
-fn resolve_initial_networks(
-    carbide_config: &CarbideConfig,
-    initial_objects: Option<&InitialObjectsConfig>,
-) -> eyre::Result<HashMap<String, NetworkDefinition>> {
+fn resolve_initial_networks<'a>(
+    carbide_config: &'a CarbideConfig,
+    initial_objects: Option<&'a InitialObjectsConfig>,
+) -> eyre::Result<NetworkDefinitionSources<'a>> {
     let from_initial_objects = initial_objects.and_then(|io| io.networks.as_ref());
     let from_carbide_config = carbide_config.networks.as_ref();
 
     match (from_initial_objects, from_carbide_config) {
         // No networks are defined anywhere — initial network creation is skipped.
-        (None, None) => Ok(HashMap::new()),
+        (None, None) => Ok(Cow::Owned(HashMap::new())),
         // Networks are defined in InitialObjectsConfig.networks
-        (Some(io), None) => Ok(io.clone()),
+        (Some(io), None) => Ok(Cow::Borrowed(io)),
         // Networks are defined only in the legacy CarbideConfig.networks
         (None, Some(cc)) => {
             for name in cc.keys() {
@@ -254,32 +258,30 @@ fn resolve_initial_networks(
                      is deprecated; move the definitions into `initial_objects_file`.",
                 );
             }
-            Ok(cc.clone())
+            Ok(Cow::Borrowed(cc))
         }
         // Networks are defined in both sources.
         (Some(io), Some(cc)) => {
-            let mut merged = io.clone();
-            let mut conflicts: Vec<String> = vec![];
-            let mut legacy_names: Vec<String> = vec![];
-
-            for (name, legacy_def) in cc {
-                match merged.get(name) {
-                    Some(new_def) if new_def != legacy_def => conflicts.push(name.clone()),
-                    Some(_) => legacy_names.push(name.clone()),
-                    None => {
-                        legacy_names.push(name.clone());
-                        merged.insert(name.clone(), legacy_def.clone());
-                    }
-                }
-            }
+            // detect conflicts.
+            let conflicts: Vec<&str> = cc
+                .iter()
+                .filter(|(name, legacy_def)| {
+                    io.get(name.as_str())
+                        .is_some_and(|new_def| new_def != *legacy_def)
+                })
+                .map(|(name, _)| name.as_str())
+                .collect();
 
             if !conflicts.is_empty() {
+                // Each conflicting name is declared in both sources.
+                // Name them both so the operator knows which two files
+                // to compare.
                 let conflict_details: Vec<String> = conflicts
                     .iter()
                     .map(|name| {
                         format!(
-                            "`{name}` (in {})",
-                            network_source(carbide_config.config_ctx.as_ref(), name)
+                            "`{name}` (in initial_objects_file vs {})",
+                            network_source(carbide_config.config_ctx.as_ref(), name),
                         )
                     })
                     .collect();
@@ -288,7 +290,19 @@ fn resolve_initial_networks(
                      Reconcile each network by removing it from one source.",
                 ));
             }
-            for name in &legacy_names {
+
+            // merge legacy-only entries into the result.
+            let mut merged = Cow::Borrowed(io);
+            for (name, legacy_def) in cc {
+                if !io.contains_key(name) {
+                    merged.to_mut().insert(name.clone(), legacy_def.clone());
+                }
+            }
+
+            // Every name in `cc` is still in the deprecated source —
+            // emit one warning per name regardless of whether it was a
+            // legacy-only entry or an identical overlap.
+            for name in cc.keys() {
                 let source = network_source(carbide_config.config_ctx.as_ref(), name);
                 tracing::warn!(
                     network = %name,
@@ -760,12 +774,12 @@ pub async fn start_api(
 ///
 /// All background tasks will be spawned into `join_set`, which can be awaited with
 /// [`JoinSet::join_all`] to wait for them to complete.
-pub async fn initialize_and_start_controllers(
+pub async fn initialize_and_start_controllers<'a>(
     join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     meter: Meter,
     ipmi_tool: Arc<dyn IPMITool>,
-    initial_networks: HashMap<String, NetworkDefinition>,
+    initial_networks: NetworkDefinitionSources<'a>,
     cancel_token: CancellationToken,
 ) -> eyre::Result<()> {
     let Api {
