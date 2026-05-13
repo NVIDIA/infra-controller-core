@@ -14,3 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+pub mod args;
+pub mod cmd;
+
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
+
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::maintenance(&ctx.api_client, self).await?;
+        Ok(())
+    }
+}

@@ -205,6 +205,7 @@ pub async fn admin_network(
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
     booturl: &Option<String>,
+    use_vpc_vrf_loopback: bool,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
     let admin_segments = db::network_segment::admin(txn).await?;
     let admin_segment_ids = admin_segments
@@ -314,16 +315,22 @@ pub async fn admin_network(
                 let vpc = vpcs.remove(0);
                 match vpc.status.and_then(|v| v.vni) {
                     Some(vpc_vni) => {
-                        let tenant_loopback_ip =
-                            db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
-                                common_pools,
-                                txn,
-                                dpu_machine_id,
-                                &vpc.id,
+                        let tenant_loopback_ip = if use_vpc_vrf_loopback {
+                            Some(
+                                db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
+                                    common_pools,
+                                    txn,
+                                    dpu_machine_id,
+                                    &vpc.id,
+                                )
+                                .await?
+                                .to_string(),
                             )
-                            .await?;
+                        } else {
+                            None
+                        };
 
-                        (vpc_vni as u32, Some(tenant_loopback_ip.to_string()))
+                        (vpc_vni as u32, tenant_loopback_ip)
                     }
                     None => {
                         // if FNN is enabled, VPC must be created and updated in admin_segment.

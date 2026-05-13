@@ -74,6 +74,10 @@ pub mod test_support {
         switch_system_image_job_statuses:
             Arc<Mutex<HashMap<String, rms::GetSwitchSystemImageJobStatusResponse>>>,
         switch_system_image_job_errors: Arc<Mutex<HashMap<String, String>>>,
+        submitted_set_power_state_by_device_list_requests:
+            Arc<Mutex<Vec<rms::SetPowerStateByDeviceListRequest>>>,
+        queued_set_power_state_by_device_list_responses:
+            Arc<Mutex<VecDeque<Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>>>>,
     }
 
     impl Default for RmsSim {
@@ -90,6 +94,10 @@ pub mod test_support {
                 queued_switch_system_image_responses: Arc::new(Mutex::new(VecDeque::new())),
                 switch_system_image_job_statuses: Arc::new(Mutex::new(HashMap::new())),
                 switch_system_image_job_errors: Arc::new(Mutex::new(HashMap::new())),
+                submitted_set_power_state_by_device_list_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_set_power_state_by_device_list_responses: Arc::new(Mutex::new(
+                    VecDeque::new(),
+                )),
             }
         }
     }
@@ -97,29 +105,17 @@ pub mod test_support {
     impl RmsSim {
         /// Convert RmsSim to the type expected by Api and StateHandlerServices
         pub fn as_rms_client(&self) -> Option<Arc<dyn RmsApi>> {
-            Some(Arc::new(MockRmsClient {
-                fail_add_node: self.fail_add_node.clone(),
-                fail_inventory_get: self.fail_inventory_get.clone(),
-                registered_nodes: self.registered_nodes.clone(),
-                submitted_firmware_requests: self.submitted_firmware_requests.clone(),
-                queued_firmware_responses: self.queued_firmware_responses.clone(),
-                firmware_job_statuses: self.firmware_job_statuses.clone(),
-                firmware_job_errors: self.firmware_job_errors.clone(),
-                submitted_switch_system_image_requests: self
-                    .submitted_switch_system_image_requests
-                    .clone(),
-                queued_switch_system_image_responses: self
-                    .queued_switch_system_image_responses
-                    .clone(),
-                switch_system_image_job_statuses: self.switch_system_image_job_statuses.clone(),
-                switch_system_image_job_errors: self.switch_system_image_job_errors.clone(),
-            }))
+            Some(Arc::new(self.build_mock_client()))
         }
 
         pub fn as_switch_system_image_rms_client(
             &self,
         ) -> Option<Arc<dyn SwitchSystemImageRmsClient>> {
-            Some(Arc::new(MockRmsClient {
+            Some(Arc::new(self.build_mock_client()))
+        }
+
+        fn build_mock_client(&self) -> MockRmsClient {
+            MockRmsClient {
                 fail_add_node: self.fail_add_node.clone(),
                 fail_inventory_get: self.fail_inventory_get.clone(),
                 registered_nodes: self.registered_nodes.clone(),
@@ -135,7 +131,13 @@ pub mod test_support {
                     .clone(),
                 switch_system_image_job_statuses: self.switch_system_image_job_statuses.clone(),
                 switch_system_image_job_errors: self.switch_system_image_job_errors.clone(),
-            }))
+                submitted_set_power_state_by_device_list_requests: self
+                    .submitted_set_power_state_by_device_list_requests
+                    .clone(),
+                queued_set_power_state_by_device_list_responses: self
+                    .queued_set_power_state_by_device_list_responses
+                    .clone(),
+            }
         }
 
         /// Set whether `add_node` should return an error for testing
@@ -225,6 +227,31 @@ pub mod test_support {
                 .await
                 .clone()
         }
+
+        /// Queue a `Result` to be returned on the next call to
+        /// `set_power_state_by_device_list`. Used by power-shelf maintenance
+        /// tests to drive both the success and failure paths of the
+        /// caller-supplied `SetPowerStateByDeviceList` RPC.
+        pub async fn queue_set_power_state_by_device_list_response(
+            &self,
+            response: Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>,
+        ) {
+            self.queued_set_power_state_by_device_list_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        /// Snapshot the recorded `SetPowerStateByDeviceList` requests, in
+        /// the order they were received.
+        pub async fn submitted_set_power_state_by_device_list_requests(
+            &self,
+        ) -> Vec<rms::SetPowerStateByDeviceListRequest> {
+            self.submitted_set_power_state_by_device_list_requests
+                .lock()
+                .await
+                .clone()
+        }
     }
 
     #[derive(Debug, Clone)]
@@ -243,6 +270,10 @@ pub mod test_support {
         switch_system_image_job_statuses:
             Arc<Mutex<HashMap<String, rms::GetSwitchSystemImageJobStatusResponse>>>,
         switch_system_image_job_errors: Arc<Mutex<HashMap<String, String>>>,
+        submitted_set_power_state_by_device_list_requests:
+            Arc<Mutex<Vec<rms::SetPowerStateByDeviceListRequest>>>,
+        queued_set_power_state_by_device_list_responses:
+            Arc<Mutex<VecDeque<Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>>>>,
     }
 
     #[async_trait::async_trait]
@@ -291,9 +322,17 @@ pub mod test_support {
         }
         async fn set_power_state_by_device_list(
             &self,
-            _cmd: rms::SetPowerStateByDeviceListRequest,
+            cmd: rms::SetPowerStateByDeviceListRequest,
         ) -> Result<rms::SetPowerStateByDeviceListResponse, RackManagerError> {
-            Ok(rms::SetPowerStateByDeviceListResponse::default())
+            self.submitted_set_power_state_by_device_list_requests
+                .lock()
+                .await
+                .push(cmd);
+            self.queued_set_power_state_by_device_list_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(rms::SetPowerStateByDeviceListResponse::default()))
         }
         async fn get_power_state(
             &self,

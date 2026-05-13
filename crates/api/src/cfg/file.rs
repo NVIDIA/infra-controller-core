@@ -746,8 +746,6 @@ pub struct DpfMandatoryServicesConfig {
     pub fmds: DpfServiceConfig,
     #[serde(default = "crate::dpf_services::default_otelcol_service")]
     pub otel: DpfServiceConfig,
-    #[serde(default)]
-    pub otel_agent: DpfServiceConfig,
 }
 
 impl Default for DpfMandatoryServicesConfig {
@@ -759,9 +757,15 @@ impl Default for DpfMandatoryServicesConfig {
             dhcp_server: crate::dpf_services::default_dhcp_server_service(),
             fmds: crate::dpf_services::default_fmds_service(),
             otel: crate::dpf_services::default_otelcol_service(),
-            otel_agent: DpfServiceConfig::default(),
         }
     }
+}
+
+/// Default name for the Kubernetes `imagePullSecrets` entry used by DPF workload charts.
+pub(crate) const DEFAULT_DPF_IMAGE_PULL_SECRET: &str = "dpf-pull-secret";
+
+fn default_dpf_image_pull_secret() -> String {
+    DEFAULT_DPF_IMAGE_PULL_SECRET.to_string()
 }
 
 /// Configuration for a single Helm-based DPF service.
@@ -779,6 +783,9 @@ pub struct DpfServiceConfig {
     pub docker_repo_url: String,
     /// Version of docker image
     pub docker_image_tag: String,
+    /// Secret to use to pull the docker images.
+    #[serde(default = "default_dpf_image_pull_secret")]
+    pub docker_image_pull_secret: String,
 }
 
 /// Machine identity (SPIFFE JWT-SVID) configuration.
@@ -953,6 +960,12 @@ pub struct FnnConfig {
     /// Named routing profiles that define per-VPC route target import/export policies.
     #[serde(default)]
     pub routing_profiles: HashMap<String, FnnRoutingProfileConfig>,
+
+    /// Whether IPs should be allocated for VPC loopbacks.
+    /// The VPC loopback pool will not be used if this false and
+    /// no VPC/VRF loopback IP will be sent to the DPU.
+    #[serde(default)]
+    pub use_vpc_vrf_loopback: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]

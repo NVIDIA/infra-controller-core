@@ -17,7 +17,14 @@
 
 //! State Controller implementation for Power Shelves.
 
+pub mod configuring;
 pub mod context;
+pub mod deleting;
+pub mod error_state;
+pub mod fetching_data;
 pub mod handler;
+pub mod initializing;
 pub mod io;
+pub mod maintenance;
 pub mod metrics;
+pub mod ready;

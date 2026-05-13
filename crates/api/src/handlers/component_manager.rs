@@ -32,7 +32,7 @@ use forge_secrets::credentials::{
 };
 use futures_util::FutureExt;
 use mac_address::MacAddress;
-use model::component_manager::{PowerAction, PowerShelfComponent};
+use model::component_manager::{NvSwitchComponent, PowerAction, PowerShelfComponent};
 use model::firmware::FirmwareComponentType;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
@@ -403,13 +403,17 @@ fn get_compute_tray_firmware_version(
 }
 
 fn map_nv_switch_component_names(raw: &[i32]) -> Result<Vec<String>, Status> {
+    map_nv_switch_components(raw).map(|cs| cs.into_iter().map(|c| c.to_string()).collect())
+}
+
+fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Status> {
     raw.iter()
         .filter(|&&v| v != rpc::NvSwitchComponent::Unknown as i32)
         .map(|&v| match rpc::NvSwitchComponent::try_from(v) {
-            Ok(rpc::NvSwitchComponent::Bmc) => Ok("BMC".to_string()),
-            Ok(rpc::NvSwitchComponent::Cpld) => Ok("CPLD".to_string()),
-            Ok(rpc::NvSwitchComponent::Bios) => Ok("BIOS".to_string()),
-            Ok(rpc::NvSwitchComponent::Nvos) => Ok("NVOS".to_string()),
+            Ok(rpc::NvSwitchComponent::Bmc) => Ok(NvSwitchComponent::Bmc),
+            Ok(rpc::NvSwitchComponent::Cpld) => Ok(NvSwitchComponent::Cpld),
+            Ok(rpc::NvSwitchComponent::Bios) => Ok(NvSwitchComponent::Bios),
+            Ok(rpc::NvSwitchComponent::Nvos) => Ok(NvSwitchComponent::Nvos),
             _ => Err(Status::invalid_argument(format!(
                 "unknown NV-Switch component: {v}"
             ))),
@@ -1161,6 +1165,41 @@ pub(crate) async fn update_component_firmware(
                 .ok_or_else(|| Status::invalid_argument("switch_ids is required"))?;
             if list.ids.is_empty() {
                 return Err(Status::invalid_argument("switch_ids must not be empty"));
+            }
+
+            if let Some(cm) = api.component_manager.as_ref().filter(|cm| {
+                cm.nv_switch.name() == component_manager::nsm::NsmSwitchBackend::BACKEND_NAME
+            }) {
+                let components = map_nv_switch_components(&t.components)?;
+                let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+
+                let mut results: Vec<_> = endpoints
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
+
+                let backend_results = cm
+                    .nv_switch
+                    .queue_firmware_updates(
+                        &endpoints.resolved.endpoints,
+                        &req.target_version,
+                        &components,
+                    )
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+                results.extend(backend_results.into_iter().map(|r| {
+                    let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
+                    if r.success {
+                        success_result(&id)
+                    } else {
+                        error_result(&id, r.error.unwrap_or_default())
+                    }
+                }));
+
+                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                    results,
+                }));
             }
 
             component_names = map_nv_switch_component_names(&t.components)?;

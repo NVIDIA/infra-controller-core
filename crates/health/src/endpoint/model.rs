@@ -64,12 +64,16 @@ pub struct BmcEndpoint {
 }
 
 impl BmcEndpoint {
+    pub fn key(&self) -> String {
+        self.addr.mac.to_string()
+    }
+
     pub fn hash_key(&self) -> Cow<'static, str> {
         Cow::Owned(
             self.rack_id
                 .as_ref()
                 .map(|id| id.to_string())
-                .unwrap_or_else(|| self.addr.mac.to_string()),
+                .unwrap_or_else(|| self.key()),
         )
     }
 

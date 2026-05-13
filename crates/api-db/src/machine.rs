@@ -166,6 +166,8 @@ pub async fn find_existing_machine(
     WHERE
         mi.mac_address = $1::macaddr
         AND
+        mi.interface_type != 'Bmc'
+        AND
         $2::inet <<= np.prefix";
 
     let id: Option<MachineId> = sqlx::query_as(query)
@@ -308,7 +310,8 @@ pub async fn find_by_ip(
             r#"{}
                 INNER JOIN machine_interfaces mi ON mi.machine_id = m.id
                 INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
-                WHERE mia.address = $1::inet"#,
+                WHERE mia.address = $1::inet
+                AND mi.interface_type != 'Bmc'"#,
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
@@ -456,7 +459,7 @@ pub async fn find_by_hostname(
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
-            "{} JOIN machine_interfaces mi ON m.id = mi.machine_id WHERE mi.hostname = $1",
+            "{} JOIN machine_interfaces mi ON m.id = mi.machine_id WHERE mi.hostname = $1 AND mi.interface_type != 'Bmc'",
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
@@ -476,7 +479,7 @@ pub async fn find_by_mac_address(
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
-            "{} JOIN machine_interfaces mi ON m.id = mi.machine_id WHERE mi.mac_address = $1::macaddr",
+            "{} JOIN machine_interfaces mi ON m.id = mi.machine_id WHERE mi.mac_address = $1::macaddr AND mi.interface_type != 'Bmc'",
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
@@ -663,6 +666,7 @@ pub async fn find_host_by_dpu_machine_id(
         static ref query: String = format!(
             r#"{} INNER JOIN machine_interfaces mi ON m.id = mi.machine_id
                     WHERE mi.attached_dpu_machine_id=$1
+                    AND mi.interface_type != 'Bmc'
                     AND mi.attached_dpu_machine_id != mi.machine_id"#,
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
@@ -683,6 +687,7 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
     let query = r#"SELECT mi.machine_id
         FROM machine_interfaces mi
         WHERE mi.attached_dpu_machine_id != mi.machine_id
+        AND mi.interface_type != 'Bmc'
         AND mi.attached_dpu_machine_id = ANY($1)"#;
 
     sqlx::query_as(query)
@@ -726,7 +731,8 @@ pub async fn find_dpus_by_host_machine_id(
             r#"{}
                     INNER JOIN machine_interfaces mi
                       ON m.id = mi.attached_dpu_machine_id
-                    WHERE mi.machine_id=$1"#,
+                    WHERE mi.machine_id=$1
+                    AND mi.interface_type != 'Bmc'"#,
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
