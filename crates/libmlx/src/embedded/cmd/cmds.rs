@@ -20,7 +20,8 @@ use std::time::Duration;
 
 use prettytable::{Cell, Row, Table};
 use regex::Regex;
-use {serde_json, tracing};
+use serde_json;
+use tracing;
 
 use crate::device::cmd::device::args::DeviceArgs;
 use crate::device::cmd::device::cmds::handle as handle_device;

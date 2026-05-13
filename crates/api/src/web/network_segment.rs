@@ -55,21 +55,24 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
     type Error = &'static str;
 
     fn try_from(segment: forgerpc::NetworkSegment) -> Result<Self, Self::Error> {
+        let name = segment
+            .metadata
+            .as_ref()
+            .map(|m| m.name.clone())
+            .unwrap_or_default();
+
         let config = segment.config.ok_or("network segment missing config")?;
         let status = segment.status.unwrap_or_default();
+        let lifecycle = status.lifecycle.as_ref();
 
         Ok(Self {
             id: segment.id.unwrap_or_default().to_string(),
-            name: config.name,
+            name,
             vpc_id: config.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
-            state: format!(
-                "{:?}",
-                forgerpc::TenantState::try_from(status.state).unwrap_or_default()
-            ),
-            time_in_state_above_sla: status
-                .state_sla
-                .as_ref()
+            state: lifecycle.map(|lc| lc.state.clone()).unwrap_or_default(),
+            time_in_state_above_sla: lifecycle
+                .and_then(|lc| lc.sla.as_ref())
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
             sub_domain: String::new(), // filled in later
@@ -80,7 +83,7 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
                 .map(|x| x.prefix.to_string())
                 .collect::<Vec<String>>()
                 .join(", "),
-            version: segment.version,
+            version: lifecycle.map(|lc| lc.version.clone()).unwrap_or_default(),
         })
     }
 }
@@ -115,6 +118,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
             .as_ref()
             .map(|c| c.segment_type)
             .unwrap_or_default();
+
         let mut display: NetworkSegmentRowDisplay = match n.try_into() {
             Ok(d) => d,
             Err(err) => {
@@ -189,8 +193,16 @@ async fn fetch_network_segments(
     }
 
     segments.sort_unstable_by(|ns1, ns2| {
-        let n1 = ns1.config.as_ref().map(|c| c.name.as_str()).unwrap_or("");
-        let n2 = ns2.config.as_ref().map(|c| c.name.as_str()).unwrap_or("");
+        let n1 = ns1
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or_default();
+        let n2 = ns2
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or_default();
         n1.cmp(n2)
     });
     Ok(segments)
@@ -250,14 +262,16 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
     type Error = &'static str;
 
     fn try_from(segment: forgerpc::NetworkSegment) -> Result<Self, Self::Error> {
-        // The config field must be `Some`.
-        let config = segment.config.ok_or("network segment missing config")?;
+        let name = segment
+            .metadata
+            .as_ref()
+            .map(|m| m.name.clone())
+            .unwrap_or_default();
 
-        // The status field may be `None` and default is used.
+        let config = segment.config.ok_or("network segment missing config")?;
         let status = segment.status.unwrap_or_default();
 
         let mut prefixes = Vec::new();
-
         for (i, p) in config.prefixes.into_iter().enumerate() {
             prefixes.push(NetworkSegmentPrefix {
                 index: i,
@@ -267,24 +281,27 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 reserve_first: p.reserve_first,
             });
         }
+
+        // History comes from the deprecated flat field which the API layer always populates.
         let mut history = Vec::new();
-        for h in status.history.into_iter() {
+        for h in segment.history.into_iter() {
             history.push(NetworkSegmentHistory {
                 state: h.state,
                 version: h.version,
             });
         }
-        let state = format!(
-            "{:?}",
-            forgerpc::TenantState::try_from(status.state).unwrap_or_default()
-        );
 
-        let version = segment.version;
+        let lifecycle_detail = status
+            .lifecycle
+            .map(super::LifecycleDetail::from)
+            .unwrap_or_else(|| {
+                super::LifecycleDetail::new(String::new(), String::new(), None, None)
+            });
 
         Ok(Self {
             id: segment.id.unwrap_or_default().to_string(),
-            name: config.name,
-            version: version.clone(),
+            name,
+            version: lifecycle_detail.version.clone(),
             vpc_id: config.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
             updated: segment.updated.unwrap_or_default().to_string(),
@@ -292,14 +309,7 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 .deleted
                 .map(|x| x.to_string())
                 .unwrap_or("Not Deleted".to_string()),
-            // TODO: This version field is wrong. We should be showing the controller state version,
-            // but it isn't exposed over gRPC
-            lifecycle_detail: super::LifecycleDetail::new(
-                state,
-                version,
-                status.state_reason,
-                status.state_sla,
-            ),
+            lifecycle_detail,
             domain_id: config.subdomain_id.unwrap_or_default().to_string(),
             domain_name: String::new(), // filled in later
             segment_type: format!(

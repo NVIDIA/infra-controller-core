@@ -223,6 +223,7 @@ service Forge {
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
+  rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -2208,6 +2209,7 @@ message IBFabricIdList {
   repeated string ib_fabric_ids = 1;
 }
 
+// Deprecated: use FindNetworkSegmentStateHistories RPC instead
 message NetworkSegmentStateHistory {
   string state = 1;
   string version = 2;
@@ -2236,53 +2238,62 @@ enum NetworkSegmentFlag {
 }
 
 message NetworkSegmentConfig {
-  string name = 1;
+  common.VpcId vpc_id = 1;
 
   optional common.DomainId subdomain_id = 2;
   optional int32 mtu = 3;
 
-  repeated NetworkPrefix prefixes = 4;
-  NetworkSegmentType segment_type = 5;
+  NetworkSegmentType segment_type = 4;
 
-  reserved 6;
-  reserved "flags";
-
-  common.VpcId vpc_id = 7;
+  repeated NetworkPrefix prefixes = 5;
 }
 
 message NetworkSegmentStatus {
-  TenantState state = 1;
-
-  repeated NetworkSegmentStateHistory history = 2;
-
-  // The result of last state controller run - its outcome and an optional reason for that outcome
-  optional ControllerStateReason state_reason = 3;
-
-  // The SLA for the current state - and whether the SLA has been breached
-  StateSla state_sla = 4;
-
   // Derived from can_stretch; not accepted as user input.
-  repeated NetworkSegmentFlag flags = 5;
+  repeated NetworkSegmentFlag flags = 1;
+
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 2;
 }
 
 message NetworkSegment {
   common.NetworkSegmentId id = 1;
 
-  // Fields 2–6, 14 moved into config; 15, 100–103 moved into status.
-  reserved 2, 3, 4, 5, 6, 14, 15, 100, 101, 102, 103;
-  reserved "vpc_id", "name", "subdomain_id", "mtu", "prefixes",
-           "segment_type", "flags",
-           "state", "history", "state_reason", "state_sla";
+  // Deprecated: use config.vpc_id
+  common.VpcId vpc_id = 2;
+  // Deprecated: use metadata.name
+  string name = 3;
+  // Deprecated: use config.subdomain_id
+  optional common.DomainId subdomain_id = 4;
+  // Deprecated: use config.mtu
+  optional int32 mtu = 5;
+  // Deprecated: use config.prefixes
+  repeated NetworkPrefix prefixes = 6;
 
   // Not sure if we actually still need those
   google.protobuf.Timestamp created = 11;
   google.protobuf.Timestamp updated = 12;
   google.protobuf.Timestamp deleted = 13;
 
-  string version = 99;
+  // Deprecated: use config.segment_type
+  NetworkSegmentType segment_type = 14;
+  // Deprecated: use status.flags
+  repeated NetworkSegmentFlag flags = 15;
 
-  NetworkSegmentConfig config = 104;
-  NetworkSegmentStatus status = 105;
+  NetworkSegmentConfig config = 16;
+  NetworkSegmentStatus status = 17;
+  Metadata metadata = 18;
+
+  // Deprecated: use status.lifecycle.version
+  string version = 99;
+  // Deprecated: use status.lifecycle.state
+  TenantState state = 100;
+  // Deprecated: use FindNetworkSegmentStateHistories RPC
+  repeated NetworkSegmentStateHistory history = 101;
+  // Deprecated: use status.lifecycle.state_reason
+  optional ControllerStateReason state_reason = 102;
+  // Deprecated: use status.lifecycle.sla
+  StateSla state_sla = 103;
 }
 
 message NetworkSegmentCreationRequest {
@@ -2308,6 +2319,10 @@ message NetworkSegmentDeletionRequest {
 }
 
 message NetworkSegmentDeletionResult {
+}
+
+message NetworkSegmentStateHistoriesRequest {
+  repeated common.NetworkSegmentId network_segment_ids = 1;
 }
 
 message NetworkSegmentSearchConfig {

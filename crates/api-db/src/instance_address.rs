@@ -636,7 +636,7 @@ mod tests {
                         subdomain_id: None,
                         mtu: 1500,
                         segment_type: NetworkSegmentType::Tenant,
-                        allocation_strategy: AllocationStrategy::default(), // Dynamic
+                        allocation_strategy: AllocationStrategy::Dynamic,
                         vpc_id: Some(vpc_id),
                     },
                     status: NetworkSegmentStatus {

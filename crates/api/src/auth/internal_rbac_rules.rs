@@ -92,6 +92,10 @@ impl InternalRBACRules {
             "FindNetworkSegmentsByIds",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
+        x.perm(
+            "FindNetworkSegmentStateHistories",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
         x.perm("CreateNetworkSegment", vec![Machineatron, SiteAgent]);
         x.perm(
             "DeleteNetworkSegment",

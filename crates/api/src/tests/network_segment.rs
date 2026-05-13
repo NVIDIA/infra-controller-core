@@ -281,14 +281,7 @@ async fn test_network_segment_max_history_length(
         },
     )
     .await;
-    assert!(
-        !segment.network_segments[0]
-            .status
-            .as_ref()
-            .expect("segment status must be present")
-            .history
-            .is_empty()
-    );
+    assert!(!segment.network_segments[0].history.is_empty());
 
     let segment = get_segments(
         &env.api,
@@ -299,14 +292,7 @@ async fn test_network_segment_max_history_length(
         },
     )
     .await;
-    assert!(
-        segment.network_segments[0]
-            .status
-            .as_ref()
-            .expect("segment status must be present")
-            .history
-            .is_empty()
-    );
+    assert!(segment.network_segments[0].history.is_empty());
 
     let segment = get_segments(
         &env.api,
@@ -317,14 +303,7 @@ async fn test_network_segment_max_history_length(
         },
     )
     .await;
-    assert!(
-        segment.network_segments[0]
-            .status
-            .as_ref()
-            .expect("segment status must be present")
-            .history
-            .is_empty()
-    );
+    assert!(segment.network_segments[0].history.is_empty());
 
     // Now insert a lot of state changes, and see if the history limit is kept
     const HISTORY_LIMIT: usize = 250;
@@ -1138,6 +1117,152 @@ async fn test_update_svi_ip_post_instance_allocation(
     Ok(())
 }
 
+// TODO(Phase 3): Remove these compatibility tests once deprecated flat fields are dropped from
+// the API response. They exist solely to catch regressions during the migration window where
+// both old and new field paths must stay in sync.
+
+/// Verify that every deprecated flat field in a `NetworkSegment` response mirrors the value in
+/// its structured counterpart after creation.
+///
+/// Each field is checked against its known expected value first, then against the structured
+/// counterpart. This prevents the mirror checks from trivially passing when both sides are
+/// absent or empty.
+#[crate::sqlx_test]
+async fn test_deprecated_flat_fields_mirror_structured_fields_on_create(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let segment = create_network_segment_with_api(
+        &env,
+        false,
+        true,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
+
+    let config = segment.config.as_ref().expect("config must be present");
+    let status = segment.status.as_ref().expect("status must be present");
+    let metadata = segment.metadata.as_ref().expect("metadata must be present");
+    let lifecycle = status.lifecycle.as_ref().expect("lifecycle must be present");
+
+    // Assert structured fields have real values before comparing against flat fields.
+    assert_eq!(metadata.name, "TEST_SEGMENT", "structured name");
+    assert_eq!(config.mtu, Some(1500), "structured mtu");
+    assert_eq!(config.segment_type, rpc::forge::NetworkSegmentType::Admin as i32, "structured segment_type");
+    assert!(config.vpc_id.is_some(), "structured vpc_id must be set");
+    assert_eq!(config.prefixes.len(), 1, "structured prefixes count");
+    assert_eq!(config.prefixes[0].prefix, "192.0.2.0/24", "structured prefix");
+    assert!(!lifecycle.version.is_empty(), "structured version must be non-empty");
+    assert!(!status.flags.is_empty(), "structured flags must be non-empty");
+
+    // Assert each deprecated flat field matches its structured counterpart.
+    assert_eq!(segment.name, metadata.name, "flat name");
+    assert_eq!(segment.mtu, config.mtu, "flat mtu");
+    assert_eq!(segment.segment_type, config.segment_type, "flat segment_type");
+    assert_eq!(segment.vpc_id, config.vpc_id, "flat vpc_id");
+    assert_eq!(segment.subdomain_id, config.subdomain_id, "flat subdomain_id");
+    assert_eq!(
+        segment.prefixes.iter().map(|p| p.prefix.as_str()).collect::<Vec<_>>(),
+        config.prefixes.iter().map(|p| p.prefix.as_str()).collect::<Vec<_>>(),
+        "flat prefixes",
+    );
+    assert_eq!(segment.flags, status.flags, "flat flags");
+    assert_eq!(segment.version, lifecycle.version, "flat version");
+    assert_eq!(segment.state_reason, lifecycle.state_reason, "flat state_reason");
+    assert_eq!(segment.state_sla, lifecycle.sla, "flat state_sla");
+
+    let structured_state = common::network_segment::tenant_state_from_segment(&segment);
+    let flat_state = rpc::forge::TenantState::try_from(segment.state).unwrap_or_default();
+    assert_eq!(flat_state, structured_state, "flat state");
+
+    Ok(())
+}
+
+/// Verify that deprecated flat fields continue to mirror structured fields after the segment
+/// advances to `Ready` (i.e. duplication is consistent on reads, not just the creation response).
+///
+/// Each field is checked against its known expected value first so the mirror checks cannot
+/// trivially pass due to both sides being absent or empty.
+#[crate::sqlx_test]
+async fn test_deprecated_flat_fields_mirror_structured_fields_after_ready(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let segment = create_network_segment_with_api(
+        &env,
+        false,
+        true,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
+    let segment_id: NetworkSegmentId = segment.id.unwrap();
+
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    assert_eq!(
+        get_segment_state(&env.api, segment_id).await,
+        rpc::forge::TenantState::Ready,
+    );
+
+    let segment = get_segments(
+        &env.api,
+        rpc::forge::NetworkSegmentsByIdsRequest {
+            network_segments_ids: vec![segment_id],
+            include_history: true,
+            include_num_free_ips: true,
+        },
+    )
+    .await
+    .network_segments
+    .remove(0);
+
+    let config = segment.config.as_ref().expect("config must be present");
+    let status = segment.status.as_ref().expect("status must be present");
+    let metadata = segment.metadata.as_ref().expect("metadata must be present");
+    let lifecycle = status.lifecycle.as_ref().expect("lifecycle must be present");
+
+    // Assert structured fields have real values before comparing against flat fields.
+    assert_eq!(metadata.name, "TEST_SEGMENT", "structured name");
+    assert_eq!(config.mtu, Some(1500), "structured mtu");
+    assert_eq!(config.segment_type, rpc::forge::NetworkSegmentType::Admin as i32, "structured segment_type");
+    assert!(config.vpc_id.is_some(), "structured vpc_id must be set");
+    assert_eq!(config.prefixes.len(), 1, "structured prefixes count");
+    assert_eq!(config.prefixes[0].prefix, "192.0.2.0/24", "structured prefix");
+    assert!(!lifecycle.version.is_empty(), "structured version must be non-empty");
+    assert!(!status.flags.is_empty(), "structured flags must be non-empty");
+    assert!(lifecycle.sla.is_some(), "structured sla must be set in Ready state");
+
+    // Assert each deprecated flat field matches its structured counterpart.
+    assert_eq!(segment.name, metadata.name, "flat name");
+    assert_eq!(segment.mtu, config.mtu, "flat mtu");
+    assert_eq!(segment.segment_type, config.segment_type, "flat segment_type");
+    assert_eq!(segment.vpc_id, config.vpc_id, "flat vpc_id");
+    assert_eq!(segment.subdomain_id, config.subdomain_id, "flat subdomain_id");
+    assert_eq!(
+        segment.prefixes.iter().map(|p| p.prefix.as_str()).collect::<Vec<_>>(),
+        config.prefixes.iter().map(|p| p.prefix.as_str()).collect::<Vec<_>>(),
+        "flat prefixes",
+    );
+    assert_eq!(segment.flags, status.flags, "flat flags");
+    assert_eq!(segment.version, lifecycle.version, "flat version");
+    assert_eq!(segment.state_reason, lifecycle.state_reason, "flat state_reason");
+    assert_eq!(segment.state_sla, lifecycle.sla, "flat state_sla");
+
+    let structured_state = common::network_segment::tenant_state_from_segment(&segment);
+    assert_eq!(structured_state, rpc::forge::TenantState::Ready, "structured state must be Ready");
+    let flat_state = rpc::forge::TenantState::try_from(segment.state).unwrap_or_default();
+    assert_eq!(flat_state, structured_state, "flat state");
+
+    Ok(())
+}
+
 /// Verify that creating a network segment with an IPv6 prefix succeeds
 /// through the full API handler chain.
 #[crate::sqlx_test]
@@ -1170,7 +1295,7 @@ async fn test_create_network_segment_with_ipv6_prefix(
         .into_inner();
 
     let config = response.config.as_ref().unwrap();
-    assert_eq!(config.name, "IPV6_SEGMENT");
+    assert_eq!(response.metadata.as_ref().unwrap().name, "IPV6_SEGMENT");
     assert_eq!(config.prefixes.len(), 1);
     assert_eq!(config.prefixes[0].prefix, "2001:db8::/64");
     assert!(config.prefixes[0].gateway.is_none());
@@ -1244,7 +1369,10 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         .into_inner();
 
     let config = response.config.as_ref().unwrap();
-    assert_eq!(config.name, "DUAL_STACK_SEGMENT");
+    assert_eq!(
+        response.metadata.as_ref().unwrap().name,
+        "DUAL_STACK_SEGMENT"
+    );
     assert_eq!(config.prefixes.len(), 2);
 
     // Verify both prefixes are present (order may vary)

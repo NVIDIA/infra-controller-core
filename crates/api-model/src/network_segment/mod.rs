@@ -22,7 +22,6 @@ use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use itertools::Itertools;
 use rpc::TenantState;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -588,29 +587,40 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
 impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
     type Error = RpcDataConversionError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
+        // Deprecated TenantState mapping - kept to populate the backward-compat flat field.
         // Note that even though the segment might already be ready,
         // we only return `Ready` after the state machine also noticed that.
         // Otherwise we would need to allow address allocation before the
         // controller state is ready, which spreads out the state mismatch.
-        let state = match &src.status.controller_state.value {
+        let tenant_state = match &src.status.controller_state.value {
             NetworkSegmentControllerState::Provisioning => TenantState::Provisioning,
             NetworkSegmentControllerState::Ready => TenantState::Ready,
             NetworkSegmentControllerState::Deleting { .. } => TenantState::Terminating,
         };
-        // If deletion is requested, immediately overwrite the state to terminating.
+        // If deletion is requested, immediately overwrite to terminating.
         // The state controller will eventually catch up.
-        let state = if src.is_marked_as_deleted() {
+        let tenant_state = if src.is_marked_as_deleted() {
             TenantState::Terminating
         } else {
-            state
+            tenant_state
         };
 
-        let history = src
-            .status
-            .history
-            .into_iter()
-            .map(|s| s.into())
-            .collect::<Vec<_>>();
+        // lifecycle.state: full JSON serialization of the internal controller state.
+        // Consistent with how Switch and PowerShelf populate LifecycleStatus.
+        let lifecycle_state =
+            serde_json::to_string(&src.status.controller_state.value).unwrap_or_default();
+
+        let sla: rpc::forge::StateSla = state_sla(
+            &src.status.controller_state.value,
+            &src.status.controller_state.version,
+        )
+        .into();
+
+        let state_reason: Option<rpc::forge::ControllerStateReason> =
+            src.status.controller_state_outcome.map(Into::into);
+
+        let history: Vec<rpc::forge::NetworkSegmentStateHistory> =
+            src.status.history.into_iter().map(Into::into).collect();
 
         let flags: Vec<i32> = {
             use rpc::forge::NetworkSegmentFlag::*;
@@ -638,39 +648,58 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             flags.into_iter().map(|flag| flag as i32).collect()
         };
 
-        let prefixes = src
-            .prefixes
-            .into_iter()
-            .map(rpc::forge::NetworkPrefix::from)
-            .collect_vec();
+        let prefixes: Vec<rpc::forge::NetworkPrefix> =
+            src.prefixes.into_iter().map(Into::into).collect();
+
+        let version = src.version.version_string();
 
         Ok(rpc::NetworkSegment {
             id: Some(src.id),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
-            version: src.version.version_string(),
+
+            // New structured fields - internal clients use these.
+            // Note: prefixes are placed under config in the proto even though they are top-level
+            // in the Rust model. The Rust model keeps them top-level because each NetworkPrefix
+            // contains mixed config fields (CIDR, gateway) and status fields (free_ip_count,
+            // svi_ip). The proto puts them under config as the closest semantic fit for now.
             config: Some(rpc::forge::NetworkSegmentConfig {
-                name: src.config.name,
+                vpc_id: src.config.vpc_id,
                 subdomain_id: src.config.subdomain_id,
                 mtu: Some(src.config.mtu),
-                prefixes,
+                prefixes: prefixes.clone(),
                 segment_type: src.config.segment_type as i32,
-                vpc_id: src.config.vpc_id,
             }),
             status: Some(rpc::forge::NetworkSegmentStatus {
-                state: state as i32,
-                history,
-                state_reason: src.status.controller_state_outcome.map(|r| r.into()),
-                state_sla: Some(
-                    state_sla(
-                        &src.status.controller_state.value,
-                        &src.status.controller_state.version,
-                    )
-                    .into(),
-                ),
-                flags,
+                flags: flags.clone(),
+                lifecycle: Some(rpc::forge::LifecycleStatus {
+                    state: lifecycle_state,
+                    version: version.clone(),
+                    state_reason: state_reason.clone(),
+                    sla: Some(sla),
+                }),
             }),
+            metadata: Some(rpc::forge::Metadata {
+                name: src.config.name.clone(),
+                description: String::new(),
+                labels: vec![],
+            }),
+
+            // Deprecated flat fields - populated for external client compatibility.
+            // Remove after nico-rest migrates to config/status/metadata (Phase 3).
+            vpc_id: src.config.vpc_id,
+            name: src.config.name,
+            subdomain_id: src.config.subdomain_id,
+            mtu: Some(src.config.mtu),
+            prefixes,
+            segment_type: src.config.segment_type as i32,
+            flags,
+            version,
+            state: tenant_state as i32,
+            history,
+            state_reason,
+            state_sla: Some(sla),
         })
     }
 }

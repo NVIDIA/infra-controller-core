@@ -378,6 +378,12 @@ pub async fn underlay_segment_html(
         }
     };
 
+    let segment_name = segment
+        .metadata
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or_default();
+
     let Some(config) = segment.config else {
         tracing::error!("underlay segment missing config");
         return (StatusCode::INTERNAL_SERVER_ERROR, "Segment data incomplete").into_response();
@@ -420,7 +426,7 @@ pub async fn underlay_segment_html(
 
     let tmpl = IpamUnderlaySegment {
         segment_id,
-        segment_name: config.name,
+        segment_name,
         segment_type,
         segment_prefix,
         addresses,
@@ -837,6 +843,12 @@ pub async fn overlay_segment_html(
         }
     };
 
+    let segment_name = segment
+        .metadata
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or_default();
+
     let Some(config) = segment.config else {
         tracing::error!("overlay segment missing config");
         return (StatusCode::INTERNAL_SERVER_ERROR, "Segment data incomplete").into_response();
@@ -889,7 +901,7 @@ pub async fn overlay_segment_html(
 
     let tmpl = IpamOverlaySegment {
         segment_id,
-        segment_name: config.name,
+        segment_name,
         segment_prefix,
         vpc_name,
         addresses,

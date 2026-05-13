@@ -19,7 +19,9 @@ use std::time::Duration;
 
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::{TestEnvOverrides, create_test_env, create_test_env_with_overrides};
-use common::network_segment::{create_network_segment_with_api, get_segment_state, text_history};
+use common::network_segment::{
+    create_network_segment_with_api, get_segment_state, tenant_state_from_segment, text_history,
+};
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
@@ -41,11 +43,7 @@ async fn test_network_segment_lifecycle_impl(
     assert!(segment.created.is_some());
     assert!(segment.deleted.is_none());
     assert_eq!(
-        segment
-            .status
-            .as_ref()
-            .map(|s| s.state())
-            .unwrap_or_default(),
+        tenant_state_from_segment(&segment),
         rpc::forge::TenantState::Provisioning
     );
     assert_eq!(

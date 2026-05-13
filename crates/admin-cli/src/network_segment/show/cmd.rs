@@ -36,20 +36,26 @@ async fn convert_network_to_nice_format(
     segment: forgerpc::NetworkSegment,
     api_client: &ApiClient,
 ) -> CarbideCliResult<String> {
-    // The `config` field  must be not `None` and no default should be used when it's `None`.
+    let name = segment
+        .metadata
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or_default();
+
+    let history = segment.history.clone();
+
     let config = segment.config.ok_or_else(|| {
         CarbideCliError::GenericError("network segment missing config".to_string())
     })?;
-
-    // The `status` field _may_ be `None`. The use of it in the table below is reading the
-    // `TenantState`.
-    //
-    // The behavior may be a little too implicit though as `prost::Enumeration` automatically sets
-    // the first variant `TenantState::Provisioning` as the default. While being correct, it may be
-    // under-specified. For now, it is consistent with the behavior when `NetworkSegment` object was
-    // flat: the state is updated internally, and by default, its value is `0` when the
-    // `NetworkSegment` is created.
     let status = segment.status.unwrap_or_default();
+    let lifecycle = status.lifecycle.as_ref();
+    let state = lifecycle
+        .map(|lc| {
+            serde_json::from_str::<NetworkState>(&lc.state)
+                .map(|ns| ns.state)
+                .unwrap_or_else(|_| lc.state.clone())
+        })
+        .unwrap_or_default();
 
     let width = 10;
     let mut lines = String::new();
@@ -59,7 +65,7 @@ async fn convert_network_to_nice_format(
             "ID",
             segment.id.map(|id| id.to_string()).unwrap_or_default(),
         ),
-        ("NAME", config.name),
+        ("NAME", name),
         ("CREATED", segment.created.unwrap_or_default().to_string()),
         ("UPDATED", segment.updated.unwrap_or_default().to_string()),
         (
@@ -69,13 +75,7 @@ async fn convert_network_to_nice_format(
                 .map(|x| x.to_string())
                 .unwrap_or("Not Deleted".to_string()),
         ),
-        (
-            "STATE",
-            format!(
-                "{:?}",
-                forgerpc::TenantState::try_from(status.state).unwrap_or_default()
-            ),
-        ),
+        ("STATE", state),
         ("VPC", config.vpc_id.unwrap_or_default().to_string()),
         (
             "DOMAIN",
@@ -103,8 +103,9 @@ async fn convert_network_to_nice_format(
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
         for (i, prefix) in config.prefixes.into_iter().enumerate() {
-            let net = ipnet::IpNet::from_str(&prefix.prefix).unwrap();
-            let range = format!("{} - {}", net.network(), net.broadcast());
+            let range = ipnet::IpNet::from_str(&prefix.prefix)
+                .map(|net| format!("{} - {}", net.network(), net.broadcast()))
+                .unwrap_or_else(|_| "invalid prefix".to_string());
             let data = vec![
                 ("SN", i.to_string()),
                 ("ID", prefix.id.unwrap_or_default().to_string()),
@@ -130,7 +131,7 @@ async fn convert_network_to_nice_format(
     }
 
     writeln!(&mut lines, "STATE HISTORY: (Latest 5 only)")?;
-    if status.history.is_empty() {
+    if history.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
         writeln!(
@@ -141,11 +142,13 @@ async fn convert_network_to_nice_format(
             &mut lines,
             "\t---------------------------------------------------"
         )?;
-        for x in status.history.iter().rev().take(5).rev() {
+        for x in history.iter().rev().take(5).rev() {
             writeln!(
                 &mut lines,
                 "\t{:<15} {:25} {}",
-                serde_json::from_str::<NetworkState>(&x.state)?.state,
+                serde_json::from_str::<NetworkState>(&x.state)
+                    .map(|ns| ns.state)
+                    .unwrap_or_else(|_| x.state.clone()),
                 x.version,
                 x.time.unwrap_or_default()
             )?;
@@ -182,25 +185,49 @@ fn convert_network_to_nice_table(
     ]);
 
     for segment in segments.network_segments {
-        let config = segment.config.ok_or_else(|| {
-            CarbideCliError::GenericError("network segment missing config".to_string())
-        })?;
+        let name = segment
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or("")
+            .to_string();
 
-        let status = segment.status.ok_or_else(|| {
-            CarbideCliError::GenericError("network segment missing status".to_string())
-        })?;
+        let Some(config) = segment.config else {
+            println!("skipping segment {:?}: missing config", segment.id);
+            continue;
+        };
+        let Some(status) = segment.status else {
+            println!("skipping segment {:?}: missing status", segment.id);
+            continue;
+        };
 
-        let net = ipnet::IpNet::from_str(&config.prefixes.first().unwrap().prefix).unwrap();
+        let lifecycle = status.lifecycle.as_ref();
+        let state = lifecycle
+            .map(|lc| {
+                serde_json::from_str::<NetworkState>(&lc.state)
+                    .map(|ns| ns.state)
+                    .unwrap_or_else(|_| lc.state.clone())
+            })
+            .unwrap_or_default();
+
+        let version = lifecycle
+            .map(|lc| lc.version.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let Some(first_prefix) = config.prefixes.first() else {
+            continue;
+        };
+        let Ok(net) = ipnet::IpNet::from_str(&first_prefix.prefix) else {
+            continue;
+        };
         let end_ip = net.broadcast().to_string();
 
         table.add_row(row![
             segment.id.unwrap_or_default(),
-            config.name,
+            name,
             segment.created.unwrap_or_default(),
-            format!(
-                "{:?}",
-                forgerpc::TenantState::try_from(status.state).unwrap_or_default()
-            ),
+            state,
             config.vpc_id.unwrap_or_default(),
             config.mtu.unwrap_or(-1),
             config
@@ -210,7 +237,7 @@ fn convert_network_to_nice_table(
                 .collect::<Vec<String>>()
                 .join(", "),
             end_ip,
-            segment.version,
+            version,
             format!(
                 "{:?}",
                 forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()

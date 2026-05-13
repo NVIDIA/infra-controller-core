@@ -68,15 +68,23 @@ async fn handle_overlay_segment_creation(
             .await?;
 
         if let Some(ns) = network_segment.network_segments.first() {
+            let ns_name = ns
+                .metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or_default();
+
             let config = ns.config.as_ref().ok_or_else(|| {
                 CarbideCliError::GenericError("network segment missing config".to_string())
             })?;
+
             println!(
                 "Found network segment id: {}, name: {} for prefix: {}",
                 ns.id.unwrap(),
-                config.name,
-                config.prefixes.first().unwrap().prefix
+                ns_name,
+                config.prefixes.first().map_or("unknown", |p| &p.prefix)
             );
+
             continue;
         }
 
@@ -92,14 +100,21 @@ async fn handle_overlay_segment_creation(
             )
             .await?;
 
+        let ns_name = ns
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or_default();
+
         let config = ns.config.as_ref().ok_or_else(|| {
             CarbideCliError::GenericError("network segment missing config".to_string())
         })?;
+
         println!(
             "Created network segment id: {}, name: {} for prefix: {}",
             ns.id.unwrap(),
-            config.name,
-            config.prefixes.first().unwrap().prefix
+            ns_name,
+            config.prefixes.first().map_or("unknown", |p| &p.prefix)
         );
     }
 
