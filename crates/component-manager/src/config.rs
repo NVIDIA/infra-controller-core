@@ -3,12 +3,17 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::compute_tray_manager::Backend;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ComponentManagerConfig {
     #[serde(default = "default_nsm_backend")]
     pub nv_switch_backend: String,
     #[serde(default = "default_psm_backend")]
     pub power_shelf_backend: String,
+    #[serde(default)]
+    pub compute_tray_backend: Backend,
+
     #[serde(default)]
     pub nsm: Option<BackendEndpointConfig>,
     #[serde(default)]
@@ -32,6 +37,14 @@ pub struct ComponentManagerConfig {
     /// Defaults to `false`.
     #[serde(default)]
     pub power_shelf_use_state_controller: bool,
+
+    /// When `true`, compute power control and firmware update calls
+    /// go through the state controller instead of being dispatched
+    /// directly.
+    ///
+    /// Defaults to `false`.
+    #[serde(default)]
+    pub compute_tray_use_state_controller: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -104,10 +117,12 @@ impl Default for ComponentManagerConfig {
         Self {
             nv_switch_backend: default_nsm_backend(),
             power_shelf_backend: default_psm_backend(),
+            compute_tray_backend: Backend::default(),
             nsm: None,
             psm: None,
             nv_switch_use_state_controller: false,
             power_shelf_use_state_controller: false,
+            compute_tray_use_state_controller: false,
         }
     }
 }
