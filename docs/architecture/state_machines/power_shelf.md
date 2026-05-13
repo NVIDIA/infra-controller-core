@@ -57,10 +57,10 @@ stateDiagram-v2
 | FetchingData | Configuring | Data fetch complete |
 | Configuring | Ready | Configuration complete |
 | Ready | Deleting | `deleted` set (marked for deletion) |
-| Ready | Maintenance { PowerOn } | `power_shelf_maintenance_requested.operation == PowerOn` |
-| Ready | Maintenance { PowerOff } | `power_shelf_maintenance_requested.operation == PowerOff` |
-| Maintenance { PowerOn \| PowerOff } | Ready | BMC operation complete; controller clears `power_shelf_maintenance_requested` |
-| Maintenance { PowerOn \| PowerOff } | Error | BMC operation failed |
+| Ready | Maintenance `{ PowerOn }` | `power_shelf_maintenance_requested.operation == PowerOn` |
+| Ready | Maintenance `{ PowerOff }` | `power_shelf_maintenance_requested.operation == PowerOff` |
+| Maintenance `{ PowerOn \| PowerOff }` | Ready | BMC operation complete; controller clears `power_shelf_maintenance_requested` |
+| Maintenance `{ PowerOn \| PowerOff }` | Error | BMC operation failed |
 | Error | Deleting | `deleted` set (marked for deletion) |
 | Deleting | *(end)* | Final delete committed |
 
