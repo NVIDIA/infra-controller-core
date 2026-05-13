@@ -294,7 +294,7 @@ async fn test_detach_gpus_from_partition_by_clearing_nvlink_config(pool: sqlx::P
     // Check that NMX-C reflects the partition (in-memory / test sim client).
     let nmxc_sim_client = env
         .nmxc_sim
-        .create_client(libnmxc::Endpoint::new("http://localhost:9601"))
+        .create_client(libnmxc::Endpoint::new("http://localhost:9601").expect("NMX-C endpoint URI"))
         .await
         .unwrap();
     let nmxc_partitions = nmxc_sim_client
@@ -340,7 +340,7 @@ async fn test_detach_gpus_from_partition_by_clearing_nvlink_config(pool: sqlx::P
 
     let nmxc_sim_client = env
         .nmxc_sim
-        .create_client(libnmxc::Endpoint::new("http://localhost:9601"))
+        .create_client(libnmxc::Endpoint::new("http://localhost:9601").expect("NMX-C endpoint URI"))
         .await
         .unwrap();
     let nmxc_partitions = nmxc_sim_client
@@ -1334,7 +1334,7 @@ async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) 
 
     let nmxc_sim_client = env
         .nmxc_sim
-        .create_client(libnmxc::Endpoint::new("http://localhost:9601"))
+        .create_client(libnmxc::Endpoint::new("http://localhost:9601").expect("NMX-C endpoint URI"))
         .await
         .unwrap();
     let nmxc_partitions = nmxc_sim_client
@@ -1404,7 +1404,7 @@ async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) 
 
     let nmxc_sim_client = env
         .nmxc_sim
-        .create_client(libnmxc::Endpoint::new("http://localhost:9601"))
+        .create_client(libnmxc::Endpoint::new("http://localhost:9601").expect("NMX-C endpoint URI"))
         .await
         .unwrap();
     let nmxc_partitions = nmxc_sim_client
@@ -1518,7 +1518,7 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
 
     let nmxc_sim_client = env
         .nmxc_sim
-        .create_client(libnmxc::Endpoint::new("localhost:4010"))
+        .create_client(libnmxc::Endpoint::new("http://localhost:4010").expect("NMX-C endpoint URI"))
         .await
         .unwrap();
     let nmxc_partitions = nmxc_sim_client
@@ -1836,7 +1836,7 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
     // There should be an "unknown" partition in NMX-C (partition id 12345 from sim preset).
     let nmxc_sim_client = env
         .nmxc_sim
-        .create_client(libnmxc::Endpoint::new("localhost:4010"))
+        .create_client(libnmxc::Endpoint::new("http://localhost:4010").expect("NMX-C endpoint URI"))
         .await
         .unwrap();
     let nmxc_partitions = nmxc_sim_client

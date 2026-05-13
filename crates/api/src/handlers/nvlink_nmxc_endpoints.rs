@@ -16,9 +16,9 @@
  */
 
 use ::rpc::forge as rpc;
-use db::DatabaseError;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
 fn to_proto(row: db::nvlink_nmxc_endpoints::NvlinkNmxcEndpoint) -> rpc::NvlinkNmxcEndpoint {
@@ -54,22 +54,9 @@ pub(crate) async fn create_nvlink_nmxc_endpoint(
         return Err(Status::invalid_argument("endpoint must not be empty"));
     }
     let mut txn = api.txn_begin().await?;
-    let row =
-        match db::nvlink_nmxc_endpoints::create(&mut txn, &inner.chassis_serial, &inner.endpoint)
-            .await
-        {
-            Ok(row) => row,
-            Err(e) if is_unique_violation(&e) => {
-                txn.rollback().await.ok();
-                return Err(Status::already_exists(
-                    "nvlink_nmxc_endpoints: chassis_serial already exists",
-                ));
-            }
-            Err(e) => {
-                txn.rollback().await.ok();
-                return Err(e.into());
-            }
-        };
+    let row = db::nvlink_nmxc_endpoints::create(&mut txn, &inner.chassis_serial, &inner.endpoint)
+        .await
+        .map_err(CarbideError::from)?;
     txn.commit().await?;
     Ok(Response::new(to_proto(row)))
 }
@@ -116,14 +103,4 @@ pub(crate) async fn delete_nvlink_nmxc_endpoint(
         ));
     }
     Ok(Response::new(()))
-}
-
-fn is_unique_violation(err: &DatabaseError) -> bool {
-    let DatabaseError::Sqlx(a) = err else {
-        return false;
-    };
-    match &a.source {
-        sqlx::Error::Database(db) => db.code() == Some(std::borrow::Cow::Borrowed("23505")),
-        _ => false,
-    }
 }

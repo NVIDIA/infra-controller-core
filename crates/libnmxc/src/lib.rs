@@ -25,6 +25,7 @@ pub mod nmxc_model {
 use std::path::PathBuf;
 use std::time::Duration;
 
+use http::Uri;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::debug;
 
@@ -60,13 +61,17 @@ impl NmxcError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
-    /// Base URL for the NMX-C gRPC service (e.g. "https://host:50051" or "http://localhost:50051")
-    pub url: String,
+    /// Base URI for the NMX-C gRPC service (e.g. `https://host:50051` or `http://localhost:50051`).
+    pub uri: Uri,
 }
 
 impl Endpoint {
-    pub fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into() }
+    pub fn new(url: impl AsRef<str>) -> Result<Self, NmxcError> {
+        let uri = url
+            .as_ref()
+            .parse::<Uri>()
+            .map_err(|e| NmxcError::InvalidEndpoint(format!("{}: {e}", url.as_ref())))?;
+        Ok(Self { uri })
     }
 }
 
@@ -140,7 +145,7 @@ impl NmxcClientPool {
 
     async fn build_https_tls_config(
         &self,
-        uri: &tonic::transport::Uri,
+        uri: &Uri,
         t: &NmxcTlsConfig,
     ) -> Result<ClientTlsConfig, NmxcError> {
         let mut config = ClientTlsConfig::new();
@@ -192,19 +197,15 @@ impl NmxcClientPool {
     }
 
     async fn connect(&self, endpoint: &Endpoint) -> Result<Channel, NmxcError> {
-        let uri: tonic::transport::Uri = endpoint
-            .url
-            .parse()
-            .map_err(|e| NmxcError::InvalidEndpoint(format!("{}: {}", endpoint.url, e)))?;
-
+        let uri = &endpoint.uri;
         let scheme = uri.scheme_str().unwrap_or("http");
         let channel = if scheme.eq_ignore_ascii_case("https") {
-            let endpoint_builder = tonic::transport::Endpoint::from_shared(endpoint.url.clone())
+            let endpoint_builder = tonic::transport::Endpoint::from_shared(uri.to_string())
                 .map_err(|e| NmxcError::InvalidEndpoint(e.to_string()))?
                 .connect_timeout(self.timeout);
 
             let tls_config = match &self.tls {
-                Some(t) => self.build_https_tls_config(&uri, t).await?,
+                Some(t) => self.build_https_tls_config(uri, t).await?,
                 None => ClientTlsConfig::new(),
             };
             endpoint_builder
@@ -213,14 +214,14 @@ impl NmxcClientPool {
                 .connect()
                 .await?
         } else {
-            tonic::transport::Channel::from_shared(endpoint.url.clone())
+            tonic::transport::Channel::from_shared(uri.to_string())
                 .map_err(|e| NmxcError::InvalidEndpoint(e.to_string()))?
                 .connect_timeout(self.timeout)
                 .connect()
                 .await?
         };
 
-        debug!("Connected to NMX-C at {}", endpoint.url);
+        debug!("Connected to NMX-C at {}", endpoint.uri);
         Ok(channel)
     }
 }

@@ -60,7 +60,18 @@ pub async fn create(
         .bind(endpoint)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(Q, e))
+        .map_err(|e| {
+            if e.as_database_error()
+                .is_some_and(|e| e.is_unique_violation())
+            {
+                DatabaseError::AlreadyFoundError {
+                    kind: "nvlink_nmxc_endpoints",
+                    id: chassis_serial.to_string(),
+                }
+            } else {
+                DatabaseError::new(Q, e)
+            }
+        })
 }
 
 /// Deletes the row for `chassis_serial`. Returns `true` if a row was removed.

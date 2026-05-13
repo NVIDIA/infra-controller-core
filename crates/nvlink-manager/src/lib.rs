@@ -773,11 +773,20 @@ impl NvlPartitionMonitor {
                 continue;
             };
 
-            let nmxc_client = match self
-                .nmxc_client_pool
-                .create_client(Endpoint::new(endpoint_url))
-                .await
-            {
+            let nmxc_endpoint = match Endpoint::new(endpoint_url) {
+                Ok(ep) => ep,
+                Err(e) => {
+                    tracing::warn!(
+                        %chassis_serial,
+                        endpoint = %endpoint_url,
+                        error = %e,
+                        "Invalid NMX-C endpoint URI; skipping partition monitor work for this chassis"
+                    );
+                    continue;
+                }
+            };
+
+            let nmxc_client = match self.nmxc_client_pool.create_client(nmxc_endpoint).await {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::warn!(

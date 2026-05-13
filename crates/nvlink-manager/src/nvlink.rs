@@ -96,7 +96,9 @@ pub mod test_support {
                     .expect("NmxcClientPool with TLS");
                 NmxcSimClient {
                     _grpc_pool: Some(pool),
-                    _simulator_endpoint: Some(Endpoint::new(Self::SIMULATOR_URL_MTLS)),
+                    _simulator_endpoint: Some(
+                        Endpoint::new(Self::SIMULATOR_URL_MTLS).expect("SIMULATOR_URL_MTLS"),
+                    ),
                     ..Self::default()
                 }
             } else {
@@ -112,7 +114,7 @@ pub mod test_support {
                         .build()
                         .expect("NmxcClientPool::builder default"),
                 ),
-                _simulator_endpoint: Some(Endpoint::new(url)),
+                _simulator_endpoint: Some(Endpoint::new(url.into()).expect("simulator URL")),
                 ..Self::default()
             }
         }
@@ -137,7 +139,9 @@ pub mod test_support {
                     .expect("NmxcClientPool with TLS");
                 NmxcSimClient {
                     _grpc_pool: Some(pool),
-                    _simulator_endpoint: Some(Endpoint::new(endpoint_url)),
+                    _simulator_endpoint: Some(
+                        Endpoint::new(endpoint_url).expect("simulator endpoint URL"),
+                    ),
                     ..Self::default()
                 }
             } else {
@@ -245,7 +249,7 @@ pub mod test_support {
                 max_compute_nodes_per_chassis: 0,
                 max_gpus_per_compute_node: 0,
                 max_gpu_nv_links: 0,
-                line_rate_m_bps: 0,
+                line_rate_mbps: 0,
                 max_switch_nodes: 0,
                 max_switch_nodes_per_chassis: 0,
                 max_switches_per_switch_node: 0,
@@ -502,13 +506,12 @@ pub mod test_support {
     impl NmxcPool for NmxcSimClient {
         async fn create_client(&self, _endpoint: Endpoint) -> Result<Box<dyn Nmxc>, NmxcError> {
             if let Some(pool) = &self._grpc_pool {
-                let url = self
+                let ep = self
                     ._simulator_endpoint
                     .as_ref()
                     .expect("simulator mode must set _simulator_endpoint")
-                    .url
                     .clone();
-                return pool.create_client(Endpoint::new(url)).await;
+                return pool.create_client(ep).await;
             }
             Ok(Box::new(NmxcSimClient {
                 _partitions: self._partitions.clone(),
@@ -535,8 +538,8 @@ pub mod test_support {
                 s._simulator_endpoint
                     .as_ref()
                     .expect("simulator endpoint should be set")
-                    .url,
-                NmxcSimClient::SIMULATOR_URL
+                    .uri,
+                NmxcSimClient::SIMULATOR_URL.parse::<http::Uri>().unwrap(),
             );
         }
 
@@ -547,8 +550,8 @@ pub mod test_support {
                 s._simulator_endpoint
                     .as_ref()
                     .expect("simulator endpoint should be set")
-                    .url,
-                "http://127.0.0.1:19999"
+                    .uri,
+                "http://127.0.0.1:19999".parse::<http::Uri>().unwrap(),
             );
         }
 
@@ -564,8 +567,10 @@ pub mod test_support {
                 s._simulator_endpoint
                     .as_ref()
                     .expect("simulator endpoint should be set")
-                    .url,
+                    .uri,
                 NmxcSimClient::SIMULATOR_URL_MTLS
+                    .parse::<http::Uri>()
+                    .unwrap(),
             );
         }
 
@@ -581,8 +586,8 @@ pub mod test_support {
                 s._simulator_endpoint
                     .as_ref()
                     .expect("simulator endpoint should be set")
-                    .url,
-                "https://127.0.0.1:19999"
+                    .uri,
+                "https://127.0.0.1:19999".parse::<http::Uri>().unwrap(),
             );
         }
 

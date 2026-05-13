@@ -109,7 +109,7 @@ async fn run(cli: Cli) -> Result<(), NmxcError> {
     let pool = builder.build()?;
     let mut endpoint_url = cli.endpoint;
     let mut client: Option<Box<dyn Nmxc>> =
-        Some(pool.create_client(Endpoint::new(&endpoint_url)).await?);
+        Some(pool.create_client(Endpoint::new(&endpoint_url)?).await?);
 
     let mut gateway_id = cli.gateway_id;
 
@@ -196,7 +196,7 @@ async fn execute_command(
                 .first()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| endpoint_url.clone());
-            *client = Some(pool.create_client(Endpoint::new(&url)).await?);
+            *client = Some(pool.create_client(Endpoint::new(&url)?).await?);
             *endpoint_url = url;
             println!("Connected to {}.", endpoint_url);
         }

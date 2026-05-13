@@ -18,91 +18,28 @@
 use std::collections::HashMap;
 
 use ::rpc::forge as rpc;
-use libnmxc::nmxc_model::{
-    self, GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GpuAttr, Location,
-};
-use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcError};
+use libnmxc::nmxc_model::{GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GpuAttr};
+use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc};
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
-fn nmxc_context() -> nmxc_model::Context {
-    nmxc_model::Context {
-        context: String::new(),
-    }
-}
-
-fn map_nmxc_err(e: NmxcError) -> CarbideError {
-    match e {
-        NmxcError::Status(s) => CarbideError::internal(s.to_string()),
-        other => CarbideError::internal(other.to_string()),
-    }
-}
-
 async fn compute_node_info_list_json(
     nmxc: &dyn Nmxc,
 ) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
     let resp = nmxc
         .get_compute_node_info_list(GetComputeNodeInfoListRequest {
-            context: Some(nmxc_context()),
+            context: Some(Default::default()),
             loc_list: vec![],
             gateway_id: NMX_C_GATEWAY_ID.to_string(),
         })
-        .await
-        .map_err(map_nmxc_err)?;
+        .await?;
 
-    let domain_uuid = resp
-        .server_header
-        .as_ref()
-        .map(|h| h.domain_uuid.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let mut nodes = Vec::with_capacity(resp.node_info_list.len());
-    for node in resp.node_info_list {
-        let Some(ref li) = node.loc else {
-            continue;
-        };
-        let gpu_id_list: Vec<String> = if let Some(ref loc) = li.location {
-            let gresp = nmxc
-                .get_gpu_info_list(GetGpuInfoListRequest {
-                    context: Some(nmxc_context()),
-                    attr: GpuAttr::NmxGpuAttrLocation as i32,
-                    num_gpus: 0,
-                    loc: Some(Location {
-                        chassis_id: loc.chassis_id,
-                        slot_id: loc.slot_id,
-                        host_id: loc.host_id,
-                    }),
-                    partition_id: None,
-                    gateway_id: NMX_C_GATEWAY_ID.to_string(),
-                    gpu_health: 0,
-                })
-                .await
-                .map_err(map_nmxc_err)?;
-            gresp
-                .gpu_info_list
-                .iter()
-                .map(|g| g.gpu_uid.to_string())
-                .collect()
-        } else {
-            vec![]
-        };
-
-        nodes.push(json!({
-            "LocationInfo": {
-                "ChassisSerialNumber": li.chassis_serial_number,
-                "TrayIndex": li.tray_index as i64,
-            },
-            "DomainUUID": domain_uuid,
-            "GpuIDList": gpu_id_list,
-        }));
-    }
-
-    let body = serde_json::to_string(&nodes)
-        .map_err(|e| CarbideError::internal(format!("serialize compute nodes: {e}")))?;
+    let body = serde_json::to_string(&resp).map_err(|e| {
+        CarbideError::internal(format!("serialize GetComputeNodeInfoListResponse: {e}"))
+    })?;
     Ok((body, 200, HashMap::new()))
 }
 
@@ -112,7 +49,7 @@ async fn gpu_info_json(
 ) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
     let gresp = nmxc
         .get_gpu_info_list(GetGpuInfoListRequest {
-            context: Some(nmxc_context()),
+            context: Some(Default::default()),
             attr: GpuAttr::NmxGpuAttrAll as i32,
             num_gpus: 0,
             loc: None,
@@ -120,8 +57,7 @@ async fn gpu_info_json(
             gateway_id: NMX_C_GATEWAY_ID.to_string(),
             gpu_health: 0,
         })
-        .await
-        .map_err(map_nmxc_err)?;
+        .await?;
 
     let Some(gpu) = gresp.gpu_info_list.iter().find(|g| g.gpu_uid == uid) else {
         return Err(CarbideError::NotFoundError {
@@ -160,9 +96,9 @@ async fn gpu_info_json(
 async fn gpu_info_list_json(
     nmxc: &dyn Nmxc,
 ) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
-    let gresp = nmxc
+    let resp = nmxc
         .get_gpu_info_list(GetGpuInfoListRequest {
-            context: Some(nmxc_context()),
+            context: Some(Default::default()),
             attr: GpuAttr::NmxGpuAttrAll as i32,
             num_gpus: 0,
             loc: None,
@@ -170,47 +106,10 @@ async fn gpu_info_list_json(
             gateway_id: NMX_C_GATEWAY_ID.to_string(),
             gpu_health: 0,
         })
-        .await
-        .map_err(map_nmxc_err)?;
+        .await?;
 
-    let domain_uuid = gresp
-        .server_header
-        .as_ref()
-        .map(|h| h.domain_uuid.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let mut gpus = Vec::with_capacity(gresp.gpu_info_list.len());
-    for gpu in gresp.gpu_info_list {
-        let (tray_index, slot_id) = gpu
-            .loc
-            .as_ref()
-            .map(|l| {
-                let tray = l.tray_index as i64;
-                let slot = l
-                    .location
-                    .as_ref()
-                    .map(|loc| loc.slot_id as i64)
-                    .unwrap_or(0);
-                (tray, slot)
-            })
-            .unwrap_or((0, 0));
-
-        gpus.push(json!({
-            "DeviceID": gpu.gpu_id as i64,
-            "DeviceUID": gpu.gpu_uid,
-            "LocationInfo": {
-                "TrayIndex": tray_index,
-                "SlotID": slot_id,
-            },
-        }));
-    }
-
-    let body = serde_json::to_string(&json!({
-        "DomainUUID": domain_uuid,
-        "Gpus": gpus,
-    }))
-    .map_err(|e| CarbideError::internal(format!("serialize gpu list: {e}")))?;
+    let body = serde_json::to_string(&resp)
+        .map_err(|e| CarbideError::internal(format!("serialize GetGpuInfoListResponse: {e}")))?;
     Ok((body, 200, HashMap::new()))
 }
 
@@ -249,9 +148,9 @@ pub(crate) async fn nmxc_browse(
 
         let nmxc = api
             .nmxc_client_pool
-            .create_client(Endpoint::new(row.endpoint.clone()))
+            .create_client(Endpoint::new(row.endpoint.clone()).map_err(CarbideError::from)?)
             .await
-            .map_err(|e| CarbideError::internal(format!("Failed to connect to NMX-C: {e}")))?;
+            .map_err(CarbideError::from)?;
 
         let result = match op {
             rpc::NmxcBrowseOperation::Unspecified => Err(CarbideError::InvalidArgument(

@@ -471,7 +471,7 @@ async fn get_nvlink_info_from_nmx_c(
 
     let nmx_c_client = api
         .nmxc_client_pool
-        .create_client(Endpoint::new(endpoint))
+        .create_client(Endpoint::new(&endpoint).map_err(|e| CarbideError::internal(e.to_string()))?)
         .await
         .map_err(|e| CarbideError::internal(format!("Failed to create NMX-C client: {e}")))?;
 
