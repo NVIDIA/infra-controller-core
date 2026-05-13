@@ -297,6 +297,102 @@ pub async fn admin_force_delete_power_shelf(
     }))
 }
 
+pub async fn set_power_shelf_maintenance(
+    api: &Api,
+    request: Request<rpc::PowerShelfMaintenanceRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
+    let triggered_by = request
+        .extensions()
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name())
+        .map(String::from);
+
+    let req = request.into_inner();
+    let operation = req.operation();
+    let power_shelf_ids = req.power_shelf_ids;
+
+    if power_shelf_ids.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "at least one power_shelf_id must be provided".to_string(),
+        )
+        .into());
+    }
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if power_shelf_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} power_shelf_ids can be accepted"
+        ))
+        .into());
+    }
+
+    let operation = match operation {
+        rpc::PowerShelfMaintenanceOperation::PowerOn => {
+            model::power_shelf::PowerShelfMaintenanceOperation::PowerOn
+        }
+        rpc::PowerShelfMaintenanceOperation::PowerOff => {
+            model::power_shelf::PowerShelfMaintenanceOperation::PowerOff
+        }
+        rpc::PowerShelfMaintenanceOperation::Unspecified => {
+            return Err(CarbideError::InvalidArgument(
+                "operation must be PowerOn or PowerOff".to_string(),
+            )
+            .into());
+        }
+    };
+
+    let initiator = match (triggered_by, req.reference) {
+        (Some(user), Some(reference)) => format!("{user} ({reference})"),
+        (Some(user), None) => user,
+        (None, Some(reference)) => reference,
+        (None, None) => "admin-cli".to_string(),
+    };
+
+    let mut txn = api.txn_begin().await?;
+
+    let existing = db_power_shelf::find_by(
+        &mut txn,
+        ObjectColumnFilter::List(db_power_shelf::IdColumn, &power_shelf_ids),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let mut by_id: std::collections::HashMap<_, _> =
+        existing.into_iter().map(|ps| (ps.id, ps)).collect();
+
+    for power_shelf_id in &power_shelf_ids {
+        let power_shelf =
+            by_id
+                .remove(power_shelf_id)
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "power_shelf",
+                    id: power_shelf_id.to_string(),
+                })?;
+
+        if power_shelf.is_marked_as_deleted() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "power shelf {power_shelf_id} is marked for deletion",
+            ))
+            .into());
+        }
+
+        db_power_shelf::set_power_shelf_maintenance_requested(
+            &mut txn,
+            *power_shelf_id,
+            &initiator,
+            operation,
+        )
+        .await
+        .map_err(CarbideError::from)?;
+    }
+
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
 pub async fn find_power_shelf_state_histories(
     api: &Api,
     request: Request<rpc::PowerShelfStateHistoriesRequest>,
