@@ -8,7 +8,8 @@ use rpc::forge::{
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::ApiConfig;
 use rpc::protos::forge::{
-    InstanceOperatingSystemConfig, InstancesByIdsRequest, instance_operating_system_config,
+    InstanceOperatingSystemConfig, InstancesByIdsRequest, MachineSearchConfig,
+    instance_operating_system_config,
 };
 
 use super::{RackData, TrayData};
@@ -136,11 +137,18 @@ impl NiccClient {
         Ok(response.instances)
     }
 
-    /// Fetch machines for a rack's compute trays -> Vec<TrayData>. Chunked at 50.
+    /// Fetch machines for a rack -> Vec<TrayData>. Chunked at 50.
     pub async fn get_machines(&self, rack: &RackData) -> Result<Vec<TrayData>, RvsError> {
-        let mut trays = Vec::with_capacity(rack.compute_tray_ids.len());
+        let id_list = self
+            .inner
+            .find_machine_ids(MachineSearchConfig {
+                rack_id: Some(rack.id.clone()),
+                ..Default::default()
+            })
+            .await?;
 
-        for chunk in rack.compute_tray_ids.chunks(50) {
+        let mut trays = Vec::with_capacity(id_list.machine_ids.len());
+        for chunk in id_list.machine_ids.chunks(50) {
             let response = self
                 .inner
                 .find_machines_by_ids(MachinesByIdsRequest {

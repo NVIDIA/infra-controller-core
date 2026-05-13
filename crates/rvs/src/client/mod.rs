@@ -100,8 +100,6 @@ pub struct RackData {
     pub id: RackId,
     /// Rack lifecycle state.
     pub state: String,
-    /// Machine IDs of compute trays in this rack.
-    pub compute_tray_ids: Vec<MachineId>,
 }
 
 /// Extract RackData from gRPC Rack.
@@ -112,7 +110,6 @@ impl TryFrom<Rack> for RackData {
         Ok(Self {
             id: value.id.ok_or(RvsError::MissingField("Rack.id"))?,
             state: value.rack_state,
-            compute_tray_ids: Vec::new(), // TODO: Implement this
         })
     }
 }
