@@ -35,6 +35,19 @@ fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
     PathBuf::from(template.replace("{machine_id}", endpoint_id))
 }
 
+fn prometheus_safe_endpoint_key(endpoint_key: &str) -> String {
+    endpoint_key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == ':' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 pub(super) async fn spawn_collectors_for_endpoint(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
@@ -42,14 +55,15 @@ pub(super) async fn spawn_collectors_for_endpoint(
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
     let key = endpoint.hash_key();
+    let metrics_key = prometheus_safe_endpoint_key(&key);
     let endpoint_arc = endpoint.clone();
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
     {
-        let collector_registry = Arc::new(
-            ctx.metrics_manager
-                .create_collector_registry(format!("sensor_collector_{key}"), metrics_prefix)?,
-        );
+        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+            format!("sensor_collector_{metrics_key}"),
+            metrics_prefix,
+        )?);
         match Collector::start::<SensorCollector<BmcClient>>(
             endpoint_arc.clone(),
             SensorCollectorConfig {
@@ -89,10 +103,11 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(logs_cfg) = &ctx.logs_config
         && !ctx.collectors.contains(CollectorKind::Logs, &key)
     {
-        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
-            format!("log_collector_{}", endpoint.hash_key()),
-            metrics_prefix,
-        )?);
+        let collector_registry =
+            Arc::new(ctx.metrics_manager.create_collector_registry(
+                format!("log_collector_{metrics_key}"),
+                metrics_prefix,
+            )?);
 
         let result = match logs_cfg.mode {
             LogCollectionMode::Sse => {
@@ -170,10 +185,10 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(firmware_cfg) = &ctx.firmware_config
         && !ctx.collectors.contains(CollectorKind::Firmware, &key)
     {
-        let collector_registry = Arc::new(
-            ctx.metrics_manager
-                .create_collector_registry(format!("firmware_collector_{key}"), metrics_prefix)?,
-        );
+        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+            format!("firmware_collector_{metrics_key}"),
+            metrics_prefix,
+        )?);
         match Collector::start::<FirmwareCollector<BmcClient>>(
             endpoint_arc.clone(),
             FirmwareCollectorConfig {
@@ -210,11 +225,10 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(leak_detector_cfg) = &ctx.leak_detector_config
         && !ctx.collectors.contains(CollectorKind::LeakDetector, &key)
     {
-        let collector_registry =
-            Arc::new(ctx.metrics_manager.create_collector_registry(
-                format!("leak_detector_collector_{key}"),
-                metrics_prefix,
-            )?);
+        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+            format!("leak_detector_collector_{metrics_key}"),
+            metrics_prefix,
+        )?);
         match Collector::start::<LeakDetectorCollector<BmcClient>>(
             endpoint_arc.clone(),
             LeakDetectorCollectorConfig {
@@ -254,10 +268,11 @@ pub(super) async fn spawn_collectors_for_endpoint(
         && !ctx.collectors.contains(CollectorKind::Nmxt, &key)
         && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
     {
-        let collector_registry = Arc::new(
-            ctx.metrics_manager
-                .create_collector_registry(format!("nmxt_collector_{key}"), metrics_prefix)?,
-        );
+        let collector_registry =
+            Arc::new(ctx.metrics_manager.create_collector_registry(
+                format!("nmxt_collector_{metrics_key}"),
+                metrics_prefix,
+            )?);
         match Collector::start::<NmxtCollector>(
             endpoint_arc.clone(),
             NmxtCollectorConfig {
@@ -297,10 +312,10 @@ pub(super) async fn spawn_collectors_for_endpoint(
         && !ctx.collectors.contains(CollectorKind::NvueRest, &key)
         && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
     {
-        let collector_registry = Arc::new(
-            ctx.metrics_manager
-                .create_collector_registry(format!("nvue_rest_collector_{key}"), metrics_prefix)?,
-        );
+        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+            format!("nvue_rest_collector_{metrics_key}"),
+            metrics_prefix,
+        )?);
         match Collector::start::<NvueRestCollector>(
             endpoint_arc,
             NvueRestCollectorConfig {
@@ -355,6 +370,18 @@ mod tests {
     fn test_logs_state_file_path_replaces_endpoint_id() {
         let path = logs_state_file_path("/tmp/logs_{machine_id}.json", "endpoint-42");
         assert_eq!(path, PathBuf::from("/tmp/logs_endpoint-42.json"));
+    }
+
+    #[test]
+    fn prometheus_safe_endpoint_key_allows_metric_creation() {
+        let endpoint_key = prometheus_safe_endpoint_key("abcdef-12345");
+        assert_eq!(endpoint_key, "abcdef_12345");
+
+        let metrics_manager =
+            MetricsManager::new("test").expect("metrics manager should initialize");
+        metrics_manager
+            .create_collector_registry(format!("sensor_collector_{endpoint_key}"), "test")
+            .expect("sanitized endpoint key should be valid in a Prometheus collector name");
     }
 
     #[test]
