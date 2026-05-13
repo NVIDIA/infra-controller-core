@@ -764,6 +764,13 @@ impl Default for DpfMandatoryServicesConfig {
     }
 }
 
+/// Default name for the Kubernetes `imagePullSecrets` entry used by DPF workload charts.
+pub(crate) const DEFAULT_DPF_IMAGE_PULL_SECRET: &str = "dpf-pull-secret";
+
+fn default_dpf_image_pull_secret() -> String {
+    DEFAULT_DPF_IMAGE_PULL_SECRET.to_string()
+}
+
 /// Configuration for a single Helm-based DPF service.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DpfServiceConfig {
@@ -779,6 +786,9 @@ pub struct DpfServiceConfig {
     pub docker_repo_url: String,
     /// Version of docker image
     pub docker_image_tag: String,
+    /// Secret to use to pull the docker images.
+    #[serde(default = "default_dpf_image_pull_secret")]
+    pub docker_image_pull_secret: String,
 }
 
 /// Machine identity (SPIFFE JWT-SVID) configuration.
