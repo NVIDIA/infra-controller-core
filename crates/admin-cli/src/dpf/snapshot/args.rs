@@ -15,30 +15,17 @@
  * limitations under the License.
  */
 
-pub mod common;
-mod disable;
-mod enable;
-mod service_version;
-mod show;
-mod snapshot;
-
+use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
-use crate::cfg::dispatch::Dispatch;
+#[derive(Parser, Debug)]
+pub struct Args {
+    #[clap(flatten)]
+    pub inner: SnapshotQuery,
+}
 
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Enable DPF")]
-    Enable(enable::Args),
-    #[clap(about = "Disable DPF")]
-    Disable(disable::Args),
-    #[clap(about = "Check Status of DPF")]
-    Show(show::Args),
-    #[clap(about = "Snapshot DPF CRs (DPUNode, DPUDevices, DPUs) for a host")]
-    Snapshot(snapshot::Args),
-    #[clap(
-        alias = "sv",
-        about = "Compare configured vs deployed DPF service versions"
-    )]
-    ServiceVersion(service_version::Args),
+#[derive(Parser, Debug)]
+pub struct SnapshotQuery {
+    /// Host machine id to snapshot. Must be a host (not a DPU) machine id.
+    pub host_machine_id: MachineId,
 }

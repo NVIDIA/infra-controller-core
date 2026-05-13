@@ -900,6 +900,11 @@ service Forge {
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
+  // Curated snapshot of DPF CRs (DPUNode + DPUDevices + DPUs) for one host.
+  rpc GetDPFHostSnapshot(GetDPFHostSnapshotRequest) returns (DPFHostSnapshotResponse);
+  // Helm/docker versions for the carbide DPF mandatory services, from both
+  // the carbide config and the live DPUServiceTemplate CRs.
+  rpc GetDPFServiceVersions(GetDPFServiceVersionsRequest) returns (DPFServiceVersionsResponse);
 
   // --- Component management (unified switch + power shelf operations) ---
   rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
@@ -7782,6 +7787,44 @@ message DPFStateResponse {
 
 message GetDPFStateRequest {
   repeated common.MachineId machine_ids = 1;
+}
+
+// --- DPF host snapshot ---
+
+message GetDPFHostSnapshotRequest {
+  common.MachineId host_machine_id = 1;
+}
+
+// Returns the snapshot as a JSON string. The server-side curates the field
+// set; the CLI just pretty-prints. Keeps the wire format stable while letting
+// the SDK evolve its summary types.
+message DPFHostSnapshotResponse {
+  string json_payload = 1;
+}
+
+// --- DPF service versions ---
+
+message GetDPFServiceVersionsRequest {
+}
+
+message DPFServiceVersion {
+  // Service name (e.g. "dts", "doca-hbn", "carbide-dpu-agent").
+  string service = 1;
+  // Helm chart version from the carbide config.
+  string config_helm_version = 2;
+  // Docker image tag from the carbide config.
+  string config_docker_image_tag = 3;
+  // Helm chart version observed on a live DPUServiceTemplate CR, if a
+  // matching one exists. Empty if no template was found.
+  string live_helm_version = 4;
+  // Docker image tag observed on a live DPUServiceTemplate CR
+  // (helm_values.image.tag). Empty if no template was found or the
+  // template doesn't pin an image tag (e.g. dts uses the chart default).
+  string live_docker_image_tag = 5;
+}
+
+message DPFServiceVersionsResponse {
+  repeated DPFServiceVersion services = 1;
 }
 
 // ============================================================================
