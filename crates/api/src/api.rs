@@ -338,6 +338,13 @@ impl Forge for Api {
         crate::handlers::power_shelf::admin_force_delete_power_shelf(self, request).await
     }
 
+    async fn set_power_shelf_maintenance(
+        &self,
+        request: Request<rpc::PowerShelfMaintenanceRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::set_power_shelf_maintenance(self, request).await
+    }
+
     async fn find_switches(
         &self,
         request: Request<rpc::SwitchQuery>,

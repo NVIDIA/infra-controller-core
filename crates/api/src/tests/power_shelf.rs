@@ -19,10 +19,16 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
 use model::DeletedFilter;
 use model::power_shelf::{
-    NewPowerShelf, PowerShelfConfig, PowerShelfSearchFilter, PowerShelfStatus,
+    NewPowerShelf, PowerShelfConfig,
+    PowerShelfMaintenanceOperation as ModelPowerShelfMaintenanceOperation, PowerShelfSearchFilter,
+    PowerShelfStatus,
 };
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{AdminForceDeletePowerShelfRequest, PowerShelfDeletionRequest, PowerShelfQuery};
+use rpc::forge::{
+    AdminForceDeletePowerShelfRequest, PowerShelfDeletionRequest,
+    PowerShelfMaintenanceOperation as RpcPowerShelfMaintenanceOperation,
+    PowerShelfMaintenanceRequest, PowerShelfQuery,
+};
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -732,6 +738,286 @@ async fn test_force_delete_power_shelf_already_soft_deleted(
         find_result.power_shelves.is_empty(),
         "Power shelf should be hard-deleted after force delete"
     );
+
+    Ok(())
+}
+
+// ── set_power_shelf_maintenance gRPC handler ────────────────────────────────
+
+/// Successful PowerOn request: persists `power_shelf_maintenance_requested`
+/// with the right operation and initiator (default "admin-cli" when no auth
+/// context is present).
+#[crate::sqlx_test]
+async fn test_set_power_shelf_maintenance_power_on_persists_request(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("Maintenance PowerOn Shelf".to_string()),
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    env.api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![power_shelf_id],
+            operation: RpcPowerShelfMaintenanceOperation::PowerOn as i32,
+            reference: None,
+        }))
+        .await?;
+
+    let mut conn = pool.acquire().await?;
+    let shelf = db_power_shelf::find_by_id(conn.as_mut(), &power_shelf_id)
+        .await?
+        .expect("power shelf should still exist");
+    let req = shelf
+        .power_shelf_maintenance_requested
+        .expect("maintenance request should be persisted");
+    assert_eq!(req.operation, ModelPowerShelfMaintenanceOperation::PowerOn);
+    assert_eq!(
+        req.initiator, "admin-cli",
+        "no AuthContext / no `reference` should default initiator to admin-cli"
+    );
+
+    Ok(())
+}
+
+/// Successful PowerOff request: same as PowerOn but operation must be
+/// PowerOff and the `reference` must propagate as the initiator.
+#[crate::sqlx_test]
+async fn test_set_power_shelf_maintenance_power_off_persists_request_with_reference(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("Maintenance PowerOff Shelf".to_string()),
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    env.api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![power_shelf_id],
+            operation: RpcPowerShelfMaintenanceOperation::PowerOff as i32,
+            reference: Some("https://issues.example.com/TICKET-42".to_string()),
+        }))
+        .await?;
+
+    let mut conn = pool.acquire().await?;
+    let shelf = db_power_shelf::find_by_id(conn.as_mut(), &power_shelf_id)
+        .await?
+        .expect("power shelf should still exist");
+    let req = shelf
+        .power_shelf_maintenance_requested
+        .expect("maintenance request should be persisted");
+    assert_eq!(req.operation, ModelPowerShelfMaintenanceOperation::PowerOff);
+    assert_eq!(req.initiator, "https://issues.example.com/TICKET-42");
+
+    Ok(())
+}
+
+/// Multi-shelf request applies the same operation atomically to every
+/// listed power shelf.
+#[crate::sqlx_test]
+async fn test_set_power_shelf_maintenance_multi_shelf(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let id1 = new_power_shelf(&env, Some("Multi Shelf 1".into()), None, None, None).await?;
+    let id2 = new_power_shelf(&env, Some("Multi Shelf 2".into()), None, None, None).await?;
+
+    env.api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![id1, id2],
+            operation: RpcPowerShelfMaintenanceOperation::PowerOn as i32,
+            reference: Some("multi-shelf-ref".to_string()),
+        }))
+        .await?;
+
+    let mut conn = pool.acquire().await?;
+    for shelf_id in [id1, id2] {
+        let shelf = db_power_shelf::find_by_id(conn.as_mut(), &shelf_id)
+            .await?
+            .expect("power shelf should still exist");
+        let req = shelf
+            .power_shelf_maintenance_requested
+            .expect("maintenance request should be persisted on every shelf");
+        assert_eq!(req.operation, ModelPowerShelfMaintenanceOperation::PowerOn);
+        assert_eq!(req.initiator, "multi-shelf-ref");
+    }
+
+    Ok(())
+}
+
+/// Empty `power_shelf_ids` must be rejected with InvalidArgument.
+#[crate::sqlx_test]
+async fn test_set_power_shelf_maintenance_rejects_empty_id_list(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let result = env
+        .api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![],
+            operation: RpcPowerShelfMaintenanceOperation::PowerOn as i32,
+            reference: None,
+        }))
+        .await;
+
+    let status = result.expect_err("empty id list must be rejected");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    Ok(())
+}
+
+/// `Unspecified` operation must be rejected with InvalidArgument.
+#[crate::sqlx_test]
+async fn test_set_power_shelf_maintenance_rejects_unspecified_operation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("Unspecified Op Shelf".to_string()),
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    let result = env
+        .api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![power_shelf_id],
+            operation: RpcPowerShelfMaintenanceOperation::Unspecified as i32,
+            reference: None,
+        }))
+        .await;
+
+    let status = result.expect_err("unspecified operation must be rejected");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    // No request should have been persisted.
+    let mut conn = pool.acquire().await?;
+    let shelf = db_power_shelf::find_by_id(conn.as_mut(), &power_shelf_id)
+        .await?
+        .expect("power shelf should still exist");
+    assert!(
+        shelf.power_shelf_maintenance_requested.is_none(),
+        "no maintenance request should be persisted on rejected calls"
+    );
+
+    Ok(())
+}
+
+/// Unknown power shelf id must be rejected with NotFound and must not
+/// persist anything.
+#[crate::sqlx_test]
+async fn test_set_power_shelf_maintenance_rejects_unknown_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let missing_id = PowerShelfId::from(uuid::Uuid::new_v4());
+
+    let result = env
+        .api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![missing_id],
+            operation: RpcPowerShelfMaintenanceOperation::PowerOff as i32,
+            reference: None,
+        }))
+        .await;
+
+    let status = result.expect_err("unknown id must be rejected");
+    assert_eq!(status.code(), Code::NotFound);
+
+    Ok(())
+}
+
+/// Soft-deleted power shelf must be rejected with InvalidArgument.
+#[crate::sqlx_test]
+async fn test_set_power_shelf_maintenance_rejects_deleted_shelf(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("Deleted Maintenance Shelf".to_string()),
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    env.api
+        .delete_power_shelf(tonic::Request::new(PowerShelfDeletionRequest {
+            id: Some(power_shelf_id),
+        }))
+        .await?;
+
+    let result = env
+        .api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![power_shelf_id],
+            operation: RpcPowerShelfMaintenanceOperation::PowerOn as i32,
+            reference: None,
+        }))
+        .await;
+
+    let status = result.expect_err("deleted power shelf must be rejected");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    Ok(())
+}
+
+/// A second maintenance request overwrites the first one (e.g., switching
+/// from PowerOn to PowerOff before the controller has acted on it).
+#[crate::sqlx_test]
+async fn test_set_power_shelf_maintenance_overwrites_previous_request(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("Overwrite Maintenance Shelf".to_string()),
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    env.api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![power_shelf_id],
+            operation: RpcPowerShelfMaintenanceOperation::PowerOn as i32,
+            reference: Some("first".to_string()),
+        }))
+        .await?;
+
+    env.api
+        .set_power_shelf_maintenance(tonic::Request::new(PowerShelfMaintenanceRequest {
+            power_shelf_ids: vec![power_shelf_id],
+            operation: RpcPowerShelfMaintenanceOperation::PowerOff as i32,
+            reference: Some("second".to_string()),
+        }))
+        .await?;
+
+    let mut conn = pool.acquire().await?;
+    let shelf = db_power_shelf::find_by_id(conn.as_mut(), &power_shelf_id)
+        .await?
+        .expect("power shelf should still exist");
+    let req = shelf
+        .power_shelf_maintenance_requested
+        .expect("expected the second maintenance request to be persisted");
+    assert_eq!(req.operation, ModelPowerShelfMaintenanceOperation::PowerOff);
+    assert_eq!(req.initiator, "second");
 
     Ok(())
 }

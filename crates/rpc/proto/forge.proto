@@ -92,6 +92,11 @@ service Forge {
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
   // Force deletes a Power Shelf and optionally its associated interfaces from the database.
   rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
+  // Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
+  // When the power shelf is in Ready state, the power shelf state controller
+  // will observe the request and transition to the Maintenance state with the
+  // requested operation.
+  rpc SetPowerShelfMaintenance(PowerShelfMaintenanceRequest) returns (google.protobuf.Empty);
 
   rpc FindSwitches(SwitchQuery) returns (SwitchList);
   rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
@@ -1919,6 +1924,25 @@ message PowerShelfDeletionRequest {
 }
 
 message PowerShelfDeletionResult {
+}
+
+// Operation requested for a power shelf maintenance activity.
+enum PowerShelfMaintenanceOperation {
+  POWER_SHELF_MAINTENANCE_OPERATION_UNSPECIFIED = 0;
+  POWER_SHELF_MAINTENANCE_OPERATION_POWER_ON = 1;
+  POWER_SHELF_MAINTENANCE_OPERATION_POWER_OFF = 2;
+}
+
+// Request to drive one or more power shelves into the Maintenance state with
+// the given operation (PowerOn / PowerOff). The state controller, when the
+// shelf is in Ready, observes this request and transitions to Maintenance.
+// All listed power shelves are updated atomically in a single transaction.
+message PowerShelfMaintenanceRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+  PowerShelfMaintenanceOperation operation = 2;
+  // URL of a ticket / issue tracking this maintenance request. Used as the
+  // request initiator in audit logs.
+  optional string reference = 3;
 }
 
 message PowerShelfStateHistoriesRequest {

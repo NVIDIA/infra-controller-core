@@ -15,16 +15,18 @@
  * limitations under the License.
  */
 
-//! State Controller implementation for Power Shelves.
+use ::rpc::admin_cli::CarbideCliResult;
 
-pub mod configuring;
-pub mod context;
-pub mod deleting;
-pub mod error_state;
-pub mod fetching_data;
-pub mod handler;
-pub mod initializing;
-pub mod io;
-pub mod maintenance;
-pub mod metrics;
-pub mod ready;
+use super::args::Args;
+use crate::rpc::ApiClient;
+
+pub async fn maintenance(api_client: &ApiClient, action: Args) -> CarbideCliResult<()> {
+    let req = action.into_request();
+    let count = req.power_shelf_ids.len();
+    api_client.0.set_power_shelf_maintenance(req).await?;
+    println!(
+        "Power shelf maintenance request submitted for {count} power shelf{}.",
+        if count == 1 { "" } else { "ves" }
+    );
+    Ok(())
+}

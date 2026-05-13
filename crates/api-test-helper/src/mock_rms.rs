@@ -59,6 +59,10 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::SetPowerStateResponse, RackManagerError>>>,
     set_power_state_calls: Mutex<Vec<rms::SetPowerStateRequest>>,
 
+    set_power_state_by_device_list_responses:
+        Mutex<VecDeque<Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>>>,
+    set_power_state_by_device_list_calls: Mutex<Vec<rms::SetPowerStateByDeviceListRequest>>,
+
     get_power_state_responses:
         Mutex<VecDeque<Result<rms::GetPowerStateResponse, RackManagerError>>>,
     get_power_state_calls: Mutex<Vec<rms::GetPowerStateRequest>>,
@@ -195,6 +199,8 @@ impl MockRmsApi {
         Self {
             set_power_state_responses: Default::default(),
             set_power_state_calls: Default::default(),
+            set_power_state_by_device_list_responses: Default::default(),
+            set_power_state_by_device_list_calls: Default::default(),
             get_power_state_responses: Default::default(),
             get_power_state_calls: Default::default(),
             sequence_rack_power_responses: Default::default(),
@@ -267,6 +273,14 @@ impl MockRmsApi {
         set_power_state_calls,
         rms::SetPowerStateRequest,
         rms::SetPowerStateResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_set_power_state_by_device_list,
+        set_power_state_by_device_list_calls,
+        set_power_state_by_device_list_responses,
+        set_power_state_by_device_list_calls,
+        rms::SetPowerStateByDeviceListRequest,
+        rms::SetPowerStateByDeviceListResponse
     );
     impl_enqueue_inspect!(
         enqueue_get_power_state,
@@ -526,6 +540,49 @@ impl MockRmsApi {
         }
     }
 
+    /// Success response for `set_power_state_by_device_list` covering a
+    /// single targeted node.
+    pub fn power_by_device_list_ok(node_id: &str) -> rms::SetPowerStateByDeviceListResponse {
+        rms::SetPowerStateByDeviceListResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                total_nodes: 1,
+                successful_nodes: 1,
+                failed_nodes: 0,
+                node_results: vec![rms::NodeResult {
+                    node_id: node_id.to_owned(),
+                    status: rms::ReturnCode::Success as i32,
+                    error_message: String::new(),
+                }],
+                ..Default::default()
+            }),
+        }
+    }
+
+    /// Failure response for `set_power_state_by_device_list` covering a
+    /// single targeted node, with an optional batch-level message and
+    /// per-node `error_message`.
+    pub fn power_by_device_list_fail(
+        node_id: &str,
+        node_error_message: &str,
+    ) -> rms::SetPowerStateByDeviceListResponse {
+        rms::SetPowerStateByDeviceListResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Failure as i32,
+                total_nodes: 1,
+                successful_nodes: 0,
+                failed_nodes: 1,
+                message: String::new(),
+                node_results: vec![rms::NodeResult {
+                    node_id: node_id.to_owned(),
+                    status: rms::ReturnCode::Failure as i32,
+                    error_message: node_error_message.to_owned(),
+                }],
+                ..Default::default()
+            }),
+        }
+    }
+
     /// Success response for `update_node_firmware_async` with a job ID.
     pub fn firmware_update_ok(job_id: &str) -> rms::UpdateNodeFirmwareResponse {
         rms::UpdateNodeFirmwareResponse {
@@ -608,9 +665,13 @@ impl RmsApi for MockRmsApi {
     }
     async fn set_power_state_by_device_list(
         &self,
-        _cmd: rms::SetPowerStateByDeviceListRequest,
+        cmd: rms::SetPowerStateByDeviceListRequest,
     ) -> Result<rms::SetPowerStateByDeviceListResponse, RackManagerError> {
-        Ok(rms::SetPowerStateByDeviceListResponse::default())
+        self.set_power_state_by_device_list_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.set_power_state_by_device_list_responses.lock().await)
     }
     async fn update_switch_system_password(
         &self,

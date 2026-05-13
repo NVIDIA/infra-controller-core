@@ -104,6 +104,8 @@ pub struct PowerShelf {
     /// The rack that this power shelf is associated with.
     pub rack_id: Option<RackId>,
 
+    pub power_shelf_maintenance_requested: Option<PowerShelfMaintenanceRequest>,
+
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
@@ -120,6 +122,9 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
         let status: Option<sqlx::types::Json<PowerShelfStatus>> = row.try_get("status").ok();
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
+        let power_shelf_maintenance_requested: Option<
+            sqlx::types::Json<PowerShelfMaintenanceRequest>,
+        > = row.try_get("power_shelf_maintenance_requested").ok();
 
         let health_reports: HealthReportSources = row
             .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_reports")
@@ -145,6 +150,7 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             metadata,
             version: row.try_get("version")?,
             rack_id: row.try_get("rack_id").ok().flatten(),
+            power_shelf_maintenance_requested: power_shelf_maintenance_requested.map(|r| r.0),
             health_reports,
         })
     }
@@ -261,6 +267,23 @@ impl PowerShelf {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
+pub enum PowerShelfMaintenanceOperation {
+    /// Power on the PowerShelf.
+    PowerOn,
+    /// Power off the PowerShelf.
+    PowerOff,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PowerShelfMaintenanceRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    pub operation: PowerShelfMaintenanceOperation,
+}
+
 /// State of a PowerShelf as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -273,6 +296,10 @@ pub enum PowerShelfControllerState {
     Configuring,
     /// The PowerShelf is ready for use.
     Ready,
+
+    Maintenance {
+        operation: PowerShelfMaintenanceOperation,
+    },
     /// There is error in PowerShelf; PowerShelf can not be used if it's in error.
     Error { cause: String },
     /// The PowerShelf is in the process of deleting.
@@ -300,6 +327,10 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
             time_in_state,
         ),
         PowerShelfControllerState::Ready => StateSla::no_sla(),
+        PowerShelfControllerState::Maintenance { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::MAINTENANCE),
+            time_in_state,
+        ),
         PowerShelfControllerState::Error { .. } => StateSla::no_sla(),
         PowerShelfControllerState::Deleting => StateSla::with_sla(
             std::time::Duration::from_secs(slas::DELETING),
@@ -377,5 +408,84 @@ mod tests {
             serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
             state
         );
+        let state = PowerShelfControllerState::Maintenance {
+            operation: PowerShelfMaintenanceOperation::PowerOn,
+        };
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"state":"maintenance","operation":{"operation":"poweron"}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
+            state
+        );
+        let state = PowerShelfControllerState::Maintenance {
+            operation: PowerShelfMaintenanceOperation::PowerOff,
+        };
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"state":"maintenance","operation":{"operation":"poweroff"}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
+            state
+        );
+    }
+
+    #[test]
+    fn serialize_maintenance_operation_round_trip() {
+        for operation in [
+            PowerShelfMaintenanceOperation::PowerOn,
+            PowerShelfMaintenanceOperation::PowerOff,
+        ] {
+            let serialized = serde_json::to_string(&operation).unwrap();
+            let parsed: PowerShelfMaintenanceOperation = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(parsed, operation);
+        }
+    }
+
+    #[test]
+    fn serialize_maintenance_operation_lowercase_tags() {
+        assert_eq!(
+            serde_json::to_string(&PowerShelfMaintenanceOperation::PowerOn).unwrap(),
+            r#"{"operation":"poweron"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&PowerShelfMaintenanceOperation::PowerOff).unwrap(),
+            r#"{"operation":"poweroff"}"#
+        );
+    }
+
+    #[test]
+    fn serialize_maintenance_request_round_trip() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-05-13T12:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        for operation in [
+            PowerShelfMaintenanceOperation::PowerOn,
+            PowerShelfMaintenanceOperation::PowerOff,
+        ] {
+            let request = PowerShelfMaintenanceRequest {
+                requested_at: now,
+                initiator: "operator (TICKET-1)".to_string(),
+                operation,
+            };
+            let serialized = serde_json::to_string(&request).unwrap();
+            let parsed: PowerShelfMaintenanceRequest = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(parsed, request);
+        }
+    }
+
+    #[test]
+    fn maintenance_state_distinguishes_on_and_off() {
+        let on = PowerShelfControllerState::Maintenance {
+            operation: PowerShelfMaintenanceOperation::PowerOn,
+        };
+        let off = PowerShelfControllerState::Maintenance {
+            operation: PowerShelfMaintenanceOperation::PowerOff,
+        };
+        assert_ne!(on, off);
     }
 }
