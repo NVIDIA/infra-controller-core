@@ -330,7 +330,7 @@ impl Collector {
 
         let mut runner = C::new_runner(bmc.clone(), endpoint.clone(), config)?;
 
-        let endpoint_key = endpoint.hash_key().to_string();
+        let endpoint_key = endpoint.key();
         let const_labels = HashMap::from([
             (
                 "collector_type".to_string(),
@@ -474,7 +474,7 @@ impl Collector {
         let mut collector = S::new_runner(bmc, endpoint.clone(), config)?;
         let event_context = EventContext::from_endpoint(&endpoint, collector.collector_type());
 
-        let endpoint_key = endpoint.hash_key().to_string();
+        let endpoint_key = endpoint.key();
         let const_labels = HashMap::from([
             (
                 "collector_type".to_string(),
