@@ -78,6 +78,8 @@ Related: [Networking Integrations](architecture/networking_integrations.md), [DP
 
 The DPU is the central enforcement point in NICo architecture. It serves as the VTEP for overlay networking, runs HBN for software-defined networking, and enforces Ethernet tenant isolation in hardware. NICo is responsible for installing the DPU OS and all DPU firmware, including BMC, NIC, and UEFI firmware.
 
+In current deployments, the DPU is a [NVIDIA BlueField-2 or BlueField-3](https://www.nvidia.com/en-us/networking/products/data-processing-unit/) network interface card. It has its own ARM processor, operating system, and BMC. From NICo's point of view, it can act as a network card, a disk controller, and an on-host enforcement point.
+
 Related: [DPU Configuration](architecture/dpu_configuration.md), [BlueField DPU Operations](dpu-operations.md), [Hardware Compatibility List](hcl.md)
 
 ### BlueField
@@ -173,6 +175,12 @@ Related: [TLS and SPIFFE Certificates](development/tls.md)
 
 ## Networking
 
+### BGP
+
+[Border Gateway Protocol](https://en.wikipedia.org/wiki/Border_Gateway_Protocol) is the standardized routing protocol used to exchange routing and reachability information between autonomous systems. In NICo, BGP is used in the Ethernet overlay design so DPUs and top-of-rack or route-server devices can exchange EVPN reachability.
+
+Related: [Networking Integrations](architecture/networking_integrations.md), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
+
 ### EVPN
 
 Ethernet VPN. In NICo, EVPN is the control-plane technology used with VXLAN overlays so DPUs and network devices can exchange tenant network reachability information.
@@ -181,7 +189,9 @@ Related: [Networking Integrations](architecture/networking_integrations.md), [VP
 
 ### VXLAN Overlay Architecture
 
-NICo uses VXLAN as the primary overlay networking technology for Ethernet tenant isolation. The DPU serves as the VTEP, wrapping tenant Ethernet frames in VXLAN headers identified by a VNI. This allows datacenter networking to route IP packets while the x86 Host believes it received an Ethernet frame from a machine on the same local network.
+[Virtual Extensible LAN](https://en.wikipedia.org/wiki/Virtual_Extensible_LAN) is the primary overlay networking technology NICo uses for Ethernet tenant isolation. In a datacenter, operators often need multiple virtual networks to share one physical cable plant. A tenant expects its machines to be on a private Ethernet network, but operators should not have to re-cable hosts every time tenant assignment changes.
+
+VXLAN solves this by wrapping an Ethernet frame in a VXLAN packet identified by a VNI. NICo uses the DPU as the VTEP, so the DPU wraps tenant Ethernet frames in VXLAN headers before sending them across the IP-routed datacenter network. The receiving VTEP unwraps the packet and delivers the original Ethernet frame. This lets the underlay route ordinary IP packets while the x86 Host behaves as if it received an Ethernet frame from a peer on the same local network.
 
 Related: [Networking Integrations](architecture/networking_integrations.md), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
 
@@ -193,9 +203,11 @@ Related: [IP Resource Pools](manuals/networking/ip_resource_pools.md), [VNI Reso
 
 ### HBN in NICo
 
-HBN runs as a container on the DPU and manages network routing using Cumulus Linux components such as FRR and NVUE. NICo installs and manages HBN as part of DPU provisioning. Ethernet tenancy enforcement is performed within HBN on the DPU; NICo does not need to change Spectrum switches running Cumulus Linux.
+HBN runs as a container on the DPU and manages network routing using [Cumulus Linux](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-linux/) components such as FRR and NVUE. NICo installs and manages HBN as part of DPU provisioning. Ethernet tenancy enforcement is performed within HBN on the DPU; NICo does not need to change Spectrum switches running Cumulus Linux.
 
 DPU health reporting includes HBN status such as whether the container is running, BGP peering state, and configuration version.
+
+General reference: [DOCA HBN Service](https://docs.nvidia.com/doca/sdk/pdf/doca-hbn-service.pdf)
 
 Related: [DPU Configuration](architecture/dpu_configuration.md), [Health Checks and Health Aggregation](architecture/health_aggregation.md)
 
@@ -209,11 +221,19 @@ Related: [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
 
 ### DHCP in NICo
 
-NICo runs its own DHCP service. DPUs and Hosts use DHCP to resolve their IP addresses. DHCP relay must be configured on switches connected to DPU OOB interfaces, Host BMCs, and DPU BMCs so requests reach the NICo DHCP service.
+[Dynamic Host Configuration Protocol](https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol) is the network protocol used to automatically assign IP addresses and other communication parameters to devices. NICo runs its own DHCP service. DPUs and Hosts use DHCP to resolve their IP addresses, and NICo responds based on known information about each Machine.
+
+DHCP relay must be configured on switches connected to DPU OOB interfaces, Host BMCs, and DPU BMCs so requests reach the NICo DHCP service.
 
 NICo issues two IP addresses to the DPU RJ45 port: the DPU OOB address, used for SSH access to the ARM OS and NICo management traffic, and the DPU BMC address, used for Redfish and DPU configuration.
 
 Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md), [Network Prerequisites](getting-started/prerequisites/network.md)
+
+### DNS in NICo
+
+[Domain Name System](https://en.wikipedia.org/wiki/Domain_Name_System) resolves domain names to IP addresses. NICo runs DNS services for managed machines and delegated site-controller zones so hosts and control-plane services can resolve NICo-managed names.
+
+Related: [Architecture Overview](architecture/overview.md)
 
 ### Multi-Tenancy and Isolation
 
@@ -235,6 +255,26 @@ Related: [Networking Integrations](architecture/networking_integrations.md), [In
 Virtual Routing and Forwarding. In NICo networking, VRFs provide routing-table isolation for virtual networks so tenant or service routes can be kept separate even when they share physical infrastructure.
 
 Related: [VPC Routing Profiles](manuals/vpc/vpc_routing_profiles.md), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
+
+### VLAN
+
+A VLAN adds a 12-bit identifier to an Ethernet frame to mark which virtual network it belongs to. Switches and routers can use VLAN IDs for isolation, but the 4096-ID limit makes VLANs too small for large multi-tenant environments.
+
+In NICo, VLAN IDs can still appear on the DPU-to-Host link, especially when a Host is running a hypervisor and the VLAN ID identifies which virtual machine should receive the Ethernet frame. VXLAN is used for the larger datacenter overlay.
+
+Related: [VXLAN Overlay Architecture](#vxlan-overlay-architecture), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
+
+### VNI
+
+VXLAN Network Identifier, also called a VXLAN ID. It is the 24-bit identifier in the VXLAN header that marks which virtual network an encapsulated Ethernet frame belongs to.
+
+Related: [VXLAN Overlay Architecture](#vxlan-overlay-architecture), [VNI Resource Pools](manuals/vpc/vni_resource_pools.md)
+
+### VTEP
+
+VXLAN Tunnel Endpoint. A VTEP wraps Ethernet frames into VXLAN packets and unwraps VXLAN packets back into Ethernet frames. In NICo, the DPU acts as the VTEP for tenant overlay networking.
+
+Related: [VXLAN Overlay Architecture](#vxlan-overlay-architecture), [DPU Configuration](architecture/dpu_configuration.md)
 
 ### P_Key
 
@@ -276,15 +316,25 @@ Related: [BlueField DPU Operations](dpu-operations.md), [Bootable Artifacts](boo
 
 ### PXE and iPXE Boot
 
+The Preboot Execution Environment, or PXE, is a client-server environment for booting software retrieved from the network. [iPXE](https://en.wikipedia.org/wiki/IPXE) is an open source PXE client and bootloader that can enable network boot on systems without built-in PXE support, or provide additional features beyond built-in PXE.
+
 NICo uses PXE and iPXE for network booting. DPUs and Hosts use PXE after startup to install NICo-specific software images as well as tenant-requested images. NICo runs its own PXE server to serve images shipped as part of the software, such as DPU software and iPXE. This PXE server can coexist with other site PXE servers as long as DHCP is configured correctly and the Host can reach the NICo PXE service.
 
 Related: [Bootable Artifacts](bootable_artifacts.md), [Running a PXE Client in a VM](development/vm_pxe_client.md)
 
 ### Cloud-Init in NICo
 
+[Cloud-init](https://cloudinit.readthedocs.io/en/latest/) is the industry-standard multi-distribution method for initializing cloud instances. During boot, cloud-init identifies the environment it is running in and configures networking, storage, SSH keys, packages, and other operating system settings.
+
 Cloud-init is used in two ways within NICo. DPUs use a NICo-provided cloud-init file to install NICo-related components on top of the base DPU image provided by the NVIDIA networking group. Tenants can provide custom cloud-init configuration to automate installation and configuration of their chosen operating system on the Host.
 
 Related: [Ingesting Hosts](provisioning/ingesting-hosts.md), [BlueField DPU Operations](dpu-operations.md)
+
+### BMC
+
+A Baseboard Management Controller manages low-level hardware functions such as BIOS settings and power state. The Host has a BMC, and the DPU has a separate BMC. A Host BMC commonly exposes both a web interface for BIOS and hardware settings and a Redfish API for programmatic management. NICo uses BMC access to discover, power-cycle, and repair machines without relying on the Host operating system.
+
+Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md), [Redfish Workflow](architecture/redfish_workflow.md)
 
 ### BMC Discovery
 
@@ -298,6 +348,8 @@ Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup
 
 The HTTP API exposed by BMCs for out-of-band hardware management. NICo uses Redfish to manage power state, credentials, and other BMC-backed operations without relying on the Host operating system.
 
+General reference: [Redfish](https://en.wikipedia.org/wiki/Redfish_(specification))
+
 Related: [Redfish Workflow](architecture/redfish_workflow.md), [Redfish Endpoints Reference](architecture/redfish/endpoints_reference.md)
 
 ### OOB
@@ -305,6 +357,12 @@ Related: [Redfish Workflow](architecture/redfish_workflow.md), [Redfish Endpoint
 Out of band. OOB management uses a path independent from the Host operating system, usually through BMC and DPU management networks, so NICo can discover, power-cycle, and repair machines even when the tenant OS is unavailable.
 
 Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md)
+
+### IPMI
+
+[Intelligent Platform Management Interface](https://en.wikipedia.org/wiki/Intelligent_Platform_Management_Interface) is an older interface for out-of-band computer management and monitoring. Like Redfish, it lets administrators manage a machine over the network even when the Host OS is unavailable. NICo docs may mention IPMI when discussing BMC networks, serial console access, or legacy out-of-band workflows.
+
+Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md), [Architecture Overview](architecture/overview.md)
 
 ### scout
 
