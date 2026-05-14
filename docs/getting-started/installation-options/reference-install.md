@@ -370,7 +370,7 @@ Once Vault is running and unsealed, the `vault-pki-config` Job (Helm post-instal
 1. Enables the `forgeca` PKI secrets engine, tunes it to a 10-year max TTL.
 2. Imports `site-root` (cert + key) into Vault PKI — Vault becomes an intermediate CA under the same trust root.
 3. Creates PKI role `forge-cluster` — allows any name, allows SPIFFE URI SANs, 720h max TTL, EC P-256.
-4. Enables Kubernetes auth and writes two policies: `cert-manager-forge-policy` (sign via PKI) and `forge-vault-policy` (read KV secrets).
+4. Enables Kubernetes auth and writes two policies: `cert-manager-forge-policy` (sign via PKI) and `forge-vault-policy` (read KV secrets, issue PKI certs, and manage machine/UFM/NMXM credentials).
 5. Enables KV v2 at `secrets/` and AppRole auth for the `carbide` role.
 
 `vault-forge-issuer` is then created as a cert-manager ClusterIssuer authenticating to Vault via Kubernetes auth. All NCX Core workload SPIFFE certificates and the site-agent's gRPC client certificate are issued through this issuer.
