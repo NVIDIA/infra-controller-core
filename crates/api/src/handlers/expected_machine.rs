@@ -130,8 +130,12 @@ pub(crate) async fn preallocate_interfaces_for(
     validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
 
     if let Some(bmc_ip) = machine.data.bmc_ip_address {
-        db::machine_interface::preallocate_machine_interface(txn, machine.bmc_mac_address, bmc_ip)
-            .await?;
+        db::machine_interface::preallocate_bmc_machine_interface(
+            txn,
+            machine.bmc_mac_address,
+            bmc_ip,
+        )
+        .await?;
     }
 
     for nic in &machine.data.host_nics {
@@ -436,7 +440,7 @@ async fn create_expected_machine(
     };
 
     if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
-        db::machine_interface::preallocate_machine_interface(
+        db::machine_interface::preallocate_bmc_machine_interface(
             txn,
             expected_machine.bmc_mac_address,
             bmc_ip,

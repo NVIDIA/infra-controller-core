@@ -578,14 +578,16 @@ pub async fn start_api(
             cd_config,
             rms_client.clone(),
             Some(db_pool.clone()),
+            Some(shared_redfish_pool.clone()),
         )
         .await
         {
             Ok(cm) => {
                 tracing::info!(
-                    "Component manager configured (nv_switch={}, power_shelf={})",
+                    "Component manager configured (nv_switch={}, power_shelf={}, compute_tray={})",
                     cm.nv_switch.name(),
-                    cm.power_shelf.name()
+                    cm.power_shelf.name(),
+                    cm.compute_tray.name()
                 );
                 Some(cm)
             }

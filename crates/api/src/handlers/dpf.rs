@@ -16,7 +16,9 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_dpf::dpu_node_cr_name;
 use db::ObjectFilter;
+use db::machine::find_one;
 use db::managed_host::load_snapshot;
 use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -90,4 +92,97 @@ pub(crate) async fn get_dpf_state(
             .map(|machine| machine.into())
             .collect(),
     }))
+}
+
+pub(crate) async fn get_dpf_host_snapshot(
+    api: &Api,
+    request: Request<rpc::GetDpfHostSnapshotRequest>,
+) -> Result<Response<rpc::DpfHostSnapshotResponse>, Status> {
+    log_request_data(&request);
+    let request = request.get_ref();
+    let machine_id = convert_and_log_machine_id(request.host_machine_id.as_ref())?;
+    log_machine_id(&machine_id);
+
+    if machine_id.machine_type().is_dpu() {
+        return Err(CarbideError::InvalidArgument("Only host id is expected".to_string()).into());
+    }
+
+    let Some(ops) = api.dpf_sdk.as_ref() else {
+        return Err(CarbideError::InvalidArgument(
+            "DPF is not enabled on this carbide instance".to_string(),
+        )
+        .into());
+    };
+
+    let mut txn = api.txn_begin().await?;
+    let machine = find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
+    txn.commit().await?;
+
+    let host_dpf_id = machine.dpf_id().ok_or_else(|| {
+        CarbideError::InvalidArgument(format!(
+            "Host {machine_id} has no BMC MAC; cannot derive DPF node name"
+        ))
+    })?;
+    let node_name = dpu_node_cr_name(&host_dpf_id);
+
+    let snapshot = ops
+        .snapshot_host(&node_name)
+        .await
+        .map_err(CarbideError::DpfError)?;
+
+    let json_payload = serde_json::to_string_pretty(&snapshot).map_err(|e| {
+        CarbideError::internal(format!("Failed to serialize DPF host snapshot: {e}"))
+    })?;
+
+    Ok(Response::new(rpc::DpfHostSnapshotResponse { json_payload }))
+}
+
+pub(crate) async fn get_dpf_service_versions(
+    api: &Api,
+    request: Request<rpc::GetDpfServiceVersionsRequest>,
+) -> Result<Response<rpc::DpfServiceVersionsResponse>, Status> {
+    log_request_data(&request);
+
+    let cfg = &api.runtime_config.dpf.services;
+    let configured = [
+        &cfg.dts,
+        &cfg.doca_hbn,
+        &cfg.dpu_agent,
+        &cfg.dhcp_server,
+        &cfg.fmds,
+        &cfg.otel,
+    ];
+
+    let live = if let Some(ops) = api.dpf_sdk.as_ref() {
+        ops.list_service_template_versions()
+            .await
+            .map_err(CarbideError::DpfError)?
+    } else {
+        Vec::new()
+    };
+
+    let services = configured
+        .iter()
+        .map(|svc_cfg| {
+            let matched = live
+                .iter()
+                .find(|t| t.deployment_service_name == svc_cfg.name);
+            rpc::DpfServiceVersion {
+                service: svc_cfg.name.clone(),
+                config_helm_version: svc_cfg.helm_version.clone(),
+                config_docker_image_tag: svc_cfg.docker_image_tag.clone(),
+                live_helm_version: matched.map(|t| t.helm_version.clone()).unwrap_or_default(),
+                live_docker_image_tag: matched
+                    .map(|t| t.docker_image_tag.clone())
+                    .unwrap_or_default(),
+            }
+        })
+        .collect();
+
+    Ok(Response::new(rpc::DpfServiceVersionsResponse { services }))
 }

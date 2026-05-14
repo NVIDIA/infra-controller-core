@@ -405,6 +405,7 @@ pub async fn batch_find_ids_by_machine_ids(
             .collect::<Vec<_>>(),
     );
     query.push(")");
+    query.push(" AND mi.interface_type != 'Bmc'");
 
     if let Some(network_segment_type) = network_segment_type {
         query

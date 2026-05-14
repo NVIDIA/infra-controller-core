@@ -625,7 +625,12 @@ impl MachineCreator {
         )
         .await?;
 
-        db::bmc_metadata::update_bmc_network_into_topologies(txn, machine_id, &bmc_info).await?;
+        db::bmc_metadata::update_bmc_network_into_machine_interfaces(
+            txn,
+            machine_id,
+            &mut bmc_info,
+        )
+        .await?;
 
         Ok(())
     }

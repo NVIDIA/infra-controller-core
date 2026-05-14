@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod component_manager;
+pub mod compute_tray_manager;
 pub mod config;
+pub mod core_compute_manager;
 pub mod error;
 pub mod mock;
 pub mod nsm;

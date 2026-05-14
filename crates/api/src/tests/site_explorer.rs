@@ -1481,30 +1481,40 @@ async fn test_disable_machine_creation_outside_site_explorer(
 async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    const HOST1_DPU_MAC: &str = "B8:3F:D2:90:97:A6";
-    const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
+    const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
+    const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", env.underlay_segment.unwrap());
+    let mut host1_dpu_bmc = FakeMachine::new(
+        HOST1_DPU_BMC_MAC,
+        "NVIDIA/BF/BMC",
+        env.underlay_segment.unwrap(),
+    );
 
-    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", env.underlay_segment.unwrap());
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", env.underlay_segment.unwrap());
 
     // Create dhcp entries and machine_interface entries for the machines
-    for machine in [&mut host1_dpu, &mut host1] {
+    for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
         machine.discover_dhcp(&env).await?;
     }
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 
     // Create a host and dpu reports && host has no dpu_serial
+    let host1_dpu_report = DpuConfig {
+        serial: HOST1_DPU_SERIAL_NUMBER.to_string(),
+        bmc_mac_address: HOST1_DPU_BMC_MAC.parse()?,
+        ..Default::default()
+    };
+    let host1_report = ManagedHostConfig {
+        bmc_mac_address: HOST1_BMC_MAC.parse()?,
+        ..Default::default()
+    };
     endpoint_explorer.insert_endpoint_results(vec![
         (
-            host1_dpu.ip.parse().unwrap(),
-            Ok(DpuConfig::with_serial(HOST1_DPU_SERIAL_NUMBER.to_string()).into()),
+            host1_dpu_bmc.ip.parse().unwrap(),
+            Ok(host1_dpu_report.into()),
         ),
-        (
-            host1.ip.parse().unwrap(),
-            Ok(ManagedHostConfig::default().into()),
-        ),
+        (host1_bmc.ip.parse().unwrap(), Ok(host1_report.into())),
     ]);
 
     let explorer_config = SiteExplorerConfig {
@@ -1564,7 +1574,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         &mut txn,
         ExpectedMachine {
             id: None,
-            bmc_mac_address: HOST1_MAC.to_string().parse().unwrap(),
+            bmc_mac_address: HOST1_BMC_MAC.to_string().parse().unwrap(),
             data: ExpectedMachineData {
                 bmc_username: "user1".to_string(),
                 bmc_password: "pw".to_string(),
@@ -1614,7 +1624,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     // Now update expected_machine entry with fallback_dpu_serial
     let mut txn = env.pool.begin().await?;
     let mut host1_expected_machine =
-        db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), HOST1_MAC.parse().unwrap())
+        db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), HOST1_BMC_MAC.parse().unwrap())
             .await?
             .expect("Expected machine not found");
     host1_expected_machine.data = ExpectedMachineData {
@@ -1848,7 +1858,7 @@ async fn test_fetch_host_primary_interface_mac(
             .api
             .discover_dhcp(
                 DhcpDiscovery::builder(oob_mac, "192.0.1.1")
-                    .vendor_string("NVIDIA/OOB")
+                    .vendor_string("NVIDIA/BF/BMC")
                     .tonic_request(),
             )
             .await
@@ -2507,30 +2517,40 @@ async fn test_machine_creation_with_sku(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    const HOST1_DPU_MAC: &str = "B8:3F:D2:90:97:A6";
-    const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
+    const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
+    const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", env.underlay_segment.unwrap());
+    let mut host1_dpu_bmc = FakeMachine::new(
+        HOST1_DPU_BMC_MAC,
+        "NVIDIA/BF/BMC",
+        env.underlay_segment.unwrap(),
+    );
 
-    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", env.underlay_segment.unwrap());
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", env.underlay_segment.unwrap());
 
     // Create dhcp entries and machine_interface entries for the machines
-    for machine in [&mut host1_dpu, &mut host1] {
+    for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
         machine.discover_dhcp(&env).await?;
     }
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 
     // Create a host and dpu reports && host has no dpu_serial
+    let host1_dpu_report = DpuConfig {
+        serial: HOST1_DPU_SERIAL_NUMBER.to_string(),
+        bmc_mac_address: HOST1_DPU_BMC_MAC.parse()?,
+        ..Default::default()
+    };
+    let host1_report = ManagedHostConfig {
+        bmc_mac_address: HOST1_BMC_MAC.parse()?,
+        ..Default::default()
+    };
     endpoint_explorer.insert_endpoint_results(vec![
         (
-            host1_dpu.ip.parse().unwrap(),
-            Ok(DpuConfig::with_serial(HOST1_DPU_SERIAL_NUMBER.to_string()).into()),
+            host1_dpu_bmc.ip.parse().unwrap(),
+            Ok(host1_dpu_report.into()),
         ),
-        (
-            host1.ip.parse().unwrap(),
-            Ok(ManagedHostConfig::default().into()),
-        ),
+        (host1_bmc.ip.parse().unwrap(), Ok(host1_report.into())),
     ]);
 
     let explorer_config = SiteExplorerConfig {
@@ -2590,7 +2610,7 @@ async fn test_machine_creation_with_sku(
         &mut txn,
         ExpectedMachine {
             id: None,
-            bmc_mac_address: HOST1_MAC.to_string().parse().unwrap(),
+            bmc_mac_address: HOST1_BMC_MAC.to_string().parse().unwrap(),
             data: ExpectedMachineData {
                 bmc_username: "user1".to_string(),
                 bmc_password: "pw".to_string(),

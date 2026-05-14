@@ -108,6 +108,7 @@ use sqlx::{Acquire, PgPool, PgTransaction, Postgres};
 use tonic::Status;
 
 use crate::ip_allocator::DhcpError;
+use crate::machine_interface_address::AddressAlreadyInUseError;
 use crate::resource_pool::ResourcePoolDatabaseError;
 
 // Max values we can bind to a Postgres SQL statement... half the stated value of 65536, since in
@@ -324,6 +325,8 @@ pub enum DatabaseError {
     Internal { message: String },
     #[error("Unable to parse string into IP Address: {0}")]
     AddressParseError(#[from] std::net::AddrParseError),
+    #[error(transparent)]
+    AddressAlreadyInUse(#[from] AddressAlreadyInUseError),
     #[error("Unable to parse string into IP Network: {0}")]
     NetworkParseError(#[from] ipnetwork::IpNetworkError),
     #[error("{kind} already exists: {id}")]

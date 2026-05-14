@@ -9,6 +9,7 @@
 	<thead>
 	<tr>
 		<th>ID</th>
+		<th>Type</th>
 		<th>MAC Address</th>
 		<th>IP Address</th>
 		<th>Machine ID</th>
@@ -21,6 +22,7 @@
 	{% for iface in interfaces %}
 		<tr>
 			<td><a href="/admin/interface/{{ iface.id }}">{{ iface.id }}</a></td>
+			<td>{{ iface.interface_type }}</td>
 			<td>{{ iface.mac_address }}</td>
 			<td>{{ iface.ip_address }}</td>
 			<td>{{ iface.machine_id|machine_id_link|safe }}</td>

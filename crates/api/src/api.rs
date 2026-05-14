@@ -338,6 +338,13 @@ impl Forge for Api {
         crate::handlers::power_shelf::admin_force_delete_power_shelf(self, request).await
     }
 
+    async fn set_power_shelf_maintenance(
+        &self,
+        request: Request<rpc::PowerShelfMaintenanceRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::set_power_shelf_maintenance(self, request).await
+    }
+
     async fn find_switches(
         &self,
         request: Request<rpc::SwitchQuery>,
@@ -3024,6 +3031,20 @@ impl Forge for Api {
         request: Request<rpc::GetDpfStateRequest>,
     ) -> Result<Response<rpc::DpfStateResponse>, Status> {
         crate::handlers::dpf::get_dpf_state(self, request).await
+    }
+
+    async fn get_dpf_host_snapshot(
+        &self,
+        request: Request<rpc::GetDpfHostSnapshotRequest>,
+    ) -> Result<Response<rpc::DpfHostSnapshotResponse>, Status> {
+        crate::handlers::dpf::get_dpf_host_snapshot(self, request).await
+    }
+
+    async fn get_dpf_service_versions(
+        &self,
+        request: Request<rpc::GetDpfServiceVersionsRequest>,
+    ) -> Result<Response<rpc::DpfServiceVersionsResponse>, Status> {
+        crate::handlers::dpf::get_dpf_service_versions(self, request).await
     }
 
     // scout_stream handles the bidirectional streaming connection from scout agents.
