@@ -22,16 +22,6 @@ NVIDIA Cloud Partner. In NICo docs, NCP usually refers to an infrastructure prov
 
 A legacy internal name for NICo components. Carbide appears in older source paths, service names, CLI references, and deployment artifacts. New documentation should use NICo names unless referring to an interface that still uses a legacy name.
 
-### AI Factory
-
-A datacenter purpose-built for AI workloads. NICo is the IaaS layer of an AI Factory: it manages the bare-metal lifecycle of every server from rack-and-stack through decommissioning. Everything above NICo, including Kubernetes, GPU Operator, and inference serving, depends on NICo delivering validated, tenant-isolated hardware.
-
-### Hub-and-Spoke Model
-
-The architectural pattern that connects NICo REST, the hub, to one or more datacenters, the spokes. The REST API server, workflow workers, and site manager run centrally, either in the cloud or in a management cluster, while each datacenter runs its own Site Agent alongside a Core instance.
-
-The Site Agent initiates connections to Temporal and to the local Core gRPC API, which lets the central REST layer coordinate work with site-local Core services without requiring the central API server to call directly into each datacenter.
-
 ### ManagedHost
 
 The fundamental unit of infrastructure that NICo manages. A ManagedHost represents a single physical box in a datacenter and groups one Host Machine with the DPU Machines attached to that host. Most current deployments use one DPU per host, but the Core data model stores DPUs as a list, and supported/tested paths include hosts with multiple DPUs and configuration-gated zero-DPU hosts.
@@ -304,23 +294,7 @@ Two distinct workflow scopes exist. Cloud workflows run in the central managemen
 
 The protobuf interface shared between NICo Core and NICo REST. Proto definitions originate in Core and are synchronized to REST through a snapshot process. This shared contract defines the gRPC API that the Site Agent uses to communicate with Core.
 
-### gRPC
-
-The RPC framework used by trusted NICo services to communicate with NICo Core. The Site Agent uses gRPC to translate REST-layer workflows into Core API calls.
-
-### protobuf
-
-Protocol Buffers. NICo uses protobuf definitions as the shared interface contract for Core APIs and for workflow payloads that move between REST and site-side components.
-
 ## API Patterns
-
-### Resource Handler
-
-The standard CRUD handler pattern used across REST API endpoints. Each resource type, such as sites, machines, instances, fabrics, racks, and tenants, follows the same handler structure with common utilities for pagination, error handling, and model conversion.
-
-### API Data Model and Database Model
-
-The REST API maintains separate model layers. API models define request and response shapes, while database models define PostgreSQL table mappings. Conversion functions bridge the two layers.
 
 ### OpenAPI Specification
 
