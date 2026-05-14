@@ -15,23 +15,16 @@
  * limitations under the License.
  */
 
-use std::net::IpAddr;
+use crate::resource_pool::ResourcePoolSnapshot;
 
-use carbide_uuid::machine::MachineInterfaceId;
-use rpc::forge::MachineArchitecture;
-
-pub struct PxeInstructionRequest {
-    pub arch: MachineArchitecture,
-    pub product: Option<String>,
-    pub client_ip: IpAddr,
-}
-
-/// Input provided to `PxeInstructions::get_pxe_instructions`.
-/// The PxeInstructionsRequest model contains the client_ip
-/// as determined by carbide-pxe, whereas PxeInstructionsInput
-/// contains the resolved machine_interface_id.
-pub struct PxeInstructionsInput {
-    pub interface_id: MachineInterfaceId,
-    pub arch: MachineArchitecture,
-    pub product: Option<String>,
+impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
+    fn from(rp: ResourcePoolSnapshot) -> Self {
+        rpc::forge::ResourcePool {
+            name: rp.name,
+            min: rp.min,
+            max: rp.max,
+            total: (rp.stats.free + rp.stats.used) as u64,
+            allocated: rp.stats.used as u64,
+        }
+    }
 }
