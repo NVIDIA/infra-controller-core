@@ -68,7 +68,7 @@ A Host that is currently allocated to and being used by a tenant. Instances are 
 
 Instance creation can be done through the gRPC API, where the caller explicitly selects the machine, or through the REST API, which supports resource allocation pools and random selection.
 
-Related: [Day 0 / Day 1 / Day 2 Lifecycle](overview/lifecycle.md), [REST API Reference](/infra-controller/api)
+Related: [Day 0 / Day 1 / Day 2 Lifecycle](overview/lifecycle.md)
 
 ### Leaf
 
@@ -98,7 +98,7 @@ The main NICo REST API server. It handles external HTTP requests, authenticates 
 
 The NICo REST repository's Helm charts and generated SDK now use `nico-rest-api`.
 
-Related: [REST API Reference](/infra-controller/api), [Architecture Overview](architecture/overview.md)
+Related: [Architecture Overview](architecture/overview.md)
 
 ### Workflow Worker
 
@@ -140,7 +140,6 @@ Related: [Data Model / DB Schema](development/schema.md)
 
 The command-line tool for interacting with the REST API. It supports scripted usage and interactive session management for environment switching and resource commands. It was previously named `carbidecli`.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ## Authentication and Authorization
 
@@ -155,25 +154,21 @@ NICo REST authorizes callers with provider and tenant role families. The REST SD
 | Tenant admin | Organization, tenant | Tenant-scoped administrative access to manage instances, SSH keys, VPC peering, and resources within the assigned tenant organization |
 | Tenant viewer | Organization, tenant | Read-only access to tenant-scoped resources |
 
-Related: [REST API Reference](/infra-controller/api)
 
 ### JWT Claims Processor Pipeline
 
 The chain of processors that extract authorization context from JWT tokens in the REST API. Processor types include Custom, KAS, Keycloak, and SSA. Each processor handles a different token origin and maps claims to internal authorization context.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ### Service Account Authentication (SSA)
 
 Machine-to-machine authentication using service account tokens. In the bundled development Keycloak setup, a service account can obtain a JWT through the client credentials flow and use that token against the REST API.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ### NGC KAS
 
 NVIDIA GPU Cloud Key Authentication Service. NICo REST can be configured to accept JWTs issued by NGC KAS and map NGC organization identity into NICo authorization context.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ### SPIFFE Identity in NICo
 
@@ -312,7 +307,6 @@ Related: [Networking Integrations](architecture/networking_integrations.md), [In
 
 REST API concepts for managing resource assignment to tenants. Allocations bind specific machines or capacity to a tenant. Constraints define rules about what resources a tenant can request, such as specific SKUs or rack locations. Together they control which hardware a tenant can see and consume.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ## Boot and Provisioning
 
@@ -436,19 +430,17 @@ Related: [Architecture Overview](architecture/overview.md), [Codebase Overview](
 
 The standard CRUD handler pattern used across REST API endpoints. Each resource type, such as sites, machines, instances, fabrics, racks, and tenants, follows the same handler structure with common utilities for pagination, error handling, and model conversion.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ### API Data Model and Database Model
 
 The REST API maintains separate model layers. API models define request and response shapes, while database models define PostgreSQL table mappings. Conversion functions bridge the two layers.
 
-Related: [Data Model / DB Schema](development/schema.md), [REST API Reference](/infra-controller/api)
+Related: [Data Model / DB Schema](development/schema.md)
 
 ### OpenAPI Specification
 
 The canonical REST API contract. Endpoint additions or modifications require updating the OpenAPI specification. It is validated in CI and used to generate the Go SDK client and rendered API documentation.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ## Technology Stack
 
@@ -456,7 +448,6 @@ Related: [REST API Reference](/infra-controller/api)
 
 The HTTP web framework used for the REST API server. It provides routing, middleware, Prometheus metrics integration, and request handling.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ### Bun ORM
 
@@ -498,7 +489,6 @@ Related: [TLS and SPIFFE Certificates](development/tls.md)
 
 The HTTP-based RPC framework used for the IPAM service's internal communication. Connect-RPC provides protobuf compatibility with HTTP/1.1 and HTTP/2 transports, gRPC health checking, and reflection. The Site Agent communicates with NICo Core over standard gRPC rather than Connect-RPC.
 
-Related: [REST API Reference](/infra-controller/api)
 
 ## Health Monitoring
 
