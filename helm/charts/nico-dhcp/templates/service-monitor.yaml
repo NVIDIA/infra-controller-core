@@ -1,0 +1,13 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nico-dhcp-metrics
+  namespace: {{ include "nico-dhcp.namespace" . }}
+  labels:
+    {{- include "nico-dhcp.labels" . | nindent 4 }}
+    app: nico-dhcp
+    prometheus: nico-monitoring
+spec:
+  {{- include "nico-dhcp.serviceMonitorSpec" (dict "name" "nico-dhcp" "port" "http" "monitor" .Values.serviceMonitor "namespace" "nico-system") | nindent 2 }}
+{{- end }}

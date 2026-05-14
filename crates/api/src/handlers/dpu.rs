@@ -180,6 +180,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
         use_fnn_over_admin_nw = true;
         network_virtualization_type = VpcVirtualizationType::Fnn;
     }
+    let use_vpc_vrf_loopback = api
+        .runtime_config
+        .fnn
+        .as_ref()
+        .is_some_and(|c| c.use_vpc_vrf_loopback);
 
     let booturl_override = if snapshot
         .host_snapshot
@@ -200,6 +205,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         use_fnn_over_admin_nw,
         &api.common_pools,
         &booturl_override,
+        use_vpc_vrf_loopback,
     )
     .await?;
 
@@ -359,41 +365,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let segment_details = segment_details.iter().map(|x|(x.id, x)).collect::<HashMap<_,_>>();
 
-            let Some(segment) = segment_details.get(&network_segment_id) else {
-                return Err(CarbideError::Internal { message: format!(
-                    "Tenant segment id {network_segment_id} is not found in db."
-                ) }.into());
-            };
-
-            let domain = match segment.subdomain_id {
-                Some(domain_id) => {
-                    db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
-                        .await
-                        .map_err(CarbideError::from)?
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "domain",
-                            id: domain_id.to_string(),
-                        })?
-                        .name
-                }
-                None => "unknowndomain".to_string(),
-            };
-
-            //Set FQDN
-            let instance_hostname = &instance.config.tenant.hostname;
-            let fqdn: String;
-            if let Some(hostname) = instance_hostname.clone() {
-                fqdn = format!("{hostname}.{domain}");
-            } else {
-                let dashed_ip: String = physical_ip
-                    .to_string()
-                    .split('.')
-                    .collect::<Vec<&str>>()
-                    .join("-");
-                fqdn = format!("{dashed_ip}.{domain}");
-            }
-
-            let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
+            // TODO: VPC loopbacks are currently blocked from being advertised out on the DPU.
+            // This must become per-interface/per-VPC before VPC loopbacks can be allowed out.
+            let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type
+                && use_vpc_vrf_loopback
+            {
                 let tenant_loopback_ip = db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
                     &api.common_pools,
                     &mut txn,
@@ -425,12 +401,37 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     ) }.into());
                 };
 
+                // Build the FQDN from this interface's segment domain.
+                let domain = match segment.subdomain_id {
+                    Some(domain_id) => {
+                        db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
+                            .await
+                            .map_err(CarbideError::from)?
+                            .ok_or_else(|| CarbideError::NotFoundError {
+                                kind: "domain",
+                                id: domain_id.to_string(),
+                            })?
+                            .name
+                    }
+                    None => "unknowndomain".to_string(),
+                };
+                let fqdn = if let Some(hostname) = &instance.config.tenant.hostname {
+                    format!("{hostname}.{domain}")
+                } else {
+                    let dashed_ip = physical_ip
+                        .to_string()
+                        .split('.')
+                        .collect::<Vec<_>>()
+                        .join("-");
+                    format!("{dashed_ip}.{domain}")
+                };
+
                 let tenant_interface =
                     ethernet_virtualization::tenant_network(
                         &mut txn,
                         instance.id,
                         iface,
-                        fqdn.clone(),
+                        fqdn,
                         // DPU agent reads loopback ip only from 0th interface.
                         // function build in nvue.rs
                         tenant_loopback_ip.clone(),

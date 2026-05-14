@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr};
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::ops::DerefMut;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcPrefixId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use chrono::Utc;
 use common::api_fixtures::instance::{
     advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
@@ -47,7 +47,7 @@ use db::instance_address::UsedOverlayNetworkIpResolver;
 use db::ip_allocator::UsedIpResolver;
 use db::network_segment::IdColumn;
 use db::{self, ObjectColumnFilter};
-use ipnetwork::{IpNetwork, Ipv4Network};
+use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::dpu_machine_update::DpuMachineUpdate;
@@ -2871,11 +2871,26 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap_err();
 }
 
-async fn create_tenant_overlay_prefix(
+async fn create_tenant_overlay_prefix(env: &TestEnv, vpc_id: VpcId) -> VpcPrefixId {
+    create_tenant_overlay_prefix_with_prefix(
+        env,
+        vpc_id,
+        "vpc prefix 1",
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
+    )
+    .await
+}
+
+/// Creates a tenant overlay VPC prefix with an explicit CIDR for allocation tests.
+async fn create_tenant_overlay_prefix_with_prefix(
     env: &TestEnv,
-    vpc_id: carbide_uuid::vpc::VpcId,
+    vpc_id: VpcId,
+    name: &str,
+    prefix: IpNetwork,
 ) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
+
+    // Look up the current VPC version so the prefix insert can increment it.
     let vpcs = db::vpc::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
@@ -2884,17 +2899,14 @@ async fn create_tenant_overlay_prefix(
     .unwrap();
     let expected_vpc_version = vpcs[0].version;
 
+    // Persist the prefix directly so tests can focus on allocation behavior.
     let vpc_prefix_id = db::vpc_prefix::persist(
         model::vpc_prefix::NewVpcPrefix {
             id: uuid::Uuid::new_v4().into(),
             vpc_id,
-            config: VpcPrefixConfig {
-                prefix: IpNetwork::V4(
-                    Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
-                ),
-            },
+            config: VpcPrefixConfig { prefix },
             metadata: Metadata {
-                name: "vpc prefix 1".to_string(),
+                name: name.to_string(),
                 description: "desc".to_string(),
                 labels: HashMap::new(),
             },
@@ -2907,6 +2919,40 @@ async fn create_tenant_overlay_prefix(
     .id;
     txn.commit().await.unwrap();
     vpc_prefix_id
+}
+
+/// Builds a two-interface physical network config backed by VPC prefixes.
+fn dual_physical_network_config_with_vpc_prefixes(
+    first_prefix_id: VpcPrefixId,
+    second_prefix_id: VpcPrefixId,
+) -> rpc::InstanceNetworkConfig {
+    // Put each PF on a distinct BlueField device instance so validation treats
+    // them as separate physical interfaces.
+    let interfaces = [first_prefix_id, second_prefix_id]
+        .into_iter()
+        .enumerate()
+        .map(
+            |(device_instance, vpc_prefix_id)| rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: None,
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
+                        vpc_prefix_id,
+                    ),
+                ),
+                device: Some("BlueField SoC".to_string()),
+                device_instance: device_instance as u32,
+                virtual_function_id: None,
+                ip_address: None,
+                ipv6_interface_config: None,
+            },
+        )
+        .collect();
+
+    rpc::InstanceNetworkConfig {
+        interfaces,
+        auto: false,
+    }
 }
 
 #[crate::sqlx_test]
@@ -4636,6 +4682,280 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
             IpNetwork::V6(_) => panic!("Can not be ipv6."),
         }
     }
+}
+
+#[crate::sqlx_test]
+async fn test_allocate_instance_with_multiple_fnn_vpc_prefixes(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+
+    // Create two FNN VPCs and prefixes to exercise cross-VPC allocation.
+    let first_vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "fnn vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+    let second_vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "fnn vpc 2".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+    let first_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        first_vpc,
+        "fnn vpc prefix 1",
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
+    )
+    .await;
+    let second_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        second_vpc,
+        "fnn vpc prefix 2",
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 6, 224), 27).unwrap()),
+    )
+    .await;
+
+    // Allocate an instance whose interfaces draw from both VPC prefixes.
+    let instance = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(InstanceConfig::default_tenant_and_os().network(
+                    dual_physical_network_config_with_vpc_prefixes(
+                        first_prefix_id,
+                        second_prefix_id,
+                    ),
+                ))
+                .metadata(rpc::Metadata {
+                    name: "multi-fnn-vpc".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .expect("FNN instance allocation across multiple VPCs should succeed")
+        .into_inner();
+
+    // Verify the response resolved both prefix-backed interfaces.
+    let interfaces = &instance
+        .config
+        .as_ref()
+        .unwrap()
+        .network
+        .as_ref()
+        .unwrap()
+        .interfaces;
+    assert_eq!(interfaces.len(), 2);
+    assert!(
+        interfaces
+            .iter()
+            .all(|iface| iface.network_segment_id.is_some())
+    );
+
+    // Fetch through the API to verify the persisted config, not just the create response.
+    let persisted = env.one_instance(instance.id.unwrap()).await;
+    let persisted_interfaces = &persisted.config().network().interfaces;
+    let segment_ids = persisted_interfaces
+        .iter()
+        .map(|iface| iface.network_segment_id.unwrap())
+        .collect_vec();
+    assert_eq!(segment_ids.iter().copied().collect::<HashSet<_>>().len(), 2);
+
+    // Verify the allocated segments are attached to both requested FNN VPCs.
+    let mut txn = env.db_txn().await;
+    let segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::List(IdColumn, &segment_ids),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        segments
+            .iter()
+            .map(|segment| segment.vpc_id.unwrap())
+            .collect::<HashSet<_>>(),
+        HashSet::from([first_vpc, second_vpc])
+    );
+}
+
+/// Verifies that non-FNN interfaces cannot span direct segments from multiple VPCs.
+#[crate::sqlx_test]
+async fn test_allocate_instance_rejects_multiple_non_fnn_network_segments(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+
+    // Create two non-FNN tenant segments across two VPCs.
+    let (_, _, first_segment_id, _, _, second_segment_id) = env
+        .create_vpc_and_peer_vpc_with_tenant_segments(
+            rpc::forge::VpcVirtualizationType::EthernetVirtualizer,
+            rpc::forge::VpcVirtualizationType::EthernetVirtualizer,
+        )
+        .await;
+
+    // Non-FNN segments must still reject cross-VPC interface configs.
+    let err = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(InstanceConfig::default_tenant_and_os().network(
+                    interface_network_config_with_devices(
+                        &[first_segment_id, second_segment_id],
+                        &[
+                            DeviceLocator {
+                                device: "BlueField SoC".to_string(),
+                                device_instance: 0,
+                            },
+                            DeviceLocator {
+                                device: "BlueField SoC".to_string(),
+                                device_instance: 1,
+                            },
+                        ],
+                    ),
+                ))
+                .tonic_request(),
+        )
+        .await
+        .expect_err("non-FNN cross-VPC segment allocation should fail");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("Found segments attached to multiple VPCs")
+    );
+}
+
+/// Verifies that dual-stack prefixes on one interface cannot cross VPC boundaries.
+#[crate::sqlx_test]
+async fn test_allocate_instance_rejects_dual_stack_prefixes_from_different_vpcs(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // Create two FNN VPCs so the global multi-FNN check passes.
+    let first_vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "dual-stack fnn vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+    let second_vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .metadata(Metadata {
+                    name: "dual-stack fnn vpc 2".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+
+    // Put the IPv4 and IPv6 prefixes in different VPCs on the same interface.
+    let primary_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        first_vpc,
+        "dual-stack primary prefix",
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 9, 224), 27).unwrap()),
+    )
+    .await;
+    let ipv6_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        second_vpc,
+        "dual-stack ipv6 prefix",
+        IpNetwork::V6(Ipv6Network::new(Ipv6Addr::from_str("fd00:217:9::").unwrap(), 120).unwrap()),
+    )
+    .await;
+
+    // Reject creating a single dual-stack segment that crosses VPC boundaries.
+    let err = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(InstanceConfig::default_tenant_and_os().network(
+                    rpc::InstanceNetworkConfig {
+                        interfaces: vec![rpc::InstanceInterfaceConfig {
+                            function_type: rpc::InterfaceFunctionType::Physical as i32,
+                            network_segment_id: None,
+                            network_details: Some(
+                                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
+                                    primary_prefix_id,
+                                ),
+                            ),
+                            device: Some("BlueField SoC".to_string()),
+                            device_instance: 0,
+                            virtual_function_id: None,
+                            ip_address: None,
+                            ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
+                                vpc_prefix_id: Some(ipv6_prefix_id),
+                                ip_address: None,
+                            }),
+                        }],
+                        auto: false,
+                    },
+                ))
+                .tonic_request(),
+        )
+        .await
+        .expect_err("dual-stack prefixes from different VPCs should fail");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("dual-stack VPC prefixes must belong to the same VPC")
+    );
 }
 
 // ================================================================================================

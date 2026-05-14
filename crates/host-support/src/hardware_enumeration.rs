@@ -738,8 +738,14 @@ fn enumerate_hardware_inner(
         }
     }
 
+    let is_dpu_dmi = dmi.product_name.contains(BF_PRODUCT_NAME_REGEX);
     let tpm_ek_certificate = match tpm::get_ek_certificate() {
         Ok(cert) => Some(BASE64_STANDARD.encode(cert)),
+        Err(e) if !is_dpu_dmi && tpm::is_tpm_present() => {
+            return Err(HardwareEnumerationError::GenericError(format!(
+                "TPM is present but EK certificate collection failed; refusing serial fallback: {e}"
+            )));
+        }
         Err(e) => {
             tracing::error!("Could not read TPM EK certificate: {:?}", e);
             None

@@ -1,15 +1,15 @@
 ## =============================================================================
-## carbide-prereqs — default values
-## See CARBIDE_PREREQS.md for full documentation.
+## nico-prereqs — default values
+## See NICO_PREREQS.md for full documentation.
 ## =============================================================================
 
 ## Site identifier - injected into postgres pods as TMP_SITE env var via
-## the forge-pg-cluster-env ConfigMap.
+## the nico-pg-cluster-env ConfigMap.
 ## Override per site: --set siteName=<sitename>
 siteName: "TMP_SITE"
 
-## Target namespace — must match the namespace used for helm install carbide
-namespace: forge-system
+## Target namespace — must match the namespace used for helm install nico
+namespace: nico-system
 
 ## Operator namespaces — must match the namespaces used in helmfile.yaml
 certManagerNamespace: cert-manager
@@ -26,14 +26,14 @@ postgresNamespace: postgres
 clusterApiServer: ""
 
 ## ---------------------------------------------------------------------------
-## Vault connection (used by vault-pki-config Job and vault-forge-issuer)
+## Vault connection (used by vault-pki-config Job and vault-nico-issuer)
 ## Vault address uses vaultNamespace above: vault.<vaultNamespace>.svc.cluster.local
 ## ---------------------------------------------------------------------------
 vault:
   address: "https://vault.vault.svc.cluster.local:8200"
   ## setup.sh/helmfile supplies this dynamically from vaultroottoken.
   ## Direct Helm users should set this when tokenSecret.create=true, or
-  ## pre-create forge-system/carbide-vault-token and set tokenSecret.create=false.
+  ## pre-create nico-system/nico-vault-token and set tokenSecret.create=false.
   token: ""
   tokenSecret:
     create: true
@@ -45,17 +45,17 @@ vault:
     kubectlImage: "bitnami/kubectl:latest"
   tls:
     create: true
-  pkiMount: "forgeca"
-  pkiRole: "forge-cluster"
+  pkiMount: "nicoca"
+  pkiRole: "nico-cluster"
   nicoCliClientRole:
     enabled: false
     name: "nico-cli-client"
     organization: ""
-  ## Kubernetes auth role for carbide-api to read from Vault KV
-  ## (e.g., BMC credentials for SiteExplorer).
-  carbideApiK8sAuth:
+  ## Kubernetes auth role for nico-api to read and manage Vault KV
+  ## credentials used by SiteExplorer and related credential flows.
+  nicoApiK8sAuth:
     enabled: false
-    serviceAccountName: "carbide-api"
+    serviceAccountName: "nico-api"
     tokenTTL: "1h"
   kvMount: "secrets"
 
@@ -93,9 +93,9 @@ postgresql:
   enabled: true
   instances: 3
   volumeSize: "10Gi"
-  ## DB_HOST in forge-system-carbide-database-config ConfigMap.
+  ## DB_HOST in nico-system-nico-database-config ConfigMap.
   ## Points at the operator-managed Service in the postgres namespace.
-  host: "forge-pg-cluster.postgres.svc.cluster.local"
+  host: "nico-pg-cluster.postgres.svc.cluster.local"
   ## Resource limits for each postgres instance.
   ## Production uses 32 CPU / 16Gi — tune down for dev clusters.
   resources:

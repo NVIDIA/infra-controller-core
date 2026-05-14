@@ -698,6 +698,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
+            "SetPowerShelfMaintenance",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
             "FindSwitches",
             vec![ForgeAdminCLI, Machineatron, Flow, Health],
         );
@@ -829,6 +833,8 @@ impl InternalRBACRules {
         x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Flow]);
         x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Flow]);
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
+        x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);
+        x.perm("GetDPFServiceVersions", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

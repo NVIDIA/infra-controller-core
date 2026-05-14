@@ -25,16 +25,11 @@ pub const TENANT_IDENTITY_SIGNING_JWT_ALG: &str = "ES256";
 
 /// Per-tenant JWT signing algorithm persisted in `tenant_identity_config.algorithm` and site config.
 /// Only [`SigningAlgorithm::Es256`] is implemented end-to-end today; the enum leaves room for more JOSE `alg` values later.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum SigningAlgorithm {
+    #[default]
     Es256,
-}
-
-impl Default for SigningAlgorithm {
-    fn default() -> Self {
-        Self::Es256
-    }
 }
 
 impl SigningAlgorithm {

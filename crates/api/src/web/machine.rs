@@ -420,7 +420,7 @@ pub async fn fetch_machines(
             .await?
             .into_inner();
 
-        machines.extend(next_machines.machines.into_iter());
+        machines.extend(next_machines.machines);
         offset += page_size;
     }
 

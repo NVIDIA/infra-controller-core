@@ -1912,6 +1912,7 @@ dependencies = [
  "libudev",
  "logfmt",
  "procfs",
+ "rcgen",
  "regex",
  "rustls-pemfile",
  "serde",
@@ -1929,6 +1930,7 @@ dependencies = [
  "uname",
  "url",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]
@@ -2415,6 +2417,26 @@ dependencies = [
  "thiserror 2.0.18",
  "tonic",
  "tracing",
+]
+
+[[package]]
+name = "carbide-rvs"
+version = "0.0.1"
+dependencies = [
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "figment",
+ "logfmt",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "toml 1.1.2+spec-1.1.0",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -3058,9 +3080,12 @@ dependencies = [
  "carbide-api-model",
  "carbide-api-test-helper",
  "carbide-macros",
+ "carbide-redfish",
+ "carbide-secrets",
  "carbide-sqlx-testing",
  "carbide-uuid",
  "chrono",
+ "libredfish",
  "librms",
  "mac_address",
  "prost",

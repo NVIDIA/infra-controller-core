@@ -31,7 +31,7 @@
 #   6. MetalLB BGPPeer nodes    — hostnames in config exist in the cluster
 #   7. Per-node checks          — kernel params (sysctl) and DNS on every node
 #   8. Registry connectivity    — registry host is reachable over HTTPS
-#   9. NCX REST repo            — found locally or offer to clone from GitHub
+#   9. NICo REST repo            — found locally or offer to clone from GitHub
 #
 # Configurable:
 #   PREFLIGHT_CHECK_IMAGE — image used for per-node pod checks (default: busybox:1.36)
@@ -89,35 +89,35 @@ _cleanup_preflight_pods() {
 [[ -z "${REGISTRY_PULL_SECRET:-}" ]] && \
     ERRORS+=("REGISTRY_PULL_SECRET is not set  (your registry pull secret / API key)")
 
-[[ -z "${NCX_IMAGE_REGISTRY:-}" ]] && \
-    ERRORS+=("NCX_IMAGE_REGISTRY is not set    (container registry, e.g. my-registry.example.com/ncx)")
+[[ -z "${NICO_IMAGE_REGISTRY:-}" ]] && \
+    ERRORS+=("NICO_IMAGE_REGISTRY is not set    (container registry, e.g. my-registry.example.com/ncx)")
 
-[[ -z "${NCX_CORE_IMAGE_TAG:-}" ]] && \
-    ERRORS+=("NCX_CORE_IMAGE_TAG is not set    (NCX Core image tag, e.g. v2025.12.30)")
+[[ -z "${NICO_CORE_IMAGE_TAG:-}" ]] && \
+    ERRORS+=("NICO_CORE_IMAGE_TAG is not set    (NICo Core image tag, e.g. v2025.12.30)")
 
-[[ -z "${NCX_REST_IMAGE_TAG:-}" ]] && \
-    ERRORS+=("NCX_REST_IMAGE_TAG is not set    (NCX REST image tag, e.g. v1.0.4)")
+[[ -z "${NICO_REST_IMAGE_TAG:-}" ]] && \
+    ERRORS+=("NICO_REST_IMAGE_TAG is not set    (NICo REST image tag, e.g. v1.0.4)")
 
 # Environment variables — format validation
 _UUID_RE='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
-# NCX_IMAGE_REGISTRY must not include a protocol prefix
-if [[ -n "${NCX_IMAGE_REGISTRY:-}" ]] && [[ "${NCX_IMAGE_REGISTRY}" =~ ^https?:// ]]; then
-    ERRORS+=("NCX_IMAGE_REGISTRY must not include a protocol prefix — remove 'https://' or 'http://'")
+# NICO_IMAGE_REGISTRY must not include a protocol prefix
+if [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] && [[ "${NICO_IMAGE_REGISTRY}" =~ ^https?:// ]]; then
+    ERRORS+=("NICO_IMAGE_REGISTRY must not include a protocol prefix — remove 'https://' or 'http://'")
 fi
 
 # Image tags should look like version tags (v<semver>)
-for _tag_var in NCX_CORE_IMAGE_TAG NCX_REST_IMAGE_TAG; do
+for _tag_var in NICO_CORE_IMAGE_TAG NICO_REST_IMAGE_TAG; do
     _tag_val="${!_tag_var:-}"
     if [[ -n "${_tag_val}" && ! "${_tag_val}" =~ ^v[0-9] ]]; then
         WARNINGS+=("${_tag_var}='${_tag_val}' — expected a version tag starting with 'v' (e.g. v2025.12.30)")
     fi
 done
 
-# NCX_SITE_UUID must be a valid UUID if set (used as Temporal namespace + CLUSTER_ID)
-if [[ -n "${NCX_SITE_UUID:-}" ]]; then
-    if [[ ! "${NCX_SITE_UUID}" =~ ${_UUID_RE} ]]; then
-        ERRORS+=("NCX_SITE_UUID='${NCX_SITE_UUID}' is not a valid UUID — the site-agent will fatal on startup (generate one with: python3 -c 'import uuid; print(uuid.uuid4())')")
+# NICO_SITE_UUID must be a valid UUID if set (used as Temporal namespace + CLUSTER_ID)
+if [[ -n "${NICO_SITE_UUID:-}" ]]; then
+    if [[ ! "${NICO_SITE_UUID}" =~ ${_UUID_RE} ]]; then
+        ERRORS+=("NICO_SITE_UUID='${NICO_SITE_UUID}' is not a valid UUID — the site-agent will fatal on startup (generate one with: python3 -c 'import uuid; print(uuid.uuid4())')")
     fi
 fi
 
@@ -149,16 +149,20 @@ _METALLB_CFG="${SCRIPT_DIR}/values/metallb-config.yaml"
 if [[ ! -f "${_METALLB_CFG}" ]]; then
     ERRORS+=("values/metallb-config.yaml not found — restore from git and fill in your site config")
 else
-    # YAML syntax — kubectl dry-run with validate=false, but filter out
-    # "no matches for kind" errors (MetalLB CRDs are not installed yet, that's expected).
+    # YAML syntax — kubectl dry-run with validate=false. Only report a real
+    # error when kubectl exits non-zero AND the failure isn't one of the
+    # benign "CRDs not installed yet" messages.
     if command -v kubectl &>/dev/null; then
+        # Capture exit code without tripping `set -e` from setup.sh.
+        _yaml_rc=0
         _yaml_out="$(kubectl apply --dry-run=client --validate=false \
-            -f "${_METALLB_CFG}" 2>&1)" || true
-        _yaml_real_errors="$(echo "${_yaml_out}" | \
-            grep -vE 'no matches for kind|resource mapping not found|ensure CRDs are installed' || true)"
-        if [[ -n "${_yaml_real_errors}" ]] && \
-           echo "${_yaml_out}" | grep -qvE 'no matches for kind|resource mapping not found|ensure CRDs are installed'; then
-            ERRORS+=("values/metallb-config.yaml: YAML parse error — ${_yaml_real_errors}")
+            -f "${_METALLB_CFG}" 2>&1)" || _yaml_rc=$?
+        if [[ "${_yaml_rc}" -ne 0 ]]; then
+            _yaml_real_errors="$(echo "${_yaml_out}" | \
+                grep -vE 'no matches for kind|resource mapping not found|ensure CRDs are installed|created \(dry run\)|configured \(dry run\)|unchanged \(dry run\)' || true)"
+            if [[ -n "${_yaml_real_errors}" ]]; then
+                ERRORS+=("values/metallb-config.yaml: YAML parse error — ${_yaml_real_errors}")
+            fi
         fi
     fi
 
@@ -358,8 +362,8 @@ fi  # _CLUSTER_REACHABLE
 # 8. Registry connectivity — treat any HTTP response as reachable;
 #    only warn on connection failure (HTTP 000 = could not connect at all)
 # ---------------------------------------------------------------------------
-if [[ -n "${NCX_IMAGE_REGISTRY:-}" ]] && command -v curl &>/dev/null; then
-    _reg_host="${NCX_IMAGE_REGISTRY%%/*}"
+if [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] && command -v curl &>/dev/null; then
+    _reg_host="${NICO_IMAGE_REGISTRY%%/*}"
     _http_code=$(curl --connect-timeout 5 --max-time 10 \
         -o /dev/null -w "%{http_code}" \
         "https://${_reg_host}/v2/" 2>/dev/null || echo "000")
@@ -369,23 +373,23 @@ if [[ -n "${NCX_IMAGE_REGISTRY:-}" ]] && command -v curl &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. NCX REST repo
+# 9. NICo REST repo
 # ---------------------------------------------------------------------------
-NCX_REPO_RESOLVED=""
+NICO_REPO_RESOLVED=""
 
-if [[ -n "${NCX_REPO:-}" ]]; then
-    if [[ -d "${NCX_REPO}/helm/charts/carbide-rest" ]]; then
-        NCX_REPO_RESOLVED="${NCX_REPO}"
+if [[ -n "${NICO_REPO:-}" ]]; then
+    if [[ -d "${NICO_REPO}/helm/charts/nico-rest" ]]; then
+        NICO_REPO_RESOLVED="${NICO_REPO}"
     else
-        ERRORS+=("NCX_REPO='${NCX_REPO}' but helm/charts/carbide-rest was not found there")
+        ERRORS+=("NICO_REPO='${NICO_REPO}' but helm/charts/nico-rest was not found there")
     fi
 else
     for _candidate in \
-        "${SCRIPT_DIR}/../../carbide-rest" \
+        "${SCRIPT_DIR}/../../nico-rest" \
         "${SCRIPT_DIR}/../../ncx-infra-controller-rest" \
         "${SCRIPT_DIR}/../../ncx"; do
-        if [[ -d "${_candidate}/helm/charts/carbide-rest" ]]; then
-            NCX_REPO_RESOLVED="$(cd "${_candidate}" && pwd)"
+        if [[ -d "${_candidate}/helm/charts/nico-rest" ]]; then
+            NICO_REPO_RESOLVED="$(cd "${_candidate}" && pwd)"
             break
         fi
     done
@@ -394,8 +398,8 @@ fi
 NCX_CLONE_URL="https://github.com/NVIDIA/ncx-infra-controller-rest.git"
 NCX_CLONE_PARENT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
-if [[ -z "${NCX_REPO_RESOLVED}" ]]; then
-    WARNINGS+=("NCX REST repo not found — expected a sibling directory with helm/charts/carbide-rest")
+if [[ -z "${NICO_REPO_RESOLVED}" ]]; then
+    WARNINGS+=("NICo REST repo not found — expected a sibling directory with helm/charts/nico-rest")
 fi
 
 # ---------------------------------------------------------------------------
@@ -404,8 +408,8 @@ fi
 _print_separator() { echo "---------------------------------------------------------------------"; }
 
 if [[ ${#ERRORS[@]} -eq 0 && ${#WARNINGS[@]} -eq 0 ]]; then
-    echo "Pre-flight OK  (NCX repo: ${NCX_REPO_RESOLVED:-not resolved})"
-    [[ -n "${NCX_REPO_RESOLVED}" ]] && export NCX_REPO="${NCX_REPO_RESOLVED}"
+    echo "Pre-flight OK  (NICo repo: ${NICO_REPO_RESOLVED:-not resolved})"
+    [[ -n "${NICO_REPO_RESOLVED}" ]] && export NICO_REPO="${NICO_REPO_RESOLVED}"
     if ${_SOURCED}; then return 0; else exit 0; fi
 fi
 
@@ -430,12 +434,12 @@ if [[ ${#WARNINGS[@]} -gt 0 ]]; then
     done
 fi
 
-# Offer to clone NCX REST repo if missing
-if [[ -z "${NCX_REPO_RESOLVED}" ]]; then
+# Offer to clone NICo REST repo if missing
+if [[ -z "${NICO_REPO_RESOLVED}" ]]; then
     echo ""
-    echo "  NCX REST repo not found."
+    echo "  NICo REST repo not found."
     echo ""
-    echo "  setup.sh Phase 7 deploys the NCX REST stack (API, workflow engine, site-agent)"
+    echo "  setup.sh Phase 7 deploys the NICo REST stack (API, workflow engine, site-agent)"
     echo "  using Helm charts and kustomize bases from a separate repository:"
     echo "    ${NCX_CLONE_URL}"
     echo ""
@@ -445,29 +449,29 @@ if [[ -z "${NCX_REPO_RESOLVED}" ]]; then
     echo "    q) Quit setup entirely"
     echo ""
     echo "  (You can also clone it manually and re-run with:"
-    echo "   export NCX_REPO=/path/to/ncx-infra-controller-rest)"
+    echo "   export NICO_REPO=/path/to/ncx-infra-controller-rest)"
     if [[ "${AUTO_YES:-false}" == "true" ]]; then
         _clone_reply="s"
     else
         echo ""
-        read -r -p "  ➤  Clone NCX REST repo now? [c=clone / s=skip / q=quit]: " _clone_reply
+        read -r -p "  ➤  Clone NICo REST repo now? [c=clone / s=skip / q=quit]: " _clone_reply
         echo ""
     fi
     case "${_clone_reply:-s}" in
         c|C)
             echo "  Cloning ${NCX_CLONE_URL} ..."
             git clone "${NCX_CLONE_URL}" "${NCX_CLONE_PARENT}/ncx-infra-controller-rest"
-            NCX_REPO_RESOLVED="${NCX_CLONE_PARENT}/ncx-infra-controller-rest"
-            export NCX_REPO="${NCX_REPO_RESOLVED}"
-            echo "  Cloned OK — NCX_REPO=${NCX_REPO}"
-            WARNINGS=("${WARNINGS[@]/NCX REST repo not found*/}")
+            NICO_REPO_RESOLVED="${NCX_CLONE_PARENT}/ncx-infra-controller-rest"
+            export NICO_REPO="${NICO_REPO_RESOLVED}"
+            echo "  Cloned OK — NICO_REPO=${NICO_REPO}"
+            WARNINGS=("${WARNINGS[@]/NICo REST repo not found*/}")
             ;;
         q|Q)
             echo "  Aborted."
             if ${_SOURCED}; then return 1; else exit 1; fi
             ;;
         *)
-            echo "  Skipping NCX REST repo — step [7/7] will fail."
+            echo "  Skipping NICo REST repo — step [7/7] will fail."
             ;;
     esac
 fi
@@ -488,14 +492,14 @@ if [[ ${#ERRORS[@]} -eq 0 ]]; then
             if ${_SOURCED}; then return 1; else exit 1; fi
         fi
     fi
-    [[ -n "${NCX_REPO_RESOLVED}" ]] && export NCX_REPO="${NCX_REPO_RESOLVED}"
+    [[ -n "${NICO_REPO_RESOLVED}" ]] && export NICO_REPO="${NICO_REPO_RESOLVED}"
     if ${_SOURCED}; then return 0; else exit 0; fi
 fi
 
 # Hard errors — default abort
 if [[ "${AUTO_YES:-false}" == "true" ]]; then
     echo "  Errors above noted — continuing (-y flag set). Things may fail."
-    [[ -n "${NCX_REPO_RESOLVED}" ]] && export NCX_REPO="${NCX_REPO_RESOLVED}"
+    [[ -n "${NICO_REPO_RESOLVED}" ]] && export NICO_REPO="${NICO_REPO_RESOLVED}"
     if ${_SOURCED}; then return 0; else exit 0; fi
 fi
 
@@ -506,7 +510,7 @@ read -r -p "  ➤  Continue anyway at your own risk? [y/N]: " _reply
 echo ""
 if [[ "${_reply:-N}" =~ ^[Yy]$ ]]; then
     echo "  Continuing — good luck."
-    [[ -n "${NCX_REPO_RESOLVED}" ]] && export NCX_REPO="${NCX_REPO_RESOLVED}"
+    [[ -n "${NICO_REPO_RESOLVED}" ]] && export NICO_REPO="${NICO_REPO_RESOLVED}"
     if ${_SOURCED}; then return 0; else exit 0; fi
 fi
 

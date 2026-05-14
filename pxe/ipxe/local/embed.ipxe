@@ -15,30 +15,15 @@ prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open carbide men
 
 :whoami
 ifconf -c dhcp
-# When a DHCP server (carbide-dhcp or API-integrated DHCP server) populates
-# option 43.70 with the machine_interface_id, use that as the identifier.
-# Otherwise, just rely on the client IP -- carbide-pxe will resolve it via
-# X-Forwarded-For (when proxied) or the TCP socket peer (when direct), then
-# look up the interface by IP. iPXE itself doesn't need to put the IP in
-# the URL since the network layer carries it.
-isset ${43.70} && goto whoami_uuid || goto whoami_sourceip
-
-:whoami_uuid
-time chain --autofree http://${next-server}:8080/api/v0/pxe/whoami?uuid=${43.70}
-goto carbide_menu
-
-:whoami_sourceip
+# carbide-pxe identifies the booting machine by its client IP (read from
+# X-Forwarded-For when proxied, TCP socket peer otherwise) and resolves
+# to a machine_interface_id via find_by_ip. iPXE doesn't need to encode
+# anything identity-related in the URL -- the network layer carries it.
 time chain --autofree http://${next-server}:8080/api/v0/pxe/whoami
 goto carbide_menu
 
 :carbide
 ifconf -c dhcp
-isset ${43.70} && goto carbide_uuid || goto carbide_sourceip
-
-:carbide_uuid
-time chain --autofree http://${next-server}:8080/api/v0/pxe/boot?uuid=${43.70}&buildarch=${buildarch}&platform=${platform}&manufacturer=${manufacturer}&product=${product}&serial=${serial} && exit 1 || goto error_handler
-
-:carbide_sourceip
 time chain --autofree http://${next-server}:8080/api/v0/pxe/boot?buildarch=${buildarch}&platform=${platform}&manufacturer=${manufacturer}&product=${product}&serial=${serial} && exit 1 || goto error_handler
 
 :carbide_menu
