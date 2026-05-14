@@ -393,6 +393,7 @@ async fn test_managed_host_network_config_omits_admin_fnn_vrf_loopback_by_defaul
         .unwrap()
         .remove(0);
     let admin_vpc_id = admin_segment
+        .config
         .vpc_id
         .expect("admin segment should be attached to an FNN VPC");
     let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &admin_vpc_id)

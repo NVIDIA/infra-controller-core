@@ -4800,7 +4800,7 @@ async fn test_allocate_instance_with_multiple_fnn_vpc_prefixes(
     assert_eq!(
         segments
             .iter()
-            .map(|segment| segment.vpc_id.unwrap())
+            .map(|segment| segment.config.vpc_id.unwrap())
             .collect::<HashSet<_>>(),
         HashSet::from([first_vpc, second_vpc])
     );

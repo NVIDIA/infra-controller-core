@@ -353,6 +353,7 @@ async fn test_network_segment_max_history_length(
         )
         .await
         .unwrap()[0]
+            .status
             .controller_state
             .version;
         txn.commit().await.unwrap();
