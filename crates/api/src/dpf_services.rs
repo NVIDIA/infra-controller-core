@@ -52,7 +52,7 @@ pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
 pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 
 /// DHCP Service Definitions
-pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "carbide-dhcp-server";
+pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "nico-dhcp-server";
 pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
 pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
 pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
@@ -63,17 +63,17 @@ pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
 pub const DTS_SERVICE_HELM_VERSION: &str = "1.22.1";
 
 // DPU Agent Service Definitions
-pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
+pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "nico-dpu-agent";
 pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
 
 /// FMDS Agent Service Definitions
-pub const FMDS_SERVICE_HELM_NAME: &str = "carbide-fmds";
+pub const FMDS_SERVICE_HELM_NAME: &str = "nico-fmds";
 pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
 pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
 pub const FMDS_SERVICE_MTU: i64 = 1500;
 
 /// OTel Collector Service Definitions
-pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "carbide-otelcol";
+pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
