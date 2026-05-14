@@ -128,8 +128,9 @@ pub fn get_health_report(template: HealthReportTemplates, message: Option<String
                 HealthAlertClassification::suppress_external_alerting(),
             ];
         }
-        // Same shape as TenantReportedIssue; distinct merge source and probe id for online repair.
-        // Includes `PreventDeletion` so `ReleaseInstance` is blocked while this merge is present (not admin force-delete).
+
+        // Template to indicate that the instance is identified as unhealthy and
+        // is ready to be picked for OnlineRepair without releasing the instance.
         HealthReportTemplates::RequestOnlineRepair => {
             report.source = "request-online-repair".to_string();
             report.alerts[0].id = HealthProbeId::from_str("RequestOnlineRepair")
@@ -141,6 +142,7 @@ pub fn get_health_report(template: HealthReportTemplates, message: Option<String
                 HealthAlertClassification::prevent_deletion(),
             ];
         }
+
         // Template to indicate that the instance is identified as unhealthy and
         // is ready to be picked by Repair System for diagnosis and fix.
         HealthReportTemplates::RequestRepair => {
