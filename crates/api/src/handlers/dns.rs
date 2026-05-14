@@ -323,23 +323,17 @@ pub async fn lookup_record_legacy_compat(
     tracing::info!("Legacy RPC method lookup_record_legacy called");
 
     let question = request.into_inner();
-    let qname = question.q_name.map_or_else(
-        || {
-            tracing::warn!(
-                "Received legacy DNS request with missing q_name - defaulting to empty string"
-            );
-            "".to_string()
-        },
-        |name| name,
-    );
+    let qname = question.q_name.unwrap_or_else(|| {
+        tracing::warn!(
+            "Received legacy DNS request with missing q_name - defaulting to empty string"
+        );
+        "".to_string()
+    });
 
-    let q_type = question.q_type.map_or_else(
-        || {
-            tracing::warn!("Received legacy DNS request with missing q_type - defaulting to 'A'");
-            1
-        },
-        |qtype| qtype,
-    );
+    let q_type = question.q_type.unwrap_or_else(|| {
+        tracing::warn!("Received legacy DNS request with missing q_type - defaulting to 'A'");
+        1
+    });
 
     // Log the full incoming request for debugging
     tracing::info!(

@@ -32,10 +32,10 @@ use db::{WithTransaction, tenant, tenant_identity_config};
 use forge_secrets::credentials::CredentialReader;
 use forge_secrets::key_encryption;
 use model::tenant::{
-    EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfig,
-    IdentityConfigValidationError, InvalidNonEmptyStr, InvalidTenantOrg, KeyId, SigningKeyMaterial,
-    SigningPublicKeyPem, TenantIdentityConfig, TenantIdentityConfigDecrypted, TenantOrganizationId,
-    TokenDelegation, TokenDelegationValidationBounds, TokenDelegationValidationError,
+    EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfigValidationError,
+    InvalidNonEmptyStr, InvalidTenantOrg, KeyId, SigningKeyMaterial, SigningPublicKeyPem,
+    TenantIdentityConfig, TenantIdentityConfigDecrypted, TenantOrganizationId, TokenDelegation,
+    TokenDelegationValidationBounds, TokenDelegationValidationError,
 };
 use tonic::{Request, Response, Status};
 
@@ -216,7 +216,7 @@ pub(crate) async fn set_configuration(
     let proto = req.config.ok_or_else(|| {
         CarbideError::InvalidArgument("TenantIdentityConfig is required".to_string())
     })?;
-    let config = IdentityConfig::try_from_proto(
+    let config = model::rpc_conv::tenant::identity_config_try_from_proto(
         proto,
         &model::tenant::IdentityConfigValidationBounds::from(
             api.runtime_config.machine_identity.clone(),
@@ -381,7 +381,7 @@ pub(crate) async fn set_token_delegation(
             CarbideError::InvalidArgument("TokenDelegation config is required".to_string())
         })
         .and_then(|c| {
-            TokenDelegation::try_from_proto(
+            model::rpc_conv::tenant::token_delegation_try_from_proto(
                 c.clone(),
                 &TokenDelegationValidationBounds::from(api.runtime_config.machine_identity.clone()),
             )

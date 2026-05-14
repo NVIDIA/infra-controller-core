@@ -241,6 +241,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     }
 
     let mut has_any_vpc_tenant_host_leak_to_underlay = false;
+    let mut has_any_vpc_vrf_loopback = false;
     let mut fmds_gateway_matched = false;
 
     for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
@@ -314,6 +315,9 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         let (vpc_peer_ipv4, vpc_peer_ipv6) =
             split_prefixes_by_family(&network.vpc_peer_prefixes, 1);
 
+        has_any_vpc_vrf_loopback =
+            has_any_vpc_vrf_loopback || network.tenant_vrf_loopback_ip.is_some();
+
         vpc_configs
             .entry(network.l3_vni.unwrap_or_default())
             .and_modify(|v| {
@@ -324,6 +328,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             .or_insert_with(|| TmplVpc {
                 VrfName: port.VrfName.clone(),
                 L3VNI: network.l3_vni.unwrap_or_default(),
+                HasVrfLoopback: network.tenant_vrf_loopback_ip.is_some(),
                 VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
                 // TODO: This is wasteful because it should be specific to a VPC.
                 // Otherwise, all VPCs will have a BGP peer config for each
@@ -449,7 +454,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     };
 
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
-    vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
+    vpcs.sort_by_key(|a| a.L3VNI);
 
     let (traffic_intercept_ipv4, traffic_intercept_ipv6) =
         split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, 1);
@@ -476,6 +481,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         VfInterceptHbnRepresentorIp: vf_intercept_hbn_representor_ip,
         VfInterceptBridgeSf: conf.vf_intercept_bridge_sf.unwrap_or_default(),
         HasAnyVpcTenantHostLeakToUnderlay: has_any_vpc_tenant_host_leak_to_underlay,
+        HasAnyVpcVrfLoopback: has_any_vpc_vrf_loopback,
         TrafficInterceptPublicPrefixes: traffic_intercept_ipv4,
         TrafficInterceptPublicPrefixesIpv6: traffic_intercept_ipv6,
         ASN: conf.asn,
@@ -1160,6 +1166,9 @@ struct TmplNvue {
     /// tenant routes should leak to the underlay?
     HasAnyVpcTenantHostLeakToUnderlay: bool,
 
+    /// Does any VPC have a VRF loopback?
+    HasAnyVpcVrfLoopback: bool,
+
     /// The size of the of the prefix used for the internal
     /// bridge routing.
     InterceptBridgePrefixLen: u8,
@@ -1372,6 +1381,7 @@ struct TmplVpc {
     // from a dedicated resource-pool, handed out as un-related /32s, and
     // interfaces in FNN get /31s.
     /// The tenant loopback IP assigned to each DPU.
+    HasVrfLoopback: bool,
     VrfLoopback: String,
 
     HostInterfaces: Vec<TmplHostInterfaces>,

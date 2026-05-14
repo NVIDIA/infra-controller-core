@@ -23,11 +23,12 @@ use carbide_uuid::machine::MachineInterfaceId;
 use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-    create_host_inband_network_segment,
+    create_host_inband_network_segment, create_network_segment,
 };
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestEnvOverrides, create_managed_host,
     create_managed_host_with_config, create_test_env, create_test_env_with_overrides, dpu,
+    get_config,
 };
 use db::{self, ObjectColumnFilter, dhcp_entry};
 use ipnetwork::IpNetwork;
@@ -51,7 +52,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
-        test_gateway_address,
+        std::slice::from_ref(&test_gateway_address),
         None,
     )
     .await?;
@@ -74,7 +75,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
-        test_gateway_address,
+        std::slice::from_ref(&test_gateway_address),
         None,
     )
     .await?;
@@ -83,7 +84,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
-        test_gateway_address,
+        std::slice::from_ref(&test_gateway_address),
         None,
     )
     .await?;
@@ -92,7 +93,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     let output = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
-        "192.0.1.1".parse().unwrap(),
+        &["192.0.1.1".parse().unwrap()],
         None,
     )
     .await;
@@ -113,7 +114,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Inititially 0 addresses are allocated on the segment
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, env.admin_segment_ref())
             .await
             .unwrap(),
         0
@@ -130,7 +131,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .unwrap()
         .into_inner();
 
-    assert_eq!(response.segment_id.unwrap(), (env.admin_segment.unwrap()));
+    assert_eq!(response.segment_id.unwrap(), (env.admin_segment()));
 
     assert_eq!(response.mac_address, mac_address);
     assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
@@ -141,7 +142,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // After DHCP, 1 address is allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, env.admin_segment_ref())
             .await
             .unwrap(),
         1
@@ -159,7 +160,7 @@ async fn test_multiple_machines_dhcp_with_api(
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, env.admin_segment_ref())
             .await
             .unwrap(),
         0
@@ -178,7 +179,7 @@ async fn test_multiple_machines_dhcp_with_api(
             .unwrap()
             .into_inner();
 
-        assert_eq!(response.segment_id.unwrap(), (env.admin_segment.unwrap()));
+        assert_eq!(response.segment_id.unwrap(), (env.admin_segment()));
 
         assert_eq!(response.mac_address, mac);
         assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
@@ -189,12 +190,84 @@ async fn test_multiple_machines_dhcp_with_api(
 
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, env.admin_segment_ref())
             .await
             .unwrap(),
         NUM_MACHINES
     );
     txn.commit().await.unwrap();
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_machine_dhcp_declared_admin_nic_allocates_from_relay_admin_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.rack_management_enabled = true;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+    // Create a second admin segment so the relay determines which admin segment is used.
+    let second_admin_segment = create_network_segment(
+        &env.api,
+        "ADMIN_2",
+        "192.0.12.0/24",
+        "192.0.12.1",
+        rpc::forge::NetworkSegmentType::Admin,
+        None,
+        true,
+    )
+    .await;
+
+    // Register an expected host NIC declared as an admin-network NIC.
+    let bmc_mac: MacAddress = "7a:7b:7c:7d:7e:10".parse().unwrap();
+    let admin_nic_mac: MacAddress = "7a:7b:7c:7d:7e:11".parse().unwrap();
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-ADMIN-RELAY-001".into(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: admin_nic_mac.to_string(),
+                nic_type: Some("onboard".into()),
+                fixed_ip: None,
+                fixed_mask: None,
+                fixed_gateway: None,
+                primary: Some(true),
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    // DHCP through the second admin relay should allocate from that segment.
+    let response = env
+        .api
+        .discover_dhcp(DhcpDiscovery::builder(admin_nic_mac, "192.0.12.1").tonic_request())
+        .await?
+        .into_inner();
+
+    let expected_address: IpAddr = "192.0.12.3".parse().unwrap();
+    assert_eq!(response.segment_id.unwrap(), second_admin_segment);
+    assert_eq!(response.mac_address, admin_nic_mac.to_string());
+    assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
+    assert_eq!(response.address, expected_address.to_string());
+    assert_eq!(response.prefix, "192.0.12.0/24");
+    assert_eq!(response.gateway.unwrap(), "192.0.12.1");
+
+    // Verify the persisted interface matches the DHCP response.
+    let interface_id = response
+        .machine_interface_id
+        .expect("DHCP response should include machine_interface_id");
+    let mut txn = env.pool.begin().await?;
+    let persisted_interface = db::machine_interface::find_one(txn.as_mut(), interface_id).await?;
+    assert_eq!(persisted_interface.segment_id, second_admin_segment);
+    assert_eq!(persisted_interface.mac_address, admin_nic_mac);
+    assert_eq!(persisted_interface.domain_id, Some(env.domain.into()));
+    assert!(persisted_interface.primary_interface);
+    assert_eq!(persisted_interface.addresses, vec![expected_address]);
+
     Ok(())
 }
 
@@ -229,6 +302,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 ipv6_interface_config: None,
             },
         ],
+        auto: false,
     };
 
     mh.instance_builer(&env).network(network).build().await;

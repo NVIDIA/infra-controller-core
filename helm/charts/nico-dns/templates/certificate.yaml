@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nico-dns-certificate
+  namespace: {{ include "nico-dns.namespace" . }}
+  labels:
+    {{- include "nico-dns.labels" . | nindent 4 }}
+spec:
+  {{- include "nico-dns.certificateSpec" (dict "name" "nico-dns-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "nico-dns.namespace" .)) | nindent 2 }}

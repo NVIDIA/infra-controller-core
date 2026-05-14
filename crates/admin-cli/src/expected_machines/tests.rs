@@ -625,3 +625,98 @@ fn parse_add_rejects_invalid_dpu_mode() {
         "clap should reject --dpu-mode with an invalid value"
     );
 }
+
+// parse_patch_with_dpu_mode_nic ensures `patch ... --dpu-mode nic-mode`
+// parses to NicMode. Patch users flip dpu_mode on a single host without
+// rewriting the entire ExpectedMachine.
+#[test]
+fn parse_patch_with_dpu_mode_nic() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "patch",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--dpu-mode",
+        "nic-mode",
+    ])
+    .expect("should parse patch --dpu-mode nic-mode");
+
+    match cmd {
+        Cmd::Patch(args) => {
+            assert!(matches!(args.dpu_mode, Some(rpc::forge::DpuMode::NicMode)));
+        }
+        _ => panic!("expected Patch variant"),
+    }
+}
+
+// parse_patch_with_dpu_mode_no_dpu ensures `patch ... --dpu-mode no-dpu`
+// parses (host with no DPU hardware at all).
+#[test]
+fn parse_patch_with_dpu_mode_no_dpu() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "patch",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--dpu-mode",
+        "no-dpu",
+    ])
+    .expect("should parse patch --dpu-mode no-dpu");
+
+    match cmd {
+        Cmd::Patch(args) => {
+            assert!(matches!(args.dpu_mode, Some(rpc::forge::DpuMode::NoDpu)));
+        }
+        _ => panic!("expected Patch variant"),
+    }
+}
+
+// parse_patch_with_dpu_mode_dpu ensures `patch ... --dpu-mode dpu-mode`
+// parses; this is how operators revert a host back to the default after
+// previously setting NicMode/NoDpu.
+#[test]
+fn parse_patch_with_dpu_mode_dpu() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "patch",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--dpu-mode",
+        "dpu-mode",
+    ])
+    .expect("should parse patch --dpu-mode dpu-mode");
+
+    match cmd {
+        Cmd::Patch(args) => {
+            assert!(matches!(args.dpu_mode, Some(rpc::forge::DpuMode::DpuMode)));
+        }
+        _ => panic!("expected Patch variant"),
+    }
+}
+
+// validate_patch_with_dpu_mode_only ensures `patch --dpu-mode nic-mode`
+// alone (no other patchable fields) satisfies clap's ArgGroup and the
+// `Args::validate()` "at least one field" check. The whole point of this
+// patch is "flip dpu_mode", so it must work without dummy companion args.
+#[test]
+fn validate_patch_with_dpu_mode_only() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "patch",
+        "--bmc-mac-address",
+        "00:00:00:00:00:00",
+        "--dpu-mode",
+        "nic-mode",
+    ])
+    .expect("patch --dpu-mode alone should parse (ArgGroup)");
+
+    match cmd {
+        Cmd::Patch(args) => {
+            assert!(
+                args.validate().is_ok(),
+                "patch --dpu-mode alone should validate"
+            );
+        }
+        _ => panic!("expected Patch variant"),
+    }
+}

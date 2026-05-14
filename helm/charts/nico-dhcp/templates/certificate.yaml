@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nico-dhcp-certificate
+  namespace: {{ include "nico-dhcp.namespace" . }}
+  labels:
+    {{- include "nico-dhcp.labels" . | nindent 4 }}
+spec:
+  {{- include "nico-dhcp.certificateSpec" (dict "name" "nico-dhcp-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "nico-dhcp.namespace" .)) | nindent 2 }}

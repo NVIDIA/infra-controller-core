@@ -16,11 +16,12 @@
  */
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
+use crate::state_controller::power_shelf::metrics::PowerShelfMetrics;
 use crate::state_controller::state_handler::StateHandlerContextObjects;
 
 pub struct PowerShelfStateHandlerContextObjects {}
 
 impl StateHandlerContextObjects for PowerShelfStateHandlerContextObjects {
-    type ObjectMetrics = ();
+    type ObjectMetrics = PowerShelfMetrics;
     type Services = CommonStateHandlerServices;
 }

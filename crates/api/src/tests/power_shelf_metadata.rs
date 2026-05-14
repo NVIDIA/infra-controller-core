@@ -30,6 +30,7 @@ async fn test_power_shelf_metadata_defaults(
 
     let new_ps = NewPowerShelf {
         id: ps_id,
+        bmc_mac_address: None,
         rack_id: Some(RackId::new("test-rack-1".to_string())),
         config: PowerShelfConfig {
             name: "shelf-serial-001".to_string(),
@@ -68,6 +69,7 @@ async fn test_power_shelf_metadata_from_expected(
 
     let new_ps = NewPowerShelf {
         id: ps_id,
+        bmc_mac_address: None,
         rack_id: Some(RackId::new("test-rack-1".to_string())),
         config: PowerShelfConfig {
             name: "shelf-serial-002".to_string(),
@@ -96,6 +98,7 @@ async fn test_power_shelf_metadata_update(
 
     let new_ps = NewPowerShelf {
         id: ps_id,
+        bmc_mac_address: None,
         rack_id: Some(RackId::new("test-rack-1".to_string())),
         config: PowerShelfConfig {
             name: "shelf-serial-003".to_string(),
@@ -146,6 +149,7 @@ async fn test_power_shelf_metadata_version_conflict(
 
     let new_ps = NewPowerShelf {
         id: ps_id,
+        bmc_mac_address: None,
         rack_id: Some(RackId::new("test-rack-1".to_string())),
         config: PowerShelfConfig {
             name: "shelf-serial-004".to_string(),

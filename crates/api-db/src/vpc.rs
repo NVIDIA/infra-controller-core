@@ -358,30 +358,25 @@ pub async fn update_virtualization(
 pub async fn increment_vpc_version(
     txn: &mut PgConnection,
     id: VpcId,
+    expected_version: ConfigVersion,
 ) -> Result<ConfigVersion, DatabaseError> {
-    let read_query = "SELECT version FROM vpcs WHERE id=$1";
-    let current_version: ConfigVersion = sqlx::query_as(read_query)
-        .bind(id)
-        .fetch_one(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(read_query, e))?;
-
-    let new_version = current_version.increment();
+    let next_version = expected_version.increment();
 
     let update_query =
         "UPDATE vpcs SET version = $1 WHERE id = $2 AND version = $3 RETURNING version";
-    let updated: Option<(ConfigVersion,)> = sqlx::query_as(update_query)
-        .bind(new_version)
+    let updated: Result<(ConfigVersion,), _> = sqlx::query_as(update_query)
+        .bind(next_version)
         .bind(id)
-        .bind(current_version)
-        .fetch_optional(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(update_query, e))?;
+        .bind(expected_version)
+        .fetch_one(&mut *txn)
+        .await;
 
-    updated
-        .map(|(v,)| v)
-        .ok_or(DatabaseError::ConcurrentModificationError(
+    match updated {
+        Ok((version,)) => Ok(version),
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::ConcurrentModificationError(
             "vpc",
-            current_version.to_string(),
-        ))
+            expected_version.to_string(),
+        )),
+        Err(e) => Err(DatabaseError::query(update_query, e)),
+    }
 }

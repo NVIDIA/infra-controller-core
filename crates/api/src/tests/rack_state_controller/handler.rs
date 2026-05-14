@@ -43,6 +43,7 @@ use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::handler::RackStateHandler;
 use crate::state_controller::rack::maintenance::apply_nvos_job_status_response;
+use crate::state_controller::rack::metrics::RackMetrics;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerOutcome,
 };
@@ -620,7 +621,7 @@ async fn test_expected_no_definition_stays_parked(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -760,7 +761,7 @@ async fn test_expected_incomplete_device_counts_stays(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -818,7 +819,7 @@ async fn test_expected_counts_match_but_not_linked_stays(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -887,7 +888,7 @@ async fn test_expected_zero_topology_transitions_to_discovering(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -956,7 +957,7 @@ async fn test_expected_more_discovered_than_expected_transitions(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1020,7 +1021,7 @@ async fn test_discovering_waits_for_compute_ready(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1075,7 +1076,7 @@ async fn test_discovering_empty_rack_transitions_to_maintenance(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1126,7 +1127,7 @@ async fn test_error_state_does_nothing(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1172,7 +1173,7 @@ async fn test_maintenance_completed_transitions_to_validation(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1232,7 +1233,7 @@ async fn test_ready_with_no_labels_stays_ready(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1278,7 +1279,7 @@ async fn test_firmware_upgrade_start_without_default_advances_to_nvos_update(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1362,7 +1363,7 @@ async fn test_firmware_upgrade_start_with_unavailable_default_advances_to_nvos_u
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1452,17 +1453,19 @@ async fn test_firmware_upgrade_start_transitions_to_wait_for_complete(
     env.rms_sim
         .queue_update_firmware_response(
             librms::protos::rack_manager::UpdateFirmwareByDeviceListResponse {
-                status: librms::protos::rack_manager::ReturnCode::Success as i32,
-                message: "queued".to_string(),
-                total_nodes: 1,
-                successful_updates: 1,
-                failed_updates: 0,
-                job_id: "batch-job-1".to_string(),
+                response: Some(librms::protos::rack_manager::NodeBatchResponse {
+                    status: librms::protos::rack_manager::ReturnCode::Success as i32,
+                    message: "queued".to_string(),
+                    total_nodes: 1,
+                    successful_nodes: 1,
+                    failed_nodes: 0,
+                    job_id: "batch-job-1".to_string(),
+                    ..Default::default()
+                }),
                 node_jobs: vec![librms::protos::rack_manager::NodeFirmwareJobInfo {
                     node_id: host.host_snapshot.id.to_string(),
                     job_id: "child-job-1".to_string(),
                 }],
-                ..Default::default()
             },
         )
         .await;
@@ -1471,7 +1474,7 @@ async fn test_firmware_upgrade_start_transitions_to_wait_for_complete(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1603,7 +1606,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_while_jobs_running(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1692,7 +1695,7 @@ async fn test_firmware_upgrade_wait_for_complete_transitions_to_error_on_job_fai
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1816,7 +1819,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_for_all_nodes_to_be_termi
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1970,7 +1973,7 @@ async fn test_firmware_upgrade_wait_for_complete_retries_when_job_lookup_fails(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2049,7 +2052,7 @@ async fn test_firmware_upgrade_wait_for_complete_retries_on_transient_poll_error
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2129,8 +2132,11 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     env.rms_sim
         .queue_update_switch_system_image_response(
             librms::protos::rack_manager::UpdateSwitchSystemImageResponse {
-                status: librms::protos::rack_manager::ReturnCode::Success as i32,
-                job_id: "nvos-job-1".to_string(),
+                response: Some(librms::protos::rack_manager::NodeBatchResponse {
+                    status: librms::protos::rack_manager::ReturnCode::Success as i32,
+                    job_id: "nvos-job-1".to_string(),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
         )
@@ -2140,7 +2146,7 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2223,7 +2229,7 @@ async fn test_configure_nmx_cluster_transitions_to_completed(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2291,7 +2297,7 @@ async fn test_ready_topology_changed_transitions_to_discovering(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2349,7 +2355,7 @@ async fn test_ready_reprovision_requested_transitions_to_maintenance(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2401,7 +2407,7 @@ async fn test_validation_failed_transitions_to_error(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,

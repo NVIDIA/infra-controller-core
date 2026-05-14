@@ -188,7 +188,7 @@ async fn fetch_network_segments(
             .await?
             .into_inner();
 
-        segments.extend(next_vpcs.network_segments.into_iter());
+        segments.extend(next_vpcs.network_segments);
         offset += page_size;
     }
 

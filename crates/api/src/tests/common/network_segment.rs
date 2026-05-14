@@ -171,10 +171,9 @@ pub async fn text_history(txn: &mut PgConnection, segment_id: NetworkSegmentId) 
 
     // // Check that version numbers are always incrementing by 1
     if !entries.is_empty() {
-        let mut version = entries[0].state_version.version_nr();
-        for entry in &entries[1..] {
-            assert_eq!(entry.state_version.version_nr(), version + 1);
-            version += 1;
+        let first_version = entries[0].state_version.version_nr();
+        for (expected_version, entry) in ((first_version + 1)..).zip(&entries[1..]) {
+            assert_eq!(entry.state_version.version_nr(), expected_version);
         }
     }
 

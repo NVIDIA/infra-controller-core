@@ -39,12 +39,6 @@ struct Racks {
 struct RackRecord {
     id: String,
     state_display: super::StateDisplay,
-    compute_trays_count: usize,
-    expected_compute_trays_count: usize,
-    power_shelves_count: usize,
-    expected_power_shelves_count: usize,
-    switches_count: usize,
-    expected_nvlink_switches_count: usize,
 }
 
 impl From<rpc::forge::Rack> for RackRecord {
@@ -57,12 +51,6 @@ impl From<rpc::forge::Rack> for RackRecord {
         Self {
             id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
             state_display: super::StateDisplay::from_lifecycle(lifecycle),
-            compute_trays_count: rack.compute_trays.len(),
-            expected_compute_trays_count: rack.expected_compute_trays.len(),
-            power_shelves_count: rack.power_shelves.len(),
-            expected_power_shelves_count: rack.expected_power_shelves.len(),
-            switches_count: rack.switches.len(),
-            expected_nvlink_switches_count: rack.expected_nvlink_switches.len(),
         }
     }
 }
@@ -127,7 +115,7 @@ pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Statu
             .await?
             .into_inner();
 
-        racks.extend(next_racks.racks.into_iter());
+        racks.extend(next_racks.racks);
         offset += page_size;
     }
 

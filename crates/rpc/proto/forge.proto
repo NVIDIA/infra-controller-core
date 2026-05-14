@@ -92,6 +92,11 @@ service Forge {
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
   // Force deletes a Power Shelf and optionally its associated interfaces from the database.
   rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
+  // Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
+  // When the power shelf is in Ready state, the power shelf state controller
+  // will observe the request and transition to the Maintenance state with the
+  // requested operation.
+  rpc SetPowerShelfMaintenance(PowerShelfMaintenanceRequest) returns (google.protobuf.Empty);
 
   rpc FindSwitches(SwitchQuery) returns (SwitchList);
   rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
@@ -901,6 +906,11 @@ service Forge {
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
+  // Curated snapshot of DPF CRs (DPUNode + DPUDevices + DPUs) for one host.
+  rpc GetDPFHostSnapshot(GetDPFHostSnapshotRequest) returns (DPFHostSnapshotResponse);
+  // Helm/docker versions for the carbide DPF mandatory services, from both
+  // the carbide config and the live DPUServiceTemplate CRs.
+  rpc GetDPFServiceVersions(GetDPFServiceVersionsRequest) returns (DPFServiceVersionsResponse);
 
   // --- Component management (unified switch + power shelf operations) ---
   rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
@@ -1917,6 +1927,25 @@ message PowerShelfDeletionRequest {
 message PowerShelfDeletionResult {
 }
 
+// Operation requested for a power shelf maintenance activity.
+enum PowerShelfMaintenanceOperation {
+  POWER_SHELF_MAINTENANCE_OPERATION_UNSPECIFIED = 0;
+  POWER_SHELF_MAINTENANCE_OPERATION_POWER_ON = 1;
+  POWER_SHELF_MAINTENANCE_OPERATION_POWER_OFF = 2;
+}
+
+// Request to drive one or more power shelves into the Maintenance state with
+// the given operation (PowerOn / PowerOff). The state controller, when the
+// shelf is in Ready, observes this request and transitions to Maintenance.
+// All listed power shelves are updated atomically in a single transaction.
+message PowerShelfMaintenanceRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+  PowerShelfMaintenanceOperation operation = 2;
+  // URL of a ticket / issue tracking this maintenance request. Used as the
+  // request initiator in audit logs.
+  optional string reference = 3;
+}
+
 message PowerShelfStateHistoriesRequest {
   repeated common.PowerShelfId power_shelf_ids = 1;
 }
@@ -2611,8 +2640,17 @@ message InstanceConfig {
 
 // Desired network configuration for an instance
 message InstanceNetworkConfig {
-  // Configures how instance network interfaces are set up
+  // Configures how instance network interfaces are set up.
+  // Mutually exclusive with `auto`: when `auto` is true, this
+  // MUST be empty, When `auto` is false, this lists the explicit
+  // interface configuration the caller wants applied.
   repeated InstanceInterfaceConfig interfaces = 1;
+
+  // When true, NICO (or potentially some pluggable SDN backend) will
+  // auto-resolve the instance's network interfaces from the host's
+  // HostInband network segments. Only valid for instances on zero-DPU
+  // hosts (well, no DPU, *or* DPU in NIC mode).
+  bool auto = 2;
 }
 
 // Desired infiniband configuration for an instance
@@ -3224,6 +3262,7 @@ message BmcInfo {
   optional string version = 3;
   optional string firmware_version = 4;
   optional uint32 port = 5;
+  optional common.MachineInterfaceId machine_interface_id = 6;
 }
 
 message Machine {
@@ -3505,6 +3544,11 @@ enum InterfaceAssociationType {
   POWERSHELF = 3;
 }
 
+enum InterfaceType {
+  INTERFACE_TYPE_DATA = 0;
+  INTERFACE_TYPE_BMC = 1;
+}
+
 message MachineInterface {
   common.MachineInterfaceId id = 1;
   optional common.MachineId attached_dpu_machine_id = 2;
@@ -3524,11 +3568,12 @@ message MachineInterface {
   google.protobuf.Timestamp created = 11;
   optional google.protobuf.Timestamp last_dhcp = 12;
 
-  optional bool is_bmc = 13;
+  optional bool is_bmc = 13 [deprecated = true];
   optional common.PowerShelfId power_shelf_id = 14;
   optional common.SwitchId switch_id = 15;
 
   optional InterfaceAssociationType association_type = 16;
+  optional InterfaceType interface_type = 17;
 }
 
 // Infiniband interface status description
@@ -3588,6 +3633,11 @@ message DhcpDiscovery {
 
 message ExpireDhcpLeaseRequest {
   string ip_address = 1;
+  // Optional MAC of the expiring lease. When set, the handler only
+  // deletes the row whose (ip_address, mac) pair matches; Kea will
+  // set both. admin-cli calls may just set ip_address. We could
+  // probably just enforce that both must be set.
+  optional string mac_address = 2;
 }
 
 enum ExpireDhcpLeaseStatus {
@@ -4562,8 +4612,16 @@ message ForgeScoutErrorReportResult {
 
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
-  common.MachineInterfaceId interface_id = 2;
+  // DEPRECATED: interface_id is no longer read by carbide-api. The
+  // booting machine is now identified via client_ip (see below).
+  // We could potentially just drop this entirely and mark it as
+  // "reserved 2" in the future or similar.
+  common.MachineInterfaceId interface_id = 2 [deprecated = true];
   optional string product = 3;
+  // client_ip is the IP carbide-pxe observed for the booting machine
+  // -- read from X-Forwarded-For when carbide-pxe is fronted by a
+  // proxy, or the TCP socket peer when reached directly.
+  optional string client_ip = 4;
 }
 
 message PxeInstructions {
@@ -4697,7 +4755,7 @@ message HealthReportEntry {
   HealthReportApplyMode mode = 2;
 }
 
-// Request to insert a health report source for a Machine.
+// Request to insert a health report source for a Host or DPU Machine.
 message InsertMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   HealthReportEntry health_report_entry = 2;
@@ -4758,7 +4816,7 @@ message ListHealthReportResponse {
   repeated HealthReportEntry health_report_entries = 1;
 }
 
-// Request to remove a health report source for a Machine.
+// Request to remove a health report source from a host or DPU Machine.
 message RemoveMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   string source = 2;
@@ -6819,12 +6877,13 @@ message Rack {
   common.RackId id = 1;
   // deprecated: Use status.lifecycle field
   string rack_state = 2;
-  repeated string expected_compute_trays = 3;
-  repeated string expected_power_shelves = 4;
-  repeated string expected_nvlink_switches = 5;
-  repeated common.MachineId compute_trays = 6;
-  repeated common.PowerShelfId power_shelves = 7;
-  repeated common.SwitchId switches = 8;
+
+  // Removed fields that can be derived from other API calls.
+  reserved 3, 4, 5, 6, 7, 8;
+  reserved "expected_compute_trays", "expected_power_shelves",
+    "expected_nvlink_switches", "compute_trays",
+    "power_shelves", "switches";
+
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
@@ -7796,6 +7855,44 @@ message GetDPFStateRequest {
   repeated common.MachineId machine_ids = 1;
 }
 
+// --- DPF host snapshot ---
+
+message GetDPFHostSnapshotRequest {
+  common.MachineId host_machine_id = 1;
+}
+
+// Returns the snapshot as a JSON string. The server-side curates the field
+// set; the CLI just pretty-prints. Keeps the wire format stable while letting
+// the SDK evolve its summary types.
+message DPFHostSnapshotResponse {
+  string json_payload = 1;
+}
+
+// --- DPF service versions ---
+
+message GetDPFServiceVersionsRequest {
+}
+
+message DPFServiceVersion {
+  // Service name (e.g. "dts", "doca-hbn", "carbide-dpu-agent").
+  string service = 1;
+  // Helm chart version from the carbide config.
+  string config_helm_version = 2;
+  // Docker image tag from the carbide config.
+  string config_docker_image_tag = 3;
+  // Helm chart version observed on a live DPUServiceTemplate CR, if a
+  // matching one exists. Empty if no template was found.
+  string live_helm_version = 4;
+  // Docker image tag observed on a live DPUServiceTemplate CR
+  // (helm_values.image.tag). Empty if no template was found or the
+  // template doesn't pin an image tag (e.g. dts uses the chart default).
+  string live_docker_image_tag = 5;
+}
+
+message DPFServiceVersionsResponse {
+  repeated DPFServiceVersion services = 1;
+}
+
 // ============================================================================
 // Component dispatch types
 // ============================================================================
@@ -7894,6 +7991,14 @@ enum ComputeTrayComponent {
   COMPUTE_TRAY_COMPONENT_UNKNOWN = 0;
   COMPUTE_TRAY_COMPONENT_BMC = 1;
   COMPUTE_TRAY_COMPONENT_BIOS = 2;
+  COMPUTE_TRAY_COMPONENT_CEC = 3;
+  COMPUTE_TRAY_COMPONENT_NIC = 4;
+  COMPUTE_TRAY_COMPONENT_CPLD_MB = 5;
+  COMPUTE_TRAY_COMPONENT_CPLD_PDB = 6;
+  COMPUTE_TRAY_COMPONENT_HGX_BMC = 7;
+  COMPUTE_TRAY_COMPONENT_COMBINED_BMC_UEFI = 8;
+  COMPUTE_TRAY_COMPONENT_GPU = 9;
+  COMPUTE_TRAY_COMPONENT_CX7 = 10;
 }
 
 message UpdateComputeTrayFirmwareTarget {
@@ -7953,9 +8058,20 @@ message ListComponentFirmwareVersionsRequest {
   }
 }
 
+// Per-component firmware versions for a compute tray. Since compute trays
+// don't use bundles, each component (BMC, BIOS, etc.) has its own set of
+// available firmware versions.
+message ComputeTrayFirmwareVersions {
+  ComputeTrayComponent component = 1;
+  repeated string versions = 2;
+}
+
 message DeviceFirmwareVersions {
   ComponentResult result = 1;
+  // Firmware Bundle IDs for switches, powershelves, and racks.
   repeated string versions = 2;
+  // Per-component firmware versions for compute trays.
+  repeated ComputeTrayFirmwareVersions compute_fw_versions = 3;
 }
 
 message ListComponentFirmwareVersionsResponse {

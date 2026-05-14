@@ -1,0 +1,12 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nico-bmc-proxy-metrics
+  namespace: {{ include "nico-bmc-proxy.namespace" . }}
+  labels:
+    {{- include "nico-bmc-proxy.labels" . | nindent 4 }}
+    app: nico-bmc-proxy
+spec:
+  {{- include "nico-bmc-proxy.serviceMonitorSpec" (dict "name" "nico-bmc-proxy" "port" "http" "monitor" .Values.serviceMonitor "namespace" (include "nico-bmc-proxy.namespace" .)) | nindent 2 }}
+{{- end }}
