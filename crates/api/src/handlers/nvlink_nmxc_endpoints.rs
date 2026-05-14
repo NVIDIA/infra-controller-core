@@ -21,13 +21,6 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
-fn to_proto(row: db::nvlink_nmxc_endpoints::NvlinkNmxcEndpoint) -> rpc::NvlinkNmxcEndpoint {
-    rpc::NvlinkNmxcEndpoint {
-        chassis_serial: row.chassis_serial,
-        endpoint: row.endpoint,
-    }
-}
-
 pub(crate) async fn list_nvlink_nmxc_endpoints(
     api: &Api,
     request: Request<()>,
@@ -37,7 +30,7 @@ pub(crate) async fn list_nvlink_nmxc_endpoints(
     let rows = db::nvlink_nmxc_endpoints::find_all(&mut txn).await?;
     txn.commit().await?;
     Ok(Response::new(rpc::NvlinkNmxcEndpointList {
-        entries: rows.into_iter().map(to_proto).collect(),
+        entries: rows.into_iter().map(Into::into).collect(),
     }))
 }
 
@@ -58,7 +51,7 @@ pub(crate) async fn create_nvlink_nmxc_endpoint(
         .await
         .map_err(CarbideError::from)?;
     txn.commit().await?;
-    Ok(Response::new(to_proto(row)))
+    Ok(Response::new(row.into()))
 }
 
 pub(crate) async fn update_nvlink_nmxc_endpoint(
@@ -82,7 +75,7 @@ pub(crate) async fn update_nvlink_nmxc_endpoint(
             "nvlink_nmxc_endpoints: no row for chassis_serial",
         ));
     };
-    Ok(Response::new(to_proto(row)))
+    Ok(Response::new(row.into()))
 }
 
 pub(crate) async fn delete_nvlink_nmxc_endpoint(

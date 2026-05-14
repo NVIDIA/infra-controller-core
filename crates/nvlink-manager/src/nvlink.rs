@@ -222,7 +222,7 @@ pub mod test_support {
 
     #[::async_trait::async_trait]
     impl Nmxc for NmxcSimClient {
-        async fn hello(&self, _gateway_id: &str) -> Result<nmxc_model::ServerHello, NmxcError> {
+        async fn hello(&mut self, _gateway_id: &str) -> Result<nmxc_model::ServerHello, NmxcError> {
             Ok(nmxc_model::ServerHello {
                 server_header: Some(nmxc_model::ServerHeader {
                     domain_uuid: "ffffffff-ffff-ffff-ffff-ffffffffffff".to_string(),
@@ -238,7 +238,7 @@ pub mod test_support {
 
         #[allow(deprecated)]
         async fn get_domain_properties(
-            &self,
+            &mut self,
             _context: Option<nmxc_model::Context>,
             _gateway_id: &str,
         ) -> Result<nmxc_model::DomainProperties, NmxcError> {
@@ -263,7 +263,7 @@ pub mod test_support {
         }
 
         async fn get_domain_state_info(
-            &self,
+            &mut self,
             _context: Option<nmxc_model::Context>,
             _gateway_id: &str,
         ) -> Result<nmxc_model::DomainStateInfo, NmxcError> {
@@ -278,7 +278,7 @@ pub mod test_support {
         }
 
         async fn get_topology_info(
-            &self,
+            &mut self,
             _context: Option<nmxc_model::Context>,
             _gateway_id: &str,
         ) -> Result<nmxc_model::FmTopologyInfo, NmxcError> {
@@ -290,7 +290,7 @@ pub mod test_support {
         }
 
         async fn get_compute_node_count(
-            &self,
+            &mut self,
             _req: nmxc_model::GetComputeNodeCountRequest,
         ) -> Result<GetComputeNodeCountResponse, NmxcError> {
             Ok(GetComputeNodeCountResponse {
@@ -301,7 +301,7 @@ pub mod test_support {
         }
 
         async fn get_compute_node_info_list(
-            &self,
+            &mut self,
             _req: nmxc_model::GetComputeNodeInfoListRequest,
         ) -> Result<GetComputeNodeInfoListResponse, NmxcError> {
             Ok(GetComputeNodeInfoListResponse {
@@ -312,7 +312,7 @@ pub mod test_support {
         }
 
         async fn get_gpu_info_list(
-            &self,
+            &mut self,
             _req: nmxc_model::GetGpuInfoListRequest,
         ) -> Result<GetGpuInfoListResponse, NmxcError> {
             Ok(GetGpuInfoListResponse {
@@ -323,7 +323,7 @@ pub mod test_support {
         }
 
         async fn get_switch_node_count(
-            &self,
+            &mut self,
             _req: nmxc_model::GetSwitchNodeCountRequest,
         ) -> Result<GetSwitchNodeCountResponse, NmxcError> {
             Ok(GetSwitchNodeCountResponse {
@@ -334,7 +334,7 @@ pub mod test_support {
         }
 
         async fn get_switch_node_info_list(
-            &self,
+            &mut self,
             _req: nmxc_model::GetSwitchNodeInfoListRequest,
         ) -> Result<GetSwitchNodeInfoListResponse, NmxcError> {
             Ok(GetSwitchNodeInfoListResponse {
@@ -345,7 +345,7 @@ pub mod test_support {
         }
 
         async fn get_partition_count(
-            &self,
+            &mut self,
             _req: nmxc_model::GetPartitionCountRequest,
         ) -> Result<GetPartitionCountResponse, NmxcError> {
             let n = self._partitions.lock().unwrap().len() as u32;
@@ -357,7 +357,7 @@ pub mod test_support {
         }
 
         async fn get_partition_id_list(
-            &self,
+            &mut self,
             _req: nmxc_model::GetPartitionIdListRequest,
         ) -> Result<GetPartitionIdListResponse, NmxcError> {
             let parts = self._partitions.lock().unwrap();
@@ -378,7 +378,7 @@ pub mod test_support {
         }
 
         async fn get_partition_info_list(
-            &self,
+            &mut self,
             req: nmxc_model::GetPartitionInfoListRequest,
         ) -> Result<GetPartitionInfoListResponse, NmxcError> {
             let parts = self._partitions.lock().unwrap();
@@ -405,7 +405,7 @@ pub mod test_support {
         }
 
         async fn create_partition(
-            &self,
+            &mut self,
             req: nmxc_model::CreatePartitionRequest,
         ) -> Result<nmxc_model::CreatePartitionResponse, NmxcError> {
             if let Some(fail_counter) = &self._fail_after_n_creates {
@@ -437,7 +437,7 @@ pub mod test_support {
         }
 
         async fn delete_partition(
-            &self,
+            &mut self,
             req: nmxc_model::DeletePartitionRequest,
         ) -> Result<nmxc_model::DeletePartitionResponse, NmxcError> {
             let pid = req.partition_id.map(|p| p.partition_id).unwrap_or_default();
@@ -453,7 +453,7 @@ pub mod test_support {
         }
 
         async fn add_gpus_to_partition(
-            &self,
+            &mut self,
             req: nmxc_model::UpdatePartitionRequest,
         ) -> Result<nmxc_model::UpdatePartitionResponse, NmxcError> {
             let pid = req
@@ -479,7 +479,7 @@ pub mod test_support {
         }
 
         async fn remove_gpus_from_partition(
-            &self,
+            &mut self,
             req: nmxc_model::UpdatePartitionRequest,
         ) -> Result<nmxc_model::UpdatePartitionResponse, NmxcError> {
             let pid = req

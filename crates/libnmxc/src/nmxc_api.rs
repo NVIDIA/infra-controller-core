@@ -25,7 +25,6 @@ fn default_context() -> nmxc_model::Context {
     }
 }
 
-#[derive(Clone)]
 pub struct NmxcApi {
     client: NmxControllerClient<Channel>,
 }
@@ -38,18 +37,18 @@ impl NmxcApi {
 
 #[async_trait::async_trait]
 impl Nmxc for NmxcApi {
-    async fn hello(&self, gateway_id: &str) -> Result<nmxc_model::ServerHello, NmxcError> {
+    async fn hello(&mut self, gateway_id: &str) -> Result<nmxc_model::ServerHello, NmxcError> {
         let req = nmxc_model::ClientHello {
             gateway_id: gateway_id.to_string(),
             major_version: nmxc_model::ProtoMsgMajorVersion::ProtoMsgMajorVersion as i32,
             minor_version: nmxc_model::ProtoMsgMinorVersion::ProtoMsgMinorVersion as i32,
         };
-        let res = self.client.clone().hello(tonic::Request::new(req)).await?;
+        let res = self.client.hello(tonic::Request::new(req)).await?;
         Ok(res.into_inner())
     }
 
     async fn get_domain_properties(
-        &self,
+        &mut self,
         context: Option<nmxc_model::Context>,
         gateway_id: &str,
     ) -> Result<nmxc_model::DomainProperties, NmxcError> {
@@ -59,14 +58,13 @@ impl Nmxc for NmxcApi {
         };
         let res = self
             .client
-            .clone()
             .get_domain_properties(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_domain_state_info(
-        &self,
+        &mut self,
         context: Option<nmxc_model::Context>,
         gateway_id: &str,
     ) -> Result<nmxc_model::DomainStateInfo, NmxcError> {
@@ -76,14 +74,13 @@ impl Nmxc for NmxcApi {
         };
         let res = self
             .client
-            .clone()
             .get_domain_state_info(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_topology_info(
-        &self,
+        &mut self,
         context: Option<nmxc_model::Context>,
         gateway_id: &str,
     ) -> Result<nmxc_model::FmTopologyInfo, NmxcError> {
@@ -93,151 +90,138 @@ impl Nmxc for NmxcApi {
         };
         let res = self
             .client
-            .clone()
             .get_topology_info(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_compute_node_count(
-        &self,
+        &mut self,
         req: nmxc_model::GetComputeNodeCountRequest,
     ) -> Result<nmxc_model::GetComputeNodeCountResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .get_compute_node_count(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_compute_node_info_list(
-        &self,
+        &mut self,
         req: nmxc_model::GetComputeNodeInfoListRequest,
     ) -> Result<nmxc_model::GetComputeNodeInfoListResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .get_compute_node_info_list(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_gpu_info_list(
-        &self,
+        &mut self,
         req: nmxc_model::GetGpuInfoListRequest,
     ) -> Result<nmxc_model::GetGpuInfoListResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .get_gpu_info_list(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_switch_node_count(
-        &self,
+        &mut self,
         req: nmxc_model::GetSwitchNodeCountRequest,
     ) -> Result<nmxc_model::GetSwitchNodeCountResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .get_switch_node_count(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_switch_node_info_list(
-        &self,
+        &mut self,
         req: nmxc_model::GetSwitchNodeInfoListRequest,
     ) -> Result<nmxc_model::GetSwitchNodeInfoListResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .get_switch_node_info_list(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_partition_count(
-        &self,
+        &mut self,
         req: nmxc_model::GetPartitionCountRequest,
     ) -> Result<nmxc_model::GetPartitionCountResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .get_partition_count(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_partition_id_list(
-        &self,
+        &mut self,
         req: nmxc_model::GetPartitionIdListRequest,
     ) -> Result<nmxc_model::GetPartitionIdListResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .get_partition_id_list(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn get_partition_info_list(
-        &self,
+        &mut self,
         req: nmxc_model::GetPartitionInfoListRequest,
     ) -> Result<nmxc_model::GetPartitionInfoListResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .get_partition_info_list(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn create_partition(
-        &self,
+        &mut self,
         req: nmxc_model::CreatePartitionRequest,
     ) -> Result<nmxc_model::CreatePartitionResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .create_partition(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn delete_partition(
-        &self,
+        &mut self,
         req: nmxc_model::DeletePartitionRequest,
     ) -> Result<nmxc_model::DeletePartitionResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .delete_partition(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn add_gpus_to_partition(
-        &self,
+        &mut self,
         req: nmxc_model::UpdatePartitionRequest,
     ) -> Result<nmxc_model::UpdatePartitionResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .add_gpus_to_partition(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())
     }
 
     async fn remove_gpus_from_partition(
-        &self,
+        &mut self,
         req: nmxc_model::UpdatePartitionRequest,
     ) -> Result<nmxc_model::UpdatePartitionResponse, NmxcError> {
         let res = self
             .client
-            .clone()
             .remove_gpus_from_partition(tonic::Request::new(req))
             .await?;
         Ok(res.into_inner())

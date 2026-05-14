@@ -27,7 +27,7 @@ async fn hello_to_grpc_endpoint() {
 
     let pool = NmxcClientPool::builder().build().expect("pool build");
     let endpoint = Endpoint::new(&endpoint_url).expect("parse NMX-C endpoint URI");
-    let client = pool.create_client(endpoint).await.expect("create client");
+    let mut client = pool.create_client(endpoint).await.expect("create client");
 
     let response = client
         .hello("libnmxc-test-gateway")

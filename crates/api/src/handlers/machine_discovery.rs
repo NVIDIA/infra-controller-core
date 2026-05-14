@@ -469,7 +469,7 @@ async fn get_nvlink_info_from_nmx_c(
             })?;
     txn.commit().await?;
 
-    let nmx_c_client = api
+    let mut nmx_c_client = api
         .nmxc_client_pool
         .create_client(Endpoint::new(&endpoint).map_err(|e| CarbideError::internal(e.to_string()))?)
         .await

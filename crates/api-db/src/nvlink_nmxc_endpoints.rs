@@ -99,3 +99,12 @@ pub async fn update(
         .await
         .map_err(|e| DatabaseError::new(Q, e))
 }
+
+impl From<NvlinkNmxcEndpoint> for rpc::forge::NvlinkNmxcEndpoint {
+    fn from(row: NvlinkNmxcEndpoint) -> Self {
+        Self {
+            chassis_serial: row.chassis_serial,
+            endpoint: row.endpoint,
+        }
+    }
+}

@@ -201,7 +201,7 @@ async fn execute_command(
             println!("Connected to {}.", endpoint_url);
         }
         cmd => {
-            let Some(c) = client.as_ref().map(|b| b.as_ref()) else {
+            let Some(c) = client.as_mut() else {
                 eprintln!("Not connected. Use 'connect' or 'connect <url>'.");
                 return Ok(());
             };

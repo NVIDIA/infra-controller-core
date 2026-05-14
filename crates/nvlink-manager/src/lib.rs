@@ -786,7 +786,7 @@ impl NvlPartitionMonitor {
                 }
             };
 
-            let nmxc_client = match self.nmxc_client_pool.create_client(nmxc_endpoint).await {
+            let mut nmxc_client = match self.nmxc_client_pool.create_client(nmxc_endpoint).await {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::warn!(
@@ -834,7 +834,7 @@ impl NvlPartitionMonitor {
 
             let num_completed = self
                 .check_partitions_and_apply_nmx_c_operations(
-                    nmxc_client.as_ref(),
+                    nmxc_client.as_mut(),
                     metrics,
                     db_nvl_logical_partitions.clone(),
                     db_nvl_partitions_domain,
@@ -854,7 +854,7 @@ impl NvlPartitionMonitor {
     /// executes them, polls for completion, and updates the DB with the results.
     async fn check_partitions_and_apply_nmx_c_operations(
         &self,
-        nmxc_client: &dyn Nmxc,
+        nmxc_client: &mut dyn Nmxc,
         metrics: &mut NvlPartitionMonitorMetrics,
         db_nvl_logical_partitions: Vec<LogicalPartition>,
         db_nvl_partitions: Vec<NvlPartition>,
@@ -1438,7 +1438,7 @@ impl NvlPartitionMonitor {
 
     async fn execute_nmx_c_operations(
         &self,
-        nmxc_client: &dyn Nmxc,
+        nmxc_client: &mut dyn Nmxc,
         nmx_c_operations: HashMap<NvLinkLogicalPartitionId, Vec<NmxcPartitionOperation>>,
         metrics: &mut NvlPartitionMonitorMetrics,
     ) -> NvLinkManagerResult<HashMap<NvLinkLogicalPartitionId, Vec<NmxcPartitionOperation>>> {

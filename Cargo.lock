@@ -2420,6 +2420,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-rvs"
+version = "0.0.1"
+dependencies = [
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "figment",
+ "logfmt",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "toml 1.1.2+spec-1.1.0",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "carbide-scout"
 version = "0.0.1"
 dependencies = [

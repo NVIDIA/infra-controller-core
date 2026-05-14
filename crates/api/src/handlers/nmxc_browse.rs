@@ -20,14 +20,13 @@ use std::collections::HashMap;
 use ::rpc::forge as rpc;
 use libnmxc::nmxc_model::{GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GpuAttr};
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc};
-use serde_json::json;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
 async fn compute_node_info_list_json(
-    nmxc: &dyn Nmxc,
+    nmxc: &mut dyn Nmxc,
 ) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
     let resp = nmxc
         .get_compute_node_info_list(GetComputeNodeInfoListRequest {
@@ -44,7 +43,7 @@ async fn compute_node_info_list_json(
 }
 
 async fn gpu_info_json(
-    nmxc: &dyn Nmxc,
+    nmxc: &mut dyn Nmxc,
     uid: u64,
 ) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
     let gresp = nmxc
@@ -66,35 +65,13 @@ async fn gpu_info_json(
         });
     };
 
-    let (tray_index, slot_id) = gpu
-        .loc
-        .as_ref()
-        .map(|l| {
-            let tray = l.tray_index as i64;
-            let slot = l
-                .location
-                .as_ref()
-                .map(|loc| loc.slot_id as i64)
-                .unwrap_or(0);
-            (tray, slot)
-        })
-        .unwrap_or((0, 0));
-
-    let body = serde_json::to_string(&json!({
-        "ID": gpu.gpu_uid.to_string(),
-        "DeviceID": gpu.gpu_id as i64,
-        "DeviceUID": gpu.gpu_uid,
-        "LocationInfo": {
-            "TrayIndex": tray_index,
-            "SlotID": slot_id,
-        },
-    }))
-    .map_err(|e| CarbideError::internal(format!("serialize gpu: {e}")))?;
+    let body = serde_json::to_string(gpu)
+        .map_err(|e| CarbideError::internal(format!("serialize GpuInfo: {e}")))?;
     Ok((body, 200, HashMap::new()))
 }
 
 async fn gpu_info_list_json(
-    nmxc: &dyn Nmxc,
+    nmxc: &mut dyn Nmxc,
 ) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
     let resp = nmxc
         .get_gpu_info_list(GetGpuInfoListRequest {
@@ -146,7 +123,7 @@ pub(crate) async fn nmxc_browse(
             .into());
         };
 
-        let nmxc = api
+        let mut nmxc = api
             .nmxc_client_pool
             .create_client(Endpoint::new(row.endpoint.clone()).map_err(CarbideError::from)?)
             .await
@@ -157,7 +134,7 @@ pub(crate) async fn nmxc_browse(
                 "operation must be set to a supported NmxcBrowseOperation".to_string(),
             )),
             rpc::NmxcBrowseOperation::ComputeNodeInfoList => {
-                compute_node_info_list_json(nmxc.as_ref()).await
+                compute_node_info_list_json(nmxc.as_mut()).await
             }
             rpc::NmxcBrowseOperation::GpuInfo => {
                 if request.gpu_uid == 0 {
@@ -165,10 +142,10 @@ pub(crate) async fn nmxc_browse(
                         "gpu_uid is required for GPU_INFO operation".to_string(),
                     ))
                 } else {
-                    gpu_info_json(nmxc.as_ref(), request.gpu_uid).await
+                    gpu_info_json(nmxc.as_mut(), request.gpu_uid).await
                 }
             }
-            rpc::NmxcBrowseOperation::GpuInfoList => gpu_info_list_json(nmxc.as_ref()).await,
+            rpc::NmxcBrowseOperation::GpuInfoList => gpu_info_list_json(nmxc.as_mut()).await,
         };
 
         match result {
