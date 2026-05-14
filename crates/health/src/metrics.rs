@@ -167,7 +167,8 @@ pub struct CollectorRegistry {
 
 impl CollectorRegistry {
     fn new(id: String, parent: Registry, prefix: impl Into<String>) -> Result<Self, HealthError> {
-        let desc = Desc::new(id.clone(), id, Vec::new(), HashMap::new())?;
+        let fq_id = id.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let desc = Desc::new(fq_id, id, Vec::new(), HashMap::new())?;
 
         let registry = Box::new(SubRegistry {
             registry: Registry::new(),
@@ -198,6 +199,16 @@ impl CollectorRegistry {
         )?);
 
         Ok(metrics)
+    }
+
+    pub fn unregister_gauge_metrics(
+        &self,
+        metrics: &GaugeMetrics,
+    ) -> Result<(), prometheus::Error> {
+        self.registry
+            .registry
+            .unregister(Box::new(metrics.clone()))
+            .map(|_| ())
     }
 
     pub fn registry(&self) -> &Registry {
@@ -354,6 +365,10 @@ impl GaugeMetrics {
         let current_gen = self.current_generation.load(Ordering::Acquire);
         self.gauges.retain(|_, data| data.generation == current_gen);
     }
+
+    pub fn clear(&self) {
+        self.gauges.clear();
+    }
 }
 
 impl Collector for GaugeMetrics {
@@ -493,5 +508,34 @@ pub fn sanitize_unit(unit: &str) -> String {
                 }
             })
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collector_registry_sanitizes_descriptor_fq_name() {
+        for (id, expected_fq_name) in [
+            (
+                "sensor_collector_10.0.0.1:443",
+                "sensor_collector_10_0_0_1_443",
+            ),
+            (
+                "log_collector_bmc-01.example.com",
+                "log_collector_bmc_01_example_com",
+            ),
+            (
+                "collector with spaces/slashes",
+                "collector_with_spaces_slashes",
+            ),
+        ] {
+            let registry = CollectorRegistry::new(id.to_string(), Registry::new(), "test_prefix")
+                .expect("collector registry should accept sanitized id");
+
+            assert_eq!(registry.registry.desc.fq_name, expected_fq_name);
+            assert_eq!(registry.registry.desc.help, id);
+        }
     }
 }

@@ -45,7 +45,7 @@ impl DellPowerEdgeR750<'_> {
             fan: 10,
             power: 20,
             current: 10,
-            leak: 0,
+            voltage: 0,
         }
     }
 

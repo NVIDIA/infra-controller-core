@@ -49,6 +49,7 @@ pub(crate) fn is_otlp_relevant(event: &CollectorEvent) -> bool {
         CollectorEvent::Metric(_)
             | CollectorEvent::MetricCollectionStart
             | CollectorEvent::MetricCollectionEnd
+            | CollectorEvent::CollectorRemoved
     )
 }
 
