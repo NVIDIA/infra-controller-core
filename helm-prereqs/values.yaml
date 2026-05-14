@@ -51,8 +51,8 @@ vault:
     enabled: false
     name: "nico-cli-client"
     organization: ""
-  ## Kubernetes auth role for nico-api to read from Vault KV
-  ## (e.g., BMC credentials for SiteExplorer).
+  ## Kubernetes auth role for nico-api to read and manage Vault KV
+  ## credentials used by SiteExplorer and related credential flows.
   nicoApiK8sAuth:
     enabled: false
     serviceAccountName: "nico-api"

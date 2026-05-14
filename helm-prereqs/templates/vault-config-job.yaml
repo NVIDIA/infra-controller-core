@@ -219,11 +219,36 @@ spec:
 
               echo "Writing nico-vault-policy..."
               vault policy write nico-vault-policy - << 'POLICY'
-              path "{{ .Values.vault.kvMount }}/data/*" {
+              path "{{ .Values.vault.pkiMount }}*" {
                 capabilities = ["read", "list"]
+              }
+              path "{{ .Values.vault.pkiMount }}/sign/{{ .Values.vault.pkiRole }}" {
+                capabilities = ["create", "update"]
               }
               path "{{ .Values.vault.pkiMount }}/issue/{{ .Values.vault.pkiRole }}" {
                 capabilities = ["create", "update"]
+              }
+
+              path "{{ .Values.vault.kvMount }}/data/*" {
+                capabilities = ["read", "list"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/machines*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/machines/*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/metadata/machines/*" {
+                capabilities = ["delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/destroy/machines/*" {
+                capabilities = ["delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/ufm/*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/nmxm/*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
               }
               POLICY
 
@@ -239,8 +264,8 @@ spec:
               # ---- K8s auth role for nico-api ----
               # nico-api authenticates to in-cluster Vault via its SA JWT
               # (vault SDK auto-detects /var/run/secrets/kubernetes.io/serviceaccount/token)
-              # and reads BMC credentials from the KV mount (nico-vault-policy
-              # grants read on {{ .Values.vault.kvMount }}/data/*).
+              # and manages machine credentials in the KV mount (nico-vault-policy
+              # grants read/list plus scoped writes for machine, UFM, and NMXM secrets).
               echo "Creating K8s auth role for nico-api..."
               vault write auth/kubernetes/role/{{ .Values.vault.nicoApiK8sAuth.serviceAccountName }} \
                 bound_service_account_names={{ .Values.vault.nicoApiK8sAuth.serviceAccountName }} \
