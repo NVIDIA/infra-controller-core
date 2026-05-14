@@ -2542,9 +2542,10 @@ pub struct DpaConfig {
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
 /// When configured, Carbide will publish `ManagedHostState` transitions to
-/// `nico/v1/machine/{machineId}/state`, publish BMS rack leak/isolation values
-/// and heartbeat timestamps to metadata-defined DSX topics, and subscribe to
-/// `BMS/v1/PUB/Metadata/#` to learn those routing targets.
+/// `{topic_prefix}/{machineId}/state` (default `NICO/v1/machine`), publish BMS
+/// rack leak/isolation values and heartbeat timestamps to metadata-defined DSX
+/// topics, and subscribe to `BMS/v1/PUB/Metadata/#` to learn those routing
+/// targets.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
@@ -2572,6 +2573,13 @@ pub struct DsxExchangeEventBusConfig {
     #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
     pub queue_capacity: usize,
 
+    /// Topic prefix used when publishing `ManagedHostState` transitions.
+    /// The full topic is `{topic_prefix}/{machineId}/state`. Defaults to
+    /// `NICO/v1/machine`. NATS subjects are case-sensitive, so this must
+    /// match the producer pub allow configured on the broker.
+    #[serde(default = "DsxExchangeEventBusConfig::default_topic_prefix")]
+    pub topic_prefix: String,
+
     #[serde(default)]
     pub auth: MqttAuthConfig,
 }
@@ -2583,6 +2591,10 @@ impl DsxExchangeEventBusConfig {
 
     pub const fn default_queue_capacity() -> usize {
         1024
+    }
+
+    pub fn default_topic_prefix() -> String {
+        "NICO/v1/machine".to_string()
     }
 }
 
