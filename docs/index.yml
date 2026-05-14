@@ -62,6 +62,15 @@ navigation:
         - page: SKU Validation
           path: provisioning/sku-validation.md
 
+    - section: DPU Management
+      contents:
+        - page: DPU Lifecycle Management
+          path: dpu-management/dpu-lifecycle-management.md
+        - page: DPU Configuration
+          path: dpu-management/dpu_configuration.md
+        - page: BlueField DPU Operations
+          path: dpu-management/dpu-operations.md
+
     - section: Architecture
       contents:
         - page: Overview and Components
@@ -74,8 +83,6 @@ navigation:
           path: architecture/state_handling.md
         - page: Networking Integrations
           path: architecture/networking_integrations.md
-        - page: DPU Configuration
-          path: architecture/dpu_configuration.md
         - page: Health Checks and Health Aggregation
           path: architecture/health_aggregation.md
         - page: Health Probe IDs
@@ -103,8 +110,6 @@ navigation:
           path: manuals/nvlink_partitioning.md
         - page: Release Instance API Enhancements
           path: manuals/breakfix_integration.md
-        - page: BlueField DPU Operations
-          path: dpu-operations.md
         - page: IP Resource Pools
           path: manuals/networking/ip_resource_pools.md
         - section: Managing VPCs
