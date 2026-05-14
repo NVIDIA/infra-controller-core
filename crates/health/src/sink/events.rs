@@ -98,6 +98,20 @@ impl EventContext {
         }
     }
 
+    pub fn switch_slot_number(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => switch.slot_number,
+            _ => None,
+        }
+    }
+
+    pub fn switch_tray_index(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => switch.tray_index,
+            _ => None,
+        }
+    }
+
     pub fn power_shelf_id(&self) -> Option<PowerShelfId> {
         match &self.metadata {
             Some(EndpointMetadata::PowerShelf(power_shelf)) => power_shelf.id,

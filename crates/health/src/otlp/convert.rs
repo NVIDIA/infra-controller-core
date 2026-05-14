@@ -71,6 +71,9 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     if let Some(machine_id) = context.machine_id() {
         attrs.push(kv("machine.id", machine_id.to_string()));
     }
+    if let Some(switch_id) = context.switch_id() {
+        attrs.push(kv("switch.id", switch_id.to_string()));
+    }
     if let Some(slot) = context.slot_number() {
         attrs.push(int_kv("machine.slot_number", i64::from(slot)));
     }
@@ -79,6 +82,12 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     }
     if let Some(domain) = context.nvlink_domain_uuid() {
         attrs.push(kv("nvlink.domain.uuid", domain.to_string()));
+    }
+    if let Some(slot) = context.switch_slot_number() {
+        attrs.push(int_kv("switch.slot_number", i64::from(slot)));
+    }
+    if let Some(tray) = context.switch_tray_index() {
+        attrs.push(int_kv("switch.tray_index", i64::from(tray)));
     }
     attrs
 }
@@ -191,10 +200,11 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_uuid::nvlink::NvLinkDomainId;
+    use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SwitchData};
     use crate::sink::{
         Classification, HealthReport, HealthReportAlert, LogRecord, Probe, ReportSource,
     };
@@ -211,6 +221,13 @@ mod tests {
             metadata: None,
             rack_id: None,
         }
+    }
+
+    fn test_switch_id(label: &str) -> SwitchId {
+        let mut hash = [0u8; 32];
+        let bytes = label.as_bytes();
+        hash[..bytes.len().min(32)].copy_from_slice(&bytes[..bytes.len().min(32)]);
+        SwitchId::new(SwitchIdSource::Tpm, hash, SwitchType::NvLink)
     }
 
     fn attr_value<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
@@ -266,6 +283,37 @@ mod tests {
             attr_value(&attrs, "nvlink.domain.uuid"),
             Some("00000000-0000-0000-0000-000000000000")
         );
+    }
+
+    #[test]
+    fn resource_attributes_include_switch_placement_metadata_when_present() {
+        let switch_id = test_switch_id("switch-a");
+        let switch_id_attr = switch_id.to_string();
+        let context = EventContext {
+            endpoint_key: "11:22:33:44:55:66".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 1, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("11:22:33:44:55:66").expect("valid mac"),
+            },
+            collector_type: "test",
+            metadata: Some(EndpointMetadata::Switch(SwitchData {
+                id: Some(switch_id),
+                serial: "SN-SWITCH-001".to_string(),
+                slot_number: Some(7),
+                tray_index: Some(3),
+            })),
+            rack_id: None,
+        };
+
+        let attrs = resource_attributes(&context);
+
+        assert_eq!(
+            attr_value(&attrs, "switch.id"),
+            Some(switch_id_attr.as_str())
+        );
+        assert_eq!(attr_int_value(&attrs, "switch.slot_number"), Some(7));
+        assert_eq!(attr_int_value(&attrs, "switch.tray_index"), Some(3));
     }
 
     #[test]

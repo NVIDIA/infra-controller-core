@@ -184,6 +184,8 @@ mod tests {
             switch: Some(StaticSwitchEndpoint {
                 id: Some(switch_id.to_string()),
                 serial: Some("SN-001".to_string()),
+                slot_number: Some(7),
+                tray_index: Some(3),
             }),
             rack_id: None,
         }];
@@ -196,6 +198,8 @@ mod tests {
             Some(EndpointMetadata::Switch(s)) => {
                 assert_eq!(s.id, Some(switch_id));
                 assert_eq!(s.serial, "SN-001");
+                assert_eq!(s.slot_number, Some(7));
+                assert_eq!(s.tray_index, Some(3));
             }
             other => panic!("expected Switch metadata, got {other:?}"),
         }

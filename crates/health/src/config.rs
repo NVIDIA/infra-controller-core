@@ -128,6 +128,8 @@ pub struct StaticPowerShelfEndpoint {
 pub struct StaticSwitchEndpoint {
     pub id: Option<String>,
     pub serial: Option<String>,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
 }
 
 impl Debug for StaticBmcEndpoint {
@@ -1319,7 +1321,7 @@ ip = "10.0.1.1"
 mac = "11:22:33:44:55:66"
 username = "cumulus"
 password = "pass"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-001" }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-001", slot_number = 7, tray_index = 3 }
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.2.1"
@@ -1374,6 +1376,20 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
                 .as_ref()
                 .and_then(|switch| switch.serial.as_deref()),
             Some("SN-SW-001")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.slot_number),
+            Some(7)
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.tray_index),
+            Some(3)
         );
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[3]

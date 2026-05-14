@@ -156,6 +156,8 @@ pub struct PowerShelfData {
 pub struct SwitchData {
     pub id: Option<SwitchId>,
     pub serial: String,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
 }
 
 #[derive(Clone)]

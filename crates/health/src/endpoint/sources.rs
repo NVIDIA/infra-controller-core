@@ -97,6 +97,8 @@ impl StaticEndpointSource {
                     Some(EndpointMetadata::Switch(SwitchData {
                         id,
                         serial,
+                        slot_number: switch.slot_number,
+                        tray_index: switch.tray_index,
                     }))
                 } else if let Some(machine) = &cfg.machine {
                     let machine_id = &machine.id;

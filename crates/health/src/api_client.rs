@@ -260,6 +260,14 @@ impl ApiClientWrapper {
             Some(EndpointMetadata::Switch(SwitchData {
                 id: switch.id,
                 serial,
+                slot_number: switch
+                    .placement_in_rack
+                    .as_ref()
+                    .and_then(|placement| placement.slot_number),
+                tray_index: switch
+                    .placement_in_rack
+                    .as_ref()
+                    .and_then(|placement| placement.tray_index),
             })),
             None,
         )

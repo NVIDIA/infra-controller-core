@@ -97,6 +97,9 @@ impl PrometheusSink {
         if let Some(machine_id) = context.machine_id() {
             labels.push((Cow::Borrowed("machine_id"), machine_id.to_string()));
         }
+        if let Some(switch_id) = context.switch_id() {
+            labels.push((Cow::Borrowed("switch_id"), switch_id.to_string()));
+        }
         if let Some(serial) = context.serial_number() {
             labels.push((Cow::Borrowed("serial_number"), serial.to_string()));
         }
@@ -108,6 +111,12 @@ impl PrometheusSink {
         }
         if let Some(domain) = context.nvlink_domain_uuid() {
             labels.push((Cow::Borrowed("nvlink_domain_uuid"), domain.to_string()));
+        }
+        if let Some(slot) = context.switch_slot_number() {
+            labels.push((Cow::Borrowed("switch_slot_number"), slot.to_string()));
+        }
+        if let Some(tray) = context.switch_tray_index() {
+            labels.push((Cow::Borrowed("switch_tray_index"), tray.to_string()));
         }
 
         labels
@@ -228,10 +237,18 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_uuid::nvlink::NvLinkDomainId;
+    use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SwitchData};
+
+    fn test_switch_id(label: &str) -> SwitchId {
+        let mut hash = [0u8; 32];
+        let bytes = label.as_bytes();
+        hash[..bytes.len().min(32)].copy_from_slice(&bytes[..bytes.len().min(32)]);
+        SwitchId::new(SwitchIdSource::Tpm, hash, SwitchType::NvLink)
+    }
 
     #[test]
     fn test_stream_static_labels_includes_machine_metadata() {
@@ -273,5 +290,39 @@ mod tests {
             label_value("nvlink_domain_uuid"),
             Some("00000000-0000-0000-0000-000000000000")
         );
+    }
+
+    #[test]
+    fn test_stream_static_labels_includes_switch_placement_metadata() {
+        let switch_id = test_switch_id("switch-a");
+        let switch_id_label = switch_id.to_string();
+        let context = EventContext {
+            endpoint_key: "11:22:33:44:55:66".to_string(),
+            addr: BmcAddr {
+                ip: "10.0.1.1".parse().expect("valid ip"),
+                port: Some(443),
+                mac: MacAddress::from_str("11:22:33:44:55:66").unwrap(),
+            },
+            collector_type: "switch_collector",
+            metadata: Some(EndpointMetadata::Switch(SwitchData {
+                id: Some(switch_id),
+                serial: "SN-SWITCH-001".to_string(),
+                slot_number: Some(7),
+                tray_index: Some(3),
+            })),
+            rack_id: None,
+        };
+
+        let labels = PrometheusSink::stream_static_labels(&context);
+        let label_value = |key: &str| {
+            labels
+                .iter()
+                .find_map(|(label, value)| (label.as_ref() == key).then_some(value.as_str()))
+        };
+
+        assert_eq!(label_value("switch_id"), Some(switch_id_label.as_str()));
+        assert_eq!(label_value("serial_number"), Some("SN-SWITCH-001"));
+        assert_eq!(label_value("switch_slot_number"), Some("7"));
+        assert_eq!(label_value("switch_tray_index"), Some("3"));
     }
 }
