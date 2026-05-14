@@ -117,6 +117,8 @@ mod tests {
                 Some(EndpointMetadata::Switch(SwitchData {
                     id: None,
                     serial: format!("serial-{mac}"),
+                    slot_number: None,
+                    tray_index: None,
                 }))
             } else {
                 None

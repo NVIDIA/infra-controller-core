@@ -22,6 +22,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
@@ -140,6 +141,9 @@ impl EndpointMetadata {
 pub struct MachineData {
     pub machine_id: MachineId,
     pub machine_serial: Option<String>,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
+    pub nvlink_domain_uuid: Option<NvLinkDomainId>,
 }
 
 #[derive(Clone, Debug)]
@@ -152,6 +156,8 @@ pub struct PowerShelfData {
 pub struct SwitchData {
     pub id: Option<SwitchId>,
     pub serial: String,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
 }
 
 #[derive(Clone)]
