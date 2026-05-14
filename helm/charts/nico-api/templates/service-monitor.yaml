@@ -1,0 +1,13 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nico-api-metrics
+  namespace: {{ include "nico-api.namespace" . }}
+  labels:
+    {{- include "nico-api.labels" . | nindent 4 }}
+    app: nico-api
+    prometheus: nico-monitoring
+spec:
+  {{- include "nico-api.serviceMonitorSpec" (dict "name" "nico-api" "port" "http" "monitor" .Values.serviceMonitor "namespace" (include "nico-api.namespace" .)) | nindent 2 }}
+{{- end }}

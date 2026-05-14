@@ -23,8 +23,6 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use rpc::Timestamp;
-use rpc::forge::LifecycleStatus;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -270,57 +268,9 @@ pub enum SwitchNvosUpdateState {
     Failed { cause: String },
 }
 
-impl From<Rack> for rpc::forge::Rack {
-    fn from(value: Rack) -> Self {
-        let health = derive_rack_aggregate_health(&value.health_reports);
-        let health_sources = value
-            .health_reports
-            .iter()
-            .map(|(hr, m)| rpc::forge::HealthSourceOrigin {
-                mode: m as i32,
-                source: hr.source.clone(),
-            })
-            .collect();
-
-        let lifecycle = LifecycleStatus {
-            state: serde_json::to_string(&value.controller_state.value).unwrap_or_default(),
-            version: value.controller_state.version.version_string(),
-            state_reason: value.controller_state_outcome.map(Into::into),
-            sla: Some(rpc::forge::StateSla {
-                sla: None, // TODO: Calculate SLA properly
-                time_in_state_above_sla: false,
-            }),
-        };
-
-        rpc::forge::Rack {
-            id: Some(value.id),
-            rack_state: value.controller_state.value.to_string(),
-            created: Some(Timestamp::from(value.created)),
-            updated: Some(Timestamp::from(value.updated)),
-            deleted: value.deleted.map(Timestamp::from),
-            metadata: Some(value.metadata.into()),
-            version: value.version.version_string(),
-            config: Some(rpc::forge::RackConfig {}),
-            status: Some(rpc::forge::RackStatus {
-                health: Some(health.into()),
-                health_sources,
-                lifecycle: Some(lifecycle),
-            }),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct RackSearchFilter {
     pub label: Option<crate::metadata::LabelFilter>,
-}
-
-impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
-    fn from(filter: rpc::forge::RackSearchFilter) -> Self {
-        RackSearchFilter {
-            label: filter.label.map(crate::metadata::LabelFilter::from),
-        }
-    }
 }
 
 pub fn derive_rack_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
