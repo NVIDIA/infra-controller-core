@@ -31,7 +31,7 @@ async fn execute_command(
     let auth = AuthConfig::Password { password };
     let client = crate::ssh_client::SshClientConfig {
         host: &host,
-        port: ip_address.port(),
+        port: 22,
         username: &username,
         auth: Some(&auth),
         known_hosts_file: None,
