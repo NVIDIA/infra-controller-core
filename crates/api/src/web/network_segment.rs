@@ -282,15 +282,6 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             });
         }
 
-        // History comes from the deprecated flat field which the API layer always populates.
-        let mut history = Vec::new();
-        for h in segment.history.into_iter() {
-            history.push(NetworkSegmentHistory {
-                state: h.state,
-                version: h.version,
-            });
-        }
-
         let lifecycle_detail = status
             .lifecycle
             .map(super::LifecycleDetail::from)
@@ -317,7 +308,9 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
             prefixes,
-            history,
+            // History is fetched separately via FindNetworkSegmentStateHistories
+            // and set on the template after conversion.
+            history: Vec::new(),
         })
     }
 }
@@ -345,9 +338,10 @@ pub async fn detail(
 
     let request = tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
         network_segments_ids: vec![segment_id],
-        include_history: true,
+        include_history: false, // deprecated; fetched separately below
         include_num_free_ips: true,
     });
+
     let segment = match state
         .find_network_segments_by_ids(request)
         .await
@@ -399,6 +393,27 @@ pub async fn detail(
     };
 
     tmpl.domain_name = domain_name;
+
+    if let Ok(mut histories) = state
+        .find_network_segment_state_histories(tonic::Request::new(
+            forgerpc::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![segment_id],
+            },
+        ))
+        .await
+        .map(|r| r.into_inner().histories)
+        && let Some(records) = histories.remove(&segment_id.to_string())
+    {
+        tmpl.history = records
+            .records
+            .into_iter()
+            .map(|h| NetworkSegmentHistory {
+                state: h.state,
+                version: h.version,
+            })
+            .collect();
+    }
+
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 

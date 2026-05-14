@@ -34,6 +34,7 @@ struct NetworkState {
 
 async fn convert_network_to_nice_format(
     segment: forgerpc::NetworkSegment,
+    history: Vec<forgerpc::StateHistoryRecord>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<String> {
     let name = segment
@@ -42,11 +43,10 @@ async fn convert_network_to_nice_format(
         .map(|m| m.name.clone())
         .unwrap_or_default();
 
-    let history = segment.history.clone();
-
     let config = segment.config.ok_or_else(|| {
         CarbideCliError::GenericError("network segment missing config".to_string())
     })?;
+
     let status = segment.status.unwrap_or_default();
     let lifecycle = status.lifecycle.as_ref();
     let state = lifecycle
@@ -284,12 +284,21 @@ async fn show_network_information(
         return Err(CarbideCliError::SegmentNotFound);
     };
 
+    // Call `FindNetworkSegmentStateHistories` RPC to read the state history.
+    let history = match api_client.get_segment_state_history(segment_id).await {
+        Ok(records) => records,
+        Err(e) => {
+            eprintln!("Warning: failed to fetch state history: {e}");
+            vec![]
+        }
+    };
+
     if json {
         println!("{}", serde_json::to_string_pretty(&segment)?);
     } else {
         println!(
             "{}",
-            convert_network_to_nice_format(segment, api_client)
+            convert_network_to_nice_format(segment, history, api_client)
                 .await
                 .unwrap_or_else(|x| x.to_string())
         );

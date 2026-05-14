@@ -407,10 +407,28 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
         let request = rpc::NetworkSegmentsByIdsRequest {
             network_segments_ids: network_segments_ids.to_vec(),
-            include_history: network_segments_ids.len() == 1, // only request it when getting data for single resource
+            include_history: false, // deprecated; use get_segment_state_history instead
             include_num_free_ips: true,
         };
         Ok(self.0.find_network_segments_by_ids(request).await?)
+    }
+
+    pub async fn get_segment_state_history(
+        &self,
+        segment_id: NetworkSegmentId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_network_segment_state_histories(rpc::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![segment_id],
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&segment_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
     }
 
     pub async fn get_domains(
