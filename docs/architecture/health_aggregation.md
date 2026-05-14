@@ -265,6 +265,13 @@ Finally, `carbide-hw-health` also emits a health-rollup in `HealthReport` format
 This assessed health status is built by comparing the metrics that are emitted from BMCs against well-defined
 ranges or by interpreting the `health_ok` values provided by BMCs.
 
+For production deployments, `carbide-hw-health` discovers machine, switch, and power-shelf BMC endpoints from Carbide API via `[endpoint_sources.carbide_api]`. Machine endpoints carry the inventory metadata needed to interpret hardware health in fleet context, including machine ID, serial number, rack ID, rack placement, and NVLink domain UUID when present. Local and test deployments can instead configure explicit machine, switch, or power-shelf identity with `[[endpoint_sources.static_bmc_endpoints]]`; static machine endpoints can include the same serial number, rack placement, and NVLink domain UUID metadata, and all static endpoints can provide `rack_id` when rack-level rollups are needed.
+
+The publishing sinks expose that inventory context using the conventions of the target backend:
+- `[sinks.prometheus]` adds machine metadata as metric labels named `machine_id`, `serial_number`, `machine_slot_number`, `machine_tray_index`, and `nvlink_domain_uuid`.
+- `[sinks.otlp]` adds machine metadata as OTLP resource attributes named `machine.id`, integer `machine.slot_number`, integer `machine.tray_index`, and `nvlink.domain.uuid`.
+- `[sinks.health_report]`, `[sinks.rack_health_report]`, `[sinks.switch_health_report]`, and `[sinks.power_shelf_health_report]` use the same event context when submitting assessed health reports back to Carbide API. The persisted `HealthReport` and `HealthProbeAlert` schemas remain the probe success/alert model described above.
+
 ### BMC inventory monitoring
 
 The Site Explorer process within NICo Core periodically queries all Host and DPU BMCs in order to record certain BMC properties (e.g. components within a host and firmware versions).
