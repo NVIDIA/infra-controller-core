@@ -30,6 +30,7 @@ use model::hardware_info::MachineNvLinkInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
+use model::rpc_conv::machine::ManagedHostStateSnapshotRpc;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
