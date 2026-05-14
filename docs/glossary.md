@@ -6,7 +6,7 @@ Terms are grouped by domain rather than by repository. A reader looking up "Site
 
 This glossary focuses on NICo-specific concepts: terms that only make sense in the context of the NICo platform. Where a term has a general industry definition but carries additional NICo-specific meaning, this glossary explains the NICo-specific part.
 
-<Note> You will encounter references to Forge, Carbide, and BMM in source code, CLI tool names, protobuf definitions, and Helm charts. These were internal NVIDIA project names that preceded the current NICo branding. The rename is largely complete: binary names, Docker images, Helm charts, and Kustomize manifests have been updated from `carbide-rest-*` to `nico-rest-*`, the CLI was renamed from `carbidecli` to `nicocli`, and authorization roles have been migrated from prefixed forms such as `FORGE_PROVIDER_ADMIN` and `NICO_PROVIDER_ADMIN` to canonical suffixes such as `PROVIDER_ADMIN` and `TENANT_ADMIN`. Some legacy names remain in OpenAPI specs and metric namespaces. When this glossary references a binary, role, or configuration key, it uses the current canonical name unless the legacy name is part of the interface.</Note>
+<Note> You will encounter references to Forge, Carbide, and BMM in source code, CLI tool names, protobuf definitions, OpenAPI text, Helm charts, and image names. These were internal NVIDIA project names that preceded the current NICo branding. The documentation should use NICo names for product concepts, but many implementation artifacts still use legacy names such as `carbide-*`, `forge-*`, and `FORGE_*`. When this glossary references an artifact, role string, metric namespace, or configuration key, it preserves the name used by that interface.</Note>
 
 ## Platform Architecture
 
@@ -38,7 +38,7 @@ Related: [What is NICo?](overview/what-is-nico.md), [Key Capabilities](overview/
 
 The architectural pattern that connects NICo REST, the hub, to one or more datacenters, the spokes. The REST API server, workflow workers, and site manager run centrally, either in the cloud or in a management cluster, while each datacenter runs its own Site Agent alongside a Core instance.
 
-The Site Agent never accepts inbound connections. It initiates outbound connections to Temporal and to the local Core gRPC API. This outbound-only design is critical for datacenters behind firewalls with no inbound connectivity to the management plane.
+The Site Agent initiates connections to Temporal and to the local Core gRPC API, which lets the central REST layer coordinate work with site-local Core services without requiring the central API server to call directly into each datacenter.
 
 Related: [Architecture Overview](architecture/overview.md), [Reliable State Handling](architecture/state_handling.md)
 
@@ -92,41 +92,47 @@ Related: [BlueField DPU Operations](dpu-operations.md), [DPU Configuration](arch
 
 ## REST API Services and Binaries
 
-### API Server (`nico-rest-api`)
+### API Server
 
-The main REST API server. It handles external HTTP requests, authenticates callers through JWTs, and routes requests to resource handlers. This is the canonical entry point for tenant, site, machine, and networking operations.
+The main NICo REST API server. It handles external HTTP requests, authenticates callers through JWTs, and routes requests to resource handlers. It is the primary entry point for tenant, site, machine, and networking operations exposed through the REST API. Current deployment artifacts in this repo still refer to this component as `carbide-rest-api`.
+
+The NICo REST repository's Helm charts and generated SDK now use `nico-rest-api`.
 
 Related: [REST API Reference](/infra-controller/api), [Architecture Overview](architecture/overview.md)
 
-### Workflow Worker (`nico-rest-workflow`)
+### Workflow Worker
 
-The Temporal workflow worker service. It registers and executes cloud-level workflow definitions for long-running operations such as site provisioning and hardware lifecycle management. Cloud workflows run centrally and dispatch tasks to site-specific Temporal namespaces.
+The Temporal workflow worker service for NICo REST. It executes workflow logic for long-running operations such as site setup and hardware lifecycle management. Current deployment artifacts in this repo still refer to this component as `carbide-rest-workflow`.
+
+The NICo REST repository's Helm charts now use `nico-rest-workflow`.
 
 Related: [Reliable State Handling](architecture/state_handling.md)
 
-### Site Agent (`nico-rest-site-agent`)
+### Site Agent
 
 The on-site datacenter agent that bridges Temporal workflows to NICo Core. It polls a site-specific Temporal namespace for workflow tasks, translates them into gRPC calls against the local Core instance, and publishes inventory data back through Temporal.
 
-Every provisioning, networking, and lifecycle operation that the REST API dispatches ultimately flows through a Site Agent before reaching hardware. The internal codename Elektra appears throughout the codebase in type names, log prefixes, and Prometheus metric namespaces such as `elektra_site_agent_*`.
+REST-dispatched operations that need site-local hardware access flow through a Site Agent before reaching Core and the managed hardware. Current deployment artifacts in this repo still refer to this component as `carbide-rest-site-agent`; older metrics and code may also use the internal codename Elektra.
+
+The NICo REST repository's Helm charts now use `nico-rest-site-agent`.
 
 Related: [Architecture Overview](architecture/overview.md), [Reliable State Handling](architecture/state_handling.md), [Core Metrics](manuals/metrics/core_metrics.md)
 
-### Site Manager (`nico-rest-site-manager`)
+### Site Manager
 
-A service responsible for site-level management operations, coordinating between the cloud API layer and on-site infrastructure.
+A NICo REST service used for site-level management and Site Agent bootstrap flows. Current deployment artifacts in this repo still refer to this component as `carbide-rest-site-manager`.
 
 Related: [Architecture Overview](architecture/overview.md)
 
-### Certificate Manager (`nico-rest-cert-manager`)
+### Certificate Manager
 
-The native PKI certificate management service. It issues mTLS certificates using Go's `crypto/x509` package and supports SPIFFE certificate issuance through `nico-rest-ca-issuer`.
+A NICo REST certificate-management component used by the REST deployment. Current deployment artifacts in this repo still refer to the component and issuer with names such as `carbide-rest-cert-manager` and `carbide-rest-ca-issuer`. The REST repository also contains a native certificate manager that issues certificates using Go crypto and integrates with cert-manager.io.
 
 Related: [TLS and SPIFFE Certificates](development/tls.md), [Re-creating Issuer/CA in Local Dev](development/issuer_ca_recreate.md)
 
-### Database Migrations (`nico-rest-db`)
+### Database Migrations
 
-The schema migration service that manages PostgreSQL database schema evolution for NICo REST.
+The NICo REST deployment component that manages PostgreSQL database schema evolution. Current deployment artifacts in this repo still describe the REST stack with `carbide-rest-*` names.
 
 Related: [Data Model / DB Schema](development/schema.md)
 
@@ -140,14 +146,14 @@ Related: [REST API Reference](/infra-controller/api)
 
 ### Authorization Roles
 
-NICo REST defines four canonical authorization roles as unprefixed suffixes: `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, `TENANT_ADMIN`, and `TENANT_VIEWER`. New issuer configuration should use the unprefixed names. Legacy prefixed forms such as `FORGE_PROVIDER_ADMIN`, `NICO_PROVIDER_ADMIN`, and `FORGE_TENANT_ADMIN` are still accepted at runtime for backward compatibility.
+NICo REST authorizes callers with provider and tenant role families. The REST SDK and current REST OpenAPI text describe authorization in terms of role suffixes such as `PROVIDER_ADMIN` and `TENANT_ADMIN`. Some generated tests, older OpenAPI snapshots, and bundled development Keycloak examples still use prefixed role strings such as `FORGE_PROVIDER_ADMIN` and `FORGE_TENANT_ADMIN`, so use the role format required by the target issuer and API version.
 
-| Role | Scope | Capabilities |
+| Role family | Scope | Capabilities |
 | --- | --- | --- |
-| `PROVIDER_ADMIN` | Organization, infrastructure provider | Full administrative access to manage sites, hardware, tenants, expected machines, racks, and infrastructure operations |
-| `PROVIDER_VIEWER` | Organization, infrastructure provider | Read-only access to infrastructure provider resources such as sites, expected racks, and machines |
-| `TENANT_ADMIN` | Organization, tenant | Tenant-scoped administrative access to manage instances, SSH keys, VPC peering, and resources within the assigned tenant organization |
-| `TENANT_VIEWER` | Organization, tenant | Read-only access to tenant-scoped resources |
+| Provider admin | Organization, infrastructure provider | Administrative access to manage sites, hardware, tenants, expected machines, racks, and infrastructure operations |
+| Provider viewer | Organization, infrastructure provider | Read-only access to infrastructure provider resources such as sites, expected racks, and machines |
+| Tenant admin | Organization, tenant | Tenant-scoped administrative access to manage instances, SSH keys, VPC peering, and resources within the assigned tenant organization |
+| Tenant viewer | Organization, tenant | Read-only access to tenant-scoped resources |
 
 Related: [REST API Reference](/infra-controller/api)
 
@@ -159,13 +165,13 @@ Related: [REST API Reference](/infra-controller/api)
 
 ### Service Account Authentication (SSA)
 
-Machine-to-machine authentication using service account tokens. Service accounts are created per tenant and issue JWTs that bypass interactive Keycloak login flows.
+Machine-to-machine authentication using service account tokens. In the bundled development Keycloak setup, a service account can obtain a JWT through the client credentials flow and use that token against the REST API.
 
 Related: [REST API Reference](/infra-controller/api)
 
 ### NGC KAS
 
-NVIDIA GPU Cloud Key Authentication Service. The REST API accepts JWTs issued by NGC KAS and maps NGC organization identities to internal tenant contexts.
+NVIDIA GPU Cloud Key Authentication Service. NICo REST can be configured to accept JWTs issued by NGC KAS and map NGC organization identity into NICo authorization context.
 
 Related: [REST API Reference](/infra-controller/api)
 
@@ -244,7 +250,7 @@ NICo coordinates tenant isolation across four network fabrics, each with its own
 | Network type | Isolation mechanism | Managed by |
 | --- | --- | --- |
 | Ethernet north-south | VXLAN with EVPN for VPC creation | DPU through HBN |
-| East-west Ethernet | ConnectX-based firmware for VXLAN on ConnectX | Future release |
+| East-west Ethernet | ConnectX-based firmware paths where configured | Outside the current DPU HBN path |
 | InfiniBand | Partition key assignment | UFM |
 | NVLink | Partition management | NMX-M |
 
@@ -292,9 +298,9 @@ Related: [NVLink Partitioning](manuals/nvlink_partitioning.md)
 
 ### FMDS
 
-Fabric Manager Discovery Service. In NICo docs and operational discussions, FMDS refers to fabric discovery information used to understand site topology and network adjacency.
+NICo Metadata Service. FMDS runs on or alongside the DPU path and provides tenant workloads with instance metadata such as machine identity, boot information, and applied instance configuration. Some implementation artifacts still expand the legacy name as Forge Metadata Service.
 
-Related: [Networking Integrations](architecture/networking_integrations.md)
+Related: [Architecture Overview](architecture/overview.md), [InfiniBand NIC and Port Selection](architecture/infiniband/nic_selection.md)
 
 ### LLDP
 
@@ -342,7 +348,7 @@ Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup
 
 NICo discovers BMCs through DHCP. When provisioning a NICo site, operators specify which BMC subnets are on the network fabric. Those subnets must have DHCP relay configured to point to the NICo DHCP service. When a BMC requests an IP address, NICo allocates one and cross-references the MAC address against an expected machine table to look up initial credentials.
 
-Both the Host and the DPU have separate BMCs, so each ManagedHost has two BMCs.
+The Host has its own BMC, and attached DPUs can have their own BMCs. For the common one-host, one-DPU case, that means two BMCs are involved in a ManagedHost.
 
 Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md), [Ingesting Hosts](provisioning/ingesting-hosts.md)
 
@@ -520,7 +526,7 @@ Related: [Architecture Overview](architecture/overview.md)
 
 ### Disconnected Mode
 
-NICo REST supports operation when the datacenter loses upstream connectivity to the cloud management plane. The Site Agent continues to execute in-flight workflows through its local Temporal connection, and the Core instance continues to manage hardware independently.
+NICo Core is site-local and continues to manage hardware independently of the REST API process. REST-dispatched workflows depend on the Site Agent and Temporal connectivity configured for that deployment, so behavior during upstream connectivity loss depends on how REST, Temporal, and the Site Agent are deployed.
 
 Related: [Operational Principles](overview/operational-principles.md), [Reliable State Handling](architecture/state_handling.md)
 
@@ -537,7 +543,7 @@ Related: [Operational Principles](overview/operational-principles.md), [Reliable
 | DOCA | Data Center-on-a-Chip Architecture | NVIDIA software framework used by BlueField DPUs |
 | DPU | Data Processing Unit | Central enforcement point for tenant isolation |
 | EVPN | Ethernet VPN | Control-plane technology used with VXLAN overlays |
-| FMDS | Fabric Manager Discovery Service | Fabric discovery term used in site networking and topology contexts |
+| FMDS | NICo Metadata Service | Metadata service for tenant workloads; legacy artifacts may expand it as Forge Metadata Service |
 | FNN | Fabric Nearest Neighbor | VPC, subnet, and VXLAN management subsystem in Core |
 | gRPC | Google Remote Procedure Call | RPC framework used between the Site Agent and NICo Core |
 | HBN | Host Based Networking | Software networking stack on the DPU for VXLAN and EVPN |
