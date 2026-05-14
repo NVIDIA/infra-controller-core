@@ -44,6 +44,7 @@ use sqlx::{FromRow, PgConnection, PgTransaction};
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db_read::DbReader;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
+use crate::machine_interface_address::AddressAlreadyInUseError;
 use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
@@ -717,6 +718,12 @@ async fn create_fast_path(
 
 /// Create a machine interface with a specific static IP address.
 /// A perfect compliment to create_fast_path and create_slow_path.
+///
+/// If the target IP is already allocated to an interface with
+/// same MAC, just return the existing interface snapshot.
+///
+/// Otherwise, if the target IP is allocated to a different MAC,
+/// return with an AddressAlreadyInUse error.
 async fn create_static_path(
     txn: &mut PgConnection,
     segments: &[NetworkSegment],
@@ -742,6 +749,19 @@ async fn create_static_path(
                     segments.iter().map(|s| s.id.to_string()).join(", "),
                 ))
     )?;
+
+    if let Some(existing) = find_by_ip(&mut *txn, address).await? {
+        if existing.mac_address == *macaddr {
+            return Ok(existing);
+        }
+        return Err(AddressAlreadyInUseError(
+            address,
+            existing.mac_address,
+            existing.segment_id,
+            existing.id,
+        )
+        .into());
+    }
 
     let interface_id = create_inner(
         txn,
