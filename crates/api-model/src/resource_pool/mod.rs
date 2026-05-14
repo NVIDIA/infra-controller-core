@@ -23,9 +23,10 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 pub use define::{Range, ResourcePoolDef, ResourcePoolType};
-use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+
+use crate::errors::ModelError;
 
 /// State of an entry inside the resource pool
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -169,14 +170,14 @@ pub enum OwnerType {
 }
 
 impl FromStr for OwnerType {
-    type Err = RpcDataConversionError;
+    type Err = ModelError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "machine" => Ok(Self::Machine),
             "network_segment" => Ok(Self::NetworkSegment),
             "ib_partition" => Ok(Self::IBPartition),
             "vpc" => Ok(Self::Vpc),
-            x => Err(RpcDataConversionError::InvalidArgument(format!(
+            x => Err(ModelError::InvalidArgument(format!(
                 "Unknown owner_type '{x}'"
             ))),
         }

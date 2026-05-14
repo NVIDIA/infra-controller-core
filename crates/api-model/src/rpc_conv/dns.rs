@@ -127,3 +127,19 @@ impl TryFrom<rpc::protos::dns::Domain> for Domain {
         })
     }
 }
+
+impl From<rpc::protos::dns::Metadata> for DomainMetadata {
+    fn from(metadata: rpc::protos::dns::Metadata) -> Self {
+        DomainMetadata {
+            allow_axfr_from: metadata.allow_axfr_from,
+        }
+    }
+}
+
+impl From<DomainMetadata> for rpc::protos::dns::Metadata {
+    fn from(metadata: DomainMetadata) -> Self {
+        rpc::protos::dns::Metadata {
+            allow_axfr_from: vec![metadata.allow_axfr_from.join(",")],
+        }
+    }
+}

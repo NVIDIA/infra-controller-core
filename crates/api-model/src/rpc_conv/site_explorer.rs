@@ -16,11 +16,12 @@
  */
 
 use crate::site_explorer::{
-    BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes, EthernetInterface,
-    ExploredDpu, ExploredEndpoint, ExploredEndpointSearchFilter, ExploredManagedHost,
-    ExploredManagedHostSearchFilter, InternalLockdownStatus, Inventory, LockdownStatus,
-    MachineSetupDiff, MachineSetupStatus, Manager, NetworkAdapter, NicMode, PCIeDevice, PowerState,
-    SecureBootStatus, Service, SiteExplorationReport, SystemStatus,
+    BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
+    EndpointExplorationReport, EthernetInterface, ExploredDpu, ExploredEndpoint,
+    ExploredEndpointSearchFilter, ExploredManagedHost, ExploredManagedHostSearchFilter,
+    InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
+    Manager, NetworkAdapter, NicMode, PCIeDevice, PowerState, SecureBootStatus, Service,
+    SiteExplorationReport, SystemStatus,
 };
 
 impl From<rpc::site_explorer::ExploredEndpointSearchFilter> for ExploredEndpointSearchFilter {
@@ -316,6 +317,30 @@ impl From<BootOption> for rpc::site_explorer::BootOption {
             id: boot_option.id,
             boot_option_enabled: boot_option.boot_option_enabled,
             uefi_device_path: boot_option.uefi_device_path,
+        }
+    }
+}
+
+impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExplorationReport {
+    fn from(report: EndpointExplorationReport) -> Self {
+        rpc::site_explorer::EndpointExplorationReport {
+            endpoint_type: format!("{:?}", report.endpoint_type),
+            last_exploration_error: report.last_exploration_error.map(|error| {
+                serde_json::to_string(&error).unwrap_or_else(|_| "Unserializable error".to_string())
+            }),
+            last_exploration_latency: report.last_exploration_latency.map(Into::into),
+            machine_id: report.machine_id.map(|id| id.to_string()),
+            vendor: report.vendor.map(|v| v.to_string()),
+            managers: report.managers.into_iter().map(Into::into).collect(),
+            systems: report.systems.into_iter().map(Into::into).collect(),
+            chassis: report.chassis.into_iter().map(Into::into).collect(),
+            service: report.service.into_iter().map(Into::into).collect(),
+            machine_setup_status: report.machine_setup_status.map(Into::into),
+            secure_boot_status: report.secure_boot_status.map(Into::into),
+            lockdown_status: report.lockdown_status.map(Into::into),
+            firmware_versions: serde_json::to_value(&report.versions)
+                .and_then(serde_json::from_value)
+                .unwrap_or_default(),
         }
     }
 }
