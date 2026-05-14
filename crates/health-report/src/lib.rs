@@ -678,10 +678,10 @@ impl HealthAlertClassification {
         Self("PreventAllocations".to_string())
     }
 
-    /// Signals that the associated resource should not be deleted (e.g. instance or host teardown).
-    /// Callers that interpret health must enforce this; storing the classification alone does not block deletion.
-    pub fn prevent_deletion() -> Self {
-        Self("PreventDeletion".to_string())
+    /// When present on aggregate health, carbide-api refuses tenant `ReleaseInstance` until cleared.
+    /// Storing the classification alone does not enforce policy; callers must interpret it.
+    pub fn prevent_instance_deletion() -> Self {
+        Self("PreventInstanceDeletion".to_string())
     }
 
     /// The threshold that is used to externally alert on unhealthy hosts in the datacenter
@@ -753,13 +753,13 @@ mod tests {
     }
 
     #[test]
-    fn prevent_deletion_classification_string() {
-        let c = HealthAlertClassification::prevent_deletion();
-        assert_eq!(c.as_str(), "PreventDeletion");
+    fn prevent_instance_deletion_classification_string() {
+        let c = HealthAlertClassification::prevent_instance_deletion();
+        assert_eq!(c.as_str(), "PreventInstanceDeletion");
     }
 
     #[test]
-    fn request_online_repair_merge_includes_prevent_deletion() {
+    fn request_online_repair_merge_includes_prevent_instance_deletion() {
         // Shape matches admin-cli `HealthReportTemplates::RequestOnlineRepair` (merge source
         // `request-online-repair`, probe id `RequestOnlineRepair`).
         let report = HealthReport {
@@ -776,13 +776,13 @@ mod tests {
                 classifications: vec![
                     HealthAlertClassification::prevent_allocations(),
                     HealthAlertClassification::suppress_external_alerting(),
-                    HealthAlertClassification::prevent_deletion(),
+                    HealthAlertClassification::prevent_instance_deletion(),
                 ],
             }],
         };
         assert!(
-            report.has_classification(&HealthAlertClassification::prevent_deletion()),
-            "RequestOnlineRepair template must include PreventDeletion for release gating"
+            report.has_classification(&HealthAlertClassification::prevent_instance_deletion()),
+            "RequestOnlineRepair template must include PreventInstanceDeletion for release gating"
         );
     }
 

@@ -56,9 +56,9 @@ use crate::instance::{
 };
 use crate::{CarbideError, CarbideResult};
 
-/// Refuses `ReleaseInstance` when aggregate host health includes [`HealthAlertClassification::prevent_deletion`].
+/// Refuses `ReleaseInstance` when aggregate host health includes [`HealthAlertClassification::prevent_instance_deletion`].
 /// Admin `force_delete_instance` is not subject to this check.
-async fn ensure_instance_release_not_blocked_by_prevent_deletion(
+async fn ensure_instance_release_not_blocked_by_prevent_instance_deletion(
     txn: &mut db::Transaction<'_>,
     machine_id: &MachineId,
     host_health: HostHealthConfig,
@@ -78,9 +78,9 @@ async fn ensure_instance_release_not_blocked_by_prevent_deletion(
 
     if snapshot
         .aggregate_health
-        .has_classification(&HealthAlertClassification::prevent_deletion())
+        .has_classification(&HealthAlertClassification::prevent_instance_deletion())
     {
-        return Err(ConfigValidationError::InstanceReleaseBlockedByPreventDeletion.into());
+        return Err(ConfigValidationError::InstanceReleaseBlockedByPreventInstanceDeletion.into());
     }
 
     Ok(())
@@ -639,7 +639,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
 /// based on the requesting tenant type and reported issues. It supports two main workflows
 /// (repair tenant and regular tenant) described below.
 ///
-/// **PreventDeletion:** If aggregate host health includes a [`HealthAlertClassification::prevent_deletion`]
+/// **PreventInstanceDeletion:** If aggregate host health includes a [`HealthAlertClassification::prevent_instance_deletion`]
 /// alert, `ReleaseInstance` is rejected until the alert is cleared (only when the instance is not already
 /// marked deleted). Admin machine force-delete does not use this check.
 ///
@@ -683,10 +683,10 @@ pub(crate) async fn release(
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
-    // Only enforce PreventDeletion for a real release (instance not yet marked deleted). Repair-tenant
+    // Only enforce PreventInstanceDeletion for a real release (instance not yet marked deleted). Repair-tenant
     // follow-up calls after deletion may still need to adjust health overrides below.
     if instance.deleted.is_none() {
-        ensure_instance_release_not_blocked_by_prevent_deletion(
+        ensure_instance_release_not_blocked_by_prevent_instance_deletion(
             &mut txn,
             &instance.machine_id,
             api.runtime_config.host_health,

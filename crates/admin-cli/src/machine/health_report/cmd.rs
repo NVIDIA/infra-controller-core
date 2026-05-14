@@ -131,6 +131,9 @@ pub fn get_health_report(template: HealthReportTemplates, message: Option<String
 
         // Template to indicate that the instance is identified as unhealthy and
         // is ready to be picked for OnlineRepair without releasing the instance.
+        // Adds `PreventInstanceDeletion` so carbide-api refuses `ReleaseInstance` until this merge is cleared
+        // (admin machine force-delete is unchanged). Merge source `request-online-repair` is separate
+        // from `tenant-reported-issue`.
         HealthReportTemplates::RequestOnlineRepair => {
             report.source = "request-online-repair".to_string();
             report.alerts[0].id = HealthProbeId::from_str("RequestOnlineRepair")
@@ -139,7 +142,7 @@ pub fn get_health_report(template: HealthReportTemplates, message: Option<String
             report.alerts[0].classifications = vec![
                 HealthAlertClassification::prevent_allocations(),
                 HealthAlertClassification::suppress_external_alerting(),
-                HealthAlertClassification::prevent_deletion(),
+                HealthAlertClassification::prevent_instance_deletion(),
             ];
         }
 
@@ -335,7 +338,7 @@ mod tests {
         assert!(
             request_online_repair.alerts[0]
                 .classifications
-                .contains(&HealthAlertClassification::prevent_deletion())
+                .contains(&HealthAlertClassification::prevent_instance_deletion())
         );
     }
 
@@ -375,7 +378,7 @@ mod tests {
         assert!(
             alert
                 .classifications
-                .contains(&HealthAlertClassification::prevent_deletion())
+                .contains(&HealthAlertClassification::prevent_instance_deletion())
         );
     }
 

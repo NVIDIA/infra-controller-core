@@ -5277,9 +5277,9 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
     txn.commit().await.unwrap();
 }
 
-/// Release is rejected when aggregate health includes `PreventDeletion`; succeeds after the override is removed.
+/// Release is rejected when aggregate health includes `PreventInstanceDeletion`; succeeds after the override is removed.
 #[crate::sqlx_test]
-async fn test_instance_release_rejected_when_aggregate_health_has_prevent_deletion(
+async fn test_instance_release_rejected_when_aggregate_health_has_prevent_instance_deletion(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) {
@@ -5298,8 +5298,8 @@ async fn test_instance_release_rejected_when_aggregate_health_has_prevent_deleti
                 .machine_id(mh.id)
                 .config(config)
                 .metadata(rpc::Metadata {
-                    name: "test-prevent-deletion".to_string(),
-                    description: "PreventDeletion blocks release".to_string(),
+                    name: "test-prevent-instance-deletion".to_string(),
+                    description: "PreventInstanceDeletion blocks release".to_string(),
                     labels: Vec::new(),
                 })
                 .tonic_request(),
@@ -5311,17 +5311,19 @@ async fn test_instance_release_rejected_when_aggregate_health_has_prevent_deleti
     let instance_id = *instance.id.as_ref().expect("Instance ID should be present");
 
     let block_release = health_report::HealthReport {
-        source: "test-prevent-deletion-override".to_string(),
+        source: "test-prevent-instance-deletion-override".to_string(),
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {
-            id: health_report::HealthProbeId::from_str("TestPreventDeletion").unwrap(),
+            id: health_report::HealthProbeId::from_str("TestPreventInstanceDeletion").unwrap(),
             target: None,
             in_alert_since: None,
-            message: "do not delete".to_string(),
+            message: "hold instance".to_string(),
             tenant_message: None,
-            classifications: vec![health_report::HealthAlertClassification::prevent_deletion()],
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_instance_deletion(),
+            ],
         }],
     };
 
@@ -5340,11 +5342,13 @@ async fn test_instance_release_rejected_when_aggregate_health_has_prevent_deleti
             is_repair_tenant: None,
         }))
         .await
-        .expect_err("release should fail when PreventDeletion is present on aggregate health");
+        .expect_err(
+            "release should fail when PreventInstanceDeletion is present on aggregate health",
+        );
 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert!(
-        err.message().contains("PreventDeletion"),
+        err.message().contains("PreventInstanceDeletion"),
         "unexpected message: {}",
         err.message()
     );
@@ -5352,7 +5356,7 @@ async fn test_instance_release_rejected_when_aggregate_health_has_prevent_deleti
     remove_health_report_entry(
         &env,
         &mh.host().id,
-        "test-prevent-deletion-override".to_string(),
+        "test-prevent-instance-deletion-override".to_string(),
     )
     .await;
 
@@ -5363,7 +5367,7 @@ async fn test_instance_release_rejected_when_aggregate_health_has_prevent_deleti
             is_repair_tenant: None,
         }))
         .await
-        .expect("release should succeed after removing PreventDeletion source");
+        .expect("release should succeed after removing PreventInstanceDeletion source");
 }
 
 #[crate::sqlx_test]
