@@ -27,11 +27,11 @@ async fn execute_command(
     username: String,
     password: String,
 ) -> Result<(String, u32), SshError> {
-    let host = ip_address.to_string();
+    let host = ip_address.ip().to_string();
     let auth = AuthConfig::Password { password };
     let client = crate::ssh_client::SshClientConfig {
         host: &host,
-        port: 22,
+        port: ip_address.port(),
         username: &username,
         auth: Some(&auth),
         known_hosts_file: None,
