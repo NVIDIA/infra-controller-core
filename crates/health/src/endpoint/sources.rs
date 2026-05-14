@@ -18,6 +18,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 
@@ -96,13 +97,32 @@ impl StaticEndpointSource {
                     Some(EndpointMetadata::Switch(SwitchData {
                         id,
                         serial,
+                        slot_number: switch.slot_number,
+                        tray_index: switch.tray_index,
                     }))
                 } else if let Some(machine) = &cfg.machine {
                     let machine_id = &machine.id;
+                    let nvlink_domain_uuid = machine.nvlink_domain_uuid.as_ref().and_then(|id| {
+                        match NvLinkDomainId::from_str(id) {
+                            Ok(id) => Some(id),
+                            Err(error) => {
+                                tracing::warn!(
+                                    ?error,
+                                    nvlink_domain_uuid = ?id,
+                                    "Invalid machine.nvlink_domain_uuid in static endpoint config"
+                                );
+                                None
+                            }
+                        }
+                    });
+
                     match machine_id.parse() {
                         Ok(machine_id) => Some(EndpointMetadata::Machine(MachineData {
                             machine_id,
                             machine_serial: machine.serial.clone(),
+                            slot_number: machine.slot_number,
+                            tray_index: machine.tray_index,
+                            nvlink_domain_uuid,
                         })),
                         Err(error) => {
                             tracing::warn!(
