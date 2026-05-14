@@ -1439,7 +1439,7 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
-//
+// 
 message VpcStatus {
   // The actual VNI allocated to the VPC. If a VNI had been
   // explicitly requested, we'd expect this to match the VNI
@@ -1524,7 +1524,7 @@ message VpcCreationRequest {
   // type of the tenant.
   // For example, an internal tenant can request internal or external VPCs,
   // but an external tenant can only request external VPCs.
-  optional string routing_profile_type = 17;
+  optional string routing_profile_type = 17;  
 }
 
 enum VpcVirtualizationType {
@@ -1637,7 +1637,7 @@ message VpcPrefixStatus {
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
   uint64 total_linknet_segments = 3;
-  uint64 available_linknet_segments = 4;
+  uint64 available_linknet_segments = 4; 
 }
 
 message VpcPrefixCreationRequest {
@@ -1713,7 +1713,7 @@ message VpcPeeringCreationRequest {
   common.VpcId peer_vpc_id = 2;
 
   // The desired ID for this VPC peering. If the ID is not provided, a random one will be generated.
-  optional common.VpcPeeringId id = 3;
+  optional common.VpcPeeringId id = 3; 
 }
 
 message VpcPeeringSearchFilter {
@@ -1826,13 +1826,13 @@ message IBPartitionCreationRequest {
   // a random ID.
   // The Partition ID must be unique within the Forge site.
   optional common.IBPartitionId id = 2;
-
+ 
   Metadata metadata = 3;
 }
 
 message IBPartitionUpdateRequest {
-  common.IBPartitionId id = 1;
-
+  common.IBPartitionId id = 1; 
+ 
   // New IBPartitionConfig to be applied to the IBPartition.
   IBPartitionConfig config = 2;
 
@@ -4928,7 +4928,7 @@ message UpdateTenantRequest {
   optional string if_version_match = 3;
 
   reserved 4;
-
+  
   // Updating will only be allowed if the tenant has no active VPCs
   optional string routing_profile_type = 5;
 }
@@ -5825,7 +5825,7 @@ message RackMaintenanceOnDemandRequest {
 }
 
 message RackMaintenanceOnDemandResponse {
-  // RackMaintenanceOnDemandResponse
+  // RackMaintenanceOnDemandResponse 
 }
 
 message AdminPowerControlRequest {
@@ -6092,7 +6092,7 @@ message InstanceTypeAttributes {
   repeated InstanceTypeMachineCapabilityFilterAttributes desired_capabilities = 1;
 }
 
-// An InstanceType describes a desired set of
+// An InstanceType describes a desired set of 
 // machine capabilities.
 // It's probably easiest to just think of InstanceType
 // as a pool, and the desired capabilities of an InstanceType
@@ -6103,7 +6103,7 @@ message InstanceType {
   string version                                        = 3;
   Metadata metadata                                     = 4;
   optional string created_at                            = 5;
-  optional InstanceTypeAllocationStats allocation_stats = 6;
+  optional InstanceTypeAllocationStats allocation_stats = 6;  
 }
 
 // These match the current set of distinct
@@ -6159,7 +6159,7 @@ message FindInstanceTypeIdsResponse {
 
 message FindInstanceTypesByIdsRequest {
   repeated string instance_type_ids        = 1;
-
+  
   // Used to filter by tenant allocations.
   // In the future, this value would be ignored if the
   // caller is a tenant and the org of the tenant would
@@ -6174,7 +6174,7 @@ message FindInstanceTypesByIdsRequest {
 }
 
 message FindInstanceTypesByIdsResponse {
-  repeated InstanceType instance_types = 1;
+  repeated InstanceType instance_types = 1;  
 }
 
 message DeleteInstanceTypeRequest {
@@ -6761,9 +6761,10 @@ message PowerOptionResponse {
 }
 
 
-message ComputeAllocationAttributes {
-  string instance_type_id = 1; // The source of the compute resources
 
+message ComputeAllocationAttributes {   
+  string instance_type_id = 1; // The source of the compute resources
+  
   // The number of instances for this requested instance type allocated
   // for the tenant.  The total for all allocations of an instance type
   // cannot exceed the number of machines associated with the instance
@@ -6817,7 +6818,7 @@ message FindComputeAllocationIdsResponse {
 // In the future, the handler would automatically filter by the
 // tenant org of the caller.
 message FindComputeAllocationsByIdsRequest {
-  repeated common.ComputeAllocationId ids = 1;
+  repeated common.ComputeAllocationId ids = 1;   
 }
 
 message FindComputeAllocationsByIdsResponse {
@@ -6847,7 +6848,7 @@ message DeleteComputeAllocationResponse {
 
 // For use with the existing InstanceType message
 // to include allocation stats when requested in
-// FindInstanceTypesByIdsRequest
+// FindInstanceTypesByIdsRequest 
 message InstanceTypeAllocationStats {
   // The sum of all allocations for the instance type
   uint32 max_allocatable = 1;
@@ -6862,7 +6863,7 @@ message InstanceTypeAllocationStats {
   // The number of additional instances that a user can
   // _actually_ create after filtering out all unused
   // machines in bad states
-  uint32 unused_usable   = 4;
+  uint32 unused_usable   = 4;    
 }
 
 message GetRackRequest {

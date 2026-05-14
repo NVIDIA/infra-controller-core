@@ -55,7 +55,7 @@ fi
 
 # Create Tenant network segment.
 grpcurl -d "{\"vpc_id\": {\"value\": \"${VPC_ID}\"}, \"name\": \"tenant1\", \"segment_type\": 0, \"prefixes\": [{\"prefix\":\"10.10.10.0/24\", \"gateway\": \"10.10.10.1\", \"reserve_first\": 10}]}" -insecure "${API_SERVER}" forge.Forge/CreateNetworkSegment || true
-SEGMENT_ID=$(grpcurl -d '' -insecure "${API_SERVER}" forge.Forge/FindNetworkSegments | jq -c '.networkSegments | map(select(.metadata.name=="tenant1")) | .[0].id.value' | tr -d '"')
+SEGMENT_ID=$(grpcurl -d '' -insecure "${API_SERVER}" forge.Forge/FindNetworkSegments | jq -c '.networkSegments | map(select((.metadata.name // .name)=="tenant1")) | .[0].id.value' | tr -d '"')
 if [[ -z "$SEGMENT_ID" || "$SEGMENT_ID" == "null" ]]; then
   echo "ERROR: could not determine SEGMENT_ID for segment 'tenant1'" >&2
   exit 1
