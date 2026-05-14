@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod client_resolution;
 pub(crate) mod common;
 mod compute_allocation;
 mod connected_device;
@@ -55,6 +56,7 @@ mod instance_find;
 mod instance_ipxe_behaviors;
 mod instance_os;
 mod instance_type;
+mod ip_allocator;
 mod ipxe;
 mod level_filter;
 mod lldp;
@@ -131,7 +133,7 @@ pub use db::migrations::MIGRATOR;
 pub use crate::tests::common::sqlx_fixtures::sqlx_fixture_from_str;
 
 /// Setup logging for tests.
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup_test_logging() {
     use tracing::metadata::LevelFilter;
     use tracing_subscriber::filter::EnvFilter;

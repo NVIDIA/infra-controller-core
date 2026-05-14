@@ -675,6 +675,7 @@ mod tests {
     use crate::ib::DEFAULT_IB_FABRIC_NAME;
     use crate::machine::MachineInterfaceId;
     use crate::machine::infiniband::MachineIbInterfaceStatusObservation;
+    use crate::machine_interface::InterfaceType;
     use crate::{MacAddress, NetworkSegmentId};
 
     const X86_INFO_JSON: &[u8] = include_bytes!(concat!(
@@ -1067,6 +1068,7 @@ mod tests {
                 MachineInterfaceSnapshot {
                     id: MachineInterfaceId::from(uuid::Uuid::nil()),
                     hostname: String::new(),
+                    interface_type: InterfaceType::Data,
                     primary_interface: true,
                     mac_address: MacAddress::from_str("08:c0:eb:cb:0e:96").unwrap(),
                     attached_dpu_machine_id: Some(
@@ -1090,6 +1092,7 @@ mod tests {
                 MachineInterfaceSnapshot {
                     id: MachineInterfaceId::from(uuid::Uuid::nil()),
                     hostname: String::new(),
+                    interface_type: InterfaceType::Data,
                     primary_interface: true,
                     mac_address: MacAddress::from_str("08:c0:eb:cb:0e:97").unwrap(),
                     attached_dpu_machine_id: Some(
@@ -1191,6 +1194,7 @@ mod tests {
             vec![MachineInterfaceSnapshot {
                 id: MachineInterfaceId::from(uuid::Uuid::nil()),
                 hostname: String::new(),
+                interface_type: InterfaceType::Data,
                 primary_interface: true,
                 mac_address: MacAddress::from_str("00:00:00:00:00:00").unwrap(),
                 attached_dpu_machine_id: None,

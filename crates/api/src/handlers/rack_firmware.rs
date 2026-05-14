@@ -1194,8 +1194,22 @@ pub async fn apply(
     for submission in submissions {
         match submission.response {
             Ok(response) => {
-                let success =
-                    response.status == librms::protos::rack_manager::ReturnCode::Success as i32;
+                let batch_response = response.response.as_ref();
+                let success = batch_response
+                    .map(|batch_response| {
+                        batch_response.status
+                            == librms::protos::rack_manager::ReturnCode::Success as i32
+                    })
+                    .unwrap_or(false);
+                let total_nodes = batch_response
+                    .map(|batch_response| batch_response.total_nodes)
+                    .unwrap_or(response.node_jobs.len() as i32);
+                let message = batch_response
+                    .map(|batch_response| batch_response.message.as_str())
+                    .unwrap_or_default();
+                let job_id = batch_response
+                    .map(|batch_response| batch_response.job_id.clone())
+                    .unwrap_or_default();
 
                 if success {
                     successful_updates += 1;
@@ -1218,9 +1232,9 @@ pub async fn apply(
                     success,
                     message: format!(
                         "Async firmware update initiated for {} nodes: {}",
-                        response.total_nodes, response.message
+                        total_nodes, message
                     ),
-                    job_id: response.job_id,
+                    job_id,
                     node_jobs,
                 });
             }

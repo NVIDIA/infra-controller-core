@@ -120,8 +120,18 @@ pub struct InvalidVirtualFunctionId();
 /// Desired network configuration for an instance
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceNetworkConfig {
-    /// Configures how instance network interfaces are set up
+    /// Configures how instance network interfaces are set up.
+    /// Mutually exclusive with `auto`: when `auto` is true, this
+    /// MUST be empty, When `auto` is false, this lists the explicit
+    /// interface configuration the caller wants applied.
     pub interfaces: Vec<InstanceInterfaceConfig>,
+
+    /// When true, NICO (or potentially some pluggable SDN backend) will
+    /// auto-resolve the instance's network interfaces from the host's
+    /// HostInband network segments. Only valid for instances on zero-DPU
+    /// hosts (well, no DPU, *or* DPU in NIC mode).
+    #[serde(default)]
+    pub auto: bool,
 }
 
 /// Struct to store instance network config updated request with current config.
@@ -161,6 +171,7 @@ impl InstanceNetworkConfig {
                     device_locator: None,
                     internal_uuid: uuid::Uuid::nil(),
                 }],
+                auto: false,
             }
         } else {
             Self {
@@ -183,6 +194,7 @@ impl InstanceNetworkConfig {
                         internal_uuid: uuid::Uuid::nil(),
                     })
                     .collect(),
+                auto: false,
             }
         }
     }
@@ -206,6 +218,7 @@ impl InstanceNetworkConfig {
                 device_locator: None,
                 internal_uuid: uuid::Uuid::nil(),
             }],
+            auto: false,
         }
     }
 
@@ -472,6 +485,15 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
 
     fn try_from(config: rpc::InstanceNetworkConfig) -> Result<Self, Self::Error> {
         // try_from for interfaces:
+        let auto = config.auto;
+
+        if auto && !config.interfaces.is_empty() {
+            return Err(RpcDataConversionError::InvalidArgument(
+                "InstanceNetworkConfig.auto cannot be combined with explicit interfaces"
+                    .to_string(),
+            ));
+        }
+
         let mut assigned_vfs_map: HashMap<(Option<String>, u32), u8> = HashMap::default();
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
         // Either all virtual ids for VF are None, or all should have some valid values.
@@ -619,7 +641,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
             });
         }
 
-        Ok(Self { interfaces })
+        Ok(Self { interfaces, auto })
     }
 }
 
@@ -627,6 +649,7 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: InstanceNetworkConfig) -> Result<rpc::InstanceNetworkConfig, Self::Error> {
+        let auto = config.auto;
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
         for iface in config.interfaces.into_iter() {
             let function_type = iface.function_id.function_type();
@@ -663,7 +686,7 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
             });
         }
 
-        Ok(rpc::InstanceNetworkConfig { interfaces })
+        Ok(rpc::InstanceNetworkConfig { interfaces, auto })
     }
 }
 
@@ -1050,7 +1073,10 @@ mod tests {
             })
             .collect();
 
-        InstanceNetworkConfig { interfaces }
+        InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        }
     }
 
     #[test]
@@ -1066,6 +1092,7 @@ mod tests {
                 ip_address: None,
                 ipv6_interface_config: None,
             }],
+            auto: false,
         };
 
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
@@ -1112,7 +1139,10 @@ mod tests {
             });
         }
 
-        let config = rpc::InstanceNetworkConfig { interfaces };
+        let config = rpc::InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        };
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
         let mut netconf_interfaces_iter = netconfig.interfaces.iter();
 
@@ -1254,7 +1284,10 @@ mod tests {
     fn test_validate_virtual_function_ids() {
         let interfaces = get_rpc_instance_network_config();
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = rpc::InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        };
         let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
 
         let vf_ids = network_config.interfaces.iter().filter_map(|x| {
@@ -1277,7 +1310,10 @@ mod tests {
         let mut interfaces = get_rpc_instance_network_config();
         interfaces.remove(2);
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = rpc::InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        };
         let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
 
         let vf_ids = network_config.interfaces.iter().filter_map(|x| {
@@ -1300,7 +1336,10 @@ mod tests {
         let mut interfaces = get_rpc_instance_network_config();
         interfaces = vec![interfaces[0].clone()];
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = rpc::InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        };
         let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
 
         let vf_ids = network_config
@@ -1323,7 +1362,10 @@ mod tests {
         let mut interfaces = get_rpc_instance_network_config();
         interfaces[2].virtual_function_id = Some(0);
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = rpc::InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        };
         let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
             network_config.try_into();
 
@@ -1335,7 +1377,10 @@ mod tests {
         let mut interfaces = get_rpc_instance_network_config();
         interfaces[2].virtual_function_id = None;
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = rpc::InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        };
         let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
             network_config.try_into();
 
@@ -1396,6 +1441,7 @@ mod tests {
                 device_locator: None,
                 internal_uuid: uuid::Uuid::new_v4(),
             }],
+            auto: false,
         };
 
         // Model -> RPC
@@ -1452,6 +1498,7 @@ mod tests {
                     ip_address: None,
                 }),
             }],
+            auto: false,
         };
         let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
         assert!(result.is_err());
@@ -1474,6 +1521,7 @@ mod tests {
                 ip_address: None,
                 ipv6_interface_config: None,
             }],
+            auto: false,
         };
         let model: InstanceNetworkConfig = rpc_config.try_into().unwrap();
         assert_eq!(
@@ -1504,6 +1552,7 @@ mod tests {
                     ip_address: None,
                 }),
             }],
+            auto: false,
         };
         let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
         assert!(result.is_err());
@@ -1530,8 +1579,49 @@ mod tests {
                     ip_address: None,
                 }),
             }],
+            auto: false,
         };
         let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_auto_rejects_explicit_interfaces() {
+        // `auto: true` and populated interfaces are mutually exclusive,
+        // so this should error.
+        let rpc_config = rpc::InstanceNetworkConfig {
+            interfaces: vec![rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: Some(NetworkSegmentId::new()),
+                network_details: None,
+                device: None,
+                device_instance: 0,
+                virtual_function_id: None,
+                ip_address: None,
+                ipv6_interface_config: None,
+            }],
+            auto: true,
+        };
+        let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
+        let err = result.expect_err("auto + non-empty interfaces should be rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("auto"),
+            "error should mention auto, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_auto_allows_empty_interfaces() {
+        // Verify "auto" requests work.
+        let rpc_config = rpc::InstanceNetworkConfig {
+            interfaces: vec![],
+            auto: true,
+        };
+        let model: InstanceNetworkConfig = rpc_config
+            .try_into()
+            .expect("auto + empty should round-trip");
+        assert!(model.auto);
+        assert!(model.interfaces.is_empty());
     }
 }

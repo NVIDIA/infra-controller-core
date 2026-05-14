@@ -94,6 +94,8 @@ navigation:
               path: architecture/state_machines/managedhost.md
             - page: Switch
               path: architecture/state_machines/switch.md
+            - page: Power Shelf
+              path: architecture/state_machines/power_shelf.md
             - page: Rack State Machine
               path: architecture/state_machines/rack.md
 
@@ -105,12 +107,18 @@ navigation:
           path: manuals/breakfix_integration.md
         - page: BlueField DPU Operations
           path: dpu-operations.md
+        - page: IP Resource Pools
+          path: manuals/networking/ip_resource_pools.md
         - section: Managing VPCs
           contents:
             - page: VPC Routing Profiles
               path: manuals/vpc/vpc_routing_profiles.md
             - page: VPC Peering
               path: manuals/vpc/vpc_peering_management.md
+            - page: VPC Network Virtualization
+              path: manuals/vpc/vpc_network_virtualization.md
+            - page: VNI Resource Pools
+              path: manuals/vpc/vni_resource_pools.md
         - section: Metrics
           contents:
             - page: Core Metrics

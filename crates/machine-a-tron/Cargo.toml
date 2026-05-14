@@ -51,7 +51,7 @@ futures = { workspace = true }
 figment = { features = ["toml"], workspace = true }
 reqwest = { default-features = false, features = [
   "json",
-  "rustls-tls",
+  "rustls",
   "stream",
   "socks",
   "multipart",

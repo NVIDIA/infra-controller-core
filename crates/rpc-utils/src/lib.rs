@@ -16,6 +16,7 @@
  */
 
 pub mod dhcp;
+pub mod machine_discovery;
 pub mod managed_host_display;
 
 pub use managed_host_display::{ManagedHostMetadata, ManagedHostOutput, get_managed_host_output};

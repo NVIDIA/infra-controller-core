@@ -17,7 +17,6 @@
 
 pub mod spdm;
 
-#[path = "measured-boot/mod.rs"]
 pub mod measured_boot;
 
 use clap::Parser;

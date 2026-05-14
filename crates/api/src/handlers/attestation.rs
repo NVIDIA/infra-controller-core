@@ -33,7 +33,6 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
-use crate::handlers::utils::convert_and_log_machine_id;
 
 const PRODUCT_GB200: &str = "GB200 NVL";
 const PRODUCT_GB300: &str = "GB300 NVL";
@@ -317,6 +316,7 @@ pub(crate) async fn get_machine_attestations_status(
     }))
 }
 
+#[cfg(feature = "linux-build")]
 pub(crate) async fn attest_quote(
     api: &Api,
     request: Request<rpc::AttestQuoteRequest>,
@@ -327,7 +327,8 @@ pub(crate) async fn attest_quote(
 
     // TODO: consider if this code can be turned into a templated function and reused
     // in bind_attest_key
-    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+    let machine_id =
+        crate::handlers::utils::convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     let mut txn = api.txn_begin().await?;
 

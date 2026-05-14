@@ -329,3 +329,123 @@ async fn test_health_visible_in_find_power_shelves(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_power_shelf_health_aggregation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(get_config()))
+            .await;
+
+    let power_shelf_id = new_power_shelf(&env, None, None, None, None).await?;
+
+    env.run_power_shelf_controller_iteration().await;
+
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_power_shelves_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{fresh=\"true\",override_type=\"replace\"} 0".to_string(),
+        ]
+    );
+
+    let mut status_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_power_shelves_health_status_count");
+    status_metrics.sort();
+    assert_eq!(
+        status_metrics,
+        vec![
+            "{fresh=\"true\",healthy=\"false\"} 0".to_string(),
+            "{fresh=\"true\",healthy=\"true\"} 1".to_string(),
+        ]
+    );
+
+    env.api
+        .insert_power_shelf_health_report(Request::new(
+            rpc_forge::InsertPowerShelfHealthReportRequest {
+                power_shelf_id: Some(power_shelf_id),
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
+                    report: Some(alert_report("external-monitor").into()),
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
+                }),
+            },
+        ))
+        .await?;
+    env.run_power_shelf_controller_iteration().await;
+
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_power_shelves_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 1".to_string(),
+            "{fresh=\"true\",override_type=\"replace\"} 0".to_string(),
+        ]
+    );
+
+    let mut status_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_power_shelves_health_status_count");
+    status_metrics.sort();
+    assert_eq!(
+        status_metrics,
+        vec![
+            "{fresh=\"true\",healthy=\"false\"} 1".to_string(),
+            "{fresh=\"true\",healthy=\"true\"} 0".to_string(),
+        ]
+    );
+
+    env.api
+        .insert_power_shelf_health_report(Request::new(
+            rpc_forge::InsertPowerShelfHealthReportRequest {
+                power_shelf_id: Some(power_shelf_id),
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
+                    report: Some(empty_healthy_report("admin-override").into()),
+                    mode: rpc_forge::HealthReportApplyMode::Replace as i32,
+                }),
+            },
+        ))
+        .await?;
+    env.run_power_shelf_controller_iteration().await;
+
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_power_shelves_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 1".to_string(),
+            "{fresh=\"true\",override_type=\"replace\"} 1".to_string(),
+        ]
+    );
+
+    let mut status_metrics = env
+        .test_meter
+        .formatted_metrics("carbide_power_shelves_health_status_count");
+    status_metrics.sort();
+    assert_eq!(
+        status_metrics,
+        vec![
+            "{fresh=\"true\",healthy=\"false\"} 0".to_string(),
+            "{fresh=\"true\",healthy=\"true\"} 1".to_string(),
+        ]
+    );
+
+    assert!(
+        env.test_meter
+            .formatted_metrics("carbide_alerts_suppressed_count")
+            .is_empty(),
+        "power shelves should not emit the legacy alerts_suppressed alias"
+    );
+
+    Ok(())
+}

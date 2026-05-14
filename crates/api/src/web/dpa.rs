@@ -85,11 +85,11 @@ async fn fetch_dpas(api: Arc<Api>) -> Result<Vec<forgerpc::DpaInterface>, tonic:
             .await
             .map(|response| response.into_inner())?;
 
-        dpas.extend(next_dpas.interfaces.into_iter());
+        dpas.extend(next_dpas.interfaces);
         offset += page_size;
     }
 
-    dpas.sort_unstable_by(|dpa1, dpa2| dpa1.id.cmp(&dpa2.id));
+    dpas.sort_unstable_by_key(|dpa1| dpa1.id);
 
     Ok(dpas)
 }

@@ -28,7 +28,7 @@ pub async fn get(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
         .await?;
 
     println!(
-        "Overall machine attestatins status is {}",
+        "Overall machine attestation status is {}",
         attestation_status.attestation_status().as_str_name()
     );
 

@@ -23,6 +23,7 @@ use std::path::Path;
 use std::process::Command;
 use std::str::Utf8Error;
 
+use ::carbide_rpc_utils::machine_discovery::aggregate_cpus;
 use ::carbide_utils::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use ::carbide_utils::cmd::CmdError;
 use ::rpc::machine_discovery as rpc_discovery;
@@ -33,8 +34,6 @@ use procfs::{CpuInfo, FromRead};
 use rpc::machine_discovery::MemoryDevice;
 use tracing::warn;
 use uname::uname;
-
-use crate::cpu::aggregate_cpus;
 
 pub mod dpu;
 mod gpu;
@@ -739,8 +738,14 @@ fn enumerate_hardware_inner(
         }
     }
 
+    let is_dpu_dmi = dmi.product_name.contains(BF_PRODUCT_NAME_REGEX);
     let tpm_ek_certificate = match tpm::get_ek_certificate() {
         Ok(cert) => Some(BASE64_STANDARD.encode(cert)),
+        Err(e) if !is_dpu_dmi && tpm::is_tpm_present() => {
+            return Err(HardwareEnumerationError::GenericError(format!(
+                "TPM is present but EK certificate collection failed; refusing serial fallback: {e}"
+            )));
+        }
         Err(e) => {
             tracing::error!("Could not read TPM EK certificate: {:?}", e);
             None

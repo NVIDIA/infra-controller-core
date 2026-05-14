@@ -36,7 +36,7 @@ use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup() {
     api_test_helper::setup_logging()
 }
@@ -904,6 +904,9 @@ where
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
+        register_expected_machines: true,
+        host_bmc_password: None,
+        dpu_bmc_password: None,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         mock_bmc_ssh_port: None,

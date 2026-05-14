@@ -20,6 +20,7 @@ use ::rpc::forge as rpc;
 use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::NetworkSegmentId;
 use db::vpc::{self};
 use db::vpc_peering::get_prefixes_by_vpcs;
 use db::{self, ObjectColumnFilter, network_security_group};
@@ -204,8 +205,40 @@ pub async fn admin_network(
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
     booturl: &Option<String>,
+    use_vpc_vrf_loopback: bool,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
-    let admin_segment = db::network_segment::admin(txn).await?;
+    let admin_segments = db::network_segment::admin(txn).await?;
+    let admin_segment_ids = admin_segments
+        .iter()
+        .map(|s| s.id)
+        .collect::<Vec<NetworkSegmentId>>();
+
+    // Admin network interfaces are machine_interfaces records where the machine_id
+    // is a host machine ID and attached_dpu_machine_id is a DPU ID.
+    // If we loop through the machine interfaces for the host snapshot and look for
+    // that combo, the segment_id of that interface should be the network segment we want,
+    // but checking against known admin segments adds a little bit of defense.
+    let interface = snapshot.host_snapshot.interfaces.iter().find(|interface| {
+        interface.attached_dpu_machine_id.as_ref() == Some(dpu_machine_id)
+            && admin_segment_ids.contains(&interface.segment_id)
+    });
+
+    let host_machine_id = snapshot.host_snapshot.id;
+    let Some(interface) = interface else {
+        return Err(CarbideError::InvalidArgument(format!(
+            "No admin interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
+        ))
+        .into());
+    };
+
+    let admin_segment = admin_segments.iter().find(|v| v.id == interface.segment_id);
+
+    let Some(admin_segment) = admin_segment else {
+        return Err(CarbideError::internal(format!(
+            "Unknown admin segment `{}` attached on host: {host_machine_id} with dpu: {dpu_machine_id}", interface.segment_id
+        ))
+        .into());
+    };
 
     let prefix = match admin_segment.prefixes.first() {
         Some(p) => p,
@@ -232,19 +265,6 @@ pub async fn admin_network(
                 .name
         }
         None => "unknowndomain".to_string(),
-    };
-
-    let host_machine_id = snapshot.host_snapshot.id;
-    let interface = snapshot.host_snapshot.interfaces.iter().find(|interface| {
-        interface.segment_id == admin_segment.id
-            && interface.attached_dpu_machine_id.as_ref() == Some(dpu_machine_id)
-    });
-
-    let Some(interface) = interface else {
-        return Err(CarbideError::InvalidArgument(format!(
-            "No interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
-        ))
-        .into());
     };
 
     let address = interface
@@ -295,16 +315,22 @@ pub async fn admin_network(
                 let vpc = vpcs.remove(0);
                 match vpc.status.and_then(|v| v.vni) {
                     Some(vpc_vni) => {
-                        let tenant_loopback_ip =
-                            db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
-                                common_pools,
-                                txn,
-                                dpu_machine_id,
-                                &vpc.id,
+                        let tenant_loopback_ip = if use_vpc_vrf_loopback {
+                            Some(
+                                db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
+                                    common_pools,
+                                    txn,
+                                    dpu_machine_id,
+                                    &vpc.id,
+                                )
+                                .await?
+                                .to_string(),
                             )
-                            .await?;
+                        } else {
+                            None
+                        };
 
-                        (vpc_vni as u32, Some(tenant_loopback_ip.to_string()))
+                        (vpc_vni as u32, tenant_loopback_ip)
                     }
                     None => {
                         // if FNN is enabled, VPC must be created and updated in admin_segment.

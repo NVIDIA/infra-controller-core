@@ -16,11 +16,12 @@
  */
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
+use crate::state_controller::rack::metrics::RackMetrics;
 use crate::state_controller::state_handler::StateHandlerContextObjects;
 
 pub struct RackStateHandlerContextObjects {}
 
 impl StateHandlerContextObjects for RackStateHandlerContextObjects {
-    type ObjectMetrics = ();
+    type ObjectMetrics = RackMetrics;
     type Services = CommonStateHandlerServices;
 }

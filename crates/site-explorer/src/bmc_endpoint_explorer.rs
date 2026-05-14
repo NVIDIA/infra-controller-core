@@ -213,6 +213,15 @@ impl BmcEndpointExplorer {
         vendor: RedfishVendor,
         cred_data: BmcCredentialsData<'_>,
     ) -> Result<Credentials, EndpointExplorationError> {
+        if cred_data.password.is_empty() {
+            return Err(EndpointExplorationError::MissingCredentials {
+                key: "expected_entity_password".to_string(),
+                cause: format!(
+                    "Expected entity for {bmc_mac_address} has no BMC password configured"
+                ),
+            });
+        }
+
         let current_bmc_credentials = Credentials::UsernamePassword {
             username: cred_data.username.to_string(),
             password: cred_data.password.to_string(),
@@ -683,7 +692,10 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         )
                         .await?
                     }
-                    Err(EndpointExplorationError::Unauthorized { .. }) => {
+                    Err(
+                        EndpointExplorationError::Unauthorized { .. }
+                        | EndpointExplorationError::MissingCredentials { .. },
+                    ) => {
                         let bmc_credentials = self
                             .try_sitewide_bmc_root_credentials(
                                 bmc_ip_address,
@@ -1291,7 +1303,7 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
             let mut report2_idx = (0..s2.inventories.len()).collect::<Vec<_>>();
             report2_idx.sort_by_key(|i| &s2.inventories[*i].id);
 
-            for (i1, i2) in report1_idx.into_iter().zip(report2_idx.into_iter()) {
+            for (i1, i2) in report1_idx.into_iter().zip(report2_idx) {
                 let i1 = &s1.inventories[i1];
                 let i2 = &s2.inventories[i2];
                 if i1.id != i2.id
@@ -1341,7 +1353,7 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
                 r2.diffs
             );
         } else {
-            for (i1, i2) in sst1_idx.into_iter().zip(sst2_idx.into_iter()) {
+            for (i1, i2) in sst1_idx.into_iter().zip(sst2_idx) {
                 let d1 = &r1.diffs[i1];
                 let d2 = &r2.diffs[i2];
                 if d1 != d2 {

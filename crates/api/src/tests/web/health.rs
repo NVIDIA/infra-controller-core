@@ -99,78 +99,140 @@ async fn test_add_remove_health_report_via_web_ui(pool: sqlx::PgPool) {
         }
     }"#;
 
-    let response = app
-        .clone()
-        .oneshot(
-            web_request_builder()
-                .method(Method::POST)
-                .uri(format!(
-                    "/admin/machine/{host_machine_id}/health/add-report"
-                ))
-                .header("Content-Type", "application/json")
-                .body(Body::from(payload))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    post_machine_health_report(&app, &host_machine_id.to_string(), "add-report", payload).await;
 
-    let response = app
-        .clone()
-        .oneshot(
-            web_request_builder()
-                .uri(format!("/admin/machine/{host_machine_id}/health"))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body_bytes = response
-        .into_body()
-        .collect()
-        .await
-        .expect("Empty response body?")
-        .to_bytes();
-    let body = String::from_utf8_lossy(&body_bytes);
+    let body = get_machine_health_page(&app, &host_machine_id.to_string()).await;
     assert!(body.contains("web-health-test"));
 
-    let response = app
-        .clone()
-        .oneshot(
-            web_request_builder()
-                .method(Method::POST)
-                .uri(format!(
-                    "/admin/machine/{host_machine_id}/health/remove-report"
-                ))
-                .header("Content-Type", "application/json")
-                .body(Body::from(r#"{"source":"web-health-test"}"#))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    post_machine_health_report(
+        &app,
+        &host_machine_id.to_string(),
+        "remove-report",
+        r#"{"source":"web-health-test"}"#,
+    )
+    .await;
 
-    let response = app
-        .oneshot(
-            web_request_builder()
-                .uri(format!("/admin/machine/{host_machine_id}/health"))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body_bytes = response
-        .into_body()
-        .collect()
-        .await
-        .expect("Empty response body?")
-        .to_bytes();
-    let body = String::from_utf8_lossy(&body_bytes);
+    let body = get_machine_health_page(&app, &host_machine_id.to_string()).await;
     assert!(!body.contains("web-health-test"));
+}
+
+#[crate::sqlx_test]
+async fn test_add_replace_remove_dpu_health_report_via_web_ui(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let app = make_test_app(&env);
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+
+    let merge_payload = r#"{
+        "mode": "Merge",
+        "health_report": {
+            "source": "web-dpu-merge-health-test",
+            "triggered_by": null,
+            "observed_at": null,
+            "successes": [],
+            "alerts": [{
+                "id": "DpuMergeWebHealth",
+                "target": null,
+                "in_alert_since": null,
+                "message": "dpu merge web health",
+                "tenant_message": null,
+                "classifications": ["PreventAllocations"]
+            }]
+        }
+    }"#;
+    post_machine_health_report(
+        &app,
+        &dpu_machine_id.to_string(),
+        "add-report",
+        merge_payload,
+    )
+    .await;
+
+    let dpu_health = get_machine_health_page(&app, &dpu_machine_id.to_string()).await;
+    let dpu_aggregate_health = aggregate_health_section(&dpu_health);
+    assert!(dpu_aggregate_health.contains("DpuMergeWebHealth"));
+    assert!(dpu_aggregate_health.contains("dpu merge web health"));
+
+    let host_health = get_machine_health_page(&app, &host_machine_id.to_string()).await;
+    let host_aggregate_health = aggregate_health_section(&host_health);
+    assert!(host_aggregate_health.contains("DpuMergeWebHealth"));
+    assert!(host_aggregate_health.contains("dpu merge web health"));
+
+    let replace_payload = r#"{
+        "mode": "Replace",
+        "health_report": {
+            "source": "web-dpu-replace-health-test",
+            "triggered_by": null,
+            "observed_at": null,
+            "successes": [],
+            "alerts": [{
+                "id": "DpuReplaceWebHealth",
+                "target": null,
+                "in_alert_since": null,
+                "message": "dpu replace web health",
+                "tenant_message": null,
+                "classifications": ["PreventAllocations"]
+            }]
+        }
+    }"#;
+    post_machine_health_report(
+        &app,
+        &dpu_machine_id.to_string(),
+        "add-report",
+        replace_payload,
+    )
+    .await;
+
+    let dpu_health = get_machine_health_page(&app, &dpu_machine_id.to_string()).await;
+    let dpu_aggregate_health = aggregate_health_section(&dpu_health);
+    assert!(dpu_aggregate_health.contains("DpuReplaceWebHealth"));
+    assert!(dpu_aggregate_health.contains("dpu replace web health"));
+    assert!(!dpu_aggregate_health.contains("DpuMergeWebHealth"));
+    assert!(!dpu_aggregate_health.contains("dpu merge web health"));
+
+    let host_health = get_machine_health_page(&app, &host_machine_id.to_string()).await;
+    let host_aggregate_health = aggregate_health_section(&host_health);
+    assert!(host_aggregate_health.contains("DpuReplaceWebHealth"));
+    assert!(host_aggregate_health.contains("dpu replace web health"));
+    assert!(!host_aggregate_health.contains("DpuMergeWebHealth"));
+    assert!(!host_aggregate_health.contains("dpu merge web health"));
+
+    post_machine_health_report(
+        &app,
+        &dpu_machine_id.to_string(),
+        "remove-report",
+        r#"{"source":"web-dpu-replace-health-test"}"#,
+    )
+    .await;
+
+    let dpu_health = get_machine_health_page(&app, &dpu_machine_id.to_string()).await;
+    let dpu_aggregate_health = aggregate_health_section(&dpu_health);
+    assert!(dpu_aggregate_health.contains("DpuMergeWebHealth"));
+    assert!(!dpu_aggregate_health.contains("DpuReplaceWebHealth"));
+
+    let host_health = get_machine_health_page(&app, &host_machine_id.to_string()).await;
+    let host_aggregate_health = aggregate_health_section(&host_health);
+    assert!(host_aggregate_health.contains("DpuMergeWebHealth"));
+    assert!(!host_aggregate_health.contains("DpuReplaceWebHealth"));
+
+    post_machine_health_report(
+        &app,
+        &dpu_machine_id.to_string(),
+        "remove-report",
+        r#"{"source":"web-dpu-merge-health-test"}"#,
+    )
+    .await;
+
+    let dpu_health = get_machine_health_page(&app, &dpu_machine_id.to_string()).await;
+    let dpu_aggregate_health = aggregate_health_section(&dpu_health);
+    assert!(!dpu_aggregate_health.contains("DpuMergeWebHealth"));
+    assert!(!dpu_aggregate_health.contains("DpuReplaceWebHealth"));
+    assert!(!dpu_health.contains("web-dpu-merge-health-test"));
+    assert!(!dpu_health.contains("web-dpu-replace-health-test"));
+
+    let host_health = get_machine_health_page(&app, &host_machine_id.to_string()).await;
+    let host_aggregate_health = aggregate_health_section(&host_health);
+    assert!(!host_aggregate_health.contains("DpuMergeWebHealth"));
+    assert!(!host_aggregate_health.contains("DpuReplaceWebHealth"));
 }
 
 #[crate::sqlx_test]
@@ -529,4 +591,58 @@ async fn test_health_of_power_shelf(pool: sqlx::PgPool) {
         .to_bytes();
     let body = String::from_utf8_lossy(&body_bytes);
     assert!(!body.contains("web-power-shelf-health-test"));
+}
+
+async fn post_machine_health_report(
+    app: &axum::Router,
+    machine_id: &str,
+    action: &str,
+    payload: &str,
+) {
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!("/admin/machine/{machine_id}/health/{action}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn get_machine_health_page(app: &axum::Router, machine_id: &str) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/machine/{machine_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    String::from_utf8_lossy(&body_bytes).into_owned()
+}
+
+fn aggregate_health_section(body: &str) -> &str {
+    let active_reports_start = body
+        .find("<h2>Active Health Reports</h2>")
+        .unwrap_or(usize::MAX);
+    let management_start = body
+        .find("<h2>Health Report Management</h2>")
+        .unwrap_or(usize::MAX);
+    let end = active_reports_start.min(management_start).min(body.len());
+    &body[..end]
 }

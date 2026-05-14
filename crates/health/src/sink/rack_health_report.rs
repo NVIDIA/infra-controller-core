@@ -20,7 +20,9 @@ use std::sync::Arc;
 use carbide_uuid::rack::RackId;
 
 use super::dedup_queue::DedupQueue;
-use super::{CollectorEvent, DataSink, EventContext, HealthReport, ReportSource};
+use super::{
+    CollectorEvent, DataSink, EventContext, HealthReport, HealthReportTarget, ReportSource,
+};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::RackHealthReportSinkConfig;
@@ -101,14 +103,14 @@ impl DataSink for RackHealthReportSink {
             return;
         };
 
-        if report.source != ReportSource::RackLeakDetection {
+        if report.target != Some(HealthReportTarget::Rack) {
             return;
         }
 
         let Some(rack_id) = context.rack_id() else {
             tracing::warn!(
                 endpoint_key = context.endpoint_key(),
-                "Received RackLeakDetection report without rack_id context"
+                "Received rack-target HealthReport event without rack_id context"
             );
             return;
         };

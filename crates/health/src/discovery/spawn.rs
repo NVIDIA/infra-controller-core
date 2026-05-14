@@ -41,7 +41,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
     data_sink: Option<Arc<dyn DataSink>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
-    let key = endpoint.hash_key();
+    let key = endpoint.key();
     let endpoint_arc = endpoint.clone();
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
@@ -69,7 +69,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(monitor) => {
                 ctx.collectors
-                    .insert(CollectorKind::Sensor, key.clone(), monitor);
+                    .insert(CollectorKind::Sensor, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
                     total_collectors = ctx.collectors.len(CollectorKind::Sensor),
@@ -89,10 +89,10 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(logs_cfg) = &ctx.logs_config
         && !ctx.collectors.contains(CollectorKind::Logs, &key)
     {
-        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
-            format!("log_collector_{}", endpoint.hash_key()),
-            metrics_prefix,
-        )?);
+        let collector_registry = Arc::new(
+            ctx.metrics_manager
+                .create_collector_registry(format!("log_collector_{key}"), metrics_prefix)?,
+        );
 
         let result = match logs_cfg.mode {
             LogCollectionMode::Sse => {
@@ -147,7 +147,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         match result {
             Some(Ok(collector)) => {
                 ctx.collectors
-                    .insert(CollectorKind::Logs, key.clone(), collector);
+                    .insert(CollectorKind::Logs, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
                     mode = ?logs_cfg.mode,
@@ -190,7 +190,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(collector) => {
                 ctx.collectors
-                    .insert(CollectorKind::Firmware, key.clone(), collector);
+                    .insert(CollectorKind::Firmware, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
                     total_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
@@ -232,7 +232,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(collector) => {
                 ctx.collectors
-                    .insert(CollectorKind::LeakDetector, key.clone(), collector);
+                    .insert(CollectorKind::LeakDetector, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
                     total_leak_detector_collectors =
@@ -275,7 +275,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(handle) => {
                 ctx.collectors
-                    .insert(CollectorKind::Nmxt, key.clone(), handle);
+                    .insert(CollectorKind::Nmxt, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
                     total_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
@@ -318,7 +318,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(handle) => {
                 ctx.collectors
-                    .insert(CollectorKind::NvueRest, key.clone(), handle);
+                    .insert(CollectorKind::NvueRest, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
                     total_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
@@ -389,6 +389,7 @@ mod tests {
                 password: Some("pass".to_string()),
             },
             Some(EndpointMetadata::Switch(SwitchData {
+                id: None,
                 serial: "switch-serial-1".to_string(),
             })),
             None,

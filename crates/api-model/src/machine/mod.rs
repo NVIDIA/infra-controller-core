@@ -64,6 +64,7 @@ use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
 use crate::machine::health_override::HealthReportSources;
+use crate::machine_interface::InterfaceType;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
@@ -442,12 +443,21 @@ impl ManagedHostStateSnapshot {
                 }
             };
 
-        let mut has_hardware_health = false;
-
         // Merge DPU's alerts.  If DPU alerts should be suppressed, than remove the classification from the
         // alert so that metrics won't show a critical issue.
         let suppress_dpu_alerts = self.managed_state.suppress_dpu_alerts();
         for snapshot in self.dpu_snapshots.iter_mut() {
+            if let Some(over) = snapshot.health_reports.replace.as_mut() {
+                let source = over.source.clone();
+                Self::merge_override_report_with_hw_health(
+                    &mut output,
+                    &source,
+                    over,
+                    host_health_config.hardware_health_reports,
+                );
+                continue;
+            }
+
             let health_report = if suppress_dpu_alerts {
                 let mut health_report = snapshot.dpu_agent_health_report().cloned();
 
@@ -479,16 +489,16 @@ impl ManagedHostStateSnapshot {
                 .iter_mut()
                 .filter(|(source, _)| source.as_str() != HealthReport::DPU_AGENT_SOURCE)
             {
-                let merged_hardware = Self::merge_override_report_with_hw_health(
+                Self::merge_override_report_with_hw_health(
                     &mut output,
                     source,
                     over,
                     host_health_config.hardware_health_reports,
                 );
-                has_hardware_health |= merged_hardware;
             }
         }
 
+        let mut has_host_hardware_health = false;
         for (source, over) in self.host_snapshot.health_reports.merges.iter_mut() {
             let merged_hardware = Self::merge_override_report_with_hw_health(
                 &mut output,
@@ -496,11 +506,11 @@ impl ManagedHostStateSnapshot {
                 over,
                 host_health_config.hardware_health_reports,
             );
-            has_hardware_health |= merged_hardware;
+            has_host_hardware_health |= merged_hardware;
         }
 
         if host_health_config.hardware_health_reports == HardwareHealthReportsConfig::Enabled
-            && !has_hardware_health
+            && !has_host_hardware_health
         {
             merge_or_timeout(&mut output, &None, "hardware-health".to_string());
         }
@@ -2367,7 +2377,7 @@ impl Display for FailureCause {
             FailureCause::MeasurementsCAValidationFailed { .. } => {
                 write!(f, "MeasurementsCAValidationFailed")
             }
-            FailureCause::DpfProvisioning { .. } => write!(f, "DpfProvisioning"),
+            FailureCause::DpfProvisioning { err } => write!(f, "DpfProvisioning {err}"),
             FailureCause::SpdmAttestationFailed { .. } => {
                 write!(f, "SpdmAttestationFailed")
             }
@@ -2594,6 +2604,7 @@ impl ManagedHostState {
 pub struct MachineInterfaceSnapshot {
     pub id: MachineInterfaceId,
     pub hostname: String,
+    pub interface_type: InterfaceType,
     pub primary_interface: bool,
     pub mac_address: MacAddress,
     pub attached_dpu_machine_id: Option<MachineId>,
@@ -2621,6 +2632,7 @@ impl MachineInterfaceSnapshot {
             segment_id: uuid::Uuid::nil().into(),
             mac_address,
             hostname: String::new(),
+            interface_type: InterfaceType::Data,
             primary_interface: true,
             addresses: Vec::new(),
             vendors: Vec::new(),
@@ -2635,7 +2647,10 @@ impl MachineInterfaceSnapshot {
 }
 
 impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
+    #[allow(deprecated)]
     fn from(machine_interface: MachineInterfaceSnapshot) -> rpc::MachineInterface {
+        let is_bmc = machine_interface.interface_type == InterfaceType::Bmc;
+
         rpc::MachineInterface {
             id: Some(machine_interface.id),
             attached_dpu_machine_id: machine_interface.attached_dpu_machine_id,
@@ -2654,7 +2669,8 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
             created: Some(machine_interface.created.into()),
             last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
             power_shelf_id: machine_interface.power_shelf_id,
-            is_bmc: None,
+            is_bmc: Some(is_bmc),
+            interface_type: Some(machine_interface.interface_type as i32),
             switch_id: machine_interface.switch_id,
             association_type: machine_interface.association_type.map(|t| t as i32),
         }
@@ -3007,6 +3023,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             segment_id: row.try_get("segment_id")?,
             domain_id: row.try_get("domain_id")?,
             hostname: row.try_get("hostname")?,
+            interface_type: row.try_get("interface_type")?,
             mac_address: row.try_get("mac_address")?,
             primary_interface: row.try_get("primary_interface")?,
             created: row.try_get("created")?,
@@ -3038,6 +3055,134 @@ impl Display for PowerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct HostHealthConfig {
+    /// Whether or not to use hardware health reports in aggregate health reports
+    /// and for restricting state transitions.
+    #[serde(default)]
+    pub hardware_health_reports: HardwareHealthReportsConfig,
+    /// How old a DPU agent's version should be before considering stale
+    #[serde(
+        default = "HostHealthConfig::dpu_agent_version_staleness_threshold_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub dpu_agent_version_staleness_threshold: Duration,
+
+    /// Whether to fail health checks if a DPU agent version is stale
+    #[serde(default)]
+    pub prevent_allocations_on_stale_dpu_agent_version: bool,
+
+    /// Whether the scout heartbeat timeout alert should prevent allocations
+    #[serde(default)]
+    pub prevent_allocations_on_scout_heartbeat_timeout: bool,
+
+    /// Whether the scout heartbeat timeout alert should suppress external alerting
+    #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
+    pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
+}
+
+/// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
+fn as_duration<S>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("{}s", d.num_seconds()))
+}
+
+impl Default for HostHealthConfig {
+    fn default() -> Self {
+        HostHealthConfig {
+            hardware_health_reports: HardwareHealthReportsConfig::default(),
+            dpu_agent_version_staleness_threshold:
+                Self::dpu_agent_version_staleness_threshold_default(),
+            prevent_allocations_on_stale_dpu_agent_version: false,
+            prevent_allocations_on_scout_heartbeat_timeout: false,
+            suppress_external_alerting_on_scout_heartbeat_timeout:
+                Self::default_suppress_ext_alert_on_scout_heartbeat(),
+        }
+    }
+}
+
+impl HostHealthConfig {
+    pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
+        Duration::days(1)
+    }
+
+    fn default_suppress_ext_alert_on_scout_heartbeat() -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub enum HardwareHealthReportsConfig {
+    #[default]
+    Disabled,
+    /// Include successes and alerts but remove their classifications
+    MonitorOnly,
+    /// Include successes, alerts, and classifications.
+    Enabled,
+}
+
+pub fn dpf_based_dpu_provisioning_possible(
+    state: &ManagedHostStateSnapshot,
+    dpf_enabled_at_site: bool,
+    reprovisioing_case: bool,
+) -> bool {
+    // DPF is disabled at site.
+    if !dpf_enabled_at_site {
+        return false;
+    }
+
+    // DPF should be enabled for host.
+    if !state.host_snapshot.dpf.enabled {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // if it is reprovisioing case, initial ingestion should be done with dpf to continue
+    // reprovision.
+    if reprovisioing_case && !state.host_snapshot.dpf.used_for_ingestion {
+        tracing::info!(
+            "DPF based DPU reprovisioning is not possible because initial ingestion is not done with DPF - host {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // All DPUs should not be Bluefield 2.
+    if state.dpu_snapshots.iter().any(|dpu| {
+        dpu.hardware_info
+            .as_ref()
+            .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
+            .map(|dpu_data| crate::site_explorer::is_bf2_dpu(&dpu_data.part_number))
+            .unwrap_or(false)
+    }) {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // All DPUs support BFB install via Redfish.
+    if !state
+        .dpu_snapshots
+        .iter()
+        .all(|dpu| dpu.bmc_info.supports_bfb_install())
+    {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."
+        );
+        return false;
+    }
+
+    true
 }
 
 #[cfg(test)]
@@ -3612,132 +3757,25 @@ mod tests {
         data.host_lifecycle_profile.disable_lockdown = Some(false);
         assert!(!HostProfile::from_expected_machine(Some(&data)).disable_lockdown);
     }
-}
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-pub struct HostHealthConfig {
-    /// Whether or not to use hardware health reports in aggregate health reports
-    /// and for restricting state transitions.
-    #[serde(default)]
-    pub hardware_health_reports: HardwareHealthReportsConfig,
-    /// How old a DPU agent's version should be before considering stale
-    #[serde(
-        default = "HostHealthConfig::dpu_agent_version_staleness_threshold_default",
-        deserialize_with = "deserialize_duration_chrono",
-        serialize_with = "as_duration"
-    )]
-    pub dpu_agent_version_staleness_threshold: Duration,
+    #[test]
+    fn dpf_error_deserialization() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning {
+                    err: "This should be in display".to_string(),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id,
+            retry_count: 1,
+        };
 
-    /// Whether to fail health checks if a DPU agent version is stale
-    #[serde(default)]
-    pub prevent_allocations_on_stale_dpu_agent_version: bool,
-
-    /// Whether the scout heartbeat timeout alert should prevent allocations
-    #[serde(default)]
-    pub prevent_allocations_on_scout_heartbeat_timeout: bool,
-
-    /// Whether the scout heartbeat timeout alert should suppress external alerting
-    #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
-    pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
-}
-
-/// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
-fn as_duration<S>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&format!("{}s", d.num_seconds()))
-}
-
-impl Default for HostHealthConfig {
-    fn default() -> Self {
-        HostHealthConfig {
-            hardware_health_reports: HardwareHealthReportsConfig::default(),
-            dpu_agent_version_staleness_threshold:
-                Self::dpu_agent_version_staleness_threshold_default(),
-            prevent_allocations_on_stale_dpu_agent_version: false,
-            prevent_allocations_on_scout_heartbeat_timeout: false,
-            suppress_external_alerting_on_scout_heartbeat_timeout:
-                Self::default_suppress_ext_alert_on_scout_heartbeat(),
-        }
+        let output = state.to_string();
+        assert!(output.contains("This should be in display"));
     }
-}
-
-impl HostHealthConfig {
-    pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
-        Duration::days(1)
-    }
-
-    fn default_suppress_ext_alert_on_scout_heartbeat() -> bool {
-        true
-    }
-}
-
-#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq)]
-pub enum HardwareHealthReportsConfig {
-    #[default]
-    Disabled,
-    /// Include successes and alerts but remove their classifications
-    MonitorOnly,
-    /// Include successes, alerts, and classifications.
-    Enabled,
-}
-
-pub fn dpf_based_dpu_provisioning_possible(
-    state: &ManagedHostStateSnapshot,
-    dpf_enabled_at_site: bool,
-    reprovisioing_case: bool,
-) -> bool {
-    // DPF is disabled at site.
-    if !dpf_enabled_at_site {
-        return false;
-    }
-
-    // DPF should be enabled for host.
-    if !state.host_snapshot.dpf.enabled {
-        tracing::info!(
-            "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
-            state.host_snapshot.id
-        );
-        return false;
-    }
-
-    // if it is reprovisioing case, initial ingestion should be done with dpf to continue
-    // reprovision.
-    if reprovisioing_case && !state.host_snapshot.dpf.used_for_ingestion {
-        tracing::info!(
-            "DPF based DPU reprovisioning is not possible because initial ingestion is not done with DPF - host {}.",
-            state.host_snapshot.id
-        );
-        return false;
-    }
-
-    // All DPUs should not be Bluefield 2.
-    if state.dpu_snapshots.iter().any(|dpu| {
-        dpu.hardware_info
-            .as_ref()
-            .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
-            .map(|dpu_data| crate::site_explorer::is_bf2_dpu(&dpu_data.part_number))
-            .unwrap_or(false)
-    }) {
-        tracing::info!(
-            "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
-            state.host_snapshot.id
-        );
-        return false;
-    }
-
-    // All DPUs support BFB install via Redfish.
-    if !state
-        .dpu_snapshots
-        .iter()
-        .all(|dpu| dpu.bmc_info.supports_bfb_install())
-    {
-        tracing::info!(
-            "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."
-        );
-        return false;
-    }
-
-    true
 }

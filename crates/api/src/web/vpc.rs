@@ -110,7 +110,7 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
             .await?
             .into_inner();
 
-        vpcs.extend(next_vpcs.vpcs.into_iter());
+        vpcs.extend(next_vpcs.vpcs);
         offset += page_size;
     }
 

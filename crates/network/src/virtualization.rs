@@ -37,8 +37,9 @@ pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
 /// and plumb the value down to the DPU agent, which gets piped into
 /// the `update_nvue` function, which is then used to drive
 /// population of the appropriate template.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VpcVirtualizationType {
+    #[default]
     EthernetVirtualizer,
     EthernetVirtualizerWithNvue,
     Fnn,
@@ -122,12 +123,6 @@ mod sqlx_tests {
     #[test]
     fn encode_fnn_writes_fnn() {
         assert_eq!(encode_to_string(VpcVirtualizationType::Fnn), "fnn");
-    }
-}
-
-impl Default for VpcVirtualizationType {
-    fn default() -> Self {
-        Self::EthernetVirtualizer
     }
 }
 

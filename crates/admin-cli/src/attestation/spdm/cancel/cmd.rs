@@ -25,6 +25,6 @@ pub async fn cancel(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> 
         .0
         .cancel_machine_attestation(args.machine_id)
         .await?;
-    println!("Succesfully submitted the command");
+    println!("Successfully submitted the command");
     Ok(())
 }
