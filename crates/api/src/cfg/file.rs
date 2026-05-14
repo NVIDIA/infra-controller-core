@@ -112,6 +112,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dhcp_servers: Vec<String>,
 
+    /// NTP server IP addresses for the site.
+    #[serde(default)]
+    pub ntp_servers: Vec<String>,
+
     /// Route server IP addresses for L2VPN (Ethernet
     /// Virtual) network support on DPUs.
     #[serde(default)]

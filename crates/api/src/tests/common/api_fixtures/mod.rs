@@ -1138,6 +1138,7 @@ pub fn get_config() -> CarbideConfig {
         asn: 0,
         datacenter_asn: 0,
         dhcp_servers: vec![],
+        ntp_servers: vec![],
         route_servers: vec![],
         enable_route_servers: false,
         deny_prefixes: vec![],

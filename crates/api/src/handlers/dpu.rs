@@ -595,6 +595,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         asn,
         dhcp_servers: api.eth_data.dhcp_servers.clone(),
         route_servers,
+        ntp_servers: api.runtime_config.ntp_servers.clone(),
         // TODO: Automatically add the prefix(es?) from the IPv4 loopback
         // pool to deny_prefixes. The database stores the pool in an
         // exploded representation, so we either need to reconstruct the
