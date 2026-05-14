@@ -37,6 +37,7 @@ pub mod health;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_type;
+pub mod machine;
 pub mod operating_system_definition;
 pub mod os;
 pub mod power_manager;
