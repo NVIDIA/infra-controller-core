@@ -9,6 +9,8 @@ on:                               # additional custom triggers can be configured
 jobs:
   update-from-source:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
