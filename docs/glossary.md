@@ -328,22 +328,6 @@ The canonical REST API contract. Endpoint additions or modifications require upd
 
 ## Technology Stack
 
-### Echo v4
-
-The HTTP web framework used for the REST API server. It provides routing, middleware, Prometheus metrics integration, and request handling.
-
-### Bun ORM
-
-The ORM layer used on top of `pgx` for struct-based query building, database migrations, and model mapping between Go structs and PostgreSQL tables.
-
-### pgx v5
-
-The PostgreSQL driver providing native protocol support, connection pooling through `pgxpool`, and PostgreSQL-specific type handling. NICo REST uses it underneath Bun for database operations.
-
-### Buf
-
-The tool used for Protocol Buffer code generation and management. Proto definitions are sourced from the companion NICo Core repository and synchronized into NICo REST.
-
 ### DOCA
 
 NVIDIA Data Center-on-a-Chip Architecture. In NICo, DOCA is the software framework and release train associated with BlueField DPU functionality that NICo installs and validates.
