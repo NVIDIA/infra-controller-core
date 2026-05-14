@@ -1,4 +1,4 @@
-# NICo Combined Glossary
+# Glossary
 
 This glossary consolidates terminology from both halves of NVIDIA Infra Controller (NICo): the on-site Rust control plane, NICo Core, and the cloud-facing Go API layer, NICo REST. It is intended for documentation authors, operators, and anyone reading NICo-related content across the DSX documentation site.
 
@@ -14,25 +14,17 @@ This glossary focuses on NICo-specific concepts: terms that only make sense in t
 
 NVIDIA Infra Controller. NICo is the platform that provides site-local, zero-trust bare-metal lifecycle management with DPU-enforced isolation. It spans NICo Core, the on-site Rust control plane, and NICo REST, the cloud-facing Go API layer.
 
-Related: [What is NICo?](overview/what-is-nico.md), [Architecture Overview](architecture/overview.md)
-
 ### NCP
 
 NVIDIA Cloud Partner. In NICo docs, NCP usually refers to an infrastructure provider operating NICo-managed environments for tenant workloads.
-
-Related: [Scope and Boundaries](overview/scope-and-boundaries.md)
 
 ### Carbide
 
 A legacy internal name for NICo components. Carbide appears in older source paths, service names, CLI references, and deployment artifacts. New documentation should use NICo names unless referring to an interface that still uses a legacy name.
 
-Related: [What is NICo?](overview/what-is-nico.md)
-
 ### AI Factory
 
 A datacenter purpose-built for AI workloads. NICo is the IaaS layer of an AI Factory: it manages the bare-metal lifecycle of every server from rack-and-stack through decommissioning. Everything above NICo, including Kubernetes, GPU Operator, and inference serving, depends on NICo delivering validated, tenant-isolated hardware.
-
-Related: [What is NICo?](overview/what-is-nico.md), [Key Capabilities](overview/capabilities.md), [Scope and Boundaries](overview/scope-and-boundaries.md)
 
 ### Hub-and-Spoke Model
 
@@ -40,27 +32,19 @@ The architectural pattern that connects NICo REST, the hub, to one or more datac
 
 The Site Agent initiates connections to Temporal and to the local Core gRPC API, which lets the central REST layer coordinate work with site-local Core services without requiring the central API server to call directly into each datacenter.
 
-Related: [Architecture Overview](architecture/overview.md), [Reliable State Handling](architecture/state_handling.md)
-
 ### ManagedHost
 
 The fundamental unit of infrastructure that NICo manages. A ManagedHost represents a single physical box in a datacenter and groups one Host Machine with the DPU Machines attached to that host. Most current deployments use one DPU per host, but the Core data model stores DPUs as a list, and supported/tested paths include hosts with multiple DPUs and configuration-gated zero-DPU hosts.
 
 NICo manages the Host and attached DPUs end-to-end: the DPUs provide networking enforcement and management infrastructure, while the Host provides the compute resources that tenants consume.
 
-Related: [Managed Host State Machine](architecture/state_machines/managedhost.md), [Ingesting Hosts](provisioning/ingesting-hosts.md)
-
 ### Machine
 
 A generic term for either a DPU or a Host. The codebase and APIs use Machine when the distinction between the two does not matter, for example in health reporting, power management, and search queries.
 
-Related: [Health Checks and Health Aggregation](architecture/health_aggregation.md), [Rebooting a Machine](playbooks/machine_reboot.md)
-
 ### Host
 
 The compute server as a customer thinks of it, typically an x86-based machine. It is the bare metal that NICo manages. The Host runs whatever operating system the customer provisions onto it. Each Host has its own BMC for out-of-band management.
-
-Related: [Ingesting Hosts](provisioning/ingesting-hosts.md), [Host Validation](provisioning/host-validation.md)
 
 ### Instance
 
@@ -68,13 +52,9 @@ A Host that is currently allocated to and being used by a tenant. Instances are 
 
 Instance creation can be done through the gRPC API, where the caller explicitly selects the machine, or through the REST API, which supports resource allocation pools and random selection.
 
-Related: [Day 0 / Day 1 / Day 2 Lifecycle](overview/lifecycle.md)
-
 ### Leaf
 
 In NICo architecture, the device that a Host connects to for network access. Currently this is a DPU that makes the overlay network available to the tenant. In future iterations, the Leaf might be a specialized switch instead of a DPU.
-
-Related: [Networking Integrations](architecture/networking_integrations.md), [DPU Configuration](architecture/dpu_configuration.md)
 
 ### DPU Role in NICo
 
@@ -82,13 +62,9 @@ The DPU is the central enforcement point in NICo architecture. It serves as the 
 
 In current deployments, the DPU is a [NVIDIA BlueField-2 or BlueField-3](https://www.nvidia.com/en-us/networking/products/data-processing-unit/) network interface card. It has its own ARM processor, operating system, and BMC. From NICo's point of view, it can act as a network card, a disk controller, and an on-host enforcement point.
 
-Related: [DPU Configuration](architecture/dpu_configuration.md), [BlueField DPU Operations](dpu-operations.md), [Hardware Compatibility List](hcl.md)
-
 ### BlueField
 
 The NVIDIA DPU family used by NICo for tenant isolation and site management. A BlueField card has its own ARM complex, BMC, NIC firmware, and OS image. NICo provisions and manages the BlueField side of each ManagedHost before making the Host available to tenants.
-
-Related: [BlueField DPU Operations](dpu-operations.md), [DPU Configuration](architecture/dpu_configuration.md), [Hardware Compatibility List](hcl.md)
 
 ## REST API Services and Binaries
 
@@ -98,15 +74,11 @@ The main NICo REST API server. It handles external HTTP requests, authenticates 
 
 The NICo REST repository's Helm charts and generated SDK now use `nico-rest-api`.
 
-Related: [Architecture Overview](architecture/overview.md)
-
 ### Workflow Worker
 
 The Temporal workflow worker service for NICo REST. It executes workflow logic for long-running operations such as site setup and hardware lifecycle management. Current deployment artifacts in this repo still refer to this component as `carbide-rest-workflow`.
 
 The NICo REST repository's Helm charts now use `nico-rest-workflow`.
-
-Related: [Reliable State Handling](architecture/state_handling.md)
 
 ### Site Agent
 
@@ -116,30 +88,21 @@ REST-dispatched operations that need site-local hardware access flow through a S
 
 The NICo REST repository's Helm charts now use `nico-rest-site-agent`.
 
-Related: [Architecture Overview](architecture/overview.md), [Reliable State Handling](architecture/state_handling.md), [Core Metrics](manuals/metrics/core_metrics.md)
-
 ### Site Manager
 
 A NICo REST service used for site-level management and Site Agent bootstrap flows. Current deployment artifacts in this repo still refer to this component as `carbide-rest-site-manager`.
-
-Related: [Architecture Overview](architecture/overview.md)
 
 ### Certificate Manager
 
 A NICo REST certificate-management component used by the REST deployment. Current deployment artifacts in this repo still refer to the component and issuer with names such as `carbide-rest-cert-manager` and `carbide-rest-ca-issuer`. The REST repository also contains a native certificate manager that issues certificates using Go crypto and integrates with cert-manager.io.
 
-Related: [TLS and SPIFFE Certificates](development/tls.md), [Re-creating Issuer/CA in Local Dev](development/issuer_ca_recreate.md)
-
 ### Database Migrations
 
 The NICo REST deployment component that manages PostgreSQL database schema evolution. Current deployment artifacts in this repo still describe the REST stack with `carbide-rest-*` names.
 
-Related: [Data Model / DB Schema](development/schema.md)
-
 ### CLI Client (`nicocli`)
 
 The command-line tool for interacting with the REST API. It supports scripted usage and interactive session management for environment switching and resource commands. It was previously named `carbidecli`.
-
 
 ## Authentication and Authorization
 
@@ -154,27 +117,21 @@ NICo REST authorizes callers with provider and tenant role families. The REST SD
 | Tenant admin | Organization, tenant | Tenant-scoped administrative access to manage instances, SSH keys, VPC peering, and resources within the assigned tenant organization |
 | Tenant viewer | Organization, tenant | Read-only access to tenant-scoped resources |
 
-
 ### JWT Claims Processor Pipeline
 
 The chain of processors that extract authorization context from JWT tokens in the REST API. Processor types include Custom, KAS, Keycloak, and SSA. Each processor handles a different token origin and maps claims to internal authorization context.
-
 
 ### Service Account Authentication (SSA)
 
 Machine-to-machine authentication using service account tokens. In the bundled development Keycloak setup, a service account can obtain a JWT through the client credentials flow and use that token against the REST API.
 
-
 ### NGC KAS
 
 NVIDIA GPU Cloud Key Authentication Service. NICo REST can be configured to accept JWTs issued by NGC KAS and map NGC organization identity into NICo authorization context.
 
-
 ### SPIFFE Identity in NICo
 
 NICo uses SPIFFE-based identities for service-to-service authentication within its microservice architecture. The DPU instance metadata service can issue SPIFFE JWT-SVIDs to tenant processes, providing machine identity signed with per-tenant keys.
-
-Related: [TLS and SPIFFE Certificates](development/tls.md)
 
 ## Networking
 
@@ -182,13 +139,9 @@ Related: [TLS and SPIFFE Certificates](development/tls.md)
 
 [Border Gateway Protocol](https://en.wikipedia.org/wiki/Border_Gateway_Protocol) is the standardized routing protocol used to exchange routing and reachability information between autonomous systems. In NICo, BGP is used in the Ethernet overlay design so DPUs and top-of-rack or route-server devices can exchange EVPN reachability.
 
-Related: [Networking Integrations](architecture/networking_integrations.md), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
-
 ### EVPN
 
 Ethernet VPN. In NICo, EVPN is the control-plane technology used with VXLAN overlays so DPUs and network devices can exchange tenant network reachability information.
-
-Related: [Networking Integrations](architecture/networking_integrations.md), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
 
 ### VXLAN Overlay Architecture
 
@@ -196,13 +149,9 @@ Related: [Networking Integrations](architecture/networking_integrations.md), [VP
 
 VXLAN solves this by wrapping an Ethernet frame in a VXLAN packet identified by a VNI. NICo uses the DPU as the VTEP, so the DPU wraps tenant Ethernet frames in VXLAN headers before sending them across the IP-routed datacenter network. The receiving VTEP unwraps the packet and delivers the original Ethernet frame. This lets the underlay route ordinary IP packets while the x86 Host behaves as if it received an Ethernet frame from a peer on the same local network.
 
-Related: [Networking Integrations](architecture/networking_integrations.md), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
-
 ### Network Segments
 
 A NICo concept for defining IP address pools. Underlay segments are used for management traffic on the underlying physical network, such as DPU OOB and BMC addresses. Overlay segments are used for tenant-facing networks built on top of VXLAN. NICo assigns IPs from overlay segments to Hosts when creating instances.
-
-Related: [IP Resource Pools](manuals/networking/ip_resource_pools.md), [VNI Resource Pools](manuals/vpc/vni_resource_pools.md)
 
 ### HBN in NICo
 
@@ -212,15 +161,11 @@ DPU health reporting includes HBN status such as whether the container is runnin
 
 General reference: [DOCA HBN Service](https://docs.nvidia.com/doca/sdk/pdf/doca-hbn-service.pdf)
 
-Related: [DPU Configuration](architecture/dpu_configuration.md), [Health Checks and Health Aggregation](architecture/health_aggregation.md)
-
 ### Fabric Nearest Neighbor (FNN)
 
 The networking subsystem within NICo Core that manages VPC creation, subnet allocation, and VXLAN overlay configuration. The acronym appears as Fabric Nearest Neighbor in current configuration documentation. Older design documents expanded the same acronym using a legacy project name.
 
 FNN coordinates DPU-side HBN configuration with the NICo data model to deliver tenant-isolated L2 and L3 networks. FNN supports two VPC virtualization types, `fnn_classic` and `fnn_l3`, and introduces per-VPC routing profiles that control route import and export policies, access tiers, and underlay leak acceptance.
-
-Related: [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md), [VPC Routing Profiles](manuals/vpc/vpc_routing_profiles.md), [VPC Peering](manuals/vpc/vpc_peering_management.md)
 
 ### DHCP in NICo
 
@@ -230,13 +175,9 @@ DHCP relay must be configured on switches connected to DPU OOB interfaces, Host 
 
 NICo issues two IP addresses to the DPU RJ45 port: the DPU OOB address, used for SSH access to the ARM OS and NICo management traffic, and the DPU BMC address, used for Redfish and DPU configuration.
 
-Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md), [Network Prerequisites](getting-started/prerequisites/network.md)
-
 ### DNS in NICo
 
 [Domain Name System](https://en.wikipedia.org/wiki/Domain_Name_System) resolves domain names to IP addresses. NICo runs DNS services for managed machines and delegated site-controller zones so hosts and control-plane services can resolve NICo-managed names.
-
-Related: [Architecture Overview](architecture/overview.md)
 
 ### Multi-Tenancy and Isolation
 
@@ -251,13 +192,9 @@ NICo coordinates tenant isolation across four network fabrics, each with its own
 
 DPUs enforce Ethernet isolation in hardware, UFM enforces InfiniBand isolation, and NMX-M enforces NVLink isolation, all coordinated by NICo.
 
-Related: [Networking Integrations](architecture/networking_integrations.md), [InfiniBand NIC and Port Selection](architecture/infiniband/nic_selection.md), [NVLink Partitioning](manuals/nvlink_partitioning.md)
-
 ### VRF
 
 Virtual Routing and Forwarding. In NICo networking, VRFs provide routing-table isolation for virtual networks so tenant or service routes can be kept separate even when they share physical infrastructure.
-
-Related: [VPC Routing Profiles](manuals/vpc/vpc_routing_profiles.md), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
 
 ### VLAN
 
@@ -265,48 +202,33 @@ A VLAN adds a 12-bit identifier to an Ethernet frame to mark which virtual netwo
 
 In NICo, VLAN IDs can still appear on the DPU-to-Host link, especially when a Host is running a hypervisor and the VLAN ID identifies which virtual machine should receive the Ethernet frame. VXLAN is used for the larger datacenter overlay.
 
-Related: [VXLAN Overlay Architecture](#vxlan-overlay-architecture), [VPC Network Virtualization](manuals/vpc/vpc_network_virtualization.md)
-
 ### VNI
 
 VXLAN Network Identifier, also called a VXLAN ID. It is the 24-bit identifier in the VXLAN header that marks which virtual network an encapsulated Ethernet frame belongs to.
-
-Related: [VXLAN Overlay Architecture](#vxlan-overlay-architecture), [VNI Resource Pools](manuals/vpc/vni_resource_pools.md)
 
 ### VTEP
 
 VXLAN Tunnel Endpoint. A VTEP wraps Ethernet frames into VXLAN packets and unwraps VXLAN packets back into Ethernet frames. In NICo, the DPU acts as the VTEP for tenant overlay networking.
 
-Related: [VXLAN Overlay Architecture](#vxlan-overlay-architecture), [DPU Configuration](architecture/dpu_configuration.md)
-
 ### P_Key
 
 InfiniBand partition key. P_Keys are the isolation mechanism used by UFM for InfiniBand tenant separation, analogous to how VXLAN identifies isolated Ethernet overlays.
-
-Related: [InfiniBand NIC and Port Selection](architecture/infiniband/nic_selection.md)
 
 ### NVLink
 
 The high-speed GPU-to-GPU fabric managed outside NICo Core by NMX-M. NICo coordinates with NVLink management so GPU partitioning aligns with tenant isolation.
 
-Related: [NVLink Partitioning](manuals/nvlink_partitioning.md)
-
 ### FMDS
 
 NICo Metadata Service. FMDS runs on or alongside the DPU path and provides tenant workloads with instance metadata such as machine identity, boot information, and applied instance configuration. Some implementation artifacts still expand the legacy name as Forge Metadata Service.
-
-Related: [Architecture Overview](architecture/overview.md), [InfiniBand NIC and Port Selection](architecture/infiniband/nic_selection.md)
 
 ### LLDP
 
 Link Layer Discovery Protocol. NICo uses LLDP-derived network adjacency information to understand how hosts, DPUs, and switches are connected in the site fabric.
 
-Related: [Networking Integrations](architecture/networking_integrations.md), [Ingesting Hosts](provisioning/ingesting-hosts.md)
-
 ### Allocation and Constraint
 
 REST API concepts for managing resource assignment to tenants. Allocations bind specific machines or capacity to a tenant. Constraints define rules about what resources a tenant can request, such as specific SKUs or rack locations. Together they control which hardware a tenant can see and consume.
-
 
 ## Boot and Provisioning
 
@@ -314,15 +236,11 @@ REST API concepts for managing resource assignment to tenants. Allocations bind 
 
 BlueField bootstream. A BFB is an image format used to install or update the operating system and firmware bundle on a BlueField DPU.
 
-Related: [BlueField DPU Operations](dpu-operations.md), [Bootable Artifacts](bootable_artifacts.md)
-
 ### PXE and iPXE Boot
 
 The Preboot Execution Environment, or PXE, is a client-server environment for booting software retrieved from the network. [iPXE](https://en.wikipedia.org/wiki/IPXE) is an open source PXE client and bootloader that can enable network boot on systems without built-in PXE support, or provide additional features beyond built-in PXE.
 
 NICo uses PXE and iPXE for network booting. DPUs and Hosts use PXE after startup to install NICo-specific software images as well as tenant-requested images. NICo runs its own PXE server to serve images shipped as part of the software, such as DPU software and iPXE. This PXE server can coexist with other site PXE servers as long as DHCP is configured correctly and the Host can reach the NICo PXE service.
-
-Related: [Bootable Artifacts](bootable_artifacts.md), [Running a PXE Client in a VM](development/vm_pxe_client.md)
 
 ### Cloud-Init in NICo
 
@@ -330,13 +248,9 @@ Related: [Bootable Artifacts](bootable_artifacts.md), [Running a PXE Client in a
 
 Cloud-init is used in two ways within NICo. DPUs use a NICo-provided cloud-init file to install NICo-related components on top of the base DPU image provided by the NVIDIA networking group. Tenants can provide custom cloud-init configuration to automate installation and configuration of their chosen operating system on the Host.
 
-Related: [Ingesting Hosts](provisioning/ingesting-hosts.md), [BlueField DPU Operations](dpu-operations.md)
-
 ### BMC
 
 A Baseboard Management Controller manages low-level hardware functions such as BIOS settings and power state. The Host has a BMC, and the DPU has a separate BMC. A Host BMC commonly exposes both a web interface for BIOS and hardware settings and a Redfish API for programmatic management. NICo uses BMC access to discover, power-cycle, and repair machines without relying on the Host operating system.
-
-Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md), [Redfish Workflow](architecture/redfish_workflow.md)
 
 ### BMC Discovery
 
@@ -344,39 +258,27 @@ NICo discovers BMCs through DHCP. When provisioning a NICo site, operators speci
 
 The Host has its own BMC, and attached DPUs can have their own BMCs. For the common one-host, one-DPU case, that means two BMCs are involved in a ManagedHost.
 
-Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md), [Ingesting Hosts](provisioning/ingesting-hosts.md)
-
 ### Redfish
 
 The HTTP API exposed by BMCs for out-of-band hardware management. NICo uses Redfish to manage power state, credentials, and other BMC-backed operations without relying on the Host operating system.
 
 General reference: [Redfish](https://en.wikipedia.org/wiki/Redfish_(specification))
 
-Related: [Redfish Workflow](architecture/redfish_workflow.md), [Redfish Endpoints Reference](architecture/redfish/endpoints_reference.md)
-
 ### OOB
 
 Out of band. OOB management uses a path independent from the Host operating system, usually through BMC and DPU management networks, so NICo can discover, power-cycle, and repair machines even when the tenant OS is unavailable.
-
-Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md)
 
 ### IPMI
 
 [Intelligent Platform Management Interface](https://en.wikipedia.org/wiki/Intelligent_Platform_Management_Interface) is an older interface for out-of-band computer management and monitoring. Like Redfish, it lets administrators manage a machine over the network even when the Host OS is unavailable. NICo docs may mention IPMI when discussing BMC networks, serial console access, or legacy out-of-band workflows.
 
-Related: [BMC and Out-of-Band Setup](getting-started/prerequisites/bmc-oob-setup.md), [Architecture Overview](architecture/overview.md)
-
 ### scout
 
 The discovery service that reports newly discovered DPUs to NICo Core during initial site bring-up. After discovery and provisioning, the DPU-side agent takes over ongoing communication with Core.
 
-Related: [Architecture Overview](architecture/overview.md), [Ingesting Hosts](provisioning/ingesting-hosts.md)
-
 ### dpu-agent
 
 The daemon that runs on each DPU after provisioning. It periodically connects to the NICo Core gRPC API to retrieve configuration instructions and report state.
-
-Related: [Architecture Overview](architecture/overview.md), [DPU Configuration](architecture/dpu_configuration.md)
 
 ### Managed Host State Machine
 
@@ -384,13 +286,9 @@ The finite state machine that governs the lifecycle of Hosts managed by NICo. A 
 
 The full set of states defined in the `ManagedHostState` enum includes `DpuDiscoveringState`, `DPUInit`, `HostInit`, `BomValidating`, `Validation`, `Measuring`, `PreAssignedMeasuring`, `StartAssignmentCycle`, `Ready`, `Assigned`, `PostAssignedMeasuring`, `WaitingForCleanup`, `HostReprovision`, `DPUReprovision`, `Failed`, `ForceDeletion`, and `Created`. The typical happy-path progression is `DpuDiscoveringState` to `DPUInit` to `HostInit` to `BomValidating` to `Validation` to `Measuring` to `Ready` to `Assigned`.
 
-Related: [Managed Host State Machine](architecture/state_machines/managedhost.md), [Host Validation](provisioning/host-validation.md)
-
 ### SKU Validation
 
 The process of verifying that a Machine's actual hardware, or Bill of Materials, matches the expected SKU definition. NICo performs BOM validation during the provisioning pipeline to catch hardware mismatches before a Host reaches Ready.
-
-Related: [SKU Validation](provisioning/sku-validation.md), [Hardware Compatibility List](hcl.md)
 
 ## Workflow and Orchestration
 
@@ -398,31 +296,21 @@ Related: [SKU Validation](provisioning/sku-validation.md), [Hardware Compatibili
 
 NICo REST uses Temporal as the workflow orchestration engine for long-running operations. Each NICo site gets a dedicated Temporal namespace, providing workflow isolation between sites. Workflows carry authenticated context and use protobuf-encoded payloads.
 
-Related: [Reliable State Handling](architecture/state_handling.md)
-
 ### Cloud Workflow and Site Workflow
 
 Two distinct workflow scopes exist. Cloud workflows run in the central management plane and orchestrate cross-site operations. Site workflows run locally at each datacenter and handle site-specific hardware operations. The Site Agent picks up site workflows from its Temporal namespace and translates them into gRPC calls against the local Core instance.
-
-Related: [Reliable State Handling](architecture/state_handling.md)
 
 ### Core Proto Synchronization
 
 The protobuf interface shared between NICo Core and NICo REST. Proto definitions originate in Core and are synchronized to REST through a snapshot process. This shared contract defines the gRPC API that the Site Agent uses to communicate with Core.
 
-Related: [Architecture Overview](architecture/overview.md), [Codebase Overview](codebase_overview.md)
-
 ### gRPC
 
 The RPC framework used by trusted NICo services to communicate with NICo Core. The Site Agent uses gRPC to translate REST-layer workflows into Core API calls.
 
-Related: [Architecture Overview](architecture/overview.md), [Codebase Overview](codebase_overview.md)
-
 ### protobuf
 
 Protocol Buffers. NICo uses protobuf definitions as the shared interface contract for Core APIs and for workflow payloads that move between REST and site-side components.
-
-Related: [Architecture Overview](architecture/overview.md), [Codebase Overview](codebase_overview.md)
 
 ## API Patterns
 
@@ -430,17 +318,13 @@ Related: [Architecture Overview](architecture/overview.md), [Codebase Overview](
 
 The standard CRUD handler pattern used across REST API endpoints. Each resource type, such as sites, machines, instances, fabrics, racks, and tenants, follows the same handler structure with common utilities for pagination, error handling, and model conversion.
 
-
 ### API Data Model and Database Model
 
 The REST API maintains separate model layers. API models define request and response shapes, while database models define PostgreSQL table mappings. Conversion functions bridge the two layers.
 
-Related: [Data Model / DB Schema](development/schema.md)
-
 ### OpenAPI Specification
 
 The canonical REST API contract. Endpoint additions or modifications require updating the OpenAPI specification. It is validated in CI and used to generate the Go SDK client and rendered API documentation.
-
 
 ## Technology Stack
 
@@ -448,47 +332,33 @@ The canonical REST API contract. Endpoint additions or modifications require upd
 
 The HTTP web framework used for the REST API server. It provides routing, middleware, Prometheus metrics integration, and request handling.
 
-
 ### Bun ORM
 
 The ORM layer used on top of `pgx` for struct-based query building, database migrations, and model mapping between Go structs and PostgreSQL tables.
-
-Related: [Data Model / DB Schema](development/schema.md)
 
 ### pgx v5
 
 The PostgreSQL driver providing native protocol support, connection pooling through `pgxpool`, and PostgreSQL-specific type handling. NICo REST uses it underneath Bun for database operations.
 
-Related: [Data Model / DB Schema](development/schema.md)
-
 ### Buf
 
 The tool used for Protocol Buffer code generation and management. Proto definitions are sourced from the companion NICo Core repository and synchronized into NICo REST.
-
-Related: [Codebase Overview](codebase_overview.md)
 
 ### DOCA
 
 NVIDIA Data Center-on-a-Chip Architecture. In NICo, DOCA is the software framework and release train associated with BlueField DPU functionality that NICo installs and validates.
 
-Related: [DPU Configuration](architecture/dpu_configuration.md), [BlueField DPU Operations](dpu-operations.md)
-
 ### UFM
 
 Unified Fabric Manager. NICo relies on UFM for InfiniBand partition management, including assigning P_Keys for tenant isolation on the IB fabric.
-
-Related: [InfiniBand NIC and Port Selection](architecture/infiniband/nic_selection.md)
 
 ### IMDS
 
 Instance Metadata Service. In NICo, IMDS can provide tenant workloads with metadata and identity material, including SPIFFE JWT-SVIDs signed with per-tenant keys.
 
-Related: [TLS and SPIFFE Certificates](development/tls.md)
-
 ### Connect-RPC
 
 The HTTP-based RPC framework used for the IPAM service's internal communication. Connect-RPC provides protobuf compatibility with HTTP/1.1 and HTTP/2 transports, gRPC health checking, and reflection. The Site Agent communicates with NICo Core over standard gRPC rather than Connect-RPC.
-
 
 ## Health Monitoring
 
@@ -498,27 +368,19 @@ NICo provides hardware health monitoring across both layers. DPUs report health 
 
 Health information is stored as health report overrides on machine records. The system supports searching for Machines by health alert probe IDs and health alert classifications, allowing API clients to search for health conditions without requiring new API endpoints for each alert category.
 
-Related: [Health Checks and Health Aggregation](architecture/health_aggregation.md), [Health Probe IDs](architecture/health/health_probe_ids.md), [Health Alert Classifications](architecture/health/health_alert_classifications.md)
-
 ## Deployment
 
 ### Core Deployment
 
 NICo Core commonly runs on a Kubernetes cluster, with three or five control plane nodes recommended. It runs as a set of microservices including API, DNS, DHCP, hardware monitoring, BMC console, and rack management services. Deployment is done through Kubernetes Kustomize manifests.
 
-Related: [Reference Installation](getting-started/installation-options/reference-install.md), [Software Prerequisites](getting-started/prerequisites/software.md)
-
 ### REST Deployment
 
 NICo REST is deployed through Helm charts into a Kubernetes cluster. The deployment includes the API server, workflow worker, site manager, database migration job, and Keycloak integration.
 
-Related: [Architecture Overview](architecture/overview.md)
-
 ### Disconnected Mode
 
 NICo Core is site-local and continues to manage hardware independently of the REST API process. REST-dispatched workflows depend on the Site Agent and Temporal connectivity configured for that deployment, so behavior during upstream connectivity loss depends on how REST, Temporal, and the Site Agent are deployed.
-
-Related: [Operational Principles](overview/operational-principles.md), [Reliable State Handling](architecture/state_handling.md)
 
 ## Quick Reference: Acronyms
 
