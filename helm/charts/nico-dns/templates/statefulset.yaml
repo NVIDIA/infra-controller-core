@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nico-dns
+  namespace: {{ include "nico-dns.namespace" . }}
+  labels:
+    {{- include "nico-dns.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.annotations | nindent 4 }}
+spec:
+  serviceName: nico-dns
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "nico-dns.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nico-dns.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: nico-dns
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nico-dns
+          image: "{{ include "nico-dns.image" . }}"
+          # Picks nico-dns (--nico-url) or carbide-dns (--carbide-url) based on which binary is in the image.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              if [ -x /opt/nico/nico-dns ]; then
+                exec /opt/nico/nico-dns run --nico-url="${NICO_API}" --listen="[::]:53"
+              else
+                exec /opt/carbide/carbide-dns run --carbide-url="${NICO_API}" --listen="[::]:53"
+              fi
+          env:
+            - name: NICO_API
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.nicoDnsConfig.configMapName }}
+                  key: NICO_API
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          ports:
+            - name: udp
+              containerPort: 53
+              protocol: UDP
+            - name: tcp
+              containerPort: 53
+              protocol: TCP
+          volumeMounts:
+            - name: spiffe
+              mountPath: /var/run/secrets/spiffe.io
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: nico-dns-certificate
