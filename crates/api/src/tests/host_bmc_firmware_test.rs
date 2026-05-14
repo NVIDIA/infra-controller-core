@@ -34,6 +34,7 @@ use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, Firmwa
 use model::instance::status::tenant::TenantState;
 use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
 use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
+use model::rpc_conv::instance::snapshot::instance_snapshot_derive_status;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     InitialResetPhase, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
@@ -661,9 +662,9 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         &mut txn,
     )
     .await?;
-    db::machine_topology::update_firmware_version_by_bmc_address(
+    db::machine_topology::update_firmware_version_by_machine_id(
         &mut txn,
-        &host.bmc_info.ip_addr().unwrap(),
+        &host.id,
         "6.00.30.00",
         "1.2.3",
     )
@@ -739,7 +740,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         "0"
     );
 
-    // Validate update_firmware_version_by_bmc_address behavior
+    // Validate update_firmware_version_by_machine_id behavior
     assert_eq!(
         host.bmc_info.firmware_version,
         Some("6.00.30.00".to_string())
@@ -1246,12 +1247,18 @@ async fn test_instance_upgrading_actual_part_2(
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Configuring
     );
 
@@ -1279,12 +1286,18 @@ async fn test_instance_upgrading_actual_part_2(
     let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -1322,12 +1335,18 @@ async fn test_instance_upgrading_actual_part_2(
     let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -1362,12 +1381,18 @@ async fn test_instance_upgrading_actual_part_2(
     let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -1392,12 +1417,18 @@ async fn test_instance_upgrading_actual_part_2(
     let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -1444,12 +1475,18 @@ async fn test_instance_upgrading_actual_part_2(
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -1474,12 +1511,18 @@ async fn test_instance_upgrading_actual_part_2(
     let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -1516,12 +1559,18 @@ async fn test_instance_upgrading_actual_part_2(
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -1578,12 +1627,18 @@ async fn test_instance_upgrading_actual_part_2(
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -1607,9 +1662,9 @@ async fn test_instance_upgrading_actual_part_2(
     )
     .await
     .unwrap();
-    db::machine_topology::update_firmware_version_by_bmc_address(
+    db::machine_topology::update_firmware_version_by_machine_id(
         &mut txn,
-        &host.bmc_info.ip_addr().unwrap(),
+        &host.id,
         "6.00.30.00",
         "1.2.3",
     )
@@ -1636,12 +1691,18 @@ async fn test_instance_upgrading_actual_part_2(
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -1666,12 +1727,18 @@ async fn test_instance_upgrading_actual_part_2(
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -1694,12 +1761,18 @@ async fn test_instance_upgrading_actual_part_2(
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Configuring
     );
 
@@ -1717,18 +1790,24 @@ async fn test_instance_upgrading_actual_part_2(
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Configuring
     );
 
     txn.commit().await.unwrap();
 
-    // Validate update_firmware_version_by_bmc_address behavior
+    // Validate update_firmware_version_by_machine_id behavior
     assert_eq!(
         host.bmc_info.firmware_version,
         Some("6.00.30.00".to_string())

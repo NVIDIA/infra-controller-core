@@ -23,7 +23,7 @@ Ensure you have the following prerequisites met before ingesting machines:
 
 ## Update Site 
 
-NICo requires knowledge of the desired BMC and UEFI credentials for hosts and DPUs. NICo will set these credentials on the BMC and UEFI when ingesting a host. You can use these credentials when accessing the host or DPU BMC yourself, and NICo will use these credentials for its automated processes.
+NICo requires knowledge of the current and desired BMC and UEFI credentials for hosts and DPUs. NICo will reset current crendtials to the desired credentials on the BMC and UEFI when ingesting a host. You can use these credentials when accessing the host or DPU BMC yourself, and NICo will use these credentials for its automated processes.
 
 The required credentials include the following:
 
@@ -36,7 +36,7 @@ The required credentials include the following:
 > The following commands use the `<api-url>` placeholder, which is typically the following:
 
 ```bash
-https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>
+https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path <FORGE_ROOT_CA_PATH> --client-cert-path <CLIENT_CERT_PATH>  --client-key-path <CLIENT_KEY_PATH>
 ```
 
 ### Update Host and DPU BMC Password
@@ -49,7 +49,7 @@ carbide-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --passwo
 
 ### Update Host UEFI Password
 
-Run this command to update the desired host UEFI password:
+Run this command to generate the desired host UEFI password:
 
 ```bash
 carbide-admin-cli -c <api-url> host generate-host-uefi-password
@@ -59,10 +59,13 @@ carbide-admin-cli -c <api-url> host generate-host-uefi-password
 Run this command to update host uefi password:
 
 ```bash
-carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='x'
+carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='<password-gemerated-in-previous-step>'
 ```
 
-{/* TODO: Need to add "update DPU UEFI password" command. */}
+Run this command to update DPU uefi password:
+```bash
+carbide-admin-cli -c <api-url> credential add-uefi --kind=dpu --password='x'
+```
 
 ## Add Expected Machines Table
 

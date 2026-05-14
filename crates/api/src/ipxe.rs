@@ -27,7 +27,7 @@ use model::machine::{
     DpuInitState, FailureCause, FailureDetails, HostReprovisionState, InstanceState,
     ManagedHostState, MeasuringState, ReprovisionState, ValidationState,
 };
-use model::pxe::PxeInstructionRequest;
+use model::pxe::PxeInstructionsInput;
 use sqlx::PgConnection;
 
 use crate::CarbideError;
@@ -230,7 +230,7 @@ impl PxeInstructions {
 
     pub async fn get_pxe_instructions(
         txn: &mut PgConnection,
-        target: PxeInstructionRequest,
+        target: PxeInstructionsInput,
     ) -> Result<String, CarbideError> {
         let error_instructions = |machine_id: MachineId,
                                   interface_id: MachineInterfaceId,

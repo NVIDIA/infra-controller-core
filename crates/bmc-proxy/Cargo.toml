@@ -67,7 +67,7 @@ opentelemetry_sdk = { workspace = true, features = [
     "spec_unstable_metrics_views",
     "testing",
 ] }
-reqwest = { workspace = true, default-features = false, features = ["rustls-tls", "stream", ] }
+reqwest = { workspace = true, default-features = false, features = ["rustls", "stream", ] }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 thiserror = { workspace = true }

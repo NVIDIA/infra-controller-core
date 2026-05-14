@@ -23,9 +23,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
-use crate::handlers::machine_interface_address::{
-    preallocate_machine_interface, update_preallocated_machine_interface,
-};
+use crate::handlers::machine_interface_address::update_preallocated_machine_interface;
 
 pub async fn add_expected_switch(
     api: &Api,
@@ -48,7 +46,12 @@ pub async fn add_expected_switch(
         })?;
 
     if let Some(bmc_ip) = switch.bmc_ip_address {
-        preallocate_machine_interface(&mut txn, switch.bmc_mac_address, bmc_ip).await?;
+        db::machine_interface::preallocate_bmc_machine_interface(
+            &mut txn,
+            switch.bmc_mac_address,
+            bmc_ip,
+        )
+        .await?;
     }
 
     db_expected_switch::create(&mut txn, switch)

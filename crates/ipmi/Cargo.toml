@@ -18,7 +18,7 @@ carbide-uuid = { path = "../uuid" }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 eyre = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

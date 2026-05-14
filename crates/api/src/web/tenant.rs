@@ -105,7 +105,7 @@ async fn fetch_tenants(api: Arc<Api>) -> Result<forgerpc::TenantList, tonic::Sta
             .await?
             .into_inner();
 
-        tenants.extend(next_vpcs.tenants.into_iter());
+        tenants.extend(next_vpcs.tenants);
         offset += page_size;
     }
 

@@ -62,9 +62,8 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     // An interface that isn't attached to a Machine. This is what BMC interfaces are.
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        Some(domain.id),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )

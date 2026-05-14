@@ -59,7 +59,7 @@ opentelemetry-semantic-conventions = { workspace = true, features = [
   "semconv_experimental",
 ] }
 prometheus = { workspace = true }
-reqwest = { default-features = false, features = ["rustls-tls"], workspace = true }
+reqwest = { default-features = false, features = ["rustls"], workspace = true }
 rtnetlink = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }

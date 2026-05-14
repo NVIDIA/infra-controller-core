@@ -17,6 +17,8 @@
 
 //! SDK types for the DPF SDK.
 
+use std::collections::BTreeMap;
+
 use crate::crds::dpus_generated::DpuStatusPhase;
 
 /// Async provider for BMC passwords used to create and refresh the K8s BMC
@@ -364,6 +366,61 @@ pub struct DpuErrorEvent {
     pub device_name: String,
     /// Name of the DPUNode containing this DPU.
     pub node_name: String,
+}
+
+/// Curated snapshot of the DPF CRs related to a single host. Produced by
+/// [`crate::DpfSdk::snapshot_host`]. Designed for ad-hoc inspection (e.g.
+/// printing as JSON from an admin CLI), not as a stable wire format.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HostDpfSnapshot {
+    pub dpu_node: Option<DpuNodeSummary>,
+    pub dpu_devices: Vec<DpuDeviceSummary>,
+    pub dpus: Vec<DpuSummary>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DpuNodeSummary {
+    pub name: String,
+    pub labels: BTreeMap<String, String>,
+    pub annotations: BTreeMap<String, String>,
+    pub dpu_device_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DpuDeviceSummary {
+    pub name: String,
+    pub labels: BTreeMap<String, String>,
+    pub bmc_ip: Option<String>,
+    pub bmc_port: Option<i32>,
+    pub serial_number: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DpuSummary {
+    pub name: String,
+    pub labels: BTreeMap<String, String>,
+    pub spec_bfb: String,
+    pub spec_dpu_flavor: Option<String>,
+    pub spec_dpu_device_name: String,
+    pub spec_dpu_node_name: String,
+    pub status_phase: Option<String>,
+    pub status_bfb_file: Option<String>,
+}
+
+/// Helm-chart version observed on a live `DPUServiceTemplate` CR. Used by
+/// [`crate::DpfSdk::list_service_template_versions`] so callers (e.g. the
+/// admin CLI) can compare configured vs deployed versions.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ServiceTemplateVersion {
+    pub cr_name: String,
+    pub deployment_service_name: String,
+    pub helm_repo_url: String,
+    pub helm_chart: Option<String>,
+    pub helm_version: String,
+    /// Docker image tag extracted from `helm_chart.values.image.tag`, if
+    /// present. Empty when the template doesn't pin an image (e.g. dts
+    /// relies on the chart default).
+    pub docker_image_tag: String,
 }
 
 #[cfg(test)]

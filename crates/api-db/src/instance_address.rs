@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::ops::DerefMut;
 
-use carbide_network::virtualization::get_host_ip;
+use carbide_network::virtualization::{VpcVirtualizationType, get_host_ip};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use ipnetwork::IpNetwork;
@@ -36,7 +36,7 @@ use model::network_segment::{
 };
 use sqlx::{FromRow, PgConnection, PgTransaction, query_as};
 
-use super::{ObjectColumnFilter, network_segment};
+use super::{ObjectColumnFilter, network_segment, vpc};
 use crate::db_read::DbReader;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::{DatabaseError, DatabaseResult, Transaction};
@@ -135,6 +135,7 @@ fn validate(
     segments: &Vec<NetworkSegment>,
     instance_network: &InstanceNetworkConfig,
     segment_ids_using_vpc_prefix: &[NetworkSegmentId],
+    all_fnn: bool,
 ) -> DatabaseResult<()> {
     if segments.len() != instance_network.interfaces.len() {
         // Missing at least one segment in db.
@@ -173,7 +174,7 @@ fn validate(
         };
     }
 
-    if vpc_ids.len() != 1 {
+    if vpc_ids.len() != 1 && !all_fnn {
         return Err(ConfigValidationError::MultipleVpcFound.into());
     }
 
@@ -242,7 +243,34 @@ pub async fn allocate(
     )
     .await?;
 
-    validate(&segments, &updated_config, &segment_ids_using_vpc_prefix)?;
+    // Multi-VPC instance interfaces are supported only when every referenced VPC is FNN.
+    let vpc_ids = segments
+        .iter()
+        .filter_map(|segment| segment.vpc_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect_vec();
+    let all_fnn = if vpc_ids.len() > 1 {
+        let vpcs = vpc::find_by(
+            &mut inner_txn,
+            ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids),
+        )
+        .await?;
+
+        vpcs.len() == vpc_ids.len()
+            && vpcs
+                .iter()
+                .all(|vpc| vpc.network_virtualization_type == VpcVirtualizationType::Fnn)
+    } else {
+        false
+    };
+
+    validate(
+        &segments,
+        &updated_config,
+        &segment_ids_using_vpc_prefix,
+        all_fnn,
+    )?;
 
     let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
@@ -682,14 +710,17 @@ mod tests {
             })
             .collect();
 
-        InstanceNetworkConfig { interfaces }
+        InstanceNetworkConfig {
+            interfaces,
+            auto: false,
+        }
     }
 
     #[test]
     fn instance_address_segment_validation() {
         let data = create_valid_validation_data();
         let config = create_valid_network_config();
-        let x = super::validate(&data, &config, &[]);
+        let x = super::validate(&data, &config, &[], false);
         assert!(x.is_ok());
     }
 
@@ -698,7 +729,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data.swap_remove(10);
-        assert!(super::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[], false).is_err());
     }
 
     #[test]
@@ -706,7 +737,19 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[0].vpc_id = Some(uuid::Uuid::new_v4().into());
-        assert!(super::validate(&data, &config, &[]).is_err());
+
+        // Non-FNN and mixed VPCs still reject multi-VPC configs.
+        assert!(super::validate(&data, &config, &[], false).is_err());
+    }
+
+    #[test]
+    fn validate_multiple_fnn_vpc_must_pass() {
+        let mut data = create_valid_validation_data();
+        let config = create_valid_network_config();
+        data[0].vpc_id = Some(uuid::Uuid::new_v4().into());
+
+        // FNN VPCs allow interfaces to span multiple VPCs.
+        assert!(super::validate(&data, &config, &[], true).is_ok());
     }
 
     #[test]
@@ -714,7 +757,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[2].vpc_id = None;
-        assert!(super::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[], false).is_err());
     }
 
     #[test]
@@ -722,7 +765,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[12].deleted = Some(Utc::now());
-        assert!(super::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[], false).is_err());
     }
 
     #[test]
@@ -730,6 +773,6 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[9].controller_state.value = NetworkSegmentControllerState::Provisioning;
-        assert!(super::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[], false).is_err());
     }
 }

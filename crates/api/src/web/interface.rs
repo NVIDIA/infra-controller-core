@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use askama::Template;
@@ -38,6 +38,7 @@ struct InterfaceShow {
 
 struct InterfaceRowDisplay {
     id: String,
+    interface_type: String,
     mac_address: String,
     ip_address: String,
     machine_id: String,
@@ -50,6 +51,11 @@ impl From<forgerpc::MachineInterface> for InterfaceRowDisplay {
     fn from(mi: forgerpc::MachineInterface) -> Self {
         Self {
             id: mi.id.unwrap_or_default().to_string(),
+            interface_type: if mi.interface_type == Some(forgerpc::InterfaceType::Bmc as i32) {
+                "BMC".to_string()
+            } else {
+                "Data".to_string()
+            },
             mac_address: mi.mac_address,
             ip_address: mi.address.join(","),
             machine_id: mi
@@ -139,50 +145,7 @@ async fn fetch_machine_interfaces(
     out.interfaces
         .sort_unstable_by(|iface1, iface2| iface1.hostname.cmp(&iface2.hostname));
 
-    enrich_bmc_machine_ids(&api.database_connection, &mut out.interfaces).await;
-
     Ok(out.interfaces)
-}
-
-/// Resolve BMC IP → machine_id from `machine_topologies` and stamp it onto
-/// unlinked interfaces for display purposes only. No DB writes.
-async fn enrich_bmc_machine_ids(
-    pool: &sqlx::PgPool,
-    interfaces: &mut [forgerpc::MachineInterface],
-) {
-    let candidate_ips: Vec<String> = interfaces
-        .iter()
-        .filter(|i| i.machine_id.is_none() && i.attached_dpu_machine_id.is_none())
-        .flat_map(|i| i.address.iter().cloned())
-        .collect();
-
-    if candidate_ips.is_empty() {
-        return;
-    }
-
-    let pairs = match db::machine_topology::find_machine_bmc_pairs(pool, candidate_ips).await {
-        Ok(pairs) => pairs,
-        Err(err) => {
-            tracing::warn!(%err, "find_machine_bmc_pairs error during BMC interface enrichment");
-            return;
-        }
-    };
-
-    let bmc_ip_to_machine: HashMap<String, _> =
-        pairs.into_iter().map(|(mid, ip)| (ip, mid)).collect();
-
-    for interface in interfaces.iter_mut() {
-        if interface.machine_id.is_some() || interface.attached_dpu_machine_id.is_some() {
-            continue;
-        }
-        for ip in &interface.address {
-            if let Some(&machine_id) = bmc_ip_to_machine.get(ip) {
-                interface.is_bmc = Some(true);
-                interface.machine_id = Some(machine_id);
-                break;
-            }
-        }
-    }
 }
 
 #[derive(Template)]
@@ -241,7 +204,7 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
             last_dhcp: last_dhcp
                 .map(|d| d.format("%F %T %Z").to_string())
                 .unwrap_or_default(),
-            is_bmc: mi.is_bmc.unwrap_or(false),
+            is_bmc: mi.interface_type == Some(forgerpc::InterfaceType::Bmc as i32),
         }
     }
 }
