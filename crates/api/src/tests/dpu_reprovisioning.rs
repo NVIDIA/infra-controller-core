@@ -26,6 +26,7 @@ use model::machine::{
     DpuInitState, FailureDetails, InstallDpuOsState, InstanceState, MachineLastRebootRequestedMode,
     MachineState, ManagedHostState, ReprovisionState,
 };
+use model::rpc_conv::instance::snapshot::instance_snapshot_derive_status;
 use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
@@ -429,12 +430,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -469,12 +476,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -503,12 +516,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -537,12 +556,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -559,12 +584,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let db_instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -581,12 +612,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let db_instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -615,12 +652,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -637,12 +680,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -661,12 +710,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     ));
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Configuring
     );
 }
