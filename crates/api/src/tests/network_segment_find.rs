@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#![allow(deprecated)]
+
 use ::rpc::forge as rpc;
 use carbide_uuid::network::NetworkSegmentId;
 use rpc::forge_server::Forge;

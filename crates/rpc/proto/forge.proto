@@ -2289,15 +2289,15 @@ message NetworkSegment {
   common.NetworkSegmentId id = 1;
 
   // Deprecated: use config.vpc_id
-  common.VpcId vpc_id = 2;
+  common.VpcId vpc_id = 2 [deprecated = true];
   // Deprecated: use metadata.name
-  string name = 3;
+  string name = 3 [deprecated = true];
   // Deprecated: use config.subdomain_id
-  optional common.DomainId subdomain_id = 4;
+  optional common.DomainId subdomain_id = 4 [deprecated = true];
   // Deprecated: use config.mtu
-  optional int32 mtu = 5;
+  optional int32 mtu = 5 [deprecated = true];
   // Deprecated: use config.prefixes
-  repeated NetworkPrefix prefixes = 6;
+  repeated NetworkPrefix prefixes = 6 [deprecated = true];
 
   // Not sure if we actually still need those
   google.protobuf.Timestamp created = 11;
@@ -2305,24 +2305,24 @@ message NetworkSegment {
   google.protobuf.Timestamp deleted = 13;
 
   // Deprecated: use config.segment_type
-  NetworkSegmentType segment_type = 14;
+  NetworkSegmentType segment_type = 14 [deprecated = true];
   // Deprecated: use status.flags
-  repeated NetworkSegmentFlag flags = 15;
+  repeated NetworkSegmentFlag flags = 15 [deprecated = true];
 
   NetworkSegmentConfig config = 16;
   NetworkSegmentStatus status = 17;
   Metadata metadata = 18;
 
   // Deprecated: use status.lifecycle.version
-  string version = 99;
+  string version = 99 [deprecated = true];
   // Deprecated: use status.lifecycle.state
-  TenantState state = 100;
+  TenantState state = 100 [deprecated = true];
   // Deprecated: use FindNetworkSegmentStateHistories RPC
-  repeated NetworkSegmentStateHistory history = 101;
+  repeated NetworkSegmentStateHistory history = 101 [deprecated = true];
   // Deprecated: use status.lifecycle.state_reason
-  optional ControllerStateReason state_reason = 102;
+  optional ControllerStateReason state_reason = 102 [deprecated = true];
   // Deprecated: use status.lifecycle.sla
-  StateSla state_sla = 103;
+  StateSla state_sla = 103 [deprecated = true];
 }
 
 message NetworkSegmentCreationRequest {

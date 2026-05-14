@@ -584,6 +584,7 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
 /// Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
 ///
 /// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
+#[allow(deprecated)]
 impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
     type Error = RpcDataConversionError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {

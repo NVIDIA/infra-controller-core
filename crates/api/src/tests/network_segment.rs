@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
