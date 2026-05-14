@@ -44,7 +44,9 @@ Related: [Architecture Overview](architecture/overview.md), [Reliable State Hand
 
 ### ManagedHost
 
-The fundamental unit of infrastructure that NICo manages. A ManagedHost represents a single physical box in a datacenter and contains exactly two Machines: one DPU and one Host. NICo manages both sides end-to-end: the DPU provides networking enforcement and management infrastructure, while the Host provides the compute resources that tenants consume.
+The fundamental unit of infrastructure that NICo manages. A ManagedHost represents a single physical box in a datacenter and groups one Host Machine with the DPU Machines attached to that host. Most current deployments use one DPU per host, but the Core data model stores DPUs as a list, and supported/tested paths include hosts with multiple DPUs and configuration-gated zero-DPU hosts.
+
+NICo manages the Host and attached DPUs end-to-end: the DPUs provide networking enforcement and management infrastructure, while the Host provides the compute resources that tenants consume.
 
 Related: [Managed Host State Machine](architecture/state_machines/managedhost.md), [Ingesting Hosts](provisioning/ingesting-hosts.md)
 
