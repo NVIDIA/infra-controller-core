@@ -1314,3 +1314,121 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
 
     Ok(())
 }
+
+/// Verifies that state transitions written by the controller appear in
+/// the FindNetworkSegmentStateHistories response, keyed by segment ID,
+/// ordered oldest-first, and contain the correct serialized state values.
+#[crate::sqlx_test]
+async fn test_find_state_histories_records_provisioning_to_ready_transition(pool: sqlx::PgPool) {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let segment = create_network_segment_with_api(
+        &env,
+        true,
+        true,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
+
+    let segment_id: NetworkSegmentId = segment.id.unwrap();
+
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    assert_eq!(
+        get_segment_state(&env.api, segment_id).await,
+        rpc::forge::TenantState::Ready,
+        "segment must reach Ready before checking history"
+    );
+
+    let result = env
+        .api
+        .find_network_segment_state_histories(tonic::Request::new(
+            rpc::forge::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![segment_id],
+            },
+        ))
+        .await
+        .expect("RPC must succeed")
+        .into_inner();
+
+    let records = result
+        .histories
+        .get(&segment_id.to_string())
+        .expect("response must contain an entry for the requested segment ID")
+        .records
+        .clone();
+
+    // History is ordered oldest-first (ORDER BY id ASC).
+    // The controller writes Provisioning on create, then Ready on first successful iteration.
+    let states: Vec<&str> = records.iter().map(|r| r.state.as_str()).collect();
+    let provisioning_pos = states
+        .iter()
+        .position(|s| s.contains("provisioning"))
+        .unwrap_or_else(|| panic!("history must contain a provisioning record; got: {states:?}"));
+
+    let ready_pos = states
+        .iter()
+        .position(|s| s.contains("ready"))
+        .unwrap_or_else(|| panic!("history must contain a ready record; got: {states:?}"));
+
+    assert!(
+        provisioning_pos < ready_pos,
+        "provisioning must precede ready in history (oldest-first); got: {states:?}"
+    );
+}
+
+/// Verifies that the RPC rejects an empty ID list with InvalidArgument.
+#[crate::sqlx_test]
+async fn test_find_state_histories_rejects_empty_id_list(pool: sqlx::PgPool) {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let err = env
+        .api
+        .find_network_segment_state_histories(tonic::Request::new(
+            rpc::forge::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![],
+            },
+        ))
+        .await
+        .expect_err("empty ID list must be rejected");
+
+    assert_eq!(
+        err.code(),
+        tonic::Code::InvalidArgument,
+        "expected InvalidArgument, got: {err}"
+    );
+}
+
+/// Verifies that requesting history for a segment that does not exist
+/// succeeds (no error) but returns no records for that ID.
+#[crate::sqlx_test]
+async fn test_find_state_histories_unknown_segment_returns_no_records(pool: sqlx::PgPool) {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let unknown_id = NetworkSegmentId::from(uuid::Uuid::new_v4());
+
+    let result = env
+        .api
+        .find_network_segment_state_histories(tonic::Request::new(
+            rpc::forge::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![unknown_id],
+            },
+        ))
+        .await
+        .expect("unknown segment ID must not cause an error")
+        .into_inner();
+
+    let records = result
+        .histories
+        .get(&unknown_id.to_string())
+        .map(|h| h.records.as_slice())
+        .unwrap_or(&[]);
+
+    assert!(
+        records.is_empty(),
+        "unknown segment must yield no history records, got: {records:?}"
+    );
+}
