@@ -61,7 +61,7 @@ pub struct SiteExplorerConfig {
     #[serde(default = "SiteExplorerConfig::default_explorations_per_run")]
     pub explorations_per_run: u64,
 
-    /// Whether SiteExplorer should create Managed Host state machine
+    /// When false, SiteExplorer skips creating ManagedHost state machines; the DPU agent (scout) must self-register via DiscoverMachine gRPC endpoint with create_machine=true
     #[serde(
         default = "SiteExplorerConfig::default_create_machines",
         deserialize_with = "deserialize_arc_atomic_bool",
