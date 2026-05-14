@@ -193,11 +193,11 @@ fn convert_network_to_nice_table(
             .to_string();
 
         let Some(config) = segment.config else {
-            println!("skipping segment {:?}: missing config", segment.id);
+            eprintln!("skipping segment {:?}: missing config", segment.id);
             continue;
         };
         let Some(status) = segment.status else {
-            println!("skipping segment {:?}: missing status", segment.id);
+            eprintln!("skipping segment {:?}: missing status", segment.id);
             continue;
         };
 
@@ -298,9 +298,7 @@ async fn show_network_information(
     } else {
         println!(
             "{}",
-            convert_network_to_nice_format(segment, history, api_client)
-                .await
-                .unwrap_or_else(|x| x.to_string())
+            convert_network_to_nice_format(segment, history, api_client).await?
         );
     }
     Ok(())
