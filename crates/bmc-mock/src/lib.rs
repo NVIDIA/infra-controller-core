@@ -24,11 +24,11 @@ pub mod ipmi;
 
 mod auth_router;
 mod bmc_state;
-pub mod bug;
 mod combined_server;
 mod combined_service;
 mod http;
 mod hw;
+pub mod injection;
 mod json;
 mod machine_info;
 mod middleware_router;
