@@ -15,17 +15,17 @@
  * limitations under the License.
  */
 
-mod show;
-
-#[cfg(test)]
-mod tests;
-
 use clap::Parser;
 
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display NvLink partition information")]
-    Show(show::Args),
+#[derive(Parser, Debug)]
+pub struct Args {
+    #[clap(
+        default_value(""),
+        help = "Optional, NvLink Partition ID to search for"
+    )]
+    pub id: String,
+    #[clap(short, long, help = "Optional, Tenant Organization ID to search for")]
+    pub tenant_org_id: Option<String>,
+    #[clap(short, long, help = "Optional, NvLink Partition Name to search for")]
+    pub name: Option<String>,
 }

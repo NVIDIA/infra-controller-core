@@ -77,6 +77,7 @@ mod mlx;
 mod network_devices;
 mod network_security_group;
 mod network_segment;
+mod nvl_logical_partition;
 mod nvl_partition;
 mod nvlink_nmxc_endpoints;
 mod operating_system;
@@ -229,6 +230,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::Inventory(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ip(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Jump(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::LogicalPartition(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Machine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::MachineInterfaces(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::MachineValidation(cmd) => cmd.dispatch(ctx).await?,
@@ -239,7 +241,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::NetworkSecurityGroup(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlinkNmxcEndpoints(cmd) => cmd.dispatch(ctx).await?,
-        CliCommand::NvlinkPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::IpxeTemplate(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OsImage(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OperatingSystem(cmd) => cmd.dispatch(ctx).await?,

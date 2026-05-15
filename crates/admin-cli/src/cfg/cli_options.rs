@@ -23,10 +23,10 @@ use crate::{
     expected_rack, expected_switch, extension_service, firmware, generate_shell_complete, host,
     ib_partition, instance, instance_type, inventory, ip, ipxe_template, jump, machine,
     machine_interfaces, machine_validation, managed_host, managed_switch, mlx, network_devices,
-    network_security_group, network_segment, nvl_partition, nvlink_nmxc_endpoints,
-    operating_system, os_image, ping, power_shelf, rack, rack_firmware, redfish, resource_pool,
-    rms, route_server, scout_stream, set, site_explorer, sku, ssh, switch, tenant, tenant_keyset,
-    tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
+    network_security_group, network_segment, nvl_logical_partition, nvl_partition,
+    nvlink_nmxc_endpoints, operating_system, os_image, ping, power_shelf, rack, rack_firmware,
+    redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer, sku, ssh, switch,
+    tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
@@ -338,11 +338,18 @@ pub enum CliCommand {
     #[clap(about = "Scout Stream Connection Handling", subcommand)]
     ScoutStream(scout_stream::ScoutStreamAction),
     #[clap(
-        about = "NVLink logical and physical Partition related handling",
+        about = "NvLink Partition related handling",
         subcommand,
         visible_alias = "nvp"
     )]
-    NvlinkPartition(nvl_partition::Cmd),
+    NvlPartition(nvl_partition::Cmd),
+
+    #[clap(
+        about = "Logical partition related handling",
+        subcommand,
+        visible_alias = "lp"
+    )]
+    LogicalPartition(nvl_logical_partition::Cmd),
 
     #[clap(subcommand)]
     #[clap(verbatim_doc_comment)]

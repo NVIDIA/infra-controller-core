@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+mod create;
+mod delete;
 mod show;
 
 #[cfg(test)]
@@ -26,6 +28,10 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
-    #[clap(about = "Display NvLink partition information")]
+    #[clap(about = "Display logical partition information")]
     Show(show::Args),
+    #[clap(about = "Create logical partition")]
+    Create(create::Args),
+    #[clap(about = "Delete logical partition")]
+    Delete(delete::Args),
 }

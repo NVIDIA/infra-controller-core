@@ -48,53 +48,83 @@ fn verify_cmd_structure() {
 // arguments (all partitions).
 #[test]
 fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["nvl-partition", "show"]).expect("should parse show");
+    let cmd = Cmd::try_parse_from(["nvl-logical-partition", "show"]).expect("should parse show");
 
     match cmd {
         Cmd::Show(args) => {
             assert!(args.id.is_empty());
-            assert!(args.tenant_org_id.is_none());
             assert!(args.name.is_none());
         }
+        _ => panic!("expected Show variant"),
     }
 }
 
-// parse_show_with_tenant ensures show parses with
-// --tenant-org-id.
-#[test]
-fn parse_show_with_tenant() {
-    let cmd = Cmd::try_parse_from(["nvl-partition", "show", "--tenant-org-id", "tenant-123"])
-        .expect("should parse show with tenant");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.tenant_org_id, Some("tenant-123".to_string()));
-        }
-    }
-}
-
-// parse_show_with_name ensures show parses with --name.
+// parse_show_with_name ensures show parses with --name filter.
 #[test]
 fn parse_show_with_name() {
-    let cmd = Cmd::try_parse_from(["nvl-partition", "show", "--name", "my-partition"])
+    let cmd = Cmd::try_parse_from(["nvl-logical-partition", "show", "--name", "my-partition"])
         .expect("should parse show with name");
 
     match cmd {
         Cmd::Show(args) => {
             assert_eq!(args.name, Some("my-partition".to_string()));
         }
+        _ => panic!("expected Show variant"),
     }
 }
 
-// parse_show_with_id ensures show parses with positional ID.
+// parse_create ensures create parses with required
+// arguments.
 #[test]
-fn parse_show_with_id() {
-    let cmd = Cmd::try_parse_from(["nvl-partition", "show", "partition-123"])
-        .expect("should parse show with id");
+fn parse_create() {
+    let cmd = Cmd::try_parse_from([
+        "nvl-logical-partition",
+        "create",
+        "--name",
+        "my-partition",
+        "--tenant-organization-id",
+        "tenant-123",
+    ])
+    .expect("should parse create");
 
     match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.id, "partition-123");
+        Cmd::Create(args) => {
+            assert_eq!(args.name, "my-partition");
+            assert_eq!(args.tenant_organization_id, "tenant-123");
         }
+        _ => panic!("expected Create variant"),
     }
+}
+
+// parse_delete ensures delete parses with required
+// arguments.
+#[test]
+fn parse_delete() {
+    let cmd = Cmd::try_parse_from(["nvl-logical-partition", "delete", "--name", "my-partition"])
+        .expect("should parse delete");
+
+    match cmd {
+        Cmd::Delete(args) => {
+            assert_eq!(args.name, "my-partition");
+        }
+        _ => panic!("expected Delete variant"),
+    }
+}
+
+// parse_create_missing_required_fails ensures create
+// fails without required arguments.
+#[test]
+fn parse_create_missing_required_fails() {
+    let result = Cmd::try_parse_from(["nvl-logical-partition", "create"]);
+    assert!(
+        result.is_err(),
+        "should fail without --name and --tenant-organization-id"
+    );
+}
+
+// parse_delete_missing_name_fails ensures delete fails without --name.
+#[test]
+fn parse_delete_missing_name_fails() {
+    let result = Cmd::try_parse_from(["nvl-logical-partition", "delete"]);
+    assert!(result.is_err(), "should fail without --name");
 }

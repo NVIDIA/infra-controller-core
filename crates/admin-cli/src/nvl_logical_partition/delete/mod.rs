@@ -15,17 +15,17 @@
  * limitations under the License.
  */
 
-mod show;
+pub mod args;
+pub mod cmd;
 
-#[cfg(test)]
-mod tests;
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
 
-use clap::Parser;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display NvLink partition information")]
-    Show(show::Args),
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::handle_delete(self, &ctx.api_client).await
+    }
 }
