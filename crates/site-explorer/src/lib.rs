@@ -49,9 +49,10 @@ use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
-    EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
-    PowerState, PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
+    EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
+    ExploredDpu, ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation,
+    NicMode, PowerState, PreingestionState, Service, is_bf3_dpu, is_bf3_supernic,
+    is_bluefield_model,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -75,7 +76,7 @@ mod managed_host;
 use db::ObjectColumnFilter;
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 pub use managed_host::is_endpoint_in_managed_host;
-use model::expected_machine::DpuMode;
+use model::expected_machine::{DpuMode, ExpectedHostNic};
 use model::firmware::FirmwareComponentType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
@@ -1683,6 +1684,10 @@ impl SiteExplorer {
                     }
 
                     if let Ok(report) = &mut result {
+                        backfill_system_ethernet_interfaces_from_expected_host_nics(
+                                                    report,
+                                                    endpoint.expected,
+                                                );
                         enrich_endpoint_exploration_report(report, &fw_config_snapshot);
                     }
 
@@ -2802,7 +2807,55 @@ fn should_alert_power_state(power_state: PowerState) -> bool {
         PowerState::On | PowerState::PoweringOn | PowerState::PoweringOff
     )
 }
+fn backfill_system_ethernet_interfaces_from_expected_host_nics(
+    report: &mut EndpointExplorationReport,
+    expected: Option<&ExpectedEntity>,
+) {
+    let Some(ExpectedEntity::Machine(expected_machine)) = expected else {
+        return;
+    };
+    let host_nics = &expected_machine.data.host_nics;
+    if host_nics.is_empty() {
+        return;
+    }
+    if report.is_dpu() || report.is_switch() || report.is_power_shelf() {
+        return;
+    }
 
+    for system in report.systems.iter_mut() {
+        if !system.ethernet_interfaces.is_empty() {
+            continue;
+        }
+        tracing::info!(
+            system_id = %system.id,
+            host_nic_count = host_nics.len(),
+            "System EthernetInterfaces missing from Redfish; synthesizing from ExpectedMachine.host_nics"
+        );
+        system.ethernet_interfaces = host_nics
+            .iter()
+            .enumerate()
+            .map(|(idx, nic)| synthesize_ethernet_interface_from_host_nic(idx, nic))
+            .collect();
+    }
+}
+
+fn synthesize_ethernet_interface_from_host_nic(
+    idx: usize,
+    nic: &ExpectedHostNic,
+) -> EthernetInterface {
+    let id = match nic.nic_type.as_deref() {
+        Some(t) if !t.is_empty() => format!("expected-{t}-{idx}"),
+        _ => format!("expected-host-nic-{idx}"),
+    };
+    EthernetInterface {
+        description: Some("Synthesized from ExpectedMachine.host_nics".to_string()),
+        id: Some(id),
+        interface_enabled: None,
+        mac_address: Some(nic.mac_address),
+        link_status: None,
+        uefi_device_path: None,
+    }
+}
 #[cfg(test)]
 mod tests {
     use config_version::ConfigVersion;
