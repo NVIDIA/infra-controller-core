@@ -402,7 +402,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 };
 
                 // Build the FQDN from this interface's segment domain.
-                let domain = match segment.subdomain_id {
+                let domain = match segment.config.subdomain_id {
                     Some(domain_id) => {
                         db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
                             .await

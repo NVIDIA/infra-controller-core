@@ -152,19 +152,19 @@ fn validate(
 
         // If segment is created using vpc_prefix id, it will not be in Ready state by now.
         if !segment_ids_using_vpc_prefix.contains(&segment.id) {
-            match &segment.controller_state.value {
+            match &segment.status.controller_state.value {
                 NetworkSegmentControllerState::Ready => {}
                 _ => {
                     return Err(ConfigValidationError::NetworkSegmentNotReady(
                         segment.id,
-                        format!("{:?}", segment.controller_state.value),
+                        format!("{:?}", segment.status.controller_state.value),
                     )
                     .into());
                 }
             }
         }
 
-        match segment.vpc_id {
+        match segment.config.vpc_id {
             Some(x) => {
                 vpc_ids.insert(x);
             }
@@ -246,7 +246,7 @@ pub async fn allocate(
     // Multi-VPC instance interfaces are supported only when every referenced VPC is FNN.
     let vpc_ids = segments
         .iter()
-        .filter_map(|segment| segment.vpc_id)
+        .filter_map(|segment| segment.config.vpc_id)
         .collect::<HashSet<_>>()
         .into_iter()
         .collect_vec();
@@ -312,7 +312,7 @@ pub async fn allocate(
 
         // Hydrate iface with network addresses, returning the assigned addresses.
         // A segment may have multiple prefixes (e.g. dual-stack with both IPv4 and IPv6).
-        let addresses = if segment.segment_type == NetworkSegmentType::HostInband {
+        let addresses = if segment.config.segment_type == NetworkSegmentType::HostInband {
             // For host-inband network segments, the instance interface *is* the host
             // interface. Iterate all prefixes so dual-stack segments get both v4 and v6
             // addresses assigned. Prefixes where the host has no matching address are
@@ -642,7 +642,7 @@ mod tests {
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
     use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
-    use model::network_segment::NetworkSegmentType;
+    use model::network_segment::{NetworkSegmentConfig, NetworkSegmentStatus, NetworkSegmentType};
     use uuid::Uuid;
 
     use super::*;
@@ -657,25 +657,29 @@ mod tests {
                 NetworkSegment {
                     id: NetworkSegmentId::from_str(&id).unwrap(),
                     version,
-                    name: id,
-                    subdomain_id: None,
-                    vpc_id: Some(vpc_id),
-                    mtu: 1500,
+                    config: NetworkSegmentConfig {
+                        name: id,
+                        subdomain_id: None,
+                        vpc_id: Some(vpc_id),
+                        mtu: 1500,
+                        segment_type: NetworkSegmentType::Tenant,
+                        allocation_strategy: Default::default(),
+                    },
+                    status: NetworkSegmentStatus {
+                        controller_state: Versioned {
+                            value: NetworkSegmentControllerState::Ready,
+                            version,
+                        },
+                        controller_state_outcome: None,
+                        history: Vec::new(),
+                        vlan_id: None,
+                        vni: None,
+                        can_stretch: None,
+                    },
                     created: Utc::now(),
                     updated: Utc::now(),
                     deleted: None,
                     prefixes: Vec::new(),
-                    controller_state: Versioned {
-                        value: NetworkSegmentControllerState::Ready,
-                        version,
-                    },
-                    controller_state_outcome: None,
-                    history: Vec::new(),
-                    vlan_id: None,
-                    vni: None,
-                    segment_type: NetworkSegmentType::Tenant,
-                    can_stretch: None,
-                    allocation_strategy: Default::default(),
                 }
             })
             .collect_vec();
@@ -736,7 +740,7 @@ mod tests {
     fn validate_multiple_vpc_must_fail() {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
-        data[0].vpc_id = Some(uuid::Uuid::new_v4().into());
+        data[0].config.vpc_id = Some(uuid::Uuid::new_v4().into());
 
         // Non-FNN and mixed VPCs still reject multi-VPC configs.
         assert!(super::validate(&data, &config, &[], false).is_err());
@@ -746,7 +750,7 @@ mod tests {
     fn validate_multiple_fnn_vpc_must_pass() {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
-        data[0].vpc_id = Some(uuid::Uuid::new_v4().into());
+        data[0].config.vpc_id = Some(uuid::Uuid::new_v4().into());
 
         // FNN VPCs allow interfaces to span multiple VPCs.
         assert!(super::validate(&data, &config, &[], true).is_ok());
@@ -756,7 +760,7 @@ mod tests {
     fn validate_missing_vpc_fail() {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
-        data[2].vpc_id = None;
+        data[2].config.vpc_id = None;
         assert!(super::validate(&data, &config, &[], false).is_err());
     }
 
@@ -772,7 +776,7 @@ mod tests {
     fn validate_not_ready_segment_fail() {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
-        data[9].controller_state.value = NetworkSegmentControllerState::Provisioning;
+        data[9].status.controller_state.value = NetworkSegmentControllerState::Provisioning;
         assert!(super::validate(&data, &config, &[], false).is_err());
     }
 }

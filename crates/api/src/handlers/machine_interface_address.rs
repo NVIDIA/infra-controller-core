@@ -66,7 +66,7 @@ pub async fn update_preallocated_machine_interface(
                     txn,
                     iface.id,
                     segment.id,
-                    segment.subdomain_id,
+                    segment.config.subdomain_id,
                 )
                 .await?;
             }
@@ -137,7 +137,7 @@ pub async fn assign_static_address(
             &mut txn,
             interface_id,
             target_segment.id,
-            target_segment.subdomain_id,
+            target_segment.config.subdomain_id,
         )
         .await?;
         tracing::info!(
