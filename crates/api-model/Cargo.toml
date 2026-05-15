@@ -39,7 +39,6 @@ carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
-carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }

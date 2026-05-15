@@ -862,8 +862,6 @@ fn enumerate_hardware_inner(
         memory_devices,
         tpm_description: None,
         attest_key_info: None,
-        // TODO: Remove when there's no longer a need to handle the old topology format
-        ..Default::default()
     })
 }
 

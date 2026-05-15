@@ -20,12 +20,11 @@
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
 use carbide_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
-use carbide_rpc_utils::machine_discovery::aggregate_cpus;
 use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
 
 use crate::hardware_info::{
-    BlockDevice, Cpu, CpuInfo, DmiData, DpuData, Gpu, GpuPlatformInfo, HardwareInfo,
+    BlockDevice, CpuInfo, DmiData, DpuData, Gpu, GpuPlatformInfo, HardwareInfo,
     InfinibandInterface, LldpSwitchData, MachineInventory, MachineInventorySoftwareComponent,
     MachineNvLinkInfo, MemoryDevice, NetworkInterface, NvLinkGpu, NvmeDevice, PciDeviceProperties,
     TpmDescription, TpmEkCertificate,
@@ -59,28 +58,6 @@ impl From<TpmDescription> for rpc::machine_discovery::TpmDescription {
 // separate crate we can't have it there (unless we also make the model a
 // separate crate).
 //
-
-// The reverse, rpc::machine_discovery::Cpu -> Cpu, isn't needed going forward because
-// rpc::machine_discovery::Cpu instances parsed from /proc/cpuinfo are now aggregated directly into
-// CpuInfo rather than converted to Cpu. Only when reading the old format back from the
-// machine_topologies table in the database do we need this conversion to leverage that same
-// aggregation logic as if parsing from /proc/cpuinfo.
-// TODO: Remove when there's no longer a need to handle the old topology format
-impl TryFrom<&Cpu> for rpc::machine_discovery::Cpu {
-    type Error = RpcDataConversionError;
-
-    fn try_from(cpu: &Cpu) -> Result<Self, Self::Error> {
-        Ok(Self {
-            vendor: cpu.vendor.clone(),
-            model: cpu.model.clone(),
-            frequency: cpu.frequency.clone(),
-            number: cpu.number,
-            core: cpu.core,
-            node: cpu.node,
-            socket: cpu.socket,
-        })
-    }
-}
 
 impl TryFrom<rpc::machine_discovery::CpuInfo> for CpuInfo {
     type Error = RpcDataConversionError;
@@ -475,7 +452,6 @@ impl From<MemoryDevice> for rpc::machine_discovery::MemoryDevice {
 impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
     type Error = RpcDataConversionError;
 
-    #[allow(deprecated)]
     fn try_from(info: rpc::machine_discovery::DiscoveryInfo) -> Result<Self, Self::Error> {
         let tpm_ek_certificate = info
             .tpm_ek_certificate
@@ -500,18 +476,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             }
         };
 
-        // TODO: Remove "cpus" when there's no longer a need to handle the old topology format
-        let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
-            match try_convert_vec(info.cpus) {
-                Ok(v1_cpus) => aggregate_cpus(&v1_cpus)
-                    .into_iter()
-                    .map(CpuInfo::try_from)
-                    .collect::<Result<Vec<_>, _>>()?,
-                Err(_) => Vec::new(),
-            }
-        } else {
-            try_convert_vec(info.cpu_info)?
-        };
+        let cpu_info: Vec<CpuInfo> = try_convert_vec(info.cpu_info)?;
 
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
@@ -537,8 +502,6 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
 impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
     type Error = RpcDataConversionError;
 
-    // TODO: Remove this directive when there's no longer a need to handle the old topology format
-    #[allow(deprecated)]
     fn try_from(info: HardwareInfo) -> Result<Self, Self::Error> {
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
@@ -567,8 +530,6 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .collect(),
             tpm_description: info.tpm_description.map(std::convert::Into::into),
             attest_key_info: None,
-            // TODO: Remove cpus when there's no longer a need to handle the old topology format
-            cpus: vec![],
         })
     }
 }
@@ -664,39 +625,5 @@ impl From<rpc::forge::NvLinkGpu> for NvLinkGpu {
             device_id: value.device_id,
             guid: value.guid,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use prost::Message;
-
-    use super::*;
-
-    const X86_INFO_JSON: &[u8] = include_bytes!("../hardware_info/test_data/x86_info.json");
-    // TODO: Remove when there's no longer a need to handle the old topology format
-    const X86_V1_CPU_INFO_JSON: &[u8] =
-        include_bytes!("../hardware_info/test_data/x86_v1_cpu_info.json");
-
-    // TODO: Remove this test when there's no longer a need to handle the old topology format
-    #[test]
-    #[allow(deprecated)]
-    fn test_v1_discovery_info_decode() -> Result<(), Box<dyn std::error::Error>> {
-        let hardware_info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
-        let mut info =
-            rpc::machine_discovery::DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
-        info.cpus = serde_json::from_slice::<Vec<Cpu>>(X86_V1_CPU_INFO_JSON)
-            .unwrap()
-            .iter()
-            .map(rpc::machine_discovery::Cpu::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-        info.cpu_info = Vec::new();
-
-        let bytes = info.encode_to_vec();
-        let decoded = rpc::machine_discovery::DiscoveryInfo::decode(&*bytes).unwrap();
-        let decoded_hardware_info = HardwareInfo::try_from(decoded).unwrap();
-
-        assert_eq!(decoded_hardware_info, hardware_info);
-        Ok(())
     }
 }
