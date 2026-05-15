@@ -8,16 +8,16 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 
 - **Documentation refresh + unified REST API docs**: Updated the docs look and feel at [https://docs.nvidia.com/infra-controller/documentation/introduction](https://docs.nvidia.com/infra-controller/documentation/introduction), and consolidated REST API information into the same documentation set.
 - **Simplified deployment**: Added NICo deployment [prerequisite tool](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs) `helm-prereqs` to install required dependencies and enable easy NICo deployment.
-- **Rack Level Administration (RLA)**: Significantly expanded rack/tray operations via REST APIs (validation, power, firmware, bring-up, task query), gated by a site-config flag.
+- **Rack Level Administration (RLA)**: Significantly expanded rack/tray operations via REST APIs (validation, power, firmware, bring-up).
 
 ### Compatibility Matrix
 
 The following components are supported for this release:
 
-| Component            | Version |
+| Component            | Version |  
 |----------------------|---------|
-| Cloud API            | v1.4.2  |
-| Carbide              | v0.8.0  |
+| NICo REST API        | v1.4.2  |
+| NICo Core            | v0.8.0  |
 | Elektra (site agent) | v0.8.0  |
 
 The following dependencies have been validated for this release:
@@ -42,7 +42,6 @@ The following dependencies have been validated for this release:
 - RLA REST API:
   - Rack endpoints (RLA-backed):
     - List racks / get rack by ID
-    - Query rack tasks
     - Validate racks / validate rack by ID
     - Power control (single + batch)
     - Firmware update (single + batch)
