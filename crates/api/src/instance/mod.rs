@@ -860,12 +860,25 @@ pub async fn batch_allocate_instances(
                 .unwrap_or(true),
         )?;
 
-        // Reject instance configs whose network interfaces reference segments
-        // the host can't actually serve. For a zero-DPU host, this means
-        // anything beyond its HostInband segments; there's no DPU to handle
-        // overlay/tenant networking, so accepting the request would leave a
-        // zero-DPU instance stuck in Provisioning with no path to completion.
+        // Zero-DPU hosts (no DPU, or DPU in NIC mode) MUST use `auto`, because
+        // their only valid attachments are HostInband segments, and NICo knows
+        // which one(s) the host is on. Conversely, hosts with DPUs cannot use
+        // `auto`, and are expected to enumerate their interfaces explicitly.
         if mh_snapshot.is_zero_dpu() {
+            if !request.config.network.auto {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "zero-DPU host {} requires `InstanceNetworkConfig.auto = true`; cannot allocate an instance with explicitly-listed interfaces or with `auto = false`",
+                    mh_snapshot.host_snapshot.id,
+                )));
+            }
+
+            // ...and eeven though gRPC <-> model validation rejects
+            // auto + non-empty interfaces, double-check here so a future
+            // refactor can't silently sneak unsupported segment references
+            // past this point. For a zero-DPU host, the only valid
+            // attachments are HostInband segments; nothing else can be
+            // served by a host with no DPU to handle overlay/tenant
+            // networking.
             let allowed_segment_ids: HashSet<_> = mh_snapshot
                 .host_snapshot
                 .interfaces
@@ -898,6 +911,11 @@ pub async fn batch_allocate_instances(
                     mh_snapshot.host_snapshot.id,
                 )));
             }
+        } else if request.config.network.auto {
+            return Err(CarbideError::InvalidArgument(format!(
+                "host {} has DPUs; `InstanceNetworkConfig.auto` is only valid on zero-DPU hosts",
+                mh_snapshot.host_snapshot.id,
+            )));
         }
 
         processed_requests.push((request, mh_snapshot));
@@ -958,7 +976,7 @@ pub async fn batch_allocate_instances(
         let updated_network_config = db::instance_network_config::add_inband_interfaces_to_config(
             request.config.network.clone(),
             inband_segment_ids,
-        );
+        )?;
 
         // Allocate IPs
         let updated_network_config = db::instance_network_config::with_allocated_ips(

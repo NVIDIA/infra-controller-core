@@ -299,6 +299,10 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: InstanceNetworkConfig) -> Result<rpc::InstanceNetworkConfig, Self::Error> {
+        // This is where we prep the interface for "external" viewing,
+        // stripping resolved interfaces in the case of an auto config,
+        // but leaving them untouched otherwise.
+        let config = config.into_external_view();
         let auto = config.auto;
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
         for iface in config.interfaces.into_iter() {
