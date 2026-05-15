@@ -954,3 +954,98 @@ async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_static_create_returns_address_already_in_use(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let relay: std::net::IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let existing_mac = MacAddress::from_str("aa:bb:cc:dd:ee:10").unwrap();
+    let new_mac = MacAddress::from_str("aa:bb:cc:dd:ee:11").unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let existing_interface = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        existing_mac,
+        std::slice::from_ref(&relay),
+        None,
+    )
+    .await?;
+    let target_ip = existing_interface.addresses[0];
+    txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let segment = db::network_segment::for_relay(&mut txn, relay)
+        .await?
+        .expect("relay segment exists");
+    let result = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&segment),
+        &new_mac,
+        true,
+        AddressSelectionStrategy::StaticAddress(target_ip),
+    )
+    .await;
+    assert!(
+        matches!(result, Err(DatabaseError::AddressAlreadyInUse(_))),
+        "expected AddressAlreadyInUse, got: {result:?}"
+    );
+
+    // Existing interface is untouched.
+    let mut txn = env.pool.begin().await?;
+    let found = db::machine_interface::find_by_ip(&mut *txn, target_ip).await?;
+    let found = found.expect("existing interface should still own the IP");
+    assert_eq!(found.id, existing_interface.id);
+    assert_eq!(found.mac_address, existing_mac);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_static_create_is_noop_when_same_mac_already_owns_address(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // If create_static_path is called with a MAC that already owns
+    // the target IP, it should return the existing snapshot rather
+    // than erroring; re-applying the same intent should be a noop.
+    let env = create_test_env(pool).await;
+    let static_ip: std::net::IpAddr = "192.0.2.231".parse().unwrap();
+    let mac = MacAddress::from_str("aa:bb:cc:dd:ee:12").unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+    let first = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&segment),
+        &mac,
+        true,
+        AddressSelectionStrategy::StaticAddress(static_ip),
+    )
+    .await?;
+    txn.commit().await?;
+
+    // And now re-run the same create; should succeed and
+    // return the same interface.
+    let mut txn = env.pool.begin().await?;
+    let again = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&segment),
+        &mac,
+        true,
+        AddressSelectionStrategy::StaticAddress(static_ip),
+    )
+    .await?;
+    txn.commit().await?;
+    assert_eq!(
+        again.id, first.id,
+        "re-create with same MAC should be a noop"
+    );
+    assert_eq!(again.mac_address, mac);
+
+    Ok(())
+}

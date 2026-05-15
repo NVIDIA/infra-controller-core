@@ -19,10 +19,11 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use ::rpc::common::SystemPowerControl;
-use ::rpc::forge::{self as rpc, BmcEndpointRequest};
+use ::rpc::forge::{self as rpc};
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::switch::SwitchId;
 use component_manager::component_manager::ComponentManager;
+use component_manager::compute_tray_manager::{ComputeTrayEndpoint, ComputeTrayVendor};
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
@@ -32,7 +33,10 @@ use forge_secrets::credentials::{
 };
 use futures_util::FutureExt;
 use mac_address::MacAddress;
-use model::component_manager::{NvSwitchComponent, PowerAction, PowerShelfComponent};
+use model::component_manager::{
+    ComputeTrayComponent as ModelComputeTrayComponent, NvSwitchComponent, PowerAction,
+    PowerShelfComponent,
+};
 use model::firmware::FirmwareComponentType;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
@@ -421,6 +425,26 @@ fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Statu
         .collect()
 }
 
+fn map_compute_tray_components(raw: &[i32]) -> Result<Vec<ModelComputeTrayComponent>, Status> {
+    raw.iter()
+        .map(|&v| match rpc::ComputeTrayComponent::try_from(v) {
+            Ok(rpc::ComputeTrayComponent::Bmc) => Ok(ModelComputeTrayComponent::Bmc),
+            Ok(rpc::ComputeTrayComponent::Bios) => Ok(ModelComputeTrayComponent::Bios),
+            Ok(rpc::ComputeTrayComponent::CpldMb) => Ok(ModelComputeTrayComponent::Cpld),
+            Ok(rpc::ComputeTrayComponent::Cx7) => Ok(ModelComputeTrayComponent::Cx7),
+            Ok(rpc::ComputeTrayComponent::Unknown) => Err(Status::invalid_argument(
+                "compute tray component must not be Unknown",
+            )),
+            Ok(other) => Err(Status::invalid_argument(format!(
+                "compute tray component {other:?} is not supported for direct dispatch"
+            ))),
+            Err(e) => Err(Status::invalid_argument(format!(
+                "unrecognized compute tray component value {v}: {e}"
+            ))),
+        })
+        .collect()
+}
+
 fn map_power_shelf_components(raw: &[i32]) -> Result<Vec<PowerShelfComponent>, Status> {
     raw.iter()
         .filter(|&&v| v != rpc::PowerShelfComponent::Unknown as i32)
@@ -473,6 +497,18 @@ async fn fetch_credentials(
 }
 
 async fn fetch_switch_bmc_credentials(
+    credential_manager: &dyn CredentialManager,
+    bmc_mac: MacAddress,
+) -> Result<Credentials, ComponentManagerError> {
+    let key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::BmcRoot {
+            bmc_mac_address: bmc_mac,
+        },
+    };
+    fetch_credentials(credential_manager, key).await
+}
+
+async fn fetch_compute_tray_bmc_credentials(
     credential_manager: &dyn CredentialManager,
     bmc_mac: MacAddress,
 ) -> Result<Credentials, ComponentManagerError> {
@@ -685,6 +721,120 @@ async fn resolve_power_shelf_endpoints(
     })
 }
 
+fn map_bmc_vendor_to_compute_tray(vendor: bmc_vendor::BMCVendor) -> ComputeTrayVendor {
+    match vendor {
+        bmc_vendor::BMCVendor::Dell => ComputeTrayVendor::Dell,
+        bmc_vendor::BMCVendor::Hpe => ComputeTrayVendor::Hpe,
+        bmc_vendor::BMCVendor::Lenovo => ComputeTrayVendor::Lenovo,
+        bmc_vendor::BMCVendor::Supermicro => ComputeTrayVendor::Supermicro,
+        bmc_vendor::BMCVendor::Nvidia => ComputeTrayVendor::Nvidia,
+        _ => ComputeTrayVendor::Unknown,
+    }
+}
+
+struct ResolvedComputeTrayEndpoints {
+    endpoints: Vec<ComputeTrayEndpoint>,
+    ip_to_machine_id: HashMap<IpAddr, carbide_uuid::machine::MachineId>,
+}
+
+struct ComputeTrayEndpoints {
+    resolved: ResolvedComputeTrayEndpoints,
+    unresolved: Vec<UnresolvedDevice<carbide_uuid::machine::MachineId>>,
+}
+
+async fn resolve_compute_tray_endpoints(
+    api: &Api,
+    machine_ids: &[carbide_uuid::machine::MachineId],
+) -> Result<ComputeTrayEndpoints, Status> {
+    let machines = db::machine::find(
+        api.db_reader().as_mut(),
+        db::ObjectFilter::List(machine_ids),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
+
+    let machine_by_id: HashMap<_, _> = machines.into_iter().map(|m| (m.id, m)).collect();
+
+    let mut endpoints = Vec::with_capacity(machine_ids.len());
+    let mut ip_to_machine_id = HashMap::with_capacity(machine_ids.len());
+    let mut unresolved = Vec::new();
+
+    for &machine_id in machine_ids {
+        let Some(machine) = machine_by_id.get(&machine_id) else {
+            unresolved.push(UnresolvedDevice {
+                id: machine_id,
+                reason: "machine not found in database".into(),
+            });
+            continue;
+        };
+
+        let Some(bmc_mac) = machine.bmc_info.mac else {
+            unresolved.push(UnresolvedDevice {
+                id: machine_id,
+                reason: "BMC MAC not available".into(),
+            });
+            continue;
+        };
+
+        let Some(ip_str) = machine.bmc_info.ip.as_ref() else {
+            unresolved.push(UnresolvedDevice {
+                id: machine_id,
+                reason: "BMC IP not configured".into(),
+            });
+            continue;
+        };
+
+        let Ok(bmc_ip) = ip_str.parse::<IpAddr>() else {
+            unresolved.push(UnresolvedDevice {
+                id: machine_id,
+                reason: format!("unparseable BMC IP: {ip_str}"),
+            });
+            continue;
+        };
+
+        let bmc_credentials = match fetch_compute_tray_bmc_credentials(
+            api.credential_manager.as_ref(),
+            bmc_mac,
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                unresolved.push(UnresolvedDevice {
+                    id: machine_id,
+                    reason: format!("BMC credentials unavailable: {e}"),
+                });
+                continue;
+            }
+        };
+
+        let vendor = map_bmc_vendor_to_compute_tray(machine.bmc_vendor());
+
+        ip_to_machine_id.insert(bmc_ip, machine_id);
+        endpoints.push(ComputeTrayEndpoint {
+            vendor,
+            bmc_ip,
+            bmc_credentials,
+        });
+    }
+
+    if !unresolved.is_empty() {
+        tracing::warn!(
+            count = unresolved.len(),
+            "some compute trays could not be resolved to endpoints"
+        );
+    }
+
+    Ok(ComputeTrayEndpoints {
+        resolved: ResolvedComputeTrayEndpoints {
+            endpoints,
+            ip_to_machine_id,
+        },
+        unresolved,
+    })
+}
+
 fn switch_mac_to_id_str(mac: &MacAddress, mac_to_id: &HashMap<MacAddress, SwitchId>) -> String {
     mac_to_id
         .get(mac)
@@ -806,49 +956,107 @@ pub(crate) async fn component_power_control(
             (results, ips)
         }
         rpc::component_power_control_request::Target::MachineIds(list) => {
-            let mut txn = api.txn_begin().await?;
-            let mut resolved = Vec::with_capacity(list.machine_ids.len());
-            let mut results = Vec::with_capacity(list.machine_ids.len());
-            let mut ips = Vec::new();
+            if cm.compute_tray_use_state_controller {
+                // TODO: implement state controller path for compute tray power control
+                return Err(Status::unimplemented(
+                    "compute tray power control through the state controller is not yet supported",
+                ));
+            } else {
+                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
 
-            for machine_id in &list.machine_ids {
-                let id_str = machine_id.to_string();
-                match crate::handlers::bmc_endpoint_explorer::validate_and_complete_bmc_endpoint_request(
-                    &mut txn,
-                    None,
-                    Some(*machine_id),
-                )
-                .await
-                {
-                    Ok((req, _)) => resolved.push((*machine_id, req)),
-                    Err(e) => results.push(error_result(&id_str, e.to_string())),
+                let mut results: Vec<_> = resolved
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
+
+                let resolved_machine_ids: Vec<_> = resolved
+                    .resolved
+                    .endpoints
+                    .iter()
+                    .filter_map(|ep| resolved.resolved.ip_to_machine_id.get(&ep.bmc_ip).copied())
+                    .collect();
+
+                // Insert health overrides and update power-manager desired state
+                // before issuing Redfish commands.
+                let desired_state = desired_power_state(action) as i32;
+                let mut overrides_inserted = Vec::new();
+                for &machine_id in &resolved_machine_ids {
+                    let inserted = power_control_health_override(api, machine_id, true).await;
+                    if inserted {
+                        overrides_inserted.push(machine_id);
+                    }
+
+                    let power_req = rpc::PowerOptionUpdateRequest {
+                        machine_id: Some(machine_id),
+                        power_state: desired_state,
+                    };
+                    match crate::handlers::power_options::update_power_option(
+                        api,
+                        Request::new(power_req),
+                    )
+                    .await
+                    {
+                        Ok(_) => {}
+                        Err(e)
+                            if e.code() == Code::InvalidArgument
+                                && e.message().contains("already set as") =>
+                        {
+                            tracing::debug!(
+                                %machine_id,
+                                desired_state,
+                                "power option already in desired state, skipping"
+                            );
+                        }
+                        Err(e) => {
+                            results.push(error_result(
+                                &machine_id.to_string(),
+                                format!("failed to update power option: {e}"),
+                            ));
+                        }
+                    }
                 }
-            }
 
-            if let Err(e) = txn.commit().await {
-                tracing::warn!(
-                    ?e,
-                    "failed to commit read-only endpoint resolution txn; proceeding with already-resolved data"
+                tracing::info!(
+                    backend = cm.compute_tray.name(),
+                    count = resolved.resolved.endpoints.len(),
+                    ?action,
+                    "power control for compute trays"
                 );
-            }
+                let backend_results = cm
+                    .compute_tray
+                    .power_control(&resolved.resolved.endpoints, action)
+                    .await
+                    .map_err(component_manager_error_to_status)?;
 
-            for (machine_id, bmc_endpoint_request) in resolved {
-                let id_str = machine_id.to_string();
-
-                if let Ok(ip) = bmc_endpoint_request.ip_address.parse() {
-                    ips.push(ip);
+                // Clear health overrides after Redfish dispatch.
+                for machine_id in &overrides_inserted {
+                    power_control_health_override(api, *machine_id, false).await;
                 }
 
-                let outcome =
-                    compute_power_control(api, machine_id, bmc_endpoint_request, action).await;
+                let ips: Vec<IpAddr> = resolved
+                    .resolved
+                    .endpoints
+                    .iter()
+                    .map(|ep| ep.bmc_ip)
+                    .collect();
 
-                match outcome {
-                    Ok(()) => results.push(success_result(&id_str)),
-                    Err(e) => results.push(error_result(&id_str, e.message().to_string())),
-                }
+                results.extend(backend_results.into_iter().map(|r| {
+                    let id = resolved
+                        .resolved
+                        .ip_to_machine_id
+                        .get(&r.bmc_ip)
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| r.bmc_ip.to_string());
+                    if r.success {
+                        success_result(&id)
+                    } else {
+                        error_result(&id, r.error.unwrap_or_default())
+                    }
+                }));
+
+                (results, ips)
             }
-
-            (results, ips)
         }
     };
 
@@ -861,23 +1069,6 @@ pub(crate) async fn component_power_control(
     Ok(Response::new(rpc::ComponentPowerControlResponse {
         results,
     }))
-}
-
-async fn compute_power_control(
-    api: &Api,
-    machine_id: carbide_uuid::machine::MachineId,
-    bmc_endpoint: BmcEndpointRequest,
-    action: PowerAction,
-) -> Result<(), Status> {
-    let override_inserted = power_control_health_override(api, machine_id, true).await;
-
-    let result = machine_power_control(api, machine_id, bmc_endpoint, action).await;
-
-    if override_inserted {
-        power_control_health_override(api, machine_id, false).await;
-    }
-
-    result
 }
 
 /// Best-effort insert or removal of the health report override used to
@@ -945,63 +1136,6 @@ fn desired_power_state(action: PowerAction) -> rpc::PowerState {
         | PowerAction::AcPowercycle => rpc::PowerState::On,
         PowerAction::GracefulShutdown | PowerAction::ForceOff => rpc::PowerState::Off,
     }
-}
-
-fn redfish_power_action(
-    action: PowerAction,
-) -> rpc::admin_power_control_request::SystemPowerControl {
-    use rpc::admin_power_control_request::SystemPowerControl;
-    match action {
-        PowerAction::On => SystemPowerControl::On,
-        PowerAction::ForceRestart => SystemPowerControl::ForceRestart,
-        PowerAction::GracefulRestart => SystemPowerControl::GracefulRestart,
-        PowerAction::AcPowercycle => SystemPowerControl::AcPowercycle,
-        PowerAction::GracefulShutdown => SystemPowerControl::GracefulShutdown,
-        PowerAction::ForceOff => SystemPowerControl::ForceOff,
-    }
-}
-
-/*
-machine_power_control facilitates power control against compute trays:
-    1. Configures the desired power state for the machine in the power-manager
-    2. Synchronously sends the redfish command to the compute tray's BMC to perform the action specified
-On success, the power manager will have the desired power state set for the machine and the redfish command will have been successfully sent to the compute BMC
-In the case of partial failure, the power manager may have the desired power state updated for the machine but the redfish command may have failed. We will leave reconvergence in this case to the power manager.
-*/
-async fn machine_power_control(
-    api: &Api,
-    machine_id: carbide_uuid::machine::MachineId,
-    bmc_endpoint: BmcEndpointRequest,
-    action: PowerAction,
-) -> Result<(), Status> {
-    let desired_power_state = desired_power_state(action) as i32;
-    let redfish_action = redfish_power_action(action);
-
-    let power_req = rpc::PowerOptionUpdateRequest {
-        machine_id: Some(machine_id),
-        power_state: desired_power_state,
-    };
-    match crate::handlers::power_options::update_power_option(api, Request::new(power_req)).await {
-        Ok(_) => {}
-        Err(e) if e.code() == Code::InvalidArgument && e.message().contains("already set as") => {
-            tracing::debug!(
-                %machine_id,
-                desired_power_state,
-                "power option already in desired state, skipping"
-            );
-        }
-        Err(e) => return Err(e),
-    }
-
-    let admin_req = rpc::AdminPowerControlRequest {
-        bmc_endpoint_request: Some(bmc_endpoint),
-        machine_id: Some(machine_id.to_string()),
-        action: redfish_action as i32,
-    };
-    crate::handlers::bmc_endpoint_explorer::admin_power_control(api, Request::new(admin_req))
-        .await?;
-
-    Ok(())
 }
 
 /// Best-effort: flag BMC/PMC endpoints for re-exploration so the site
@@ -1160,6 +1294,7 @@ pub(crate) async fn update_component_firmware(
 
     match target {
         rpc::update_component_firmware_request::Target::Switches(t) => {
+            let cm = require_component_manager(api)?;
             let list = t
                 .switch_ids
                 .ok_or_else(|| Status::invalid_argument("switch_ids is required"))?;
@@ -1167,9 +1302,30 @@ pub(crate) async fn update_component_firmware(
                 return Err(Status::invalid_argument("switch_ids must not be empty"));
             }
 
-            if let Some(cm) = api.component_manager.as_ref().filter(|cm| {
-                cm.nv_switch.name() == component_manager::nsm::NsmSwitchBackend::BACKEND_NAME
-            }) {
+            if cm.nv_switch_use_state_controller {
+                component_names = map_nv_switch_component_names(&t.components)?;
+
+                let mut txn =
+                    api.database_connection.begin().await.map_err(|e| {
+                        Status::internal(format!("failed to begin transaction: {e}"))
+                    })?;
+                let switch = db::switch::find_by_id(&mut txn, &list.ids[0])
+                    .await
+                    .map_err(|e| Status::internal(format!("failed to look up switch: {e}")))?
+                    .ok_or_else(|| {
+                        Status::not_found(format!("switch {} not found", list.ids[0]))
+                    })?;
+                drop(txn);
+
+                rack_id = Some(switch.rack_id.ok_or_else(|| {
+                    Status::failed_precondition(format!(
+                        "switch {} is not associated with a rack",
+                        list.ids[0]
+                    ))
+                })?);
+                rack_switch_ids = list.ids.iter().map(|id| id.to_string()).collect();
+            } else {
+                // Directly dispatch to backend
                 let components = map_nv_switch_components(&t.components)?;
                 let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
 
@@ -1201,29 +1357,9 @@ pub(crate) async fn update_component_firmware(
                     results,
                 }));
             }
-
-            component_names = map_nv_switch_component_names(&t.components)?;
-
-            let mut txn = api
-                .database_connection
-                .begin()
-                .await
-                .map_err(|e| Status::internal(format!("failed to begin transaction: {e}")))?;
-            let switch = db::switch::find_by_id(&mut txn, &list.ids[0])
-                .await
-                .map_err(|e| Status::internal(format!("failed to look up switch: {e}")))?
-                .ok_or_else(|| Status::not_found(format!("switch {} not found", list.ids[0])))?;
-            drop(txn);
-
-            rack_id = Some(switch.rack_id.ok_or_else(|| {
-                Status::failed_precondition(format!(
-                    "switch {} is not associated with a rack",
-                    list.ids[0]
-                ))
-            })?);
-            rack_switch_ids = list.ids.iter().map(|id| id.to_string()).collect();
         }
         rpc::update_component_firmware_request::Target::ComputeTrays(t) => {
+            let cm = require_component_manager(api)?;
             let list = t
                 .machine_ids
                 .ok_or_else(|| Status::invalid_argument("machine_ids is required"))?;
@@ -1231,26 +1367,58 @@ pub(crate) async fn update_component_firmware(
                 return Err(Status::invalid_argument("machine_ids must not be empty"));
             }
 
-            component_names = map_compute_tray_component_names(&t.components)?;
+            if cm.compute_tray_use_state_controller {
+                component_names = map_compute_tray_component_names(&t.components)?;
 
-            let machine = db::machine::find_one(
-                api.db_reader().as_mut(),
-                &list.machine_ids[0],
-                Default::default(),
-            )
-            .await
-            .map_err(|e| Status::internal(format!("failed to look up machine: {e}")))?
-            .ok_or_else(|| {
-                Status::not_found(format!("machine {} not found", list.machine_ids[0]))
-            })?;
+                let machine = db::machine::find_one(
+                    api.db_reader().as_mut(),
+                    &list.machine_ids[0],
+                    Default::default(),
+                )
+                .await
+                .map_err(|e| Status::internal(format!("failed to look up machine: {e}")))?
+                .ok_or_else(|| {
+                    Status::not_found(format!("machine {} not found", list.machine_ids[0]))
+                })?;
 
-            rack_id = Some(machine.rack_id.ok_or_else(|| {
-                Status::failed_precondition(format!(
-                    "machine {} is not associated with a rack",
-                    list.machine_ids[0]
-                ))
-            })?);
-            rack_machine_ids = list.machine_ids.iter().map(|id| id.to_string()).collect();
+                rack_id = Some(machine.rack_id.ok_or_else(|| {
+                    Status::failed_precondition(format!(
+                        "machine {} is not associated with a rack",
+                        list.machine_ids[0]
+                    ))
+                })?);
+                rack_machine_ids = list.machine_ids.iter().map(|id| id.to_string()).collect();
+            } else {
+                let components = map_compute_tray_components(&t.components)?;
+                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
+
+                let mut results: Vec<_> = resolved
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
+
+                let backend_results = cm
+                    .compute_tray
+                    .update_firmware(
+                        &resolved.resolved.endpoints,
+                        &req.target_version,
+                        &components,
+                    )
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+                results.extend(backend_results.into_iter().map(|r| {
+                    if r.success {
+                        success_result(&r.bmc_ip.to_string())
+                    } else {
+                        error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
+                    }
+                }));
+
+                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                    results,
+                }));
+            }
         }
         rpc::update_component_firmware_request::Target::PowerShelves(t) => {
             let cm = require_component_manager(api)?;
@@ -1595,63 +1763,103 @@ pub(crate) async fn list_component_firmware_versions(
             }))
         }
         rpc::list_component_firmware_versions_request::Target::MachineIds(list) => {
+            let cm = require_component_manager(api)?;
             if list.machine_ids.is_empty() {
                 return Err(Status::invalid_argument("machine_ids must not be empty"));
             }
 
-            let fw_snapshot = api.runtime_config.get_firmware_config().create_snapshot();
+            if cm.compute_tray_use_state_controller {
+                let fw_snapshot = api.runtime_config.get_firmware_config().create_snapshot();
 
-            let machines = db::machine::find(
-                api.db_reader().as_mut(),
-                db::ObjectFilter::List(&list.machine_ids),
-                MachineSearchConfig::default(),
-            )
-            .await
-            .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
-
-            let bmc_ips: Vec<IpAddr> = machines
-                .iter()
-                .filter_map(|m| m.bmc_info.ip.as_ref()?.parse().ok())
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
-
-            let endpoints = db::explored_endpoints::find_by_ips(api.db_reader().as_mut(), bmc_ips)
+                let machines = db::machine::find(
+                    api.db_reader().as_mut(),
+                    db::ObjectFilter::List(&list.machine_ids),
+                    MachineSearchConfig::default(),
+                )
                 .await
-                .map_err(|e| {
-                    Status::internal(format!("failed to look up explored endpoints: {e}"))
-                })?;
+                .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
 
-            let endpoint_by_ip: HashMap<IpAddr, _> =
-                endpoints.into_iter().map(|ep| (ep.address, ep)).collect();
+                let bmc_ips: Vec<IpAddr> = machines
+                    .iter()
+                    .filter_map(|m| m.bmc_info.ip.as_ref()?.parse().ok())
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect();
 
-            let machine_by_id: HashMap<_, _> = machines.into_iter().map(|m| (m.id, m)).collect();
+                let endpoints =
+                    db::explored_endpoints::find_by_ips(api.db_reader().as_mut(), bmc_ips)
+                        .await
+                        .map_err(|e| {
+                            Status::internal(format!("failed to look up explored endpoints: {e}"))
+                        })?;
 
-            let devices = list
-                .machine_ids
-                .iter()
-                .map(|machine_id| {
-                    let Some(machine) = machine_by_id.get(machine_id) else {
-                        return rpc::DeviceFirmwareVersions {
-                            result: Some(not_found_component_result(
-                                &machine_id.to_string(),
-                                format!("machine {machine_id} not found"),
-                            )),
-                            ..Default::default()
+                let endpoint_by_ip: HashMap<IpAddr, _> =
+                    endpoints.into_iter().map(|ep| (ep.address, ep)).collect();
+
+                let machine_by_id: HashMap<_, _> =
+                    machines.into_iter().map(|m| (m.id, m)).collect();
+
+                let devices = list
+                    .machine_ids
+                    .iter()
+                    .map(|machine_id| {
+                        let Some(machine) = machine_by_id.get(machine_id) else {
+                            return rpc::DeviceFirmwareVersions {
+                                result: Some(not_found_component_result(
+                                    &machine_id.to_string(),
+                                    format!("machine {machine_id} not found"),
+                                )),
+                                ..Default::default()
+                            };
                         };
-                    };
-                    get_compute_tray_firmware_version(
-                        machine_id,
-                        &machine.bmc_info,
-                        &endpoint_by_ip,
-                        &fw_snapshot,
-                    )
-                })
-                .collect();
+                        get_compute_tray_firmware_version(
+                            machine_id,
+                            &machine.bmc_info,
+                            &endpoint_by_ip,
+                            &fw_snapshot,
+                        )
+                    })
+                    .collect();
 
-            Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
-                devices,
-            }))
+                Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
+                    devices,
+                }))
+            } else {
+                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
+
+                let mut devices: Vec<rpc::DeviceFirmwareVersions> = resolved
+                    .unresolved
+                    .iter()
+                    .map(|u| rpc::DeviceFirmwareVersions {
+                        result: Some(error_result(&u.id.to_string(), u.reason.clone())),
+                        ..Default::default()
+                    })
+                    .collect();
+
+                let versions = cm
+                    .compute_tray
+                    .list_firmware_bundles()
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+
+                for ep in &resolved.resolved.endpoints {
+                    let id = resolved
+                        .resolved
+                        .ip_to_machine_id
+                        .get(&ep.bmc_ip)
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| ep.bmc_ip.to_string());
+                    devices.push(rpc::DeviceFirmwareVersions {
+                        result: Some(success_result(&id)),
+                        versions: versions.clone(),
+                        ..Default::default()
+                    });
+                }
+
+                Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
+                    devices,
+                }))
+            }
         }
         rpc::list_component_firmware_versions_request::Target::RackIds(list) => {
             if list.rack_ids.is_empty() {
@@ -2274,37 +2482,6 @@ mod tests {
         assert_eq!(
             desired_power_state(PowerAction::ForceOff),
             self::rpc::PowerState::Off
-        );
-    }
-
-    #[test]
-    fn redfish_power_action_mapping() {
-        use self::rpc::admin_power_control_request::SystemPowerControl;
-        use super::redfish_power_action;
-
-        assert_eq!(
-            redfish_power_action(PowerAction::On),
-            SystemPowerControl::On
-        );
-        assert_eq!(
-            redfish_power_action(PowerAction::ForceRestart),
-            SystemPowerControl::ForceRestart
-        );
-        assert_eq!(
-            redfish_power_action(PowerAction::GracefulRestart),
-            SystemPowerControl::GracefulRestart
-        );
-        assert_eq!(
-            redfish_power_action(PowerAction::AcPowercycle),
-            SystemPowerControl::AcPowercycle
-        );
-        assert_eq!(
-            redfish_power_action(PowerAction::GracefulShutdown),
-            SystemPowerControl::GracefulShutdown
-        );
-        assert_eq!(
-            redfish_power_action(PowerAction::ForceOff),
-            SystemPowerControl::ForceOff
         );
     }
 

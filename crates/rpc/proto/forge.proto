@@ -1001,6 +1001,16 @@ message GetTenantIdentityConfigRequest {
   string organization_id = 1;
 }
 
+// Published signing key metadata (from `signing_key_public_*` JSON). Exactly one entry per
+// response should have `current_signer == true`. The inactive (previous) key during rotation
+// includes `expire_at` when it is still published for verification (JWKS overlap end; JSON: expireAt).
+message TenantIdentitySigningKey {
+  string kid = 1;
+  string alg = 2;
+  bool current_signer = 3;
+  optional google.protobuf.Timestamp expire_at = 4;
+}
+
 message TenantIdentityConfig {
   bool enabled = 1;
   // JWT `iss` / OIDC issuer string: `https://` or `http://` URL (trust domain = host),
@@ -1012,6 +1022,11 @@ message TenantIdentityConfig {
   // When unset or empty, defaults to spiffe://<trust-domain-from-issuer>
   optional string subject_prefix = 6;
   bool rotate_key = 7;
+  // Seconds to keep the previous verification key in JWKS after `rotate_key`. Required when
+  // `rotate_key` is true; must be omitted when `rotate_key` is false. Must be >= `token_ttl_sec`
+  // so JWTs signed with the previous key remain verifiable until they expire. Capped by site
+  // `machine_identity.signing_key_overlap_max_sec`.
+  optional uint32 signing_key_overlap_sec = 8;
 }
 
 message SetTenantIdentityConfigRequest {
@@ -1024,7 +1039,9 @@ message TenantIdentityConfigResponse {
   TenantIdentityConfig config = 2;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
-  string key_id = 10;
+  reserved 10;
+  reserved "key_id";
+  repeated TenantIdentitySigningKey signing_keys = 11;
 }
 
 // Token delegation config (per-org token exchange for machine identity).

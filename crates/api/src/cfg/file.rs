@@ -818,6 +818,9 @@ pub struct MachineIdentityConfig {
     /// Same pattern syntax as [`Self::trust_domain_allowlist`].
     #[serde(default)]
     pub token_endpoint_domain_allowlist: Vec<String>,
+    /// Upper bound for `signing_key_overlap_sec` on `SetTenantIdentityConfiguration` when `rotate_key` is true (seconds).
+    #[serde(default = "machine_identity_default_signing_key_overlap_max_sec")]
+    pub signing_key_overlap_max_sec: u32,
 }
 
 fn machine_identity_default_enabled() -> bool {
@@ -832,6 +835,9 @@ fn machine_identity_default_token_ttl_min_sec() -> u32 {
 fn machine_identity_default_token_ttl_max_sec() -> u32 {
     86400
 }
+fn machine_identity_default_signing_key_overlap_max_sec() -> u32 {
+    604800
+}
 
 impl Default for MachineIdentityConfig {
     fn default() -> Self {
@@ -844,6 +850,7 @@ impl Default for MachineIdentityConfig {
             current_encryption_key_id: None,
             trust_domain_allowlist: Vec::new(),
             token_endpoint_domain_allowlist: Vec::new(),
+            signing_key_overlap_max_sec: machine_identity_default_signing_key_overlap_max_sec(),
         }
     }
 }
@@ -865,6 +872,7 @@ impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBoun
                     "current_encryption_key_id must be non-empty when machine identity is enabled",
                 ),
             trust_domain_allowlist: mi.trust_domain_allowlist,
+            signing_key_overlap_max_sec: mi.signing_key_overlap_max_sec,
         }
     }
 }
@@ -1581,6 +1589,8 @@ pub struct InitialObjectsConfig {
     /// Required, but wrapped in `Option` so partial configs
     /// can be deserialized and merged.
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
+    /// Network Segment definitions
+    pub networks: Option<HashMap<String, NetworkDefinition>>,
 }
 
 impl DpaConfig {
@@ -2540,9 +2550,10 @@ pub struct DpaConfig {
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
 /// When configured, Carbide will publish `ManagedHostState` transitions to
-/// `nico/v1/machine/{machineId}/state`, publish BMS rack leak/isolation values
-/// and heartbeat timestamps to metadata-defined DSX topics, and subscribe to
-/// `BMS/v1/PUB/Metadata/#` to learn those routing targets.
+/// `{topic_prefix}/{machineId}/state` (default `NICO/v1/machine`), publish BMS
+/// rack leak/isolation values and heartbeat timestamps to metadata-defined DSX
+/// topics, and subscribe to `BMS/v1/PUB/Metadata/#` to learn those routing
+/// targets.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
@@ -2570,6 +2581,13 @@ pub struct DsxExchangeEventBusConfig {
     #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
     pub queue_capacity: usize,
 
+    /// Topic prefix used when publishing `ManagedHostState` transitions.
+    /// The full topic is `{topic_prefix}/{machineId}/state`. Defaults to
+    /// `NICO/v1/machine`. NATS subjects are case-sensitive, so this must
+    /// match the producer pub allow configured on the broker.
+    #[serde(default = "DsxExchangeEventBusConfig::default_topic_prefix")]
+    pub topic_prefix: String,
+
     #[serde(default)]
     pub auth: MqttAuthConfig,
 }
@@ -2581,6 +2599,10 @@ impl DsxExchangeEventBusConfig {
 
     pub const fn default_queue_capacity() -> usize {
         1024
+    }
+
+    pub fn default_topic_prefix() -> String {
+        "NICO/v1/machine".to_string()
     }
 }
 
@@ -2742,6 +2764,7 @@ mod tests {
     use figment::providers::{Env, Format, Toml};
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
+    use model::network_segment::NetworkDefinitionSegmentType;
     use model::resource_pool;
 
     use super::*;
@@ -3981,6 +4004,32 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
         let f = PathBuf::from(format!("{TEST_DATA_DIR}/initial_objects.toml"));
         let config: InitialObjectsConfig = Toml::from_path(f.as_path()).unwrap();
         let pools = config.pools.as_ref().unwrap();
+        let networks = config.networks.as_ref().unwrap();
+
+        assert_eq!(
+            networks.get("admin").unwrap(),
+            &NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::Admin,
+                prefix: "172.20.0.0/24".to_string(),
+                gateway: "172.20.0.1".to_string(),
+                mtu: 9000,
+                reserve_first: 5,
+                allocation_strategy: Default::default(),
+            }
+        );
+
+        assert_eq!(
+            networks.get("DEV1-C09-IPMI-01").unwrap(),
+            &NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::Underlay,
+                prefix: "172.99.0.0/26".to_string(),
+                gateway: "172.99.0.1".to_string(),
+                mtu: 1500,
+                reserve_first: 5,
+                allocation_strategy: Default::default(),
+            }
+        );
+
         assert_eq!(
             pools.get("lo-ip").unwrap(),
             &ResourcePoolDef {

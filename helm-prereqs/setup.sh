@@ -15,28 +15,28 @@
 # limitations under the License.
 
 # =============================================================================
-# setup.sh — install carbide-prereqs stack
+# setup.sh — install nico-prereqs stack
 #
 # Requires:
 #   - REGISTRY_PULL_SECRET  env var (registry pull secret / API key)
-#   - NCX_IMAGE_REGISTRY    env var (container registry for all NCX images,
+#   - NICO_IMAGE_REGISTRY    env var (container registry for all NICo images,
 #                                    e.g. my-registry.example.com/ncx)
-#   - NCX_CORE_IMAGE_TAG    env var (NCX Core image tag, e.g. v2025.12.30)
-#   - NCX_REST_IMAGE_TAG    env var (NCX REST image tag, e.g. v1.0.4)
+#   - NICO_CORE_IMAGE_TAG    env var (NICo Core image tag, e.g. v2025.12.30)
+#   - NICO_REST_IMAGE_TAG    env var (NICo REST image tag, e.g. v1.0.4)
 #   - Tools: helmfile, helm, kubectl, jq, ssh-keygen
 #
 # Usage:
 #   export REGISTRY_PULL_SECRET=<secret>
-#   export NCX_IMAGE_REGISTRY=<registry>
-#   export NCX_CORE_IMAGE_TAG=<tag>
-#   export NCX_REST_IMAGE_TAG=<tag>
-#   ./setup.sh             # prompts before deploying carbide core and NCX
+#   export NICO_IMAGE_REGISTRY=<registry>
+#   export NICO_CORE_IMAGE_TAG=<tag>
+#   export NICO_REST_IMAGE_TAG=<tag>
+#   ./setup.sh             # prompts before deploying nico core and NCX
 #   ./setup.sh -y          # skip prompts, deploy both automatically
 #
 # Optional:
-#   export NCX_REPO=/path/to/ncx-repo   # override NCX repo path discovery
+#   export NICO_REPO=/path/to/ncx-repo   # override NICo repo path discovery
 #   (default: looks for sibling dirs 'ncx' or 'ncx-infra-controller-rest'
-#    next to carbide-helm; customer is prompted if neither is found)
+#    next to nico-helm; customer is prompted if neither is found)
 # =============================================================================
 set -euo pipefail
 
@@ -52,8 +52,8 @@ while getopts "y" _opt; do
 done
 
 # ---------------------------------------------------------------------------
-# Pre-flight checks — env vars, tools, config files, NCX REST repo
-# Exports NCX_REPO if resolved. Exits 1 if user declines to continue.
+# Pre-flight checks — env vars, tools, config files, NICo REST repo
+# Exports NICO_REPO if resolved. Exits 1 if user declines to continue.
 # ---------------------------------------------------------------------------
 export AUTO_YES
 # shellcheck source=preflight.sh
@@ -63,9 +63,9 @@ source "${SCRIPT_DIR}/preflight.sh"
 # preflight already printed a clear error for each missing var; these guards
 # prevent a cryptic "unbound variable" failure from set -u later in the script.
 : "${REGISTRY_PULL_SECRET:?REGISTRY_PULL_SECRET is required — export it before running setup.sh}"
-: "${NCX_IMAGE_REGISTRY:?NCX_IMAGE_REGISTRY is required — export it before running setup.sh}"
-: "${NCX_CORE_IMAGE_TAG:?NCX_CORE_IMAGE_TAG is required — export it before running setup.sh}"
-: "${NCX_REST_IMAGE_TAG:?NCX_REST_IMAGE_TAG is required — export it before running setup.sh}"
+: "${NICO_IMAGE_REGISTRY:?NICO_IMAGE_REGISTRY is required — export it before running setup.sh}"
+: "${NICO_CORE_IMAGE_TAG:?NICO_CORE_IMAGE_TAG is required — export it before running setup.sh}"
+: "${NICO_REST_IMAGE_TAG:?NICO_REST_IMAGE_TAG is required — export it before running setup.sh}"
 
 VAULT_NS="${VAULT_NS:-vault}"
 CERT_MANAGER_NS="${CERT_MANAGER_NS:-cert-manager}"
@@ -191,21 +191,23 @@ fi
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[1/6] local-path-provisioner"
 echo "=== [1/6] local-path-provisioner ==="
+# StorageClass.provisioner is immutable — delete the "local-path" SC if it
+# already exists (e.g. left over from a prior forged/carbide install) before
+# applying the bundle, otherwise kubectl apply rejects the provisioner change.
+kubectl delete storageclass local-path --ignore-not-found 2>/dev/null || true
 kubectl apply -f operators/local-path-provisioner.yaml
-# StorageClass provisioner is immutable — delete before apply so a stale
-# provisioner from a previous install doesn't block the update.
 kubectl delete -f operators/storageclass-local-path-persistent.yaml \
     --ignore-not-found 2>/dev/null || true
 kubectl apply -f operators/storageclass-local-path-persistent.yaml
 kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=120s
 # Mark local-path as the cluster default StorageClass so workloads that don't
-# specify one (e.g. NCX postgres, Temporal) get a valid provisioner.
+# specify one (e.g. NICo postgres, Temporal) get a valid provisioner.
 kubectl annotate storageclass local-path \
     storageclass.kubernetes.io/is-default-class=true --overwrite
 
 # ---------------------------------------------------------------------------
 # 1b. postgres-operator — Zalando operator must be up (CRD registered) before
-#     carbide-prereqs creates the postgresql resource in Phase 5.
+#     nico-prereqs creates the postgresql resource in Phase 5.
 #     No TLS dependency — install early.
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[1b] postgres-operator"
@@ -214,8 +216,8 @@ helmfile sync -l name=postgres-operator
 
 # ---------------------------------------------------------------------------
 # 1c. MetalLB — LoadBalancer service provider (BGP or L2 mode).
-#     No TLS/PKI dependency — installed early so it is ready before NCX Core
-#     deploys LoadBalancer services (carbide-api, dhcp, dns, pxe, ssh-console-rs).
+#     No TLS/PKI dependency — installed early so it is ready before NICo Core
+#     deploys LoadBalancer services (nico-api, dhcp, dns, pxe, ssh-console-rs).
 #
 #     After the helm release installs the CRDs, site-specific config is applied
 #     from values/metallb-config.yaml (IPAddressPool, BGPPeer, BGPAdvertisement).
@@ -231,6 +233,21 @@ if [[ ! -f "${SCRIPT_DIR}/values/metallb-config.yaml" ]]; then
     exit 1
 fi
 
+# If MetalLB cluster-scoped resources exist from a prior non-helm install (e.g.
+# raw-manifest forged setup), helm refuses to "adopt" them without the
+# meta.helm.sh annotations. Delete the RBAC + webhook resources so helm can
+# recreate them under its own ownership; CRDs (with site data) are left alone.
+if ! helm status metallb -n metallb-system >/dev/null 2>&1; then
+    if kubectl get clusterrole metallb:controller >/dev/null 2>&1; then
+        echo "Removing leftover MetalLB RBAC/webhook resources from prior non-helm install..."
+        kubectl get clusterrole,clusterrolebinding -o name 2>/dev/null \
+            | grep -E '/(metallb:|metallb-)' \
+            | xargs -r -n1 kubectl delete --ignore-not-found 2>/dev/null || true
+        kubectl delete validatingwebhookconfiguration metallb-webhook-configuration \
+            --ignore-not-found 2>/dev/null || true
+    fi
+fi
+
 helmfile sync -l name=metallb
 
 echo "Waiting for MetalLB controller to be ready..."
@@ -244,7 +261,7 @@ echo "MetalLB ready"
 # ---------------------------------------------------------------------------
 # 2. cert-manager + Prometheus CRDs + Vault TLS bootstrap
 #    cert-manager must be up before we can issue certs for vault.
-#    Vault pods need TLS secrets (forgeca-vault-client, vault-raft-tls)
+#    Vault pods need TLS secrets (nicoca-vault-client, vault-raft-tls)
 #    BEFORE vault starts — so bootstrap them here via cert-manager.
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[2/6] cert-manager + Vault TLS bootstrap"
@@ -252,16 +269,16 @@ echo "=== [2/6] cert-manager + Vault TLS bootstrap ==="
 helmfile sync -l name=cert-manager
 
 kubectl create namespace "${VAULT_NS}" 2>/dev/null || true
-helm template carbide-prereqs . \
-    --namespace forge-system \
-    --set imagePullSecrets.ngcCarbidePull="${REGISTRY_PULL_SECRET}" \
+helm template nico-prereqs . \
+    --namespace nico-system \
+    --set imagePullSecrets.ngcNicoPull="${REGISTRY_PULL_SECRET}" \
     --show-only templates/site-root-certificate.yaml \
     --show-only templates/vault-tls-certs.yaml \
     | kubectl apply --server-side --field-manager=helm -f -
 
 kubectl wait --for=condition=Ready certificate/site-root \
     -n "${CERT_MANAGER_NS}" --timeout=120s
-kubectl wait --for=condition=Ready certificate/forgeca-vault-client \
+kubectl wait --for=condition=Ready certificate/nicoca-vault-client \
     -n "${VAULT_NS}" --timeout=120s
 kubectl wait --for=condition=Ready certificate/vault-raft-tls \
     -n "${VAULT_NS}" --timeout=120s
@@ -276,8 +293,8 @@ helmfile sync -l name=vault
 
 # ---------------------------------------------------------------------------
 # 4. Initialize + unseal vault
-#    Also sets up forge-system namespace (Helm labels + ssh-host-key)
-#    so carbide-prereqs helm install can adopt it.
+#    Also sets up nico-system namespace (Helm labels + ssh-host-key)
+#    so nico-prereqs helm install can adopt it.
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[4/6] vault init + unseal"
 echo "=== [4/6] unseal vault ==="
@@ -285,140 +302,140 @@ echo "=== [4/6] unseal vault ==="
 ./bootstrap_ssh_host_key.sh
 
 # ---------------------------------------------------------------------------
-# 5. external-secrets + carbide-prereqs
+# 5. external-secrets + nico-prereqs
 # ---------------------------------------------------------------------------
-_SETUP_PHASE="[5/6] external-secrets + carbide-prereqs"
-echo "=== [5/6] external-secrets + carbide-prereqs ==="
+_SETUP_PHASE="[5/6] external-secrets + nico-prereqs"
+echo "=== [5/6] external-secrets + nico-prereqs ==="
 helmfile sync -l name=external-secrets
-helmfile sync -l name=carbide-prereqs
+helmfile sync -l name=nico-prereqs
 
 # ---------------------------------------------------------------------------
 # Wait for postgres-operator to provision the cluster and ESO to sync creds
-# before carbide core starts (carbide-api needs the DB credentials Secret).
+# before nico core starts (nico-api needs the DB credentials Secret).
 # ---------------------------------------------------------------------------
-echo "Waiting for forge-pg-cluster to reach Running state..."
-until kubectl get postgresql forge-pg-cluster -n postgres \
+echo "Waiting for nico-pg-cluster to reach Running state..."
+until kubectl get postgresql nico-pg-cluster -n postgres \
     -o jsonpath='{.status.PostgresClusterStatus}' 2>/dev/null | grep -q "Running"; do
-    STATUS="$(kubectl get postgresql forge-pg-cluster -n postgres \
+    STATUS="$(kubectl get postgresql nico-pg-cluster -n postgres \
         -o jsonpath='{.status.PostgresClusterStatus}' 2>/dev/null || echo 'unknown')"
-    echo "  forge-pg-cluster status: ${STATUS} — retrying in 10s..."
+    echo "  nico-pg-cluster status: ${STATUS} — retrying in 10s..."
     sleep 10
 done
-echo "forge-pg-cluster is Running"
+echo "nico-pg-cluster is Running"
 
 echo "Waiting for DB credentials to be synced by ESO..."
-until kubectl get secret forge-system.carbide.forge-pg-cluster.credentials \
-    -n forge-system &>/dev/null; do
+until kubectl get secret nico-system.nico.nico-pg-cluster.credentials \
+    -n nico-system &>/dev/null; do
     echo "  credentials not yet synced — retrying in 5s..."
     sleep 5
 done
 echo "DB credentials ready"
 
 # ---------------------------------------------------------------------------
-# carbide core
+# nico core
 # ---------------------------------------------------------------------------
-CARBIDE_CMD="helm upgrade --install carbide ./helm \
-    --namespace forge-system \
-    -f helm-prereqs/values/ncx-core.yaml \
-    --set global.image.repository=\"${NCX_IMAGE_REGISTRY}/nvmetal-carbide\" \
-    --set global.image.tag=\"${NCX_CORE_IMAGE_TAG}\" \
-    --timeout 300s --wait"
+NICO_CMD="helm upgrade --install nico ./helm \
+    --namespace nico-system \
+    -f helm-prereqs/values/nico-core.yaml \
+    --set global.image.repository=\"${NICO_IMAGE_REGISTRY}/nvmetal-carbide\" \
+    --set global.image.tag=\"${NICO_CORE_IMAGE_TAG}\" \
+    --timeout 900s --wait"
 
-# Warn if ncx-core.yaml still contains example placeholder values.
+# Warn if nico-core.yaml still contains example placeholder values.
 if grep -q "api-examplesite.example.com\|sitename = \"examplesite\"\|examplesite.example.com" \
-        "${SCRIPT_DIR}/values/ncx-core.yaml" 2>/dev/null; then
-    echo "WARNING: values/ncx-core.yaml still contains example placeholder values."
-    echo "  Update carbide-api.hostname, sitename, initial_domain_name, dhcp_servers,"
+        "${SCRIPT_DIR}/values/nico-core.yaml" 2>/dev/null; then
+    echo "WARNING: values/nico-core.yaml still contains example placeholder values."
+    echo "  Update nico-api.hostname, sitename, initial_domain_name, dhcp_servers,"
     echo "  site_fabric_prefixes, deny_prefixes, pools, and networks for your site."
     echo ""
 fi
 
 echo ""
 echo "========================================================================="
-echo "  ACTION REQUIRED: Before deploying NCX Core, confirm you have updated:"
-echo "    helm-prereqs/values/ncx-core.yaml"
+echo "  ACTION REQUIRED: Before deploying NICo Core, confirm you have updated:"
+echo "    helm-prereqs/values/nico-core.yaml"
 echo ""
 echo "  Key fields:"
-echo "    global.image.repository   — ${NCX_IMAGE_REGISTRY}/nvmetal-carbide"
-echo "    global.image.tag          — ${NCX_CORE_IMAGE_TAG}"
-echo "    carbide-api.hostname      — your site hostname"
-echo "    carbide-api.siteConfig    — site-specific network/pool/IB config"
+echo "    global.image.repository   — ${NICO_IMAGE_REGISTRY}/nvmetal-carbide"
+echo "    global.image.tag          — ${NICO_CORE_IMAGE_TAG}"
+echo "    nico-api.hostname      — your site hostname"
+echo "    nico-api.siteConfig    — site-specific network/pool/IB config"
 echo "========================================================================="
 echo ""
 if "${AUTO_YES}"; then
     _reply="Y"
 else
-    read -r -p "  ➤  Deploy NCX Core now? [Y/n] " _reply
+    read -r -p "  ➤  Deploy NICo Core now? [Y/n] " _reply
     echo ""
 fi
 if [[ "${_reply:-Y}" =~ ^[Yy]$ ]]; then
-    _SETUP_PHASE="[6/6] NCX Core"
-echo "=== [6/6] carbide core ==="
-    (cd "${SCRIPT_DIR}/.." && eval "${CARBIDE_CMD}")
+    _SETUP_PHASE="[6/6] NICo Core"
+echo "=== [6/6] nico core ==="
+    (cd "${SCRIPT_DIR}/.." && eval "${NICO_CMD}")
 else
     echo "Skipped. To deploy manually, run from $(dirname "${SCRIPT_DIR}"):"
-    echo "  ${CARBIDE_CMD}"
+    echo "  ${NICO_CMD}"
 fi
 
 # ---------------------------------------------------------------------------
-# 7. NCX (carbide-rest) full stack
+# 7. NCX (nico-rest) full stack
 #    Order of operations:
-#      7a. Resolve NCX repo + CA signing secret
-#      7b. carbide-rest-ca-issuer ClusterIssuer (cert-manager.io)
-#      7c. NCX postgres (simple StatefulSet — temporal + forge DBs)
+#      7a. Resolve NICo repo + CA signing secret
+#      7b. nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
+#      7c. NICo postgres (simple StatefulSet — temporal + nico DBs)
 #      7d. Keycloak (dev IdP)
-#      7e. Temporal namespace + TLS certs (issued by carbide-rest-ca-issuer)
+#      7e. Temporal namespace + TLS certs (issued by nico-rest-ca-issuer)
 #      7f. Temporal helm chart
-#      7g. carbide-rest helm chart (API, cert-manager, workflow, site-manager)
+#      7g. nico-rest helm chart (API, cert-manager, workflow, site-manager)
 # ---------------------------------------------------------------------------
 echo ""
-_SETUP_PHASE="[7/7] NCX REST"
-echo "=== [7/7] NCX REST (carbide-rest) ==="
+_SETUP_PHASE="[7/7] NICo REST"
+echo "=== [7/7] NICo REST (nico-rest) ==="
 
-# --- 7a. NCX repo (resolved and exported by preflight.sh) -------------------
-if [[ -z "${NCX_REPO:-}" ]]; then
-    echo "ERROR: NCX REST repo is not set. Re-run setup.sh and choose to clone, or:"
-    echo "  export NCX_REPO=/path/to/<ncx-rest-repo>   # e.g. carbide-rest, ncx, ncx-infra-controller-rest"
+# --- 7a. NICo repo (resolved and exported by preflight.sh) -------------------
+if [[ -z "${NICO_REPO:-}" ]]; then
+    echo "ERROR: NICo REST repo is not set. Re-run setup.sh and choose to clone, or:"
+    echo "  export NICO_REPO=/path/to/<ncx-rest-repo>   # e.g. nico-rest, ncx, ncx-infra-controller-rest"
     exit 1
 fi
-echo "NCX repo: ${NCX_REPO}"
+echo "NICo repo: ${NICO_REPO}"
 
-# Create carbide-rest namespace
-kubectl create namespace carbide-rest 2>/dev/null || true
+# Create nico-rest namespace
+kubectl create namespace nico-rest 2>/dev/null || true
 
-# CA signing secret — needed by carbide-rest-cert-manager (internal PKI)
+# CA signing secret — needed by nico-rest-cert-manager (internal PKI)
 # and the cert-manager.io ClusterIssuer. gen-site-ca.sh creates it in
-# both carbide-rest and cert-manager namespaces in one shot.
-if kubectl get secret ca-signing-secret -n carbide-rest &>/dev/null; then
+# both nico-rest and cert-manager namespaces in one shot.
+if kubectl get secret ca-signing-secret -n nico-rest &>/dev/null; then
     echo "ca-signing-secret already present — skipping CA generation"
 else
-    echo "Generating carbide-rest CA signing secret..."
-    (cd "${NCX_REPO}" && ./scripts/gen-site-ca.sh)
+    echo "Generating nico-rest CA signing secret..."
+    (cd "${NICO_REPO}" && ./scripts/gen-site-ca.sh)
 fi
 
 # --- 7b. ClusterIssuer -------------------------------------------------------
-_SETUP_PHASE="[7b/7] carbide-rest-ca-issuer ClusterIssuer"
-echo "=== [7b/7] carbide-rest-ca-issuer ClusterIssuer ==="
-(cd "${NCX_REPO}" && kubectl apply -k deploy/kustomize/base/cert-manager-io)
+_SETUP_PHASE="[7b/7] nico-rest-ca-issuer ClusterIssuer"
+echo "=== [7b/7] nico-rest-ca-issuer ClusterIssuer ==="
+(cd "${NICO_REPO}" && kubectl apply -k deploy/kustomize/base/cert-manager-io)
 
-# --- 7c. NCX postgres --------------------------------------------------------
-# Simple postgres StatefulSet with all NCX databases pre-initialised:
-# forge, temporal, temporal_visibility, keycloak.
-# Lives alongside forge-pg-cluster in the postgres namespace — different
+# --- 7c. NICo postgres --------------------------------------------------------
+# Simple postgres StatefulSet with all NICo databases pre-initialised:
+# nico, temporal, temporal_visibility, keycloak.
+# Lives alongside nico-pg-cluster in the postgres namespace — different
 # service name ("postgres") so temporal/NCX values work without changes.
-_SETUP_PHASE="[7c/7] NCX postgres"
-echo "=== [7c/7] NCX postgres ==="
-(cd "${NCX_REPO}" && kubectl apply -k deploy/kustomize/base/postgres)
+_SETUP_PHASE="[7c/7] NICo postgres"
+echo "=== [7c/7] NICo postgres ==="
+(cd "${NICO_REPO}" && kubectl apply -k deploy/kustomize/base/postgres)
 kubectl rollout status statefulset/postgres -n postgres --timeout=180s
-echo "NCX postgres ready"
+echo "NICo postgres ready"
 
 # --- 7d. Keycloak (conditional) -----------------------------------------------
-# Only deploy Keycloak if ncx-rest.yaml has keycloak.enabled: true.
-# If using external OAuth2/OIDC (Option B in ncx-rest.yaml), skip this step.
-# Dev OIDC IdP, pre-loaded with carbide realm + test users.
-# carbide-rest-api talks to it at http://keycloak.carbide-rest:8082
+# Only deploy Keycloak if nico-rest.yaml has keycloak.enabled: true.
+# If using external OAuth2/OIDC (Option B in nico-rest.yaml), skip this step.
+# Dev OIDC IdP, pre-loaded with nico realm + test users.
+# nico-rest-api talks to it at http://keycloak.nico-rest:8082
 _SETUP_PHASE="[7d/7] Keycloak"
-_KC_ENABLED="$(grep -A5 'keycloak:' "${SCRIPT_DIR}/values/ncx-rest.yaml" \
+_KC_ENABLED="$(grep -A5 'keycloak:' "${SCRIPT_DIR}/values/nico-rest.yaml" \
     | grep 'enabled:' | head -1 | awk '{print $2}' || echo "false")"
 
 if [[ "${_KC_ENABLED}" == "true" ]]; then
@@ -426,15 +443,15 @@ if [[ "${_KC_ENABLED}" == "true" ]]; then
     "${SCRIPT_DIR}/keycloak/setup.sh"
     echo "Keycloak ready"
 else
-    echo "=== [7d/7] Keycloak — skipped (keycloak.enabled is not true in ncx-rest.yaml) ==="
+    echo "=== [7d/7] Keycloak — skipped (keycloak.enabled is not true in nico-rest.yaml) ==="
 fi
 
 # --- 7e. Temporal namespace + TLS certs + db-creds --------------------------
 _SETUP_PHASE="[7e/7] Temporal TLS bootstrap"
 echo "=== [7e/7] Temporal TLS bootstrap ==="
-(cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml)
-(cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/db-creds.yaml)
-(cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/certificates.yaml)
+(cd "${NICO_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml)
+(cd "${NICO_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/db-creds.yaml)
+(cd "${NICO_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/certificates.yaml)
 
 echo "Waiting for temporal TLS certificates to be issued..."
 kubectl wait --for=condition=Ready certificate/server-interservice-cert \
@@ -448,13 +465,13 @@ echo "Temporal TLS certs ready"
 # --- 7f. Temporal ------------------------------------------------------------
 _SETUP_PHASE="[7f/7] Temporal"
 echo "=== [7f/7] Temporal ==="
-helm upgrade --install temporal "${NCX_REPO}/temporal-helm/temporal" \
+helm upgrade --install temporal "${NICO_REPO}/temporal-helm/temporal" \
     --namespace temporal \
-    -f "${NCX_REPO}/temporal-helm/temporal/values-kind.yaml" \
+    -f "${NICO_REPO}/temporal-helm/temporal/values-kind.yaml" \
     --timeout 300s --wait
 echo "Temporal ready"
 
-# Create the Temporal namespaces required by NCX REST workers (requires mTLS)
+# Create the Temporal namespaces required by NICo REST workers (requires mTLS)
 echo "Creating Temporal cloud and site namespaces..."
 _TEMPORAL_ADDR="temporal-frontend.temporal:7233"
 _TEMPORAL_TLS="--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
@@ -467,45 +484,45 @@ kubectl exec -n temporal deploy/temporal-admintools -- \
     sh -c "temporal operator namespace create -n site --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
 echo "Temporal namespaces ready"
 
-_SETUP_PHASE="[7g/7] NCX REST helm chart"
-# --- 7g. carbide-rest helm chart --------------------------------------------
-NCX_HELM_CHART="${NCX_REPO}/helm/charts/carbide-rest"
-# Build dockerconfigjson for the image-pull-secret that carbide-rest-common creates.
-# Same NGC key as carbide; helm manages the secret so there's no ownership conflict.
+_SETUP_PHASE="[7g/7] NICo REST helm chart"
+# --- 7g. nico-rest helm chart --------------------------------------------
+NICO_HELM_CHART="${NICO_REPO}/helm/charts/nico-rest"
+# Build dockerconfigjson for the image-pull-secret that nico-rest-common creates.
+# Same NGC key as nico; helm manages the secret so there's no ownership conflict.
 _ncx_docker_cfg="$(printf '{"auths":{"nvcr.io":{"username":"$oauthtoken","password":"%s"}}}' \
     "${REGISTRY_PULL_SECRET}" | base64 | tr -d '\n')"
 
 echo ""
 echo "========================================================================="
-echo "  NCX REST (carbide-rest)"
-echo "    Image:  ${NCX_IMAGE_REGISTRY}  tag: ${NCX_REST_IMAGE_TAG}"
-echo "    Values: ${SCRIPT_DIR}/values/ncx-rest.yaml"
-echo "    Auth:   Keycloak dev instance (step 7d) — update ncx-rest.yaml for production IdP"
+echo "  NICo REST (nico-rest)"
+echo "    Image:  ${NICO_IMAGE_REGISTRY}  tag: ${NICO_REST_IMAGE_TAG}"
+echo "    Values: ${SCRIPT_DIR}/values/nico-rest.yaml"
+echo "    Auth:   Keycloak dev instance (step 7d) — update nico-rest.yaml for production IdP"
 echo "========================================================================="
 echo ""
 if "${AUTO_YES}"; then
     _ncx_reply="Y"
 else
-    read -r -p "  ➤  Deploy NCX REST now? [Y/n] " _ncx_reply
+    read -r -p "  ➤  Deploy NICo REST now? [Y/n] " _ncx_reply
     echo ""
 fi
 if [[ "${_ncx_reply:-Y}" =~ ^[Yy]$ ]]; then
-    helm upgrade --install carbide-rest "${NCX_HELM_CHART}" \
-        --namespace carbide-rest \
-        -f "${SCRIPT_DIR}/values/ncx-rest.yaml" \
-        --set global.image.repository="${NCX_IMAGE_REGISTRY}" \
-        --set global.image.tag="${NCX_REST_IMAGE_TAG}" \
-        --set "carbide-rest-common.secrets.imagePullSecret.dockerconfigjson=${_ncx_docker_cfg}" \
+    helm upgrade --install nico-rest "${NICO_HELM_CHART}" \
+        --namespace nico-rest \
+        -f "${SCRIPT_DIR}/values/nico-rest.yaml" \
+        --set global.image.repository="${NICO_IMAGE_REGISTRY}" \
+        --set global.image.tag="${NICO_REST_IMAGE_TAG}" \
+        --set "nico-rest-common.secrets.imagePullSecret.dockerconfigjson=${_ncx_docker_cfg}" \
         --timeout 600s --wait
 else
-    echo "Skipped NCX REST (carbide-rest). Re-run with -y or answer Y to deploy."
+    echo "Skipped NICo REST (nico-rest). Re-run with -y or answer Y to deploy."
     echo ""
-    echo "=== Setup complete (NCX REST skipped) ==="
+    echo "=== Setup complete (NICo REST skipped) ==="
     exit 0
 fi
 
-# --- 7h. NCX REST site-agent -------------------------------------------------
-# The site-agent is a separate chart from the main carbide-rest umbrella.
+# --- 7h. NICo REST site-agent -------------------------------------------------
+# The site-agent is a separate chart from the main nico-rest umbrella.
 #
 # Bootstrap order:
 #   1. Create the per-site Temporal namespace BEFORE helm install so the
@@ -513,7 +530,7 @@ fi
 #      immediate nil-pointer panic in RegisterCron).
 #   2. Install the chart with bootstrap.enabled=true — a pre-install Helm hook
 #      Job (alpine/k8s) runs entirely inside the cluster:
-#        a. Calls POST carbide-rest-site-manager:8100/v1/site to register the site.
+#        a. Calls POST nico-rest-site-manager:8100/v1/site to register the site.
 #        b. Waits for the Site CR OTP (populated by site-manager operator).
 #        c. Creates site-registration secret with real UUID + OTP.
 #      The StatefulSet pod is only created AFTER the hook completes, so there is
@@ -521,83 +538,83 @@ fi
 #      the Job's idempotency check and skip the real bootstrap.
 #
 # The  binary also needs DB credentials for its local elektratest DB.
-# All of this is wired via --set flags so ncx-rest.yaml stays registry-agnostic.
-NCX_SITE_AGENT_CHART="${NCX_REPO}/helm/charts/carbide-rest-site-agent"
+# All of this is wired via --set flags so nico-rest.yaml stays registry-agnostic.
+NICO_SITE_AGENT_CHART="${NICO_REPO}/helm/charts/nico-rest-site-agent"
 
 # Stable placeholder UUID for this site (must be a valid UUID).
-NCX_SITE_UUID="${NCX_SITE_UUID:-a1b2c3d4-e5f6-4000-8000-000000000001}"
+NICO_SITE_UUID="${NICO_SITE_UUID:-a1b2c3d4-e5f6-4000-8000-000000000001}"
 
-_SETUP_PHASE="[7h/7] NCX REST site-agent"
-echo "=== [7h/7] NCX REST site-agent (site UUID: ${NCX_SITE_UUID}) ==="
+_SETUP_PHASE="[7h/7] NICo REST site-agent"
+echo "=== [7h/7] NICo REST site-agent (site UUID: ${NICO_SITE_UUID}) ==="
 
-# Pre-apply the Certificate resource so cert-manager issues the carbide gRPC client
+# Pre-apply the Certificate resource so cert-manager issues the nico gRPC client
 # cert BEFORE the StatefulSet pod starts. Without this, there is a race: helm creates
 # both the Certificate and the StatefulSet simultaneously, and the pod's
 # GetInitialCertMD5() call fails because the secret hasn't been projected yet.
-echo "Pre-applying carbide gRPC client certificate..."
-# Issue the cert from vault-forge-issuer (same CA as carbide-api) so that:
-#   1. carbide-api trusts the site-agent's client cert (Vault PKI CA)
+echo "Pre-applying nico gRPC client certificate..."
+# Issue the cert from vault-nico-issuer (same CA as nico-api) so that:
+#   1. nico-api trusts the site-agent's client cert (Vault PKI CA)
 #   2. the ca.crt in the secret is the Vault PKI CA, which the site-agent uses
-#      as ServerCAPath to verify carbide-api's server cert (also Vault-signed)
+#      as ServerCAPath to verify nico-api's server cert (also Vault-signed)
 # Use the same values file as the install step so the rendered Certificate is
 # byte-for-byte identical — preventing cert-manager from re-issuing the cert.
-helm template carbide-rest-site-agent "${NCX_SITE_AGENT_CHART}" \
-    --namespace carbide-rest \
-    -f "${SCRIPT_DIR}/values/ncx-site-agent.yaml" \
-    --set global.image.repository="${NCX_IMAGE_REGISTRY}" \
-    --set global.image.tag="${NCX_REST_IMAGE_TAG}" \
+helm template nico-rest-site-agent "${NICO_SITE_AGENT_CHART}" \
+    --namespace nico-rest \
+    -f "${SCRIPT_DIR}/values/nico-site-agent.yaml" \
+    --set global.image.repository="${NICO_IMAGE_REGISTRY}" \
+    --set global.image.tag="${NICO_REST_IMAGE_TAG}" \
     --show-only templates/certificate.yaml | kubectl apply -f -
 # Add Helm ownership annotations so the subsequent helm install can adopt this resource
 # instead of failing with "exists and cannot be imported into the current release".
-kubectl annotate certificate/core-grpc-client-site-agent-certs -n carbide-rest \
-    "meta.helm.sh/release-name=carbide-rest-site-agent" \
-    "meta.helm.sh/release-namespace=carbide-rest" --overwrite
-kubectl label certificate/core-grpc-client-site-agent-certs -n carbide-rest \
+kubectl annotate certificate/core-grpc-client-site-agent-certs -n nico-rest \
+    "meta.helm.sh/release-name=nico-rest-site-agent" \
+    "meta.helm.sh/release-namespace=nico-rest" --overwrite
+kubectl label certificate/core-grpc-client-site-agent-certs -n nico-rest \
     "app.kubernetes.io/managed-by=Helm" --overwrite
 echo "Waiting for cert-manager to issue core-grpc-client-site-agent-certs..."
 kubectl wait --for=condition=Ready certificate/core-grpc-client-site-agent-certs \
-    -n carbide-rest --timeout=120s
-echo "Carbide gRPC client cert ready"
+    -n nico-rest --timeout=120s
+echo "NICo gRPC client cert ready"
 
 # Create per-site Temporal namespace BEFORE deploying site-agent.
 # The site-agent panics immediately on startup if this namespace doesn't exist.
-echo "Creating Temporal namespace for site ${NCX_SITE_UUID}..."
+echo "Creating Temporal namespace for site ${NICO_SITE_UUID}..."
 _TEMPORAL_ADDR="temporal-frontend.temporal:7233"
 _TEMPORAL_TLS="--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
     --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
     --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
     --tls-server-name interservice.server.temporal.local"
 kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n '${NCX_SITE_UUID}' --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
+    sh -c "temporal operator namespace create -n '${NICO_SITE_UUID}' --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
 echo "Temporal namespace ready"
 
-helm upgrade --install carbide-rest-site-agent "${NCX_SITE_AGENT_CHART}" \
-    --namespace carbide-rest \
-    -f "${SCRIPT_DIR}/values/ncx-site-agent.yaml" \
-    --set global.image.repository="${NCX_IMAGE_REGISTRY}" \
-    --set global.image.tag="${NCX_REST_IMAGE_TAG}" \
-    --set "envConfig.CLUSTER_ID=${NCX_SITE_UUID}" \
-    --set "envConfig.TEMPORAL_SUBSCRIBE_NAMESPACE=${NCX_SITE_UUID}" \
+helm upgrade --install nico-rest-site-agent "${NICO_SITE_AGENT_CHART}" \
+    --namespace nico-rest \
+    -f "${SCRIPT_DIR}/values/nico-site-agent.yaml" \
+    --set global.image.repository="${NICO_IMAGE_REGISTRY}" \
+    --set global.image.tag="${NICO_REST_IMAGE_TAG}" \
+    --set "envConfig.CLUSTER_ID=${NICO_SITE_UUID}" \
+    --set "envConfig.TEMPORAL_SUBSCRIBE_NAMESPACE=${NICO_SITE_UUID}" \
     --set "envConfig.TEMPORAL_SUBSCRIBE_QUEUE=site" \
     --timeout 300s --wait
-echo "NCX REST site-agent deployed and bootstrap complete"
+echo "NICo REST site-agent deployed and bootstrap complete"
 
-# Verify gRPC connection to carbide-api succeeded. The site-agent attempts
+# Verify gRPC connection to nico-api succeeded. The site-agent attempts
 # the connection exactly once at startup with a 5-second deadline; if it
-# fails for any transient reason the CarbideClient stays nil permanently and
+# fails for any transient reason the NicoClient stays nil permanently and
 # all inventory activities panic.  Detect failure and restart the pod so it
 # gets a fresh attempt with the same correct config.
-echo "Verifying site-agent carbide-api gRPC connection..."
+echo "Verifying site-agent nico-api gRPC connection..."
 _CONNECTED=false
 for _i in $(seq 1 24); do
-    _POD="$(kubectl get pods -n carbide-rest \
-        -l "app.kubernetes.io/name=carbide-rest-site-agent" \
+    _POD="$(kubectl get pods -n nico-rest \
+        -l "app.kubernetes.io/name=nico-rest-site-agent" \
         -o name 2>/dev/null | head -1)"
     if [ -n "${_POD}" ] && \
-       kubectl logs -n carbide-rest "${_POD}" --since=5m 2>/dev/null \
-           | grep -q "CarbideClient: successfully connected to server"; then
+       kubectl logs -n nico-rest "${_POD}" --since=5m 2>/dev/null \
+           | grep -q "NicoClient: successfully connected to server"; then
         _CONNECTED=true
-        echo "Site-agent successfully connected to carbide-api gRPC"
+        echo "Site-agent successfully connected to nico-api gRPC"
         break
     fi
     echo "  Waiting for gRPC connection (${_i}/24)..."
@@ -606,8 +623,8 @@ done
 
 if [ "${_CONNECTED}" = "false" ]; then
     echo "WARNING: site-agent did not confirm gRPC connection — restarting pod for retry..."
-    kubectl rollout restart statefulset/carbide-rest-site-agent -n carbide-rest
-    kubectl rollout status statefulset/carbide-rest-site-agent -n carbide-rest --timeout=120s
+    kubectl rollout restart statefulset/nico-rest-site-agent -n nico-rest
+    kubectl rollout status statefulset/nico-rest-site-agent -n nico-rest --timeout=120s
     echo "Site-agent pod restarted — gRPC connection will be retried"
 fi
 
@@ -618,9 +635,9 @@ echo "========================================================================="
 echo ""
 echo "  Quick health checks:"
 echo "    kubectl get clusterissuer"
-echo "    kubectl get secret forge-roots -n forge-system"
-echo "    kubectl get pods -n forge-system"
-echo "    kubectl get pods -n carbide-rest"
+echo "    kubectl get secret nico-roots -n nico-system"
+echo "    kubectl get pods -n nico-system"
+echo "    kubectl get pods -n nico-rest"
 echo "    kubectl get pods -n temporal"
 echo ""
 echo "  Next steps — see helm-prereqs/README.md, section 8:"
@@ -629,7 +646,7 @@ if [[ "${_KC_ENABLED:-false}" == "true" ]]; then
 else
     echo "    • Acquiring an access token             (Keycloak disabled — use your own IdP)"
 fi
-echo "    • Setting up carbidecli against this cluster"
+echo "    • Setting up nicocli against this cluster"
 echo "    • Bootstrap the org and create your first site"
 echo "    • Next: IP blocks and downstream resources"
 echo ""

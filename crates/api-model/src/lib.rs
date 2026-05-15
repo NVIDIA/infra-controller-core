@@ -159,6 +159,11 @@ pub enum ConfigValidationError {
     #[error("Instance deletion request is already received.")]
     InstanceDeletionIsRequested,
 
+    #[error(
+        "Instance release is blocked: aggregate health includes a PreventInstanceDeletion alert. Remove the alert or the health override that carries it, then retry."
+    )]
+    InstanceReleaseBlockedByPreventInstanceDeletion,
+
     #[error("Instance is not Ready yet. Can't apply the config.")]
     InvalidState,
 }

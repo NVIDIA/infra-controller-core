@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
@@ -69,9 +70,44 @@ impl EventContext {
         }
     }
 
+    pub fn slot_number(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => machine.slot_number,
+            _ => None,
+        }
+    }
+
+    pub fn tray_index(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => machine.tray_index,
+            _ => None,
+        }
+    }
+
+    pub fn nvlink_domain_uuid(&self) -> Option<NvLinkDomainId> {
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => machine.nvlink_domain_uuid,
+            _ => None,
+        }
+    }
+
     pub fn switch_id(&self) -> Option<SwitchId> {
         match &self.metadata {
             Some(EndpointMetadata::Switch(switch)) => switch.id,
+            _ => None,
+        }
+    }
+
+    pub fn switch_slot_number(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => switch.slot_number,
+            _ => None,
+        }
+    }
+
+    pub fn switch_tray_index(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => switch.tray_index,
             _ => None,
         }
     }
