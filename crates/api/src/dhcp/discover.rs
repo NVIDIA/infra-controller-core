@@ -24,7 +24,7 @@ use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
 use model::dpa_interface::DpaInterface;
 use model::expected_machine::ExpectedHostNic;
-use model::network_segment::AllocationStrategy;
+use model::network_segment::{AllocationStrategy, NetworkSegmentSearchConfig, NetworkSegmentType};
 use sqlx::PgConnection;
 use tonic::{Request, Response};
 
@@ -310,6 +310,33 @@ pub async fn discover_dhcp(
     )
     .await?;
 
+    // Use the interface's actual segment, not only relay context, so
+    // dormant admin interfaces cannot keep serving stale DHCP leases.
+    let segment = db::network_segment::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db::network_segment::IdColumn, &machine_interface.segment_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "network_segment",
+        id: machine_interface.segment_id.to_string(),
+    })?;
+    // Only DPU-backed host admin links are dormant when non-primary. Other non-primary admin
+    // interfaces can be valid operator-declared host NICs and must still be allowed to DHCP.
+    let is_dpu_backed_host_admin_interface = machine_interface.attached_dpu_machine_id.is_some()
+        && machine_interface.attached_dpu_machine_id != machine_interface.machine_id;
+    if is_dpu_backed_host_admin_interface
+        && !machine_interface.primary_interface
+        && segment.config.segment_type == NetworkSegmentType::Admin
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "DHCP request received on dormant non-primary admin interface {}. Ignoring.",
+            machine_interface.id
+        )));
+    }
+
     // If the interface has no address for the requested address family
     // (e.g., after a lease expiration cleaned up the DHCP allocation,
     // or this is a new address family for a dual-stack interface),
@@ -327,14 +354,6 @@ pub async fn discover_dhcp(
             ?address_family,
             "Interface missing address for family, re-allocating from segment"
         );
-        let segment = db::network_segment::for_relay(&mut txn, parsed_relay)
-            .await?
-            .ok_or_else(|| {
-                CarbideError::internal(format!(
-                    "No network segment defined for relay address: {parsed_relay}"
-                ))
-            })?;
-
         // If the segment only allows static reservations, don't
         // dynamically allocate. The device has no reservation.
         if segment.config.allocation_strategy == AllocationStrategy::Reserved {

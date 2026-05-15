@@ -179,12 +179,18 @@ pub(crate) async fn set_primary_dpu(
 
     let mut txn = api.txn_begin().await?;
 
+    // Normalize any legacy over-allocation before changing the primary flag so
+    // the current active DHCP address is the address reconciliation can move.
+    db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &host_machine_id).await?;
+
     // update the primary interface
     db::machine_interface::set_primary_interface(&current_primary_interface_id, false, &mut txn)
         .await?;
     db::machine_interface::set_primary_interface(&new_primary_interface.id, true, &mut txn).await?;
 
-    // increment the network config version so that the DPUs pick up their new config
+    // Reconcile admin address ownership after the primary flag moves.
+    db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &host_machine_id).await?;
+
     let (network_config, network_config_version) =
         db::machine::get_network_config(txn.as_pgconn(), &host_machine_id)
             .await?

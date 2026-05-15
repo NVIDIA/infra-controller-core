@@ -26,7 +26,12 @@ use ::rpc::forge::{
 use common::api_fixtures::network_segment::create_network_segment;
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
 use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
+use mac_address::MacAddress;
+use model::address_selection_strategy::AddressSelectionStrategy;
+use model::allocation_type::AllocationType;
 use model::machine::network::ManagedHostQuarantineMode;
+use model::machine_interface_address::MachineInterfaceAssociation;
+use model::network_segment::NetworkSegmentType;
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 
@@ -497,6 +502,49 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
 
     let configs = [&dpu_1_network_config, &dpu_2_network_config];
 
+    // Check that reconciliation left exactly one DHCP admin address on
+    // the host, and normalized the dormant admin interface.
+    let mut txn = env.pool.begin().await.unwrap();
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id])
+        .await
+        .unwrap();
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    let admin_interfaces = interfaces
+        .iter()
+        .filter(|interface| {
+            interface.network_segment_type == Some(NetworkSegmentType::Admin)
+                && interface.attached_dpu_machine_id.is_some()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(admin_interfaces.len(), 2);
+
+    let primary_interface = admin_interfaces
+        .iter()
+        .copied()
+        .find(|interface| interface.primary_interface)
+        .unwrap();
+    let dormant_interface = admin_interfaces
+        .iter()
+        .copied()
+        .find(|interface| !interface.primary_interface)
+        .unwrap();
+    let mut dhcp_address_count = 0;
+    for interface in &admin_interfaces {
+        let addresses = db::machine_interface_address::find_for_interface(&mut txn, interface.id)
+            .await
+            .unwrap();
+        dhcp_address_count += addresses
+            .iter()
+            .filter(|address| address.allocation_type == AllocationType::Dhcp)
+            .count();
+    }
+    assert_eq!(dhcp_address_count, 1);
+    assert_eq!(primary_interface.addresses.len(), 1);
+    assert!(dormant_interface.addresses.is_empty());
+    assert!(dormant_interface.domain_id.is_none());
+    assert!(dormant_interface.hostname.starts_with("noip-"));
+    txn.commit().await.unwrap();
+
     // Assert: Both DPUs are still on the singular admin-interface path.
     for config in configs {
         assert!(config.use_admin_network);
@@ -520,6 +568,146 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
         dpu_1_network_config.managed_host_config_version,
         dpu_2_network_config.managed_host_config_version,
     );
+
+    // Assert: The admin config uses the primary address for both DPUs, but
+    // still reports the requesting DPU's own host interface identity.
+    let dpu_1_admin = dpu_1_network_config.admin_interface.as_ref().unwrap();
+    let dpu_2_admin = dpu_2_network_config.admin_interface.as_ref().unwrap();
+    assert_eq!(dpu_1_admin.ip, dpu_2_admin.ip);
+    assert_eq!(dpu_1_admin.fqdn, dpu_2_admin.fqdn);
+    assert_ne!(
+        dpu_1_network_config.host_interface_id,
+        dpu_2_network_config.host_interface_id,
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_uses_non_dpu_primary_admin_interface(pool: sqlx::PgPool) {
+    let env = api_fixtures::create_test_env(pool).await;
+
+    // Given: A managed host with 2 DPUs and a separate host admin NIC marked primary.
+    let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
+    let host_machine = mh.host().rpc_machine().await;
+    let dpu_1_id = host_machine.associated_dpu_machine_ids[0];
+    let dpu_2_id = host_machine.associated_dpu_machine_ids[1];
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let admin_segment = db::network_segment::admin(&mut txn)
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id])
+        .await
+        .unwrap();
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    for interface in interfaces
+        .iter()
+        .filter(|interface| interface.primary_interface)
+    {
+        db::machine_interface::set_primary_interface(&interface.id, false, &mut txn)
+            .await
+            .unwrap();
+    }
+
+    let active_mac: MacAddress = "9a:9b:9c:9d:9e:b1".parse().unwrap();
+    let active_interface = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&admin_segment),
+        &active_mac,
+        true,
+        AddressSelectionStrategy::NextAvailableIp,
+    )
+    .await
+    .unwrap();
+    db::machine_interface::associate_interface_with_machine(
+        &active_interface.id,
+        MachineInterfaceAssociation::Machine(mh.id),
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &mh.id)
+        .await
+        .unwrap();
+
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id])
+        .await
+        .unwrap();
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    let active_interface = interfaces
+        .iter()
+        .find(|interface| interface.id == active_interface.id)
+        .unwrap();
+    let active_ip = active_interface
+        .addresses
+        .iter()
+        .find(|address| address.is_ipv4())
+        .unwrap()
+        .to_string();
+    let dpu_1_host_interface_id = interfaces
+        .iter()
+        .find(|interface| {
+            interface.attached_dpu_machine_id == Some(dpu_1_id)
+                && interface.network_segment_type == Some(NetworkSegmentType::Admin)
+        })
+        .unwrap()
+        .id
+        .to_string();
+    let dpu_2_host_interface_id = interfaces
+        .iter()
+        .find(|interface| {
+            interface.attached_dpu_machine_id == Some(dpu_2_id)
+                && interface.network_segment_type == Some(NetworkSegmentType::Admin)
+        })
+        .unwrap()
+        .id
+        .to_string();
+    txn.commit().await.unwrap();
+
+    // Then: DPU network config uses the non-DPU primary admin IP, but each response
+    // still reports the requesting DPU's own DPU-backed host interface ID.
+    let dpu_1_network_config = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_1_id),
+        }))
+        .await
+        .expect("Error getting DPU1 network config")
+        .into_inner();
+    let dpu_2_network_config = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_2_id),
+        }))
+        .await
+        .expect("Error getting DPU2 network config")
+        .into_inner();
+
+    assert_eq!(
+        dpu_1_network_config.admin_interface.as_ref().unwrap().ip,
+        active_ip
+    );
+    assert_eq!(
+        dpu_2_network_config.admin_interface.as_ref().unwrap().ip,
+        active_ip
+    );
+    assert_eq!(
+        dpu_1_network_config.admin_interface.as_ref().unwrap().fqdn,
+        dpu_2_network_config.admin_interface.as_ref().unwrap().fqdn
+    );
+    assert_eq!(
+        dpu_1_network_config.host_interface_id.as_deref(),
+        Some(dpu_1_host_interface_id.as_str())
+    );
+    assert_eq!(
+        dpu_2_network_config.host_interface_id.as_deref(),
+        Some(dpu_2_host_interface_id.as_str())
+    );
+    assert!(!dpu_1_network_config.is_primary_dpu);
+    assert!(!dpu_2_network_config.is_primary_dpu);
 }
 
 #[crate::sqlx_test]

@@ -35,8 +35,11 @@ use rpc::forge_agent_control_response::Action;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
+use crate::tests::common::api_fixtures::instance::TestInstance;
+use crate::tests::common::api_fixtures::rpc_instance::RpcInstance;
+use crate::tests::common::api_fixtures::test_machine::TestMachineInterface;
 use crate::tests::common::api_fixtures::{
-    TestManagedHost, create_managed_host, forge_agent_control, update_time_params,
+    TestEnv, TestManagedHost, create_managed_host, forge_agent_control, update_time_params,
 };
 
 #[crate::sqlx_test]
@@ -386,8 +389,19 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_interface = mh.dpu().first_interface(&mut txn).await;
-    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
+    txn.commit().await.unwrap();
 
+    instance_reprov_start(&env, &mh, &tinstance, &rpc_instance).await;
+    instance_reprov_install_dpu_os(&env, &mh, &tinstance, &dpu_interface).await;
+    instance_reprov_complete(&env, &mh, &tinstance).await;
+}
+
+async fn instance_reprov_start(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    tinstance: &TestInstance<'_, '_>,
+    rpc_instance: &RpcInstance,
+) {
     mh.mark_machine_for_updates().await;
     mh.dpu().trigger_dpu_reprovisioning(Mode::Set, true).await;
     env.api
@@ -401,20 +415,23 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(dpu.reprovision_requested.unwrap().initiator, "AdminCli");
+    txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
-    mh.network_configured(&env).await;
+    mh.network_configured(env).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
-    mh.network_configured(&env).await;
+    mh.network_configured(env).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(matches!(
         dpu.current_state(),
@@ -422,36 +439,25 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::BootingWithDiscoveryImage { .. }
         }
     ));
-
-    let host = mh.host().db_machine(&mut txn).await;
-
-    // Check that the tenant state is what we expect now that reprovisioning has started.
-    let db_instance = tinstance.db_instance(&mut txn).await;
-
-    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
-    assert_eq!(
-        instance_snapshot_derive_status(
-            &db_instance,
-            device_id_maps.1,
-            host.state.clone().value,
-            None,
-            None,
-            None
-        )
-        .unwrap()
-        .tenant
-        .unwrap()
-        .state,
-        TenantState::Updating
-    );
-
-    _ = forge_agent_control(&env, rpc_instance.machine_id()).await;
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
     txn.commit().await.unwrap();
-    let mut txn = env.pool.begin().await.unwrap();
+
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Updating).await;
+
+    _ = forge_agent_control(env, rpc_instance.machine_id()).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+}
+
+async fn instance_reprov_install_dpu_os(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    tinstance: &TestInstance<'_, '_>,
+    dpu_interface: &TestMachineInterface,
+) {
+    let dpu_arch = MachineArchitecture::Arm;
+
     env.run_machine_state_controller_iteration().await;
 
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
@@ -459,37 +465,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             substate: InstallDpuOsState::InstallingBFB,
         }),
     );
+    txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
-    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    let dpu = mh.dpu().next_iteration_machine(env).await;
     assert_eq!(
         dpu.current_state(),
         &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
-    let host = mh.host().db_machine(&mut txn).await;
-
-    // Check that the tenant state is still what we expect now that reprovisioning has started.
-    let db_instance = tinstance.db_instance(&mut txn).await;
-
-    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
-    assert_eq!(
-        instance_snapshot_derive_status(
-            &db_instance,
-            device_id_maps.1,
-            host.state.clone().value,
-            None,
-            None,
-            None
-        )
-        .unwrap()
-        .tenant
-        .unwrap()
-        .state,
-        TenantState::Updating
-    );
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Updating).await;
 
     let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert_ne!(pxe.pxe_script, "exit".to_string());
@@ -509,28 +496,9 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         &mh.new_dpu_assigned_reprovision_state(ReprovisionState::PoweringOffHost),
     );
-
-    let host = mh.host().db_machine(&mut txn).await;
-    // Check that the tenant state is still what we expect now that reprovisioning has started.
-    let db_instance = tinstance.db_instance(&mut txn).await;
-
-    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
-    assert_eq!(
-        instance_snapshot_derive_status(
-            &db_instance,
-            device_id_maps.1,
-            host.state.clone().value,
-            None,
-            None,
-            None
-        )
-        .unwrap()
-        .tenant
-        .unwrap()
-        .state,
-        TenantState::Updating
-    );
     txn.commit().await.unwrap();
+
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Updating).await;
 
     let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
@@ -548,29 +516,9 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         &mh.new_dpu_assigned_reprovision_state(ReprovisionState::PowerDown)
     );
-
-    let host = mh.host().db_machine(&mut txn).await;
-
-    // Check that the tenant state is still what we expect now that reprovisioning has started.
-    let db_instance = tinstance.db_instance(&mut txn).await;
-
-    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
-    assert_eq!(
-        instance_snapshot_derive_status(
-            &db_instance,
-            device_id_maps.1,
-            host.state.clone().value,
-            None,
-            None,
-            None
-        )
-        .unwrap()
-        .tenant
-        .unwrap()
-        .state,
-        TenantState::Updating
-    );
     txn.commit().await.unwrap();
+
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Updating).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -579,26 +527,9 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         &mh.new_dpu_assigned_reprovision_state(ReprovisionState::VerifyFirmareVersions)
     );
-    let host = mh.host().db_machine(&mut txn).await;
-    // Check that the tenant state is still what we expect now that reprovisioning has started.
-    let db_instance = tinstance.db_instance(&mut txn).await;
-    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
-    assert_eq!(
-        instance_snapshot_derive_status(
-            &db_instance,
-            device_id_maps.1,
-            host.state.clone().value,
-            None,
-            None,
-            None
-        )
-        .unwrap()
-        .tenant
-        .unwrap()
-        .state,
-        TenantState::Updating
-    );
     txn.commit().await.unwrap();
+
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Updating).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -607,100 +538,52 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkConfig)
     );
-    let host = mh.host().db_machine(&mut txn).await;
-    // Check that the tenant state is still what we expect now that reprovisioning has started.
-    let db_instance = tinstance.db_instance(&mut txn).await;
-    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
-    assert_eq!(
-        instance_snapshot_derive_status(
-            &db_instance,
-            device_id_maps.1,
-            host.state.clone().value,
-            None,
-            None,
-            None
-        )
-        .unwrap()
-        .tenant
-        .unwrap()
-        .state,
-        TenantState::Updating
-    );
     txn.commit().await.unwrap();
+
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Updating).await;
 
     let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(pxe.pxe_script.contains("exit"));
+}
 
+async fn instance_reprov_complete(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    tinstance: &TestInstance<'_, '_>,
+) {
     let response = mh.dpu().forge_agent_control().await;
     assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
         response.legacy_action,
         rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
-    mh.network_configured(&env).await;
+    mh.network_configured(env).await;
 
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
-    let host = mh.host().db_machine(&mut txn).await;
-    // Check that the tenant state is still what we expect now that reprovisioning has started.
-    let db_instance = tinstance.db_instance(&mut txn).await;
     txn.commit().await.unwrap();
     assert_eq!(
         dpu.current_state(),
         &mh.new_dpu_assigned_reprovision_state(ReprovisionState::RebootHostBmc)
     );
-    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
-    assert_eq!(
-        instance_snapshot_derive_status(
-            &db_instance,
-            device_id_maps.1,
-            host.state.clone().value,
-            None,
-            None,
-            None
-        )
-        .unwrap()
-        .tenant
-        .unwrap()
-        .state,
-        TenantState::Updating
-    );
+
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Updating).await;
 
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
-    let host = mh.host().db_machine(&mut txn).await;
-    // Check that the tenant state is still what we expect now that reprovisioning has started.
-    let db_instance = tinstance.db_instance(&mut txn).await;
     txn.commit().await.unwrap();
     assert_eq!(
         dpu.current_state(),
         &mh.new_dpu_assigned_reprovision_state(ReprovisionState::RebootHost),
     );
-    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
-    assert_eq!(
-        instance_snapshot_derive_status(
-            &db_instance,
-            device_id_maps.1,
-            host.state.clone().value,
-            None,
-            None,
-            None
-        )
-        .unwrap()
-        .tenant
-        .unwrap()
-        .state,
-        TenantState::Updating
-    );
+
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Updating).await;
 
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
-    let host = mh.host().db_machine(&mut txn).await;
-    // Check that the tenant state is still what we expect now that reprovisioning has completed.
-    let db_instance = tinstance.db_instance(&mut txn).await;
     txn.commit().await.unwrap();
     assert!(matches!(
         dpu.current_state(),
@@ -708,6 +591,21 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::Ready
         }
     ));
+
+    assert_reprov_tenant_state(env, mh, tinstance, TenantState::Configuring).await;
+}
+
+async fn assert_reprov_tenant_state(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    tinstance: &TestInstance<'_, '_>,
+    expected: TenantState,
+) {
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let db_instance = tinstance.db_instance(&mut txn).await;
+    txn.commit().await.unwrap();
+
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance_snapshot_derive_status(
@@ -722,7 +620,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .tenant
         .unwrap()
         .state,
-        TenantState::Configuring
+        expected
     );
 }
 

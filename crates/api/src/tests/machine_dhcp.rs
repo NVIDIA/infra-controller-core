@@ -27,13 +27,14 @@ use common::api_fixtures::network_segment::{
 };
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestEnvOverrides, create_managed_host,
-    create_managed_host_with_config, create_test_env, create_test_env_with_overrides, dpu,
-    get_config,
+    create_managed_host_multi_dpu, create_managed_host_with_config, create_test_env,
+    create_test_env_with_overrides, dpu, get_config,
 };
 use db::{self, ObjectColumnFilter, dhcp_entry};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::network_segment::NetworkSegmentType;
 use rpc::forge::ManagedHostNetworkConfigRequest;
 use rpc::forge::forge_server::Forge;
 
@@ -148,6 +149,56 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         1
     );
     txn.commit().await.unwrap();
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_non_primary_admin_interface_dhcp_is_rejected(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    // Create a multi-DPU host and find its dormant DPU-backed admin interface.
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+    let mut txn = pool.begin().await?;
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let dormant_interface = interface_map
+        .remove(&mh.id)
+        .unwrap()
+        .into_iter()
+        .find(|interface| {
+            interface.network_segment_type == Some(NetworkSegmentType::Admin)
+                && interface.attached_dpu_machine_id.is_some()
+                && !interface.primary_interface
+        })
+        .unwrap();
+    assert!(dormant_interface.addresses.is_empty());
+    txn.commit().await?;
+
+    // DHCP on the dormant admin link must be rejected before a new lease
+    // is allocated or any stale record can be returned.
+    let result = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(dormant_interface.mac_address, FIXTURE_DHCP_RELAY_ADDRESS)
+                .tonic_request(),
+        )
+        .await;
+    let status = result.expect_err("dormant admin DHCP should be rejected");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        status
+            .message()
+            .contains("dormant non-primary admin interface")
+    );
+
+    // Verify the rejected request did not allocate a replacement address.
+    let mut txn = pool.begin().await?;
+    let persisted_interface =
+        db::machine_interface::find_one(&mut *txn, dormant_interface.id).await?;
+    assert!(persisted_interface.addresses.is_empty());
+    txn.commit().await?;
+
     Ok(())
 }
 
