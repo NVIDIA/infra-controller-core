@@ -22,7 +22,6 @@ use carbide_uuid::instance::InstanceId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use itertools::Itertools;
-use rpc::forge as rpc_forge;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sqlx::postgres::PgRow;
@@ -449,7 +448,7 @@ impl TokenDelegation {
                 client_id,
                 client_secret,
             } => {
-                let stored = rpc_forge::ClientSecretBasic {
+                let stored = ClientSecretBasic {
                     client_id: client_id.clone(),
                     client_secret: client_secret.clone(),
                 };
@@ -460,6 +459,13 @@ impl TokenDelegation {
         }
     }
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct ClientSecretBasic {
+    pub client_id: String,
+    pub client_secret: String,
+}
+
 pub struct TenantPublicKeyValidationRequest {
     pub instance_id: InstanceId,
     pub public_key: String,
