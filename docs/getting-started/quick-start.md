@@ -571,7 +571,7 @@ carbide-admin-cli -c <api-url> em replace-all --filename expected_machines.json
 NICo uses Measured Boot with TPM v2.0 to enforce cryptographic identity:
 
 ```bash
-carbide-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
+carbide-admin-cli -c <api-url> att mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
 NICo will now discover the host via Redfish, pair it with its DPU(s), provision the DPU, and bring the host to a ready state. For more details, refer to the [Ingesting Hosts](../provisioning/ingesting-hosts.md) guide.

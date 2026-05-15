@@ -209,11 +209,13 @@ pub struct DhcpTimestamps {
     path: DhcpTimestampsFilePath,
 }
 
+#[derive(Default)]
 pub enum DhcpTimestampsFilePath {
     HbnTmp,
     Hbn,
     Dpu,
     Test,
+    #[default]
     NotSet,
 }
 
@@ -226,12 +228,6 @@ impl DhcpTimestampsFilePath {
             Self::Test => DHCP_TIMESTAMP_FILE_TEST,
             Self::NotSet => "Not set",
         }
-    }
-}
-
-impl Default for DhcpTimestampsFilePath {
-    fn default() -> Self {
-        Self::NotSet
     }
 }
 

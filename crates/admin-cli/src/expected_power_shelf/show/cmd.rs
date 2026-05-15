@@ -63,8 +63,8 @@ pub async fn show(
         }));
 
     let bmc_ips = expected_mi
-        .iter()
-        .filter_map(|(_, iface)| iface.address.first())
+        .values()
+        .filter_map(|iface| iface.address.first())
         .cloned()
         .collect::<Vec<_>>();
 

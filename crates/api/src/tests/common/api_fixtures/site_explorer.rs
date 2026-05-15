@@ -157,7 +157,7 @@ impl<'a> MockExploredHost<'a> {
                     self.managed_host.dpus[dpu_index as usize].bmc_mac_address,
                     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(),
                 )
-                .vendor_string("SomeVendor")
+                .vendor_string("NVIDIA/BF/BMC")
                 .tonic_request(),
             )
             .await;
@@ -1551,6 +1551,7 @@ pub async fn new_power_shelf(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config,
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };
@@ -1848,7 +1849,7 @@ pub async fn create_expected_switches(
             .await
             .expect("unable to create expected switch");
 
-        let network_segment = db::network_segment::admin(txn)
+        let network_segments = db::network_segment::admin(txn)
             .await
             .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
             .unwrap();
@@ -1856,9 +1857,8 @@ pub async fn create_expected_switches(
         for nvos_mac in &result.nvos_mac_addresses.clone() {
             db::machine_interface::create(
                 txn,
-                &network_segment,
+                &network_segments,
                 nvos_mac,
-                network_segment.subdomain_id,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
             )
@@ -1873,9 +1873,8 @@ pub async fn create_expected_switches(
 
         db::machine_interface::create(
             txn,
-            &overlay_network_segment,
+            std::slice::from_ref(&overlay_network_segment),
             &result.bmc_mac_address.clone(),
-            overlay_network_segment.subdomain_id,
             false,
             AddressSelectionStrategy::NextAvailableIp,
         )

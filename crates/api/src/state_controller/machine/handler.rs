@@ -520,7 +520,6 @@ impl MachineStateHandler {
             }
         }
 
-        ctx.metrics.machine_id = state.host_snapshot.id.to_string();
         ctx.metrics.is_usable_as_instance = state.is_usable_as_instance(false).is_ok();
         ctx.metrics.num_gpus = state
             .host_snapshot
@@ -538,22 +537,11 @@ impl MachineStateHandler {
         ctx.metrics.sku_device_type = state.host_snapshot.hw_sku_device_type.clone();
 
         // Note that DPU alerts may be suppressed (classifications removed) in the aggregate health report.
-        let suppress_alerts =
-            health_report::HealthAlertClassification::suppress_external_alerting();
-        for alert in state.aggregate_health.alerts.iter() {
-            ctx.metrics
-                .health_probe_alerts
-                .insert((alert.id.clone(), alert.target.clone()));
-            for c in alert.classifications.iter() {
-                ctx.metrics.health_alert_classifications.insert(c.clone());
-                if *c == suppress_alerts {
-                    ctx.metrics.alerts_suppressed = true;
-                }
-            }
-        }
-
-        ctx.metrics.num_merge_overrides = state.host_snapshot.health_reports.merges.len();
-        ctx.metrics.replace_override_enabled = state.host_snapshot.health_reports.replace.is_some();
+        ctx.metrics.health.populate(
+            state.host_snapshot.id.to_string(),
+            &state.aggregate_health,
+            &state.host_snapshot.health_reports,
+        );
     }
 
     fn record_health_history(
@@ -3146,8 +3134,7 @@ async fn check_fw_component_version(
                 fw_component
                     .known_firmware
                     .iter()
-                    .filter(|fw_entry| !fw_entry.preingestion_exclusive_config)
-                    .next_back()
+                    .rfind(|fw_entry| !fw_entry.preingestion_exclusive_config)
                     .cloned()
             })
             .map(|f| f.version)
@@ -3200,7 +3187,6 @@ async fn check_fw_component_version(
                 .clone()
                 .firmware_version
                 .is_some_and(|v| v != cur_version)
-            && let Some(dpu_bmc_ip) = dpu_snapshot.bmc_addr().map(|a| a.ip())
         {
             let bios_version: String = redfish_client
                 .get_firmware("DPU_UEFI")
@@ -3221,10 +3207,10 @@ async fn check_fw_component_version(
                 });
 
             ctx.pending_db_writes.push(
-                // This is safe to defer to pending_db_writes because this is a no-op if for some
-                // reason dpu_bmc_ip is not found.
-                MachineWriteOp::UpdateFirmwareVersionByBmcAddress {
-                    bmc_address: dpu_bmc_ip,
+                // This is safe to defer to pending_db_writes because the DPU snapshot already has
+                // the machine ID needed for the topology update.
+                MachineWriteOp::UpdateFirmwareVersionByMachineId {
+                    machine_id: dpu_snapshot.id,
                     bmc_version: cur_version,
                     bios_version,
                 },

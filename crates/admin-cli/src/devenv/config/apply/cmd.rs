@@ -67,13 +67,28 @@ async fn handle_overlay_segment_creation(
             .get_all_segments(None, Some(name.clone()), 2)
             .await?;
 
+        #[allow(deprecated)]
         if let Some(ns) = network_segment.network_segments.first() {
+            let ns_name = ns
+                .metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or(ns.name.as_str());
+
+            let prefix_str = ns
+                .config
+                .as_ref()
+                .and_then(|c| c.prefixes.first())
+                .or_else(|| ns.prefixes.first())
+                .map_or("unknown", |p| p.prefix.as_str());
+
             println!(
                 "Found network segment id: {}, name: {} for prefix: {}",
                 ns.id.unwrap(),
-                ns.name,
-                ns.prefixes.first().unwrap().prefix
+                ns_name,
+                prefix_str,
             );
+
             continue;
         }
 
@@ -89,11 +104,26 @@ async fn handle_overlay_segment_creation(
             )
             .await?;
 
+        #[allow(deprecated)]
+        let ns_name = ns
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or(ns.name.as_str());
+
+        #[allow(deprecated)]
+        let prefix_str = ns
+            .config
+            .as_ref()
+            .and_then(|c| c.prefixes.first())
+            .or_else(|| ns.prefixes.first())
+            .map_or("unknown", |p| p.prefix.as_str());
+
         println!(
             "Created network segment id: {}, name: {} for prefix: {}",
             ns.id.unwrap(),
-            ns.name,
-            ns.prefixes.first().unwrap().prefix
+            ns_name,
+            prefix_str,
         );
     }
 

@@ -99,6 +99,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     let vpc_id = db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap()
+        .config
         .vpc_id
         .unwrap();
 

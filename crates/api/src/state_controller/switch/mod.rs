@@ -26,6 +26,7 @@ pub mod error_state;
 pub mod handler;
 pub mod initializing;
 pub mod io;
+pub mod metrics;
 pub mod ready;
 pub mod reprovisioning;
 pub mod validating;

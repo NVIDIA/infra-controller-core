@@ -23,7 +23,7 @@ Ensure you have the following prerequisites met before ingesting machines:
 
 ## Update Site 
 
-NICo requires knowledge of the desired BMC and UEFI credentials for hosts and DPUs. NICo will set these credentials on the BMC and UEFI when ingesting a host. You can use these credentials when accessing the host or DPU BMC yourself, and NICo will use these credentials for its automated processes.
+NICo requires knowledge of the current and desired BMC and UEFI credentials for hosts and DPUs. NICo will reset current crendtials to the desired credentials on the BMC and UEFI when ingesting a host. You can use these credentials when accessing the host or DPU BMC yourself, and NICo will use these credentials for its automated processes.
 
 The required credentials include the following:
 
@@ -36,7 +36,7 @@ The required credentials include the following:
 > The following commands use the `<api-url>` placeholder, which is typically the following:
 
 ```bash
-https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>
+https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path <FORGE_ROOT_CA_PATH> --client-cert-path <CLIENT_CERT_PATH>  --client-key-path <CLIENT_KEY_PATH>
 ```
 
 ### Update Host and DPU BMC Password
@@ -49,7 +49,7 @@ carbide-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --passwo
 
 ### Update Host UEFI Password
 
-Run this command to update the desired host UEFI password:
+Run this command to generate the desired host UEFI password:
 
 ```bash
 carbide-admin-cli -c <api-url> host generate-host-uefi-password
@@ -59,10 +59,13 @@ carbide-admin-cli -c <api-url> host generate-host-uefi-password
 Run this command to update host uefi password:
 
 ```bash
-carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='x'
+carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='<password-gemerated-in-previous-step>'
 ```
 
-{/* TODO: Need to add "update DPU UEFI password" command. */}
+Run this command to update DPU uefi password:
+```bash
+carbide-admin-cli -c <api-url> credential add-uefi --kind=dpu --password='x'
+```
 
 ## Add Expected Machines Table
 
@@ -131,7 +134,7 @@ NICo uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to 
 The following command configures NICo to approve all pending machines based on PCR Registers 0, 3, 5, and 6.
 
 ```bash
-carbide-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
+carbide-admin-cli -c <api-url> att mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
 ## What Happens After Approval: Ingestion to Ready
@@ -148,7 +151,7 @@ The high-level flow is:
 6. **`BomValidating` / `Validation`**: NICo validates the discovered hardware against the expected SKU. If hardware validation is enabled, the host is rebooted and tested before proceeding.
 7. **`Ready`**: the host transitions through `HostInit/Discovered` and enters the available pool, ready for an instance to be assigned to it.
 
-For the complete state transitions, including substates, retry logic, and reprovision paths, see the [Managed Host State Diagrams](../architecture/state_machines/managedhost.md).
+For the full DPU lifecycle — OS installation, firmware upgrades, health monitoring, and reprovisioning — see [DPU Lifecycle Management](../dpu-management/dpu-lifecycle-management.md). For the complete state transitions, including substates, retry logic, and reprovision paths, see the [Managed Host State Diagrams](../architecture/state_machines/managedhost.md).
 
 ---
 

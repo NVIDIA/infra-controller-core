@@ -114,13 +114,12 @@ pub async fn find_one_linked(
  em.bmc_mac_address,
  mi.id AS interface_id,
  host(ee.address) AS address,
- mt.machine_id,
+ mi.machine_id,
  em.id AS expected_machine_id
 FROM expected_machines em
  LEFT JOIN machine_interfaces mi ON em.bmc_mac_address = mi.mac_address
  LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
  LEFT JOIN explored_endpoints ee ON mia.address = ee.address
- LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
  WHERE em.bmc_mac_address = $1
  ORDER BY em.bmc_mac_address
  "#;
@@ -159,13 +158,12 @@ pub async fn find_all_linked(txn: impl DbReader<'_>) -> DatabaseResult<Vec<Linke
  em.bmc_mac_address,
  mi.id AS interface_id,
  host(ee.address) AS address,
- mt.machine_id,
+ mi.machine_id,
  em.id AS expected_machine_id
 FROM expected_machines em
  LEFT JOIN machine_interfaces mi ON em.bmc_mac_address = mi.mac_address
  LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
  LEFT JOIN explored_endpoints ee ON mia.address = ee.address
- LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
  ORDER BY em.bmc_mac_address
  "#;
     sqlx::query_as(sql)
@@ -194,11 +192,10 @@ SELECT
     ee.address,
     mi.mac_address AS bmc_mac_address,
     ee.exploration_report,
-    mt.machine_id
+    mi.machine_id
 FROM explored_endpoints ee
     LEFT JOIN machine_interface_addresses mia ON ee.address = mia.address
     LEFT JOIN machine_interfaces mi ON mia.interface_id = mi.id
-    LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
 WHERE mi.mac_address IS NOT NULL
   AND ee.exploration_report->>'EndpointType' = 'Bmc'
   AND mi.mac_address NOT IN (SELECT bmc_mac_address FROM expected_machines)
