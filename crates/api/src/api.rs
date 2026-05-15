@@ -422,6 +422,13 @@ impl Forge for Api {
         crate::handlers::network_segment::for_vpc(self, request).await
     }
 
+    async fn find_network_segment_state_histories(
+        &self,
+        request: Request<rpc::NetworkSegmentStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::network_segment::find_state_histories(self, request).await
+    }
+
     async fn allocate_instance(
         &self,
         request: Request<rpc::InstanceAllocationRequest>,

@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
@@ -315,6 +317,7 @@ async fn test_network_segment_max_history_length(
     )
     .await
     .unwrap()[0]
+        .status
         .controller_state
         .version;
     txn.commit().await.unwrap();
@@ -352,6 +355,7 @@ async fn test_network_segment_max_history_length(
         )
         .await
         .unwrap()[0]
+            .status
             .controller_state
             .version;
         txn.commit().await.unwrap();
@@ -517,12 +521,12 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
 
     let mut txn = db_pool.begin().await?;
     let admin = db::network_segment::find_by_name(&mut txn, "admin").await?;
-    assert_eq!(admin.mtu, 9000);
-    assert_eq!(admin.segment_type, NetworkSegmentType::Admin);
+    assert_eq!(admin.config.mtu, 9000);
+    assert_eq!(admin.config.segment_type, NetworkSegmentType::Admin);
 
     let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
-    assert_eq!(underlay.mtu, 1500);
-    assert_eq!(underlay.segment_type, NetworkSegmentType::Underlay);
+    assert_eq!(underlay.config.mtu, 1500);
+    assert_eq!(underlay.config.segment_type, NetworkSegmentType::Underlay);
     txn.commit().await?;
 
     // Now create them again. It should succeed but not create any more
@@ -1014,10 +1018,10 @@ async fn test_update_svi_ip_admin_segment(
     let admin_segments = db::network_segment::admin(&mut txn).await?;
 
     for admin_segment in admin_segments {
-        assert!(admin_segment.vpc_id.is_some());
+        assert!(admin_segment.config.vpc_id.is_some());
         let admin_vpc = db::vpc::find_by(
             txn.as_mut(),
-            ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
+            ObjectColumnFilter::One(IdColumn, &admin_segment.config.vpc_id.unwrap()),
         )
         .await?;
         assert_eq!(
@@ -1094,7 +1098,7 @@ async fn test_update_svi_ip_post_instance_allocation(
     .await?;
     let segment = segment.remove(0);
     let update_request = UpdateVpcVirtualization {
-        id: segment.vpc_id.unwrap(),
+        id: segment.config.vpc_id.unwrap(),
         if_version_match: None,
         network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };
@@ -1311,4 +1315,122 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
     );
 
     Ok(())
+}
+
+/// Verifies that state transitions written by the controller appear in
+/// the FindNetworkSegmentStateHistories response, keyed by segment ID,
+/// ordered oldest-first, and contain the correct serialized state values.
+#[crate::sqlx_test]
+async fn test_find_state_histories_records_provisioning_to_ready_transition(pool: sqlx::PgPool) {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let segment = create_network_segment_with_api(
+        &env,
+        true,
+        true,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
+
+    let segment_id: NetworkSegmentId = segment.id.unwrap();
+
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    assert_eq!(
+        get_segment_state(&env.api, segment_id).await,
+        rpc::forge::TenantState::Ready,
+        "segment must reach Ready before checking history"
+    );
+
+    let result = env
+        .api
+        .find_network_segment_state_histories(tonic::Request::new(
+            rpc::forge::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![segment_id],
+            },
+        ))
+        .await
+        .expect("RPC must succeed")
+        .into_inner();
+
+    let records = result
+        .histories
+        .get(&segment_id.to_string())
+        .expect("response must contain an entry for the requested segment ID")
+        .records
+        .clone();
+
+    // History is ordered oldest-first (ORDER BY id ASC).
+    // The controller writes Provisioning on create, then Ready on first successful iteration.
+    let states: Vec<&str> = records.iter().map(|r| r.state.as_str()).collect();
+    let provisioning_pos = states
+        .iter()
+        .position(|s| s.contains("provisioning"))
+        .unwrap_or_else(|| panic!("history must contain a provisioning record; got: {states:?}"));
+
+    let ready_pos = states
+        .iter()
+        .position(|s| s.contains("ready"))
+        .unwrap_or_else(|| panic!("history must contain a ready record; got: {states:?}"));
+
+    assert!(
+        provisioning_pos < ready_pos,
+        "provisioning must precede ready in history (oldest-first); got: {states:?}"
+    );
+}
+
+/// Verifies that the RPC rejects an empty ID list with InvalidArgument.
+#[crate::sqlx_test]
+async fn test_find_state_histories_rejects_empty_id_list(pool: sqlx::PgPool) {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let err = env
+        .api
+        .find_network_segment_state_histories(tonic::Request::new(
+            rpc::forge::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![],
+            },
+        ))
+        .await
+        .expect_err("empty ID list must be rejected");
+
+    assert_eq!(
+        err.code(),
+        tonic::Code::InvalidArgument,
+        "expected InvalidArgument, got: {err}"
+    );
+}
+
+/// Verifies that requesting history for a segment that does not exist
+/// succeeds (no error) but returns no records for that ID.
+#[crate::sqlx_test]
+async fn test_find_state_histories_unknown_segment_returns_no_records(pool: sqlx::PgPool) {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let unknown_id = NetworkSegmentId::from(uuid::Uuid::new_v4());
+
+    let result = env
+        .api
+        .find_network_segment_state_histories(tonic::Request::new(
+            rpc::forge::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![unknown_id],
+            },
+        ))
+        .await
+        .expect("unknown segment ID must not cause an error")
+        .into_inner();
+
+    let records = result
+        .histories
+        .get(&unknown_id.to_string())
+        .map(|h| h.records.as_slice())
+        .unwrap_or(&[]);
+
+    assert!(
+        records.is_empty(),
+        "unknown segment must yield no history records, got: {records:?}"
+    );
 }

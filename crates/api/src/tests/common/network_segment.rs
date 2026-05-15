@@ -104,6 +104,36 @@ pub async fn create_network_segment_with_api(
         .into_inner()
 }
 
+#[derive(serde::Deserialize)]
+struct LifecycleStateJson {
+    state: String,
+}
+
+/// Derive the deprecated `TenantState` enum from a `NetworkSegment` response.
+///
+/// Reads `status.lifecycle.state` (a JSON string) and maps it to the corresponding variant.
+/// A segment with a deletion timestamp is immediately `Terminating`, mirroring the
+/// api-model `TryFrom` override applied before the controller processes the deletion.
+pub fn tenant_state_from_segment(segment: &rpc::forge::NetworkSegment) -> rpc::forge::TenantState {
+    // A deletion timestamp means the API accepted the delete request; map to Terminating
+    // immediately, even before the controller processes it. Mirrors the api-model TryFrom logic.
+    if segment.deleted.is_some() {
+        return rpc::forge::TenantState::Terminating;
+    }
+    let lifecycle = segment.status.as_ref().and_then(|s| s.lifecycle.as_ref());
+    let state_str = lifecycle.map(|lc| lc.state.as_str()).unwrap_or("{}");
+    let json: LifecycleStateJson =
+        serde_json::from_str(state_str).unwrap_or_else(|_| LifecycleStateJson {
+            state: String::new(),
+        });
+    match json.state.as_str() {
+        "provisioning" => rpc::forge::TenantState::Provisioning,
+        "ready" => rpc::forge::TenantState::Ready,
+        "deleting" => rpc::forge::TenantState::Terminating,
+        _ => rpc::forge::TenantState::default(),
+    }
+}
+
 pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::forge::TenantState {
     let segment = api
         .find_network_segments_by_ids(Request::new(rpc::forge::NetworkSegmentsByIdsRequest {
@@ -116,7 +146,7 @@ pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::
         .into_inner()
         .network_segments
         .remove(0);
-    segment.state()
+    tenant_state_from_segment(&segment)
 }
 
 pub async fn get_segments(

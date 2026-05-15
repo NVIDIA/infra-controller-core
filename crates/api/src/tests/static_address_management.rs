@@ -496,7 +496,7 @@ async fn test_assign_external_ip_moves_to_static_assignments(
         "interface should have moved to the static-assignments segment"
     );
     assert_eq!(
-        updated.domain_id, static_seg.subdomain_id,
+        updated.domain_id, static_seg.config.subdomain_id,
         "domain_id should match the static-assignments segment's subdomain"
     );
 

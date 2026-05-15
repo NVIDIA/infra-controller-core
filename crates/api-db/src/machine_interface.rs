@@ -438,10 +438,10 @@ pub async fn validate_existing_mac_and_create(
                 // dynamic allocation. The device must have a pre-existing
                 // static reservation to get an IP on this segment.
                 for segment in network_segments.iter() {
-                    if segment.allocation_strategy == AllocationStrategy::Reserved {
+                    if segment.config.allocation_strategy == AllocationStrategy::Reserved {
                         return Err(DatabaseError::internal(format!(
                             "segment {} configured for static DHCP leases only; no static reservation for MAC {mac_address}",
-                            segment.name,
+                            segment.config.name,
                         )));
                     }
                 }
@@ -743,7 +743,7 @@ async fn create_static_path(
     let segment = segments
                 .iter()
                 .find(|s| s.prefixes.iter().any(|p| p.prefix.contains(address)))
-                .or_else(|| segments.iter().find(|s| s.name == crate::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME))
+                .or_else(|| segments.iter().find(|s| s.config.name == crate::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME))
                 .ok_or_else(|| DatabaseError::internal(format!(
                     "unable to find network segment that contains requested IP {address} in network segments: {}",
                     segments.iter().map(|s| s.id.to_string()).join(", "),
@@ -767,7 +767,7 @@ async fn create_static_path(
         txn,
         segment,
         macaddr,
-        segment.subdomain_id,
+        segment.config.subdomain_id,
         primary_interface,
         &[address],
         AllocationType::Static,
@@ -839,7 +839,7 @@ pub async fn create_slow_path(
         inner_txn.as_pgconn(),
         segment,
         macaddr,
-        segment.subdomain_id,
+        segment.config.subdomain_id,
         primary_interface,
         &allocated_addresses,
         AllocationType::Dhcp,
@@ -873,7 +873,7 @@ async fn try_create_fast_path(
         txn,
         segment,
         macaddr,
-        segment.subdomain_id,
+        segment.config.subdomain_id,
         primary_interface,
         &allocated_addresses,
         AllocationType::Dhcp,
@@ -1254,7 +1254,9 @@ pub async fn move_predicted_machine_interface_to_machine(
         )));
     };
 
-    if network_segment.segment_type != predicted_machine_interface.expected_network_segment_type {
+    if network_segment.config.segment_type
+        != predicted_machine_interface.expected_network_segment_type
+    {
         return Err(DatabaseError::internal(format!(
             "Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}",
             predicted_machine_interface.mac_address,
@@ -1478,7 +1480,7 @@ async fn reconcile_interface_segment(
             txn,
             existing_interface.id,
             relay_segment.id,
-            relay_segment.subdomain_id,
+            relay_segment.config.subdomain_id,
         )
         .await?;
         existing_interface.segment_id = relay_segment.id;
