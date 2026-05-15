@@ -16,9 +16,9 @@ The following components are supported for this release:
 
 | Component            | Version |  
 |----------------------|---------|
-| NICo REST API        | v1.4.2  |
 | NICo Core            | v0.8.0  |
-| Elektra (site agent) | v0.8.0  |
+| NICo REST API        | v1.4.2  |
+| NICo REST Site Agent | v1.4.2  |
 
 The following dependencies have been validated for this release:
 
