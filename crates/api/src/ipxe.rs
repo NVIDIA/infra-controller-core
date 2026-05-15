@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::net::IpAddr;
+
 use ::rpc::forge as rpc;
 use carbide_ipxe_renderer::{
     DefaultIpxeScriptRenderer, IpxeScript, IpxeScriptRenderer, IpxeTemplateArtifact,
@@ -27,10 +29,49 @@ use model::machine::{
     DpuInitState, FailureCause, FailureDetails, HostReprovisionState, InstanceState,
     ManagedHostState, MeasuringState, ReprovisionState, ValidationState,
 };
-use model::pxe::PxeInstructionsInput;
 use sqlx::PgConnection;
 
 use crate::CarbideError;
+
+pub struct PxeInstructionRequest {
+    pub arch: rpc::MachineArchitecture,
+    pub product: Option<String>,
+    pub client_ip: IpAddr,
+}
+
+/// Input provided to `PxeInstructions::get_pxe_instructions`.
+/// The PxeInstructionsRequest model contains the client_ip
+/// as determined by carbide-pxe, whereas PxeInstructionsInput
+/// contains the resolved machine_interface_id.
+pub struct PxeInstructionsInput {
+    pub interface_id: MachineInterfaceId,
+    pub arch: rpc::MachineArchitecture,
+    pub product: Option<String>,
+}
+
+impl TryFrom<rpc::PxeInstructionRequest> for PxeInstructionRequest {
+    type Error = ::rpc::errors::RpcDataConversionError;
+
+    fn try_from(value: rpc::PxeInstructionRequest) -> Result<Self, Self::Error> {
+        let arch = rpc::MachineArchitecture::try_from(value.arch)
+            .map_err(|_| Self::Error::InvalidArgument("Unknown arch received.".to_string()))?;
+
+        let client_ip_str = value
+            .client_ip
+            .ok_or(Self::Error::MissingArgument("client_ip"))?;
+        let client_ip: IpAddr = client_ip_str.parse().map_err(|e| {
+            Self::Error::InvalidArgument(format!("Failed parsing client_ip '{client_ip_str}': {e}"))
+        })?;
+
+        let product = value.product;
+
+        Ok(PxeInstructionRequest {
+            arch,
+            product,
+            client_ip,
+        })
+    }
+}
 
 /// Converts an operating_systems row (type ipxe_os_definition) to IpxeScript for the renderer.
 fn operating_system_row_to_ipxe_script(
