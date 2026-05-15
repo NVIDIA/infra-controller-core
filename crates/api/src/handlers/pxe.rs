@@ -26,7 +26,7 @@ use crate::api::{Api, log_request_data};
 use crate::handlers::client_resolution::{
     resolve_cloud_init_instructions, resolve_machine_interface,
 };
-use crate::ipxe::PxeInstructions;
+use crate::ipxe::{PxeInstructionRequest, PxeInstructions, PxeInstructionsInput};
 
 // The carbide pxe server makes this RPC call
 pub(crate) async fn get_pxe_instructions(
@@ -37,14 +37,14 @@ pub(crate) async fn get_pxe_instructions(
 
     let mut txn = api.txn_begin().await?;
 
-    let pxe_request: model::pxe::PxeInstructionRequest = request.into_inner().try_into()?;
+    let pxe_request: PxeInstructionRequest = request.into_inner().try_into()?;
 
     // Resolve the client_ip carbide-pxe observed (XFF or TCP peer) to
     // a host machine_interface, either via direct machine_interface_addresses
     // lookup or via instance_address for tenant-allocated machines.
     let iface = resolve_machine_interface(txn.as_pgconn(), pxe_request.client_ip).await?;
 
-    let input = model::pxe::PxeInstructionsInput {
+    let input = PxeInstructionsInput {
         interface_id: iface.id,
         arch: pxe_request.arch,
         product: pxe_request.product,
