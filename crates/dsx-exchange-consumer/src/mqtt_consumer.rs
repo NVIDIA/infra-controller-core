@@ -70,14 +70,9 @@ pub async fn connect(
     // pod coming up while the old one is still terminating) do not race for
     // the same MQTT session and ping-pong each other off the broker.
     let client_id = mqttea::unique_client_id(&config.client_id);
-    let client = MqtteaClient::new(
-        &config.endpoint,
-        config.port,
-        &client_id,
-        Some(options),
-    )
-    .await
-    .map_err(|e| DsxConsumerError::Mqtt(e.to_string()))?;
+    let client = MqtteaClient::new(&config.endpoint, config.port, &client_id, Some(options))
+        .await
+        .map_err(|e| DsxConsumerError::Mqtt(e.to_string()))?;
 
     // Register message types with distinct suffix patterns.
     // mqttea converts simple strings to suffix regex: "Metadata" -> "/Metadata$"
