@@ -7,47 +7,28 @@ metadata:
   labels:
     app.kubernetes.io/part-of: dpf-operator-controller-manager
     dpu.nvidia.com/component: dpf-operator-controller-manager
-  name: dpuclusters.provisioning.dpu.nvidia.com
+  name: bluefieldsoftwares.provisioning.dpu.nvidia.com
 spec:
   group: provisioning.dpu.nvidia.com
   names:
-    kind: DPUCluster
-    listKind: DPUClusterList
-    plural: dpuclusters
-    singular: dpucluster
+    kind: BlueFieldSoftware
+    listKind: BlueFieldSoftwareList
+    plural: bluefieldsoftwares
+    singular: bluefieldsoftware
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='Ready')].status
-      name: Ready
-      type: string
-    - description: phase of the cluster
+    - description: phase of the bluefieldsoftware
       jsonPath: .status.phase
       name: Phase
       type: string
-    - description: type of the cluster
-      jsonPath: .spec.type
-      name: Type
-      type: string
-    - description: max amount of nodes
-      jsonPath: .spec.maxNodes
-      name: MaxNodes
-      type: integer
-    - description: Kubernetes control-plane version
-      jsonPath: .status.version
-      name: Version
-      type: string
-    - description: number of assigned DPUs
-      jsonPath: .status.nodesCount
-      name: NodesCount
-      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: DPUCluster is the Schema for the dpuclusters API
+        description: BlueFieldSoftware is the Schema for the bluefieldsoftware API
         properties:
           apiVersion:
             description: |-
@@ -67,72 +48,33 @@ spec:
           metadata:
             type: object
           spec:
-            description: DPUClusterSpec defines the desired state of DPUCluster
             properties:
-              clusterEndpoint:
-                description: ClusterEndpoint contains configurations of the cluster
-                  entry point
+              osIso:
+                type: string
+              pldmFwBundle:
+                type: string
+              tmpFwComponents:
                 properties:
-                  keepalived:
-                    description: Keepalived configures the keepalived that will be
-                      deployed for the cluster control-plane
-                    properties:
-                      interface:
-                        description: Interface specifies on which interface the VIP
-                          should be assigned
-                        minLength: 1
-                        type: string
-                      nodeSelector:
-                        additionalProperties:
-                          type: string
-                        description: |-
-                          NodeSelector is used to specify a subnet of control plane nodes to deploy keepalived instances.
-                          Note: keepalived instances are always deployed on control plane nodes
-                        type: object
-                      vip:
-                        description: VIP is the virtual IP owned by the keepalived
-                          instances
-                        type: string
-                      virtualRouterID:
-                        description: VirtualRouterID is the virtual_router_id in keepalived.conf
-                        maximum: 255
-                        minimum: 1
-                        type: integer
-                    required:
-                    - interface
-                    - vip
-                    - virtualRouterID
-                    type: object
+                  astraNicFw:
+                    type: string
+                  bmcErot:
+                    type: string
+                  bmcFw:
+                    type: string
+                  graceErot:
+                    type: string
+                  graceFw:
+                    type: string
                 type: object
-              kubeconfig:
-                description: Kubeconfig is the secret that contains the admin kubeconfig
-                type: string
-                x-kubernetes-validations:
-                - message: kubeconfig is immutable
-                  rule: oldSelf==""||self==oldSelf
-              maxNodes:
-                default: 1000
-                description: MaxNodes is the max amount of node in the cluster
-                maximum: 1000
-                minimum: 1
-                type: integer
-              type:
-                description: |-
-                  Type of the cluster with few supported values
-                  static - existing cluster that is deployed by user. For DPUCluster of this type, the kubeconfig field must be set.
-                  kamaji - DPF managed cluster. The kamaji-cluster-manager will create a DPU cluster on behalf of this CR.
-                  $(others) - any string defined by ISVs, such type names must start with a prefix.
-                pattern: kamaji|static|[^/]+/.*
-                type: string
-            required:
-            - type
             type: object
           status:
             default:
-              phase: Pending
-            description: DPUClusterStatus defines the observed state of DPUCluster
+              phase: Initializing
+            description: BlueFieldSoftwareStatus defines the observed state of BlueFieldSoftware
             properties:
               conditions:
+                description: Conditions represent the latest available observations
+                  of BlueFieldSoftware state
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -188,42 +130,77 @@ spec:
                   - type
                   type: object
                 type: array
-              nodesCount:
-                description: NodesCount is the number of DPUs assigned to the cluster
-                minimum: 0
+              downloadedComponents:
+                description: DownloadedComponents tracks which components have been
+                  successfully downloaded
+                properties:
+                  astraNicFw:
+                    type: string
+                  bmcErot:
+                    type: string
+                  bmcFW:
+                    type: string
+                  graceErot:
+                    type: string
+                  graceFw:
+                    type: string
+                  osIso:
+                    type: string
+                  pldmFwBundle:
+                    type: string
+                type: object
+              observedGeneration:
+                description: ObservedGeneration records the Generation observed on
+                  the object the last time it was patched.
+                format: int64
                 type: integer
               phase:
-                allOf:
-                - enum:
-                  - Pending
-                  - Creating
-                  - Ready
-                  - NotReady
-                  - Failed
-                - enum:
-                  - Pending
-                  - Creating
-                  - Ready
-                  - NotReady
-                  - Failed
-                default: Pending
-                description: |-
-                  ClusterPhase describes current state of DPUCluster.
-                  Only one of the following state may be specified.
-                  Default is Pending.
+                default: Initializing
+                description: The current state of BlueFieldSoftware.
+                enum:
+                - Initializing
+                - Downloading
+                - Ready
+                - Deleting
+                - Error
                 type: string
-              version:
-                description: Version is the K8s control-plane version of the cluster
-                type: string
+              versions:
+                description: Versions tracks the versions of the components
+                properties:
+                  fwBundleVersion:
+                    type: string
+                  osISOVersion:
+                    type: string
+                  tmpFwComponentsVersions:
+                    properties:
+                      astraNicFwVersion:
+                        type: string
+                      bmcErotVersion:
+                        type: string
+                      bmcFwVersion:
+                        type: string
+                      graceErotVersion:
+                        type: string
+                      graceFwVersion:
+                        type: string
+                    type: object
+                required:
+                - tmpFwComponentsVersions
+                type: object
+                x-kubernetes-validations:
+                - message: fwBundleVersion is immutable
+                  rule: self.fwBundleVersion == oldSelf.fwBundleVersion
+                - message: osISOVersion is immutable
+                  rule: self.osISOVersion == oldSelf.osISOVersion
+                - message: tmpFwComponentsVersions is immutable
+                  rule: self.tmpFwComponentsVersions == oldSelf.tmpFwComponentsVersions
             required:
             - phase
             type: object
-        required:
-        - spec
         type: object
         x-kubernetes-validations:
-        - message: name length can't be bigger than 63 chars
-          rule: self.metadata.name.size() <= 63
+        - message: name length can't be bigger than 187 chars
+          rule: self.metadata.name.size() <= 187
     served: true
     storage: true
     subresources:

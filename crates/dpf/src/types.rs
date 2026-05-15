@@ -264,6 +264,8 @@ pub enum DpuPhase {
     Error,
     /// DPU is being deleted.
     Deleting,
+    /// Not Relavent
+    NotUsed(String),
 }
 
 impl AsRef<str> for DpuPhase {
@@ -275,6 +277,7 @@ impl AsRef<str> for DpuPhase {
             DpuPhase::Ready => "Ready",
             DpuPhase::Error => "Error",
             DpuPhase::Deleting => "Deleting",
+            DpuPhase::NotUsed(details) => details.as_str(),
         }
     }
 }
@@ -305,6 +308,10 @@ impl From<DpuStatusPhase> for DpuPhase {
             DpuStatusPhase::InitializeInterface => Self::Provisioning("InitializeInterface".into()),
             DpuStatusPhase::CheckingHostRebootRequired => Self::Rebooting,
             DpuStatusPhase::NodeEffectRemoval => Self::NodeEffect,
+            DpuStatusPhase::DpuConfig => Self::Provisioning("DpuConfig".into()),
+            DpuStatusPhase::PerformArmForceRestart => {
+                Self::NotUsed("PerformArmForceRestart".into())
+            }
         }
     }
 }
