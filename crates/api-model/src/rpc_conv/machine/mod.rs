@@ -237,7 +237,7 @@ impl From<Machine> for rpc::forge::Machine {
                 .network_status_observation
                 .and_then(|obs| obs.agent_version),
             maintenance_reference,
-            maintenance_start_time,
+            maintenance_start_time: maintenance_start_time.map(rpc::Timestamp::from),
             associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
             associated_dpu_machine_ids,
             inventory: Some(machine.inventory.unwrap_or_default().into()),
