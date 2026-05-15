@@ -880,6 +880,7 @@ dependencies = [
  "flate2",
  "form_urlencoded",
  "futures",
+ "glob",
  "http-body-util",
  "hyper",
  "itertools 0.14.0",

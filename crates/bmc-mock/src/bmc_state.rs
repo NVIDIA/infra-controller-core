@@ -16,7 +16,7 @@
  */
 use std::sync::Arc;
 
-use crate::bug::InjectedBugs;
+use crate::injection::InjectionStore;
 use crate::redfish;
 use crate::redfish::account_service::AccountServiceState;
 use crate::redfish::chassis::ChassisState;
@@ -35,7 +35,7 @@ pub struct BmcState {
     pub chassis_state: Arc<ChassisState>,
     pub update_service_state: Arc<UpdateServiceState>,
     pub account_service_state: Arc<AccountServiceState>,
-    pub injected_bugs: Arc<InjectedBugs>,
+    pub injection: Arc<InjectionStore>,
     pub callbacks: Option<Arc<dyn crate::Callbacks>>,
 }
 
