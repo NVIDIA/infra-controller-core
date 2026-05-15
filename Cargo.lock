@@ -1385,7 +1385,6 @@ dependencies = [
  "carbide-libmlx-model",
  "carbide-network",
  "carbide-rpc",
- "carbide-rpc-utils",
  "carbide-secrets",
  "carbide-sqlx-testing",
  "carbide-utils",

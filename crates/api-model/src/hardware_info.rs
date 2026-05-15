@@ -21,9 +21,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
-use carbide_rpc_utils::machine_discovery::aggregate_cpus;
 use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use mac_address::{MacAddress, MacParseError};
@@ -31,39 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::machine::machine_id::MissingHardwareInfo;
 
-// TODO: Remove when there's no longer a need to handle the old topology format
-#[derive(Deserialize)]
-struct HardwareInfoDeserialized {
-    #[serde(default)]
-    network_interfaces: Vec<NetworkInterface>,
-    #[serde(default)]
-    infiniband_interfaces: Vec<InfinibandInterface>,
-    #[serde(default)]
-    cpu_info: Vec<CpuInfo>,
-    #[serde(default)]
-    block_devices: Vec<BlockDevice>,
-    // This should be called machine_arch, but it's serialized directly in/out of a JSONB field in
-    // the DB, so renaming it requires a migration or custom Serialize impl.
-    machine_type: CpuArchitecture,
-    #[serde(default)]
-    nvme_devices: Vec<NvmeDevice>,
-    #[serde(default)]
-    dmi_data: Option<DmiData>,
-    tpm_ek_certificate: Option<TpmEkCertificate>,
-    #[serde(default)]
-    dpu_info: Option<DpuData>,
-    #[serde(default)]
-    gpus: Vec<Gpu>,
-    #[serde(default)]
-    memory_devices: Vec<MemoryDevice>,
-    #[serde(default)]
-    cpus: Vec<Cpu>, // Deprecated in favor of `cpu_info`
-    #[serde(default)]
-    tpm_description: Option<TpmDescription>,
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "HardwareInfoDeserialized")]
 pub struct HardwareInfo {
     #[serde(default)]
     pub network_interfaces: Vec<NetworkInterface>,
@@ -105,25 +71,6 @@ pub struct InfinibandInterface {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pci_properties: Option<PciDeviceProperties>,
-}
-
-// TODO: Remove when there's no longer a need to handle the old topology format
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Cpu {
-    #[serde(default)]
-    pub vendor: String,
-    #[serde(default)]
-    pub model: String,
-    #[serde(default)]
-    pub frequency: String,
-    #[serde(default)]
-    pub number: u32,
-    #[serde(default)]
-    pub core: u32,
-    #[serde(default)]
-    pub node: i32,
-    #[serde(default)]
-    pub socket: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,43 +262,6 @@ pub struct TpmDescription {
     pub vendor: String,
     pub firmware_version: String,
     pub tpm_spec: String,
-}
-
-// TODO: Remove when there's no longer a need to handle the old topology format
-impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
-    type Error = RpcDataConversionError;
-
-    fn try_from(info: HardwareInfoDeserialized) -> Result<Self, Self::Error> {
-        let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
-            // Convert V1 -> V2 format
-            let cpus: Vec<rpc::machine_discovery::Cpu> = info
-                .cpus
-                .iter()
-                .map(rpc::machine_discovery::Cpu::try_from)
-                .collect::<Result<Vec<_>, _>>()?;
-            aggregate_cpus(&cpus)
-                .into_iter()
-                .map(CpuInfo::try_from)
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            info.cpu_info
-        };
-
-        Ok(HardwareInfo {
-            network_interfaces: info.network_interfaces,
-            infiniband_interfaces: info.infiniband_interfaces,
-            cpu_info,
-            block_devices: info.block_devices,
-            machine_type: info.machine_type,
-            nvme_devices: info.nvme_devices,
-            dmi_data: info.dmi_data,
-            tpm_ek_certificate: info.tpm_ek_certificate,
-            dpu_info: info.dpu_info,
-            gpus: info.gpus,
-            memory_devices: info.memory_devices,
-            tpm_description: info.tpm_description,
-        })
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
