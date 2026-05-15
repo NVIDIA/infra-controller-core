@@ -30,6 +30,10 @@ attestation_enabled = true
 # its more specific config for anycast_site_prefixes.
 anycast_site_prefixes = ["0.0.0.0/0"]
 
+[dpu_config]
+# Number of VFs configured per DPU PF during BlueField provisioning.
+num_of_vfs = 16
+
 [host_health]
 hardware_health_reports = "MonitorOnly"
 

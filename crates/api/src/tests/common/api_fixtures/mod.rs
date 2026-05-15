@@ -1223,6 +1223,7 @@ pub fn get_config() -> CarbideConfig {
             dpu_models: dpu_fw_example(),
             dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string()],
             dpu_enable_secure_boot: true,
+            num_of_vfs: crate::cfg::file::DEFAULT_DPU_NUM_OF_VFS,
         },
         host_models: host_firmware_example(),
         firmware_global: FirmwareGlobal::test_default(),
