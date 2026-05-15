@@ -63,6 +63,8 @@ static BF3_NIC: &str = "32.47.2682";
 static BF3_BMC: &str = "BF-25.10-20";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
 static BF3_UEFI: &str = "4.13.2-12-g943a91640d";
+pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
+pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
 
 /// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1725,6 +1727,11 @@ pub struct DpuConfig {
     /// Default is false.
     #[serde(default)]
     pub dpu_enable_secure_boot: bool,
+
+    /// Number of virtual functions configured per DPU PF during BlueField provisioning.
+    /// Defaults to 16 and must not exceed 126.
+    #[serde(default)]
+    pub num_of_vfs: u32,
 }
 
 impl DpuConfig {
@@ -1762,10 +1769,18 @@ impl<'de> Deserialize<'de> for DpuConfig {
             dpu_nic_firmware_update_versions: Option<Vec<String>>,
             #[serde(default)]
             dpu_enable_secure_boot: Option<bool>,
+            #[serde(default)]
+            num_of_vfs: Option<u32>,
         }
 
         let partial = PartialDpuConfig::deserialize(deserializer)?;
         let default = DpuConfig::default();
+        let num_of_vfs = partial.num_of_vfs.unwrap_or(default.num_of_vfs);
+        if num_of_vfs > MAX_DPU_NUM_OF_VFS {
+            return Err(serde::de::Error::custom(format!(
+                "dpu_config.num_of_vfs must be <= {MAX_DPU_NUM_OF_VFS}"
+            )));
+        }
 
         Ok(DpuConfig {
             dpu_nic_firmware_initial_update_enabled: partial
@@ -1781,6 +1796,7 @@ impl<'de> Deserialize<'de> for DpuConfig {
             dpu_enable_secure_boot: partial
                 .dpu_enable_secure_boot
                 .unwrap_or(default.dpu_enable_secure_boot),
+            num_of_vfs,
         })
     }
 }
@@ -1903,6 +1919,7 @@ impl Default for DpuConfig {
             ]),
             dpu_nic_firmware_update_versions: vec![BF2_NIC.to_string(), BF3_NIC.to_string()],
             dpu_enable_secure_boot: false,
+            num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
         }
     }
 }
@@ -3213,6 +3230,7 @@ mod tests {
         );
         assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
         assert!(!config.auth.as_ref().unwrap().permissive_mode);
+        assert_eq!(config.dpu_config.num_of_vfs, DEFAULT_DPU_NUM_OF_VFS);
         assert_eq!(
             config
                 .auth
@@ -3801,6 +3819,7 @@ mqtt_endpoint = "mqtt.forge"
         let toml = r#"
 [dpu_config]
 dpu_enable_secure_boot = true
+num_of_vfs = 64
 "#;
 
         let config: CarbideConfig = Figment::new()
@@ -3810,7 +3829,32 @@ dpu_enable_secure_boot = true
             .unwrap();
 
         assert!(config.dpu_config.dpu_enable_secure_boot);
+        assert_eq!(config.dpu_config.num_of_vfs, 64);
         assert!(!config.dpu_config.dpu_models.is_empty());
+    }
+
+    /// Validates the hard limit on generated BlueField virtual functions.
+    #[test]
+    fn deserialize_dpu_config_rejects_too_many_vfs() {
+        let toml = r#"
+[dpu_config]
+num_of_vfs = 127
+"#;
+
+        // Extracting the config should fail before runtime provisioning.
+        let error = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .merge(Toml::string(toml))
+            .extract::<CarbideConfig>()
+            .unwrap_err();
+
+        // Surface a clear operator-facing message for the invalid value.
+        assert!(
+            error
+                .to_string()
+                .contains("dpu_config.num_of_vfs must be <= 126"),
+            "{error}"
+        );
     }
 
     #[test]
