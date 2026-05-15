@@ -19,11 +19,11 @@
 //! (signing private key + token delegation auth JSON), and parsing of stored delegation
 //! `client_secret_basic` JSON for outbound token exchange.
 
-use ::rpc::forge::ClientSecretBasic;
 use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use forge_secrets::key_encryption;
 use model::tenant::{
-    EncryptedTokenDelegationAuthConfig, EncryptionKeyId, TokenDelegationAuthMethod,
+    ClientSecretBasic, EncryptedTokenDelegationAuthConfig, EncryptionKeyId,
+    TokenDelegationAuthMethod,
 };
 use tonic::Status;
 

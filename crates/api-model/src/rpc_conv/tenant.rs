@@ -23,10 +23,10 @@ use rpc::errors::RpcDataConversionError;
 use rpc::forge as rpc_forge;
 
 use crate::tenant::{
-    IdentityConfig, IdentityConfigValidationBounds, IdentityConfigValidationError, PublicKey,
-    Tenant, TenantIdentityConfigDecrypted, TenantKeyset, TenantKeysetContent, TenantKeysetId,
-    TenantKeysetIdentifier, TenantKeysetSearchFilter, TenantPublicKey,
-    TenantPublicKeyValidationRequest, TenantSearchFilter, TokenDelegation,
+    ClientSecretBasic, IdentityConfig, IdentityConfigValidationBounds,
+    IdentityConfigValidationError, PublicKey, Tenant, TenantIdentityConfigDecrypted, TenantKeyset,
+    TenantKeysetContent, TenantKeysetId, TenantKeysetIdentifier, TenantKeysetSearchFilter,
+    TenantPublicKey, TenantPublicKeyValidationRequest, TenantSearchFilter, TokenDelegation,
     TokenDelegationAuthMethod, TokenDelegationAuthMethodConfig, TokenDelegationValidationBounds,
     TokenDelegationValidationError, UpdateTenantKeyset, compute_client_secret_hash,
     truncate_hash_for_display,
@@ -272,7 +272,7 @@ impl TryFrom<rpc::forge::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
 /// Only used when auth_method is ClientSecretBasic; for None the oneof is omitted.
 pub fn stored_to_response_auth_config(
     auth_method: TokenDelegationAuthMethod,
-    stored: Option<rpc_forge::ClientSecretBasic>,
+    stored: Option<ClientSecretBasic>,
 ) -> Option<rpc_forge::token_delegation_response::AuthMethodConfig> {
     match auth_method {
         TokenDelegationAuthMethod::ClientSecretBasic => {
@@ -363,7 +363,7 @@ impl TryFrom<TenantIdentityConfigDecrypted> for rpc_forge::TokenDelegationRespon
             .auth_method
             .ok_or(RpcDataConversionError::MissingArgument("token_delegation"))?;
 
-        let stored: Option<rpc_forge::ClientSecretBasic> = value
+        let stored: Option<ClientSecretBasic> = value
             .auth_method_config
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok());
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn test_stored_to_response_auth_config_client_secret_basic() {
-        let stored = rpc_forge::ClientSecretBasic {
+        let stored = ClientSecretBasic {
             client_id: "my-client".to_string(),
             client_secret: "secret".to_string(),
         };
@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn test_stored_to_response_auth_config_omits_cleartext() {
-        let stored = rpc_forge::ClientSecretBasic {
+        let stored = ClientSecretBasic {
             client_id: "my-client".to_string(),
             client_secret: "secret".to_string(),
         };
@@ -568,7 +568,7 @@ mod tests {
 
     #[test]
     fn test_stored_to_response_auth_config_client_secret_empty_returns_none() {
-        let stored = rpc_forge::ClientSecretBasic {
+        let stored = ClientSecretBasic {
             client_id: "x".to_string(),
             client_secret: String::new(),
         };
@@ -593,7 +593,7 @@ mod tests {
         };
         let (auth_method, config_json) = config.to_db_format();
         assert_eq!(auth_method, TokenDelegationAuthMethod::ClientSecretBasic);
-        let stored: rpc_forge::ClientSecretBasic = serde_json::from_str(&config_json).unwrap();
+        let stored: ClientSecretBasic = serde_json::from_str(&config_json).unwrap();
         assert_eq!(stored.client_id, "client");
         assert_eq!(stored.client_secret, "secret");
         // Hash is computed on the fly when retrieving
