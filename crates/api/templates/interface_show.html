@@ -9,10 +9,11 @@
 	<thead>
 	<tr>
 		<th>ID</th>
-		<th>Type</th>
 		<th>MAC Address</th>
 		<th>IP Address</th>
-		<th>Machine ID</th>
+		<th>Association Type</th>
+		<th>Association ID</th>
+		<th>Type</th>
 		<th>Hostname</th>
 		<th>Vendor</th>
 		<th>Domain Name</th>
@@ -22,10 +23,19 @@
 	{% for iface in interfaces %}
 		<tr>
 			<td><a href="/admin/interface/{{ iface.id }}">{{ iface.id }}</a></td>
-			<td>{{ iface.interface_type }}</td>
 			<td>{{ iface.mac_address }}</td>
 			<td>{{ iface.ip_address }}</td>
-			<td>{{ iface.machine_id|machine_id_link|safe }}</td>
+			<td>{{ iface.association_type }}</td>
+			<td>
+				{% if !iface.machine_id.is_empty() %}
+				{{ iface.machine_id|machine_id_link|safe }}
+				{% else if !iface.switch_id.is_empty() %}
+				{{ iface.switch_id|switch_id_link|safe }}
+				{% else if !iface.power_shelf_id.is_empty() %}
+				{{ iface.power_shelf_id|power_shelf_id_link|safe }}
+				{% endif %}
+			</td>
+			<td>{{ iface.interface_type }}</td>
 			<td>{{ iface.hostname }}</td>
 			<td>{{ iface.vendor }}</td>
 			<td>{{ iface.domain_name }}</td>

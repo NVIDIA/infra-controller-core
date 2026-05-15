@@ -2232,7 +2232,6 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
- "carbide-rpc",
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",
@@ -6159,7 +6158,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.0#64c7d54eac7f33dad5ffb93ee74a5244b7c2c31b"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.2#e2e047cf1fddb4ec8861d7e7f8bdcf7ecbbdb705"
 dependencies = [
  "chrono",
  "clap",

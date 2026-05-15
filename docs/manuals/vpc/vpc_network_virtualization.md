@@ -14,7 +14,7 @@ explaining the system to a network team.
 - [VNI Resource Pools](vni_resource_pools.md) — VNI pool configuration
 - [IP Resource Pools](../networking/ip_resource_pools.md) — IP pool configuration
 - [Networking Requirements](../networking_requirements.md) — underlay and EVPN prerequisites
-- [DPU Configuration](../../architecture/dpu_configuration.md) — declarative DPU config flow
+- [DPU Configuration](../../dpu-management/dpu_configuration.md) — declarative DPU config flow
 
 ---
 
@@ -126,7 +126,7 @@ The handler proceeds as follows:
 
 The DPU applies the received configuration to HBN via NVUE and reports back to NICo. NICo marks
 the instance as ready only after the DPU confirms the configuration has been applied. See
-[DPU Configuration](../../architecture/dpu_configuration.md) for the full lifecycle.
+[DPU Configuration](../../dpu-management/dpu_configuration.md) for the full lifecycle.
 
 ---
 

@@ -284,6 +284,12 @@ service Forge {
   // Prioritizes the exploration of a certain endpoint in the next regular site-explorer run
   // The results of this run will be persisted in the database
   rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty);
+  // Immediately probes a single BMC endpoint via Redfish, enriches the report
+  // (machine_id, model, position), and persists it. The next site-explorer tick
+  // picks up the freshly persisted report for downstream processing (pairing,
+  // remediation, audit). Returns AlreadyExists
+  // if a concurrent refresh or periodic probe is already in progress.
+  rpc RefreshEndpointReport(RefreshEndpointReportRequest) returns (site_explorer.ExploredEndpoint);
   // Delete an explored endpoint from the database
   rpc DeleteExploredEndpoint(DeleteExploredEndpointRequest) returns (DeleteExploredEndpointResponse);
   // Pause or unpause remediation actions for an explored endpoint
@@ -2669,7 +2675,18 @@ message InstanceNetworkConfig {
   // When true, NICO (or potentially some pluggable SDN backend) will
   // auto-resolve the instance's network interfaces from the host's
   // HostInband network segments. Only valid for instances on zero-DPU
-  // hosts (well, no DPU, *or* DPU in NIC mode).
+  // hosts (well, no DPU, *or* DPU in NIC mode). When set, `interfaces`
+  // MUST be empty on the request.
+  //
+  // Callers reading the instance back also see `auto = true` with an empty
+  // `interfaces` list (what they sent is preserved verbatim). The
+  // resolved per-interface details -- IP, MAC, gateway, prefix -- surface
+  // in `Instance.status.network.interfaces` instead.
+  //
+  // On update, sending `auto: true` re-resolves interfaces from the host's
+  // current HostInband segments. If nothing has changed, this is a no-op.
+  // If the host's segments have been added/removed by the operator, the
+  // update reflects that change.
   bool auto = 2;
 }
 
@@ -2786,9 +2803,16 @@ message InstanceStatus {
 message InstanceNetworkStatus {
   // Status for each configured interface
   //
-  // Each entry in this status array maps to its corresponding entry in the
-  // Config section. E.g. `instance.status.network.interface_status[1]`
-  // would map to `instance.config.network.interface_configs[1]`.
+  // For non-auto configs: each entry in this status array maps to its
+  // corresponding entry in the Config section. E.g.
+  // `instance.status.network.interfaces[1]` would map to
+  // `instance.config.network.interfaces[1]`.
+  //
+  // For auto configs (`InstanceNetworkConfig.auto = true`): the config-side
+  // `interfaces` is always empty on the wire (it's preserved verbatim from
+  // the request), so this status array stands alone and describes the
+  // interfaces Carbide resolved from the host's HostInband segments. There
+  // is no positional relationship to consult on the config side.
   repeated InstanceInterfaceStatus interfaces = 1;
 
   // Whether all desired network changes that the user has applied have taken effect
@@ -3745,6 +3769,11 @@ message ReExploreEndpointRequest {
   optional string if_version_match = 2;
 }
 
+message RefreshEndpointReportRequest {
+  // The IP address of the BMC endpoint to probe and refresh
+  string ip_address = 1;
+}
+
 message DeleteExploredEndpointRequest {
   // The IP address of the BMC endpoint to delete
   string ip_address = 1;
@@ -4673,6 +4702,10 @@ message CloudInitDiscoveryInstructions {
   // The representor that will plug into the HBN container to connect it to br-hbn
   // to open connectivity between all the VFs.
   optional string vf_intercept_bridge_sf = 9;
+
+  // Number of VFs to configure per DPU PF during BlueField provisioning.
+  // If absent, carbide-pxe uses the legacy default of 16 for rolling upgrades.
+  optional uint32 num_of_vfs = 10;
 }
 
 message CloudInitMetaData {
