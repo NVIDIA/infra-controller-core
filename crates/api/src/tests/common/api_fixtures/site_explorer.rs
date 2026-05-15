@@ -157,7 +157,7 @@ impl<'a> MockExploredHost<'a> {
                     self.managed_host.dpus[dpu_index as usize].bmc_mac_address,
                     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(),
                 )
-                .vendor_string("SomeVendor")
+                .vendor_string("NVIDIA/BF/BMC")
                 .tonic_request(),
             )
             .await;

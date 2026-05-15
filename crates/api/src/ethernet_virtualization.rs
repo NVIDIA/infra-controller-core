@@ -205,6 +205,7 @@ pub async fn admin_network(
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
     booturl: &Option<String>,
+    use_vpc_vrf_loopback: bool,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
     let admin_segments = db::network_segment::admin(txn).await?;
     let admin_segment_ids = admin_segments
@@ -252,7 +253,7 @@ pub async fn admin_network(
         }
     };
 
-    let domain = match admin_segment.subdomain_id {
+    let domain = match admin_segment.config.subdomain_id {
         Some(domain_id) => {
             db::dns::domain::find_by_uuid(&mut *txn, domain_id)
                 .await
@@ -303,7 +304,7 @@ pub async fn admin_network(
     let (vpc_vni, tenant_vrf_loopback_ip) = if !fnn_enabled_on_admin {
         (0, None)
     } else {
-        match admin_segment.vpc_id {
+        match admin_segment.config.vpc_id {
             Some(vpc_id) => {
                 let mut vpcs =
                     db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
@@ -314,16 +315,22 @@ pub async fn admin_network(
                 let vpc = vpcs.remove(0);
                 match vpc.status.and_then(|v| v.vni) {
                     Some(vpc_vni) => {
-                        let tenant_loopback_ip =
-                            db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
-                                common_pools,
-                                txn,
-                                dpu_machine_id,
-                                &vpc.id,
+                        let tenant_loopback_ip = if use_vpc_vrf_loopback {
+                            Some(
+                                db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
+                                    common_pools,
+                                    txn,
+                                    dpu_machine_id,
+                                    &vpc.id,
+                                )
+                                .await?
+                                .to_string(),
                             )
-                            .await?;
+                        } else {
+                            None
+                        };
 
-                        (vpc_vni as u32, Some(tenant_loopback_ip.to_string()))
+                        (vpc_vni as u32, tenant_loopback_ip)
                     }
                     None => {
                         // if FNN is enabled, VPC must be created and updated in admin_segment.
@@ -347,9 +354,9 @@ pub async fn admin_network(
     let cfg = rpc::FlatInterfaceConfig {
         function_type: rpc::InterfaceFunctionType::Physical.into(),
         virtual_function_id: None,
-        vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
+        vlan_id: admin_segment.status.vlan_id.unwrap_or_default() as u32,
         vni: if fnn_enabled_on_admin {
-            admin_segment.vni.unwrap_or_default() as u32
+            admin_segment.status.vni.unwrap_or_default() as u32
         } else {
             0
         },
@@ -372,7 +379,7 @@ pub async fn admin_network(
         vpc_peer_vnis: vec![],
         network_security_group: None,
         internal_uuid: None,
-        mtu: u32::try_from(admin_segment.mtu).ok(),
+        mtu: u32::try_from(admin_segment.config.mtu).ok(),
         ipv6_interface_config: None,
     };
     Ok((cfg, interface.id))
@@ -393,7 +400,7 @@ pub async fn tenant_network(
     booturl: &Option<String>,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     // Any stretchable segment is treated as L2 segment by FNN.
-    let is_l2_segment = segment.can_stretch.unwrap_or(true);
+    let is_l2_segment = segment.status.can_stretch.unwrap_or(true);
 
     let ds = PrefixPair::from_segment_prefixes(&segment.prefixes, instance_id, segment.id)?;
     let address = ds.v4_address(iface).ok_or_else(|| CarbideError::Internal {
@@ -420,7 +427,7 @@ pub async fn tenant_network(
     let v6_address = ds.v6_address(iface);
     let v6_interface_prefix = ds.v6_interface_prefix(iface);
 
-    let vpc_prefixes: Vec<String> = match segment.vpc_id {
+    let vpc_prefixes: Vec<String> = match segment.config.vpc_id {
         Some(vpc_id) => {
             let vpc_prefixes = db::vpc_prefix::find_by_vpc(txn, vpc_id)
                 .await?
@@ -441,7 +448,7 @@ pub async fn tenant_network(
     let mut vpc_peer_vnis = vec![];
     let mut vpc_peer_prefixes = vec![];
     if let Some(policy) = vpc_peering_policy_on_existing
-        && let Some(vpc_id) = segment.vpc_id
+        && let Some(vpc_id) = segment.config.vpc_id
     {
         match policy {
             VpcPeeringPolicy::Exclusive => {
@@ -485,7 +492,7 @@ pub async fn tenant_network(
     vpc_peer_vnis.sort_unstable();
     vpc_peer_prefixes.sort_unstable();
 
-    let vpc = match segment.vpc_id {
+    let vpc = match segment.config.vpc_id {
         Some(vpc_id) => {
             let mut vpcs =
                 db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
@@ -559,8 +566,8 @@ pub async fn tenant_network(
             InterfaceFunctionId::Physical {} => None,
             InterfaceFunctionId::Virtual { id } => Some(id.into()),
         },
-        vlan_id: segment.vlan_id.unwrap_or_default() as u32,
-        vni: segment.vni.unwrap_or_default() as u32,
+        vlan_id: segment.status.vlan_id.unwrap_or_default() as u32,
+        vni: segment.status.vni.unwrap_or_default() as u32,
         vpc_vni,
         gateway: ds
             .v4()
@@ -605,7 +612,7 @@ pub async fn tenant_network(
                 ),
             })?,
         internal_uuid: Some(iface.internal_uuid.into()),
-        mtu: u32::try_from(segment.mtu).ok(),
+        mtu: u32::try_from(segment.config.mtu).ok(),
         ipv6_interface_config: v6_address.map(|a| rpc::FlatInterfaceIpv6Config {
             ip: a.to_string(),
             interface_prefix: v6_interface_prefix

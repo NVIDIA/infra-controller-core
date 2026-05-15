@@ -85,6 +85,7 @@ pub async fn find_switch(
                         version: None,
                         firmware_version: None,
                         port: None,
+                        machine_interface_id: None,
                     },
                 )
             })
@@ -174,6 +175,7 @@ pub async fn find_by_ids(
                         version: None,
                         firmware_version: None,
                         port: None,
+                        machine_interface_id: None,
                     },
                 )
             })

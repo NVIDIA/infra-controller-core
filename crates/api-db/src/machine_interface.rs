@@ -34,6 +34,7 @@ use model::allocation_type::AllocationType;
 use model::expected_machine::ExpectedHostNic;
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineInterfaceSnapshot;
+use model::machine_interface::InterfaceType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_prefix::NetworkPrefix;
 use model::network_segment::{AllocationStrategy, NetworkSegment, NetworkSegmentType};
@@ -43,6 +44,7 @@ use sqlx::{FromRow, PgConnection, PgTransaction};
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db_read::DbReader;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
+use crate::machine_interface_address::AddressAlreadyInUseError;
 use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
@@ -166,6 +168,47 @@ pub async fn associate_interface_with_dpu_machine(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+pub async fn associate_bmc_interface_with_machine(
+    interface_id: &MachineInterfaceId,
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> DatabaseResult<MachineInterfaceId> {
+    let query = "UPDATE machine_interfaces
+        SET machine_id=$1,
+            association_type='Machine'::association_type,
+            interface_type='Bmc'::interface_type,
+            primary_interface=false
+        WHERE id=$2::uuid
+        RETURNING id";
+    sqlx::query_as(query)
+        .bind(machine_id)
+        .bind(*interface_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|err: sqlx::Error| match err {
+            sqlx::Error::Database(e)
+                if e.constraint() == Some(SQL_VIOLATION_MAX_ONE_ASSOCIATION) =>
+            {
+                DatabaseError::MaxOneInterfaceAssociation
+            }
+            _ => DatabaseError::query(query, err),
+        })
+}
+
+pub async fn set_interface_type(
+    interface_id: &MachineInterfaceId,
+    interface_type: InterfaceType,
+    txn: &mut PgConnection,
+) -> DatabaseResult<MachineInterfaceId> {
+    let query = "UPDATE machine_interfaces SET interface_type=$1 WHERE id=$2::uuid RETURNING id";
+    sqlx::query_as(query)
+        .bind(interface_type)
+        .bind(*interface_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn associate_interface_with_machine(
     interface_id: &MachineInterfaceId,
     association: MachineInterfaceAssociation,
@@ -244,6 +287,7 @@ pub async fn find_by_machine_ids(
         find_by(txn, ObjectColumnFilter::List(MachineIdColumn, machine_ids))
             .await?
             .into_iter()
+            .filter(|interface| interface.interface_type != InterfaceType::Bmc)
             .into_group_map_by(|interface| interface.machine_id.unwrap()),
     )
 }
@@ -394,10 +438,10 @@ pub async fn validate_existing_mac_and_create(
                 // dynamic allocation. The device must have a pre-existing
                 // static reservation to get an IP on this segment.
                 for segment in network_segments.iter() {
-                    if segment.allocation_strategy == AllocationStrategy::Reserved {
+                    if segment.config.allocation_strategy == AllocationStrategy::Reserved {
                         return Err(DatabaseError::internal(format!(
                             "segment {} configured for static DHCP leases only; no static reservation for MAC {mac_address}",
-                            segment.name,
+                            segment.config.name,
                         )));
                     }
                 }
@@ -470,9 +514,32 @@ pub async fn preallocate_machine_interface(
     mac_address: MacAddress,
     static_ip: IpAddr,
 ) -> DatabaseResult<()> {
+    preallocate_machine_interface_with_type(txn, mac_address, static_ip, InterfaceType::Data).await
+}
+
+pub async fn preallocate_bmc_machine_interface(
+    txn: &mut PgConnection,
+    mac_address: MacAddress,
+    static_ip: IpAddr,
+) -> DatabaseResult<()> {
+    preallocate_machine_interface_with_type(txn, mac_address, static_ip, InterfaceType::Bmc).await
+}
+
+async fn preallocate_machine_interface_with_type(
+    txn: &mut PgConnection,
+    mac_address: MacAddress,
+    static_ip: IpAddr,
+    interface_type: InterfaceType,
+) -> DatabaseResult<()> {
     let existing = find_by_mac_address(&mut *txn, mac_address).await?;
     if let Some(iface) = existing.first() {
         if iface.addresses.contains(&static_ip) {
+            if iface.interface_type != interface_type {
+                set_interface_type(&iface.id, interface_type, txn).await?;
+            }
+            if interface_type == InterfaceType::Bmc && iface.primary_interface {
+                set_primary_interface(&iface.id, false, txn).await?;
+            }
             return Ok(());
         }
         return Err(DatabaseError::InvalidArgument(format!(
@@ -495,12 +562,13 @@ pub async fn preallocate_machine_interface(
         None => db_network_segment::static_assignments(&mut *txn).await?,
     };
 
-    create(
+    create_with_type(
         txn,
         std::slice::from_ref(&segment),
         &mac_address,
-        true,
+        interface_type != InterfaceType::Bmc,
         AddressSelectionStrategy::StaticAddress(static_ip),
+        interface_type,
     )
     .await?;
 
@@ -521,12 +589,39 @@ pub async fn create(
     primary_interface: bool,
     address_strategy: AddressSelectionStrategy,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
+    create_with_type(
+        txn,
+        segments,
+        macaddr,
+        primary_interface,
+        address_strategy,
+        InterfaceType::Data,
+    )
+    .await
+}
+
+pub async fn create_with_type(
+    txn: &mut PgConnection,
+    segments: &[NetworkSegment],
+    macaddr: &MacAddress,
+    primary_interface: bool,
+    address_strategy: AddressSelectionStrategy,
+    interface_type: InterfaceType,
+) -> DatabaseResult<MachineInterfaceSnapshot> {
     match address_strategy {
         AddressSelectionStrategy::NextAvailableIp | AddressSelectionStrategy::Automatic => {
-            create_fast_path(txn, segments, macaddr, primary_interface).await
+            create_fast_path(txn, segments, macaddr, primary_interface, interface_type).await
         }
         AddressSelectionStrategy::StaticAddress(addr) => {
-            create_static_path(txn, segments, macaddr, primary_interface, addr).await
+            create_static_path(
+                txn,
+                segments,
+                macaddr,
+                primary_interface,
+                addr,
+                interface_type,
+            )
+            .await
         }
         //
         AddressSelectionStrategy::NextAvailablePrefix(_) => {
@@ -537,7 +632,15 @@ pub async fn create(
                 ));
             };
 
-            create_slow_path(txn, segment, macaddr, primary_interface, address_strategy).await
+            create_slow_path(
+                txn,
+                segment,
+                macaddr,
+                primary_interface,
+                address_strategy,
+                interface_type,
+            )
+            .await
         }
     }
 }
@@ -548,6 +651,7 @@ async fn create_fast_path(
     segments: &[NetworkSegment],
     macaddr: &MacAddress,
     primary_interface: bool,
+    interface_type: InterfaceType,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     for segments_idx in 0..segments.len() {
         let segment = &segments[segments_idx];
@@ -564,6 +668,7 @@ async fn create_fast_path(
                 segment,
                 macaddr,
                 primary_interface,
+                interface_type,
             )
             .await
             {
@@ -613,12 +718,19 @@ async fn create_fast_path(
 
 /// Create a machine interface with a specific static IP address.
 /// A perfect compliment to create_fast_path and create_slow_path.
+///
+/// If the target IP is already allocated to an interface with
+/// same MAC, just return the existing interface snapshot.
+///
+/// Otherwise, if the target IP is allocated to a different MAC,
+/// return with an AddressAlreadyInUse error.
 async fn create_static_path(
     txn: &mut PgConnection,
     segments: &[NetworkSegment],
     macaddr: &MacAddress,
     primary_interface: bool,
     address: IpAddr,
+    interface_type: InterfaceType,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     // For the staic path, we need to be a little forgiving since
     // we expect to allow static assignment even if the requested
@@ -631,21 +743,35 @@ async fn create_static_path(
     let segment = segments
                 .iter()
                 .find(|s| s.prefixes.iter().any(|p| p.prefix.contains(address)))
-                .or_else(|| segments.iter().find(|s| s.name == crate::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME))
+                .or_else(|| segments.iter().find(|s| s.config.name == crate::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME))
                 .ok_or_else(|| DatabaseError::internal(format!(
                     "unable to find network segment that contains requested IP {address} in network segments: {}",
                     segments.iter().map(|s| s.id.to_string()).join(", "),
                 ))
     )?;
 
+    if let Some(existing) = find_by_ip(&mut *txn, address).await? {
+        if existing.mac_address == *macaddr {
+            return Ok(existing);
+        }
+        return Err(AddressAlreadyInUseError(
+            address,
+            existing.mac_address,
+            existing.segment_id,
+            existing.id,
+        )
+        .into());
+    }
+
     let interface_id = create_inner(
         txn,
         segment,
         macaddr,
-        segment.subdomain_id,
+        segment.config.subdomain_id,
         primary_interface,
         &[address],
         AllocationType::Static,
+        interface_type,
     )
     .await?;
 
@@ -670,6 +796,7 @@ pub async fn create_slow_path(
     macaddr: &MacAddress,
     primary_interface: bool,
     address_strategy: AddressSelectionStrategy,
+    interface_type: InterfaceType,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     // We're potentially about to insert a couple rows, so create a savepoint.
     let mut inner_txn = Transaction::begin_inner(txn).await?;
@@ -712,10 +839,11 @@ pub async fn create_slow_path(
         inner_txn.as_pgconn(),
         segment,
         macaddr,
-        segment.subdomain_id,
+        segment.config.subdomain_id,
         primary_interface,
         &allocated_addresses,
         AllocationType::Dhcp,
+        interface_type,
     )
     .await?;
     inner_txn.commit().await?;
@@ -737,6 +865,7 @@ async fn try_create_fast_path(
     segment: &NetworkSegment,
     macaddr: &MacAddress,
     primary_interface: bool,
+    interface_type: InterfaceType,
 ) -> DatabaseResult<MachineInterfaceId> {
     let allocated_addresses = allocate_addresses_from_segment(txn, segment).await?;
 
@@ -744,10 +873,11 @@ async fn try_create_fast_path(
         txn,
         segment,
         macaddr,
-        segment.subdomain_id,
+        segment.config.subdomain_id,
         primary_interface,
         &allocated_addresses,
         AllocationType::Dhcp,
+        interface_type,
     )
     .await
 }
@@ -767,6 +897,7 @@ async fn allocate_addresses_from_segment(
 }
 
 /// Create the actual machine interface once we know what addresses we want.
+#[allow(clippy::too_many_arguments)]
 async fn create_inner(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
@@ -775,6 +906,7 @@ async fn create_inner(
     primary_interface: bool,
     allocated_addresses: &[IpAddr],
     allocation_type: AllocationType,
+    interface_type: InterfaceType,
 ) -> DatabaseResult<MachineInterfaceId> {
     // Prefer IPv4 for hostname (more human-readable), fall back to
     // an IPv6-derived hostname otherwise.
@@ -802,6 +934,7 @@ async fn create_inner(
         hostname,
         domain_id,
         primary_interface,
+        interface_type,
     )
     .await?;
 
@@ -990,11 +1123,12 @@ async fn insert_machine_interface(
     hostname: String,
     domain_id: Option<DomainId>,
     is_primary_interface: bool,
+    interface_type: InterfaceType,
 ) -> DatabaseResult<MachineInterfaceId> {
     let query = "INSERT INTO machine_interfaces
-        (segment_id, mac_address, hostname, domain_id, primary_interface)
+        (segment_id, mac_address, hostname, domain_id, primary_interface, interface_type)
         VALUES
-        ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id";
+        ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool, $6::interface_type) RETURNING id";
 
     let (interface_id,): (MachineInterfaceId,) = sqlx::query_as(query)
         .bind(segment_id)
@@ -1002,6 +1136,7 @@ async fn insert_machine_interface(
         .bind(hostname)
         .bind(domain_id)
         .bind(is_primary_interface)
+        .bind(interface_type)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
@@ -1119,7 +1254,9 @@ pub async fn move_predicted_machine_interface_to_machine(
         )));
     };
 
-    if network_segment.segment_type != predicted_machine_interface.expected_network_segment_type {
+    if network_segment.config.segment_type
+        != predicted_machine_interface.expected_network_segment_type
+    {
         return Err(DatabaseError::internal(format!(
             "Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}",
             predicted_machine_interface.mac_address,
@@ -1343,7 +1480,7 @@ async fn reconcile_interface_segment(
             txn,
             existing_interface.id,
             relay_segment.id,
-            relay_segment.subdomain_id,
+            relay_segment.config.subdomain_id,
         )
         .await?;
         existing_interface.segment_id = relay_segment.id;

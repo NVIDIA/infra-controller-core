@@ -67,10 +67,17 @@ pub async fn create(
             },
             "os": os,
         }),
-        // omit network from config if we're not specifying a segment (in
-        // the zero-DPU case, the allocator auto-picks a HostInband segment).
+        // segment_id is None, i.e. this is the zero-DPU path.
+        // The allocator requires `auto: true` and an empty `interfaces`
+        // list, and will resolve the host's HostInband segments into
+        // the stored config (status reflects the resolved per-interface
+        // details).
         None => serde_json::json!({
             "tenant": tenant,
+            "network": {
+                "interfaces": [],
+                "auto": true,
+            },
             "os": os,
         }),
     };

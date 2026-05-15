@@ -93,7 +93,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         _object_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
-        Ok(state.controller_state.clone())
+        Ok(state.status.controller_state.clone())
     }
 
     async fn persist_controller_state(

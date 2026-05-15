@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use carbide_firmware::FirmwareConfig;
+use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_network::sanitized_mac;
 use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_utils::periodic_timer::PeriodicTimer;
@@ -45,6 +45,7 @@ use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
@@ -72,7 +73,7 @@ pub use machine_creator::MachineCreator;
 pub mod explored_endpoint_index;
 mod managed_host;
 use db::ObjectColumnFilter;
-use db::work_lock_manager::WorkLockManagerHandle;
+use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 pub use managed_host::is_endpoint_in_managed_host;
 use model::expected_machine::DpuMode;
 use model::firmware::FirmwareComponentType;
@@ -112,6 +113,45 @@ pub fn new_bmc_explorer(
         mode,
     )
     .into()
+}
+
+pub fn enrich_endpoint_exploration_report(
+    report: &mut EndpointExplorationReport,
+    fw_config_snapshot: &FirmwareConfigSnapshot,
+) {
+    if !report.is_power_shelf() {
+        if let Err(error) = report.generate_machine_id(false) {
+            tracing::error!(%error, "Can not generate MachineId for explored endpoint");
+        }
+        report.model = report.model();
+        if let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host_report(report) {
+            let components_without_version = report.parse_versions(&fw_info);
+            if !components_without_version.is_empty() {
+                tracing::debug!(
+                    "Can not find firmware version for component(s): {:?}",
+                    components_without_version
+                );
+            }
+        } else {
+            // It's possible that we knew about this host type before but do not now, so make sure we
+            // do not keep stale data.
+            report.versions = HashMap::default();
+            tracing::debug!(
+                "Can not find firmware info for: vendor: {:?}; model: {:?}",
+                report.vendor,
+                report.model()
+            );
+        }
+
+        // Go through the chassis entries and get what at least one of them says.
+        report.parse_position_info()
+    } else {
+        tracing::info!("Generating PowerShelfId for power shelf");
+        if let Err(error) = report.generate_power_shelf_id() {
+            tracing::error!(%error, "Can not generate PowerShelfId for explored power shelf endpoint");
+        }
+        report.versions = HashMap::default();
+    }
 }
 
 /// Ensures a rack row exists for the given `rack_id`.
@@ -202,6 +242,14 @@ impl<'a> Endpoint<'a> {
 }
 
 pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationReport)>;
+
+/// Work-lock key for a single endpoint exploration.
+///
+/// Both the site-explorer loop (`update_explored_endpoints`) and the adhoc
+/// `RefreshEndpointReport` handler acquire this key before probing Redfish.
+pub fn endpoint_exploration_work_key(bmc_ip: IpAddr) -> String {
+    format!("SiteExplorer::endpoint_exploration::{bmc_ip}")
+}
 
 /// The SiteExplorer periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the SiteExplorer will:
@@ -1441,7 +1489,8 @@ impl SiteExplorer {
         let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
-                underlay_segments.contains(&iface.segment_id) && iface.machine_id.is_none()
+                underlay_segments.contains(&iface.segment_id)
+                    && (iface.machine_id.is_none() || iface.interface_type == InterfaceType::Bmc)
             })
             .collect();
 
@@ -1495,13 +1544,15 @@ impl SiteExplorer {
         let num_explore_endpoints = (self.config.explorations_per_run as usize)
             .min(unexplored_endpoints.len() + update_endpoints.len());
 
-        let mut explore_endpoint_data = Vec::with_capacity(num_explore_endpoints);
+        let mut explore_endpoint_data =
+            Vec::with_capacity(priority_update_endpoints.len() + num_explore_endpoints);
 
-        // We prioritize existing endpoints which have the `exploration_requested` flag set
-        for (address, iface, endpoint) in priority_update_endpoints
-            .into_iter()
-            .take(num_explore_endpoints)
-        {
+        // Existing endpoints with `exploration_requested` are enqueued
+        // unconditionally and sit outside the per-iteration count budget.
+        // Operators set this flag to request a guaranteed next-tick attempt, so
+        // we must not let the routine refresh budget delay them. Concurrency is
+        // still bounded by the `concurrent_explorations` semaphore below.
+        for (address, iface, endpoint) in priority_update_endpoints {
             explore_endpoint_data.push(Endpoint {
                 address,
                 iface,
@@ -1511,8 +1562,10 @@ impl SiteExplorer {
             });
         }
 
+        let routine_start = explore_endpoint_data.len();
+
         // Next priority are all endpoints that we've never looked at
-        let remaining_explore_endpoints = num_explore_endpoints - explore_endpoint_data.len();
+        let remaining_explore_endpoints = num_explore_endpoints;
         for (address, iface) in unexplored_endpoints
             .iter()
             .take(remaining_explore_endpoints)
@@ -1529,7 +1582,8 @@ impl SiteExplorer {
         }
 
         // If we have any capacity available, we update knowledge about endpoints we looked at earlier on
-        let remaining_explore_endpoints = num_explore_endpoints - explore_endpoint_data.len();
+        let remaining_explore_endpoints =
+            num_explore_endpoints - (explore_endpoint_data.len() - routine_start);
         if remaining_explore_endpoints != 0 {
             // Sort endpoints so that we will replace the oldest report first
             update_endpoints.sort_by_key(|(_address, _machine_interface, endpoint)| {
@@ -1568,6 +1622,7 @@ impl SiteExplorer {
             let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
             let fw_config_snapshot = fw_config_snapshot.clone();
             let database_connection = self.database_connection.clone();
+            let work_lock_manager_handle = self.work_lock_manager_handle.clone();
 
             task_set.push(
                 async move {
@@ -1582,6 +1637,26 @@ impl SiteExplorer {
                         .acquire()
                         .await
                         .expect("Semaphore can't be closed");
+
+                    // If the endpoint is locked, we skip exploration.
+                    let work_key = endpoint_exploration_work_key(endpoint.address);
+                    let _work_lock = match work_lock_manager_handle.try_acquire_lock(work_key).await
+                    {
+                        Ok(work_lock) => work_lock,
+                        Err(AcquireLockError::WorkAlreadyLocked(_)) => {
+                            tracing::info!(
+                                address = %endpoint.address,
+                                "Skipping periodic endpoint exploration; adhoc refresh already in progress"
+                            );
+                            return Ok(None);
+                        }
+                        Err(e) => {
+                            return Err(SiteExplorerError::internal(format!(
+                                "Failed to acquire per-endpoint work lock for {}: {e}",
+                                endpoint.address
+                            )));
+                        }
+                    };
 
                     let mut result = endpoint_explorer
                         .explore_endpoint(
@@ -1607,38 +1682,11 @@ impl SiteExplorer {
                         tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
                     }
 
-                    // Try to generate a MachineId and parsed version info based on the retrieved data
                     if let Ok(report) = &mut result {
-                        if !report.is_power_shelf() {
-                            if let Err(error) = report.generate_machine_id(false) {
-                                tracing::error!(%error, "Can not generate MachineId for explored endpoint");
-                            }
-                            report.model = report.model();
-                            if let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host_report(report)
-                            {
-                                let components_without_version = report.parse_versions(&fw_info);
-                                if !components_without_version.is_empty() {
-                                    tracing::debug!("Can not find firmware version for component(s): {:?}", components_without_version);
-                                }
-                            } else {
-                                // It's possible that we knew about this host type before but do not now, so make sure we
-                                // do not keep stale data.
-                                report.versions = HashMap::default();
-                                tracing::debug!("Can not find firmware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
-                            }
-
-                            // Go through the chassis entries and get what at least one of them says
-                            report.parse_position_info()
-                        } else {
-                            tracing::info!("Generating PowerShelfId for power shelf");
-                            if let Err(error) = report.generate_power_shelf_id() {
-                                tracing::error!(%error, "Can not generate PowerShelfId for explored power shelf endpoint");
-                            }
-                            report.versions = HashMap::default();
-                        }
+                        enrich_endpoint_exploration_report(report, &fw_config_snapshot);
                     }
 
-                    (endpoint, result, start.elapsed())
+                    Ok(Some((endpoint, result, start.elapsed())))
                 }
                     .in_current_span(),
             );
@@ -1650,14 +1698,18 @@ impl SiteExplorer {
         // even thought the next controller iteration already started.
         // Therefore we drain the `task_set` here completely and record all errors
         // before returning.
-        let exploration_results = task_set.collect::<Vec<_>>().await;
+        let exploration_results = task_set
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<SiteExplorerResult<Vec<_>>>()?;
 
         // All subtasks finished. We now update the database
         let mut txn = self.txn_begin().await?;
 
         let mut redfish_errors = Vec::new();
 
-        for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
+        for (endpoint, result, exploration_duration) in exploration_results.into_iter().flatten() {
             let address = endpoint.address;
             let mut redfish_error = None;
 
@@ -1684,13 +1736,20 @@ impl SiteExplorer {
                 && let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc)
                 && let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi)
             {
-                db::machine_topology::update_firmware_version_by_bmc_address(
-                    &mut txn,
-                    &address,
-                    bmc_version,
-                    uefi_version,
-                )
-                .await?;
+                let machine_id = match report.machine_id.as_ref().copied() {
+                    Some(machine_id) => Some(machine_id),
+                    None => db::machine::find_id_by_bmc_ip(&mut txn, &address).await?,
+                };
+
+                if let Some(machine_id) = machine_id {
+                    db::machine_topology::update_firmware_version_by_machine_id(
+                        &mut txn,
+                        &machine_id,
+                        bmc_version,
+                        uefi_version,
+                    )
+                    .await?;
+                }
             }
 
             match endpoint.last_explored {

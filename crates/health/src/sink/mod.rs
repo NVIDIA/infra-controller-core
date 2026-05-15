@@ -161,6 +161,9 @@ mod tests {
                     .parse()
                     .expect("valid machine id"),
                 machine_serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
             })),
             rack_id: None,
         };
@@ -221,6 +224,9 @@ mod tests {
                     .parse()
                     .expect("valid machine id"),
                 machine_serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
             })),
             rack_id: None,
         };
@@ -273,6 +279,9 @@ mod tests {
                     .parse()
                     .expect("valid machine id"),
                 machine_serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
             })),
             rack_id: None,
         };

@@ -53,7 +53,7 @@ pub async fn delete_and_deallocate(
         let admin_segments = crate::network_segment::admin(txn).await?;
         let admin_vpcs = admin_segments
             .iter()
-            .filter_map(|s| s.vpc_id)
+            .filter_map(|s| s.config.vpc_id)
             .collect::<Vec<VpcId>>();
 
         if admin_vpcs.is_empty() {

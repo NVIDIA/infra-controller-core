@@ -338,6 +338,13 @@ impl Forge for Api {
         crate::handlers::power_shelf::admin_force_delete_power_shelf(self, request).await
     }
 
+    async fn set_power_shelf_maintenance(
+        &self,
+        request: Request<rpc::PowerShelfMaintenanceRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::set_power_shelf_maintenance(self, request).await
+    }
+
     async fn find_switches(
         &self,
         request: Request<rpc::SwitchQuery>,
@@ -413,6 +420,13 @@ impl Forge for Api {
         request: Request<rpc::VpcSearchQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
         crate::handlers::network_segment::for_vpc(self, request).await
+    }
+
+    async fn find_network_segment_state_histories(
+        &self,
+        request: Request<rpc::NetworkSegmentStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::network_segment::find_state_histories(self, request).await
     }
 
     async fn allocate_instance(
@@ -951,6 +965,13 @@ impl Forge for Api {
         request: Request<rpc::ReExploreEndpointRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::site_explorer::re_explore_endpoint(self, request).await
+    }
+
+    async fn refresh_endpoint_report(
+        &self,
+        request: Request<rpc::RefreshEndpointReportRequest>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredEndpoint>, Status> {
+        crate::handlers::site_explorer::refresh_endpoint_report(self, request).await
     }
 
     async fn delete_explored_endpoint(
@@ -3024,6 +3045,20 @@ impl Forge for Api {
         request: Request<rpc::GetDpfStateRequest>,
     ) -> Result<Response<rpc::DpfStateResponse>, Status> {
         crate::handlers::dpf::get_dpf_state(self, request).await
+    }
+
+    async fn get_dpf_host_snapshot(
+        &self,
+        request: Request<rpc::GetDpfHostSnapshotRequest>,
+    ) -> Result<Response<rpc::DpfHostSnapshotResponse>, Status> {
+        crate::handlers::dpf::get_dpf_host_snapshot(self, request).await
+    }
+
+    async fn get_dpf_service_versions(
+        &self,
+        request: Request<rpc::GetDpfServiceVersionsRequest>,
+    ) -> Result<Response<rpc::DpfServiceVersionsResponse>, Status> {
+        crate::handlers::dpf::get_dpf_service_versions(self, request).await
     }
 
     // scout_stream handles the bidirectional streaming connection from scout agents.

@@ -2232,7 +2232,6 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
- "carbide-rpc",
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",
@@ -2417,6 +2416,26 @@ dependencies = [
  "thiserror 2.0.18",
  "tonic",
  "tracing",
+]
+
+[[package]]
+name = "carbide-rvs"
+version = "0.0.1"
+dependencies = [
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "figment",
+ "logfmt",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "toml 1.1.2+spec-1.1.0",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -3060,10 +3079,12 @@ dependencies = [
  "carbide-api-model",
  "carbide-api-test-helper",
  "carbide-macros",
+ "carbide-redfish",
  "carbide-secrets",
  "carbide-sqlx-testing",
  "carbide-uuid",
  "chrono",
+ "libredfish",
  "librms",
  "mac_address",
  "prost",
@@ -6137,7 +6158,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.0#64c7d54eac7f33dad5ffb93ee74a5244b7c2c31b"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.2#e2e047cf1fddb4ec8861d7e7f8bdcf7ecbbdb705"
 dependencies = [
  "chrono",
  "clap",

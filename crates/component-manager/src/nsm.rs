@@ -22,6 +22,8 @@ pub struct NsmSwitchBackend {
 }
 
 impl NsmSwitchBackend {
+    pub const BACKEND_NAME: &str = "nsm";
+
     pub async fn connect(
         url: &str,
         tls: Option<&BackendTlsConfig>,
@@ -143,7 +145,7 @@ async fn register_and_map(
 #[async_trait::async_trait]
 impl NvSwitchManager for NsmSwitchBackend {
     fn name(&self) -> &str {
-        "nsm"
+        Self::BACKEND_NAME
     }
 
     #[instrument(skip(self), fields(backend = "nsm"))]

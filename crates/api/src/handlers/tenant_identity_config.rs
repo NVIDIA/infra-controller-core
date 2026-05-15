@@ -26,13 +26,17 @@ use ::rpc::Timestamp;
 use ::rpc::forge::{
     GetTenantIdentityConfigRequest, GetTokenDelegationRequest, SetTenantIdentityConfigRequest,
     TenantIdentityConfig as ProtoTenantIdentityConfig, TenantIdentityConfigResponse,
-    TokenDelegationRequest, TokenDelegationResponse, token_delegation,
+    TenantIdentitySigningKey, TokenDelegationRequest, TokenDelegationResponse, token_delegation,
 };
 use db::{WithTransaction, tenant, tenant_identity_config};
 use forge_secrets::credentials::CredentialReader;
 use forge_secrets::key_encryption;
+use model::rpc_conv::tenant::{
+    identity_config_try_from_proto, validate_identity_overlap_for_rotation,
+};
+use model::tenant::identity_config::TenantIdentityCurrentSigningKeySlot;
 use model::tenant::{
-    EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfig,
+    EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfigValidationBounds,
     IdentityConfigValidationError, InvalidNonEmptyStr, InvalidTenantOrg, KeyId, SigningKeyMaterial,
     SigningPublicKeyPem, TenantIdentityConfig, TenantIdentityConfigDecrypted, TenantOrganizationId,
     TokenDelegation, TokenDelegationValidationBounds, TokenDelegationValidationError,
@@ -97,6 +101,56 @@ fn format_token_delegation_request_redacted(req: &TokenDelegationRequest) -> Str
 
 // --- Tenant identity configuration handlers ---
 
+/// Builds [`TenantIdentitySigningKey`] entries from slotted public JSON; exactly one has
+/// `current_signer == true`.
+fn tenant_identity_signing_keys_response(
+    cfg: &TenantIdentityConfig,
+) -> Result<Vec<TenantIdentitySigningKey>, Status> {
+    let mut keys = Vec::new();
+    if let Some(ref doc) = cfg.signing_key_public_1 {
+        let current_signer =
+            cfg.current_signing_key_slot == TenantIdentityCurrentSigningKeySlot::SigningKey1;
+        keys.push(TenantIdentitySigningKey {
+            kid: doc.0.kid().to_string(),
+            alg: doc.0.alg().to_string(),
+            current_signer,
+            expire_at: if current_signer {
+                None
+            } else {
+                cfg.non_active_slot_expires_at.map(Timestamp::from)
+            },
+        });
+    }
+    if let Some(ref doc) = cfg.signing_key_public_2 {
+        let current_signer =
+            cfg.current_signing_key_slot == TenantIdentityCurrentSigningKeySlot::SigningKey2;
+        keys.push(TenantIdentitySigningKey {
+            kid: doc.0.kid().to_string(),
+            alg: doc.0.alg().to_string(),
+            current_signer,
+            expire_at: if current_signer {
+                None
+            } else {
+                cfg.non_active_slot_expires_at.map(Timestamp::from)
+            },
+        });
+    }
+    let n_current = keys.iter().filter(|k| k.current_signer).count();
+    if keys.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "tenant identity config has no published signing keys".to_string(),
+        )
+        .into());
+    }
+    if n_current != 1 {
+        return Err(CarbideError::InvalidArgument(format!(
+            "expected exactly one current signer in signing_keys; found {n_current}"
+        ))
+        .into());
+    }
+    Ok(keys)
+}
+
 /// `Forge::get_tenant_identity_configuration`: fetches per-org identity config.
 pub(crate) async fn get_configuration(
     api: &Api,
@@ -120,7 +174,12 @@ pub(crate) async fn get_configuration(
 
     let cfg = api
         .database_connection
-        .with_txn(|txn| Box::pin(async move { tenant_identity_config::find(&org_id, txn).await }))
+        .with_txn(|txn| {
+            Box::pin(async move {
+                tenant_identity_config::gc_expired_non_active_signing_key(&org_id, txn).await?;
+                tenant_identity_config::find(&org_id, txn).await
+            })
+        })
         .await??;
 
     let cfg = match cfg {
@@ -134,6 +193,8 @@ pub(crate) async fn get_configuration(
         }
     };
 
+    let signing_keys = tenant_identity_signing_keys_response(&cfg)?;
+
     Ok(Response::new(TenantIdentityConfigResponse {
         organization_id: org_id_str,
         config: Some(ProtoTenantIdentityConfig {
@@ -143,11 +204,12 @@ pub(crate) async fn get_configuration(
             allowed_audiences: cfg.allowed_audiences.0.clone(),
             token_ttl_sec: cfg.token_ttl_sec as u32,
             subject_prefix: Some(cfg.subject_prefix.clone()),
-            rotate_key: false,
+            rotate_key: cfg.response_rotate_key(),
+            signing_key_overlap_sec: None,
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
-        key_id: cfg.key_id.as_str().to_string(),
+        signing_keys,
     }))
 }
 
@@ -216,13 +278,12 @@ pub(crate) async fn set_configuration(
     let proto = req.config.ok_or_else(|| {
         CarbideError::InvalidArgument("TenantIdentityConfig is required".to_string())
     })?;
-    let config = IdentityConfig::try_from_proto(
+    let config = identity_config_try_from_proto(
         proto,
-        &model::tenant::IdentityConfigValidationBounds::from(
-            api.runtime_config.machine_identity.clone(),
-        ),
+        &IdentityConfigValidationBounds::from(api.runtime_config.machine_identity.clone()),
     )
     .map_err(|e: IdentityConfigValidationError| CarbideError::InvalidArgument(e.0))?;
+
     let org_id = req.organization_id.trim();
     if org_id.is_empty() {
         return Err(
@@ -242,6 +303,9 @@ pub(crate) async fn set_configuration(
         })
         .await??;
 
+    validate_identity_overlap_for_rotation(&config)
+        .map_err(|e: IdentityConfigValidationError| CarbideError::InvalidArgument(e.0))?;
+
     let key_material = match (&existing, config.rotate_key) {
         (None, _) | (_, true) => {
             let encryption_key = machine_identity_encryption_secret(
@@ -251,7 +315,8 @@ pub(crate) async fn set_configuration(
             .await?;
             let (private_pem, public_pem) = key_encryption::generate_es256_key_pair()
                 .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-            let key_id = KeyId::from_public_key_material(&public_pem);
+            let public_pem_trimmed = public_pem.trim();
+            let key_id = KeyId::from_public_key_material(public_pem_trimmed);
             let encrypted_signing_key: EncryptedSigningPrivateKey =
                 key_encryption::encrypt(&private_pem, &encryption_key, &config.encryption_key_id)
                     .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
@@ -259,7 +324,8 @@ pub(crate) async fn set_configuration(
                     .map_err(|e: InvalidNonEmptyStr| {
                         CarbideError::InvalidArgument(e.to_string())
                     })?;
-            let signing_key_public: SigningPublicKeyPem = public_pem
+            let signing_key_public: SigningPublicKeyPem = public_pem_trimmed
+                .to_string()
                 .try_into()
                 .map_err(|e: InvalidNonEmptyStr| CarbideError::InvalidArgument(e.to_string()))?;
             Some(SigningKeyMaterial {
@@ -289,6 +355,8 @@ pub(crate) async fn set_configuration(
         })
         .await??;
 
+    let signing_keys = tenant_identity_signing_keys_response(&cfg)?;
+
     Ok(Response::new(TenantIdentityConfigResponse {
         organization_id: org_id_str,
         config: Some(ProtoTenantIdentityConfig {
@@ -298,11 +366,12 @@ pub(crate) async fn set_configuration(
             allowed_audiences: cfg.allowed_audiences.0.clone(),
             token_ttl_sec: cfg.token_ttl_sec as u32,
             subject_prefix: Some(cfg.subject_prefix.clone()),
-            rotate_key: false,
+            rotate_key: cfg.response_rotate_key(),
+            signing_key_overlap_sec: None,
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
-        key_id: cfg.key_id.as_str().to_string(),
+        signing_keys,
     }))
 }
 
@@ -381,7 +450,7 @@ pub(crate) async fn set_token_delegation(
             CarbideError::InvalidArgument("TokenDelegation config is required".to_string())
         })
         .and_then(|c| {
-            TokenDelegation::try_from_proto(
+            model::rpc_conv::tenant::token_delegation_try_from_proto(
                 c.clone(),
                 &TokenDelegationValidationBounds::from(api.runtime_config.machine_identity.clone()),
             )

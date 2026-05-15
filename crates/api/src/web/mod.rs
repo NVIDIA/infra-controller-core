@@ -449,6 +449,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(explored_endpoint::re_explore),
             )
             .route(
+                "/explored-endpoint/{endpoint_ip}/refresh",
+                post(explored_endpoint::refresh_endpoint),
+            )
+            .route(
                 "/explored-endpoint/{endpoint_ip}/power-control",
                 post(explored_endpoint::power_control),
             )

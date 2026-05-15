@@ -20,8 +20,8 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use carbide_site_explorer::{SiteExplorer, endpoint_exploration_work_key};
 use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
@@ -1281,7 +1281,8 @@ async fn test_site_explorer_reexplore(
         assert!(!report.exploration_requested);
     }
 
-    // Re-exploring the first endpoint should prioritize it over exploring another endpoint
+    // Re-exploring the first endpoint should prioritize it while preserving
+    // routine capacity for another endpoint.
     env.api
         .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
             ip_address: explored_ip.to_string(),
@@ -1300,22 +1301,23 @@ async fn test_site_explorer_reexplore(
         assert!(report.exploration_requested);
     }
 
-    // The 2nd iteration should just update the version number of the initial explored
-    // endpoint - but not find anything new
+    // The 2nd iteration updates the priority endpoint and still uses the
+    // routine budget to discover another endpoint.
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
     let explored = db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
-    assert_eq!(explored.len(), 1);
+    assert_eq!(explored.len(), 2);
 
-    for report in &explored {
-        assert_eq!(report.address, explored_ip);
-        assert_eq!(report.report_version.version_nr(), 2);
-        assert!(!report.exploration_requested);
-    }
-    let current_version = explored[0].report_version;
+    let reexplored = explored
+        .iter()
+        .find(|report| report.address == explored_ip)
+        .unwrap();
+    assert_eq!(reexplored.report_version.version_nr(), 2);
+    assert!(!reexplored.exploration_requested);
+    let current_version = reexplored.report_version;
 
     // Using if_version_match with an incorrect version does nothing
     let unexpected_version = current_version.increment();
@@ -1360,18 +1362,20 @@ async fn test_site_explorer_reexplore(
         .await
         .unwrap();
     txn.commit().await?;
-    for report in &explored {
-        assert!(report.exploration_requested);
-    }
+    let reexplored = explored
+        .iter()
+        .find(|report| report.address == explored_ip)
+        .unwrap();
+    assert!(reexplored.exploration_requested);
 
-    // 3rd iteration still yields 1 result
+    // 3rd iteration still yields the same two known endpoints.
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
     let explored = db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
-    assert_eq!(explored.len(), 1);
+    assert_eq!(explored.len(), 2);
 
     Ok(())
 }
@@ -1481,30 +1485,40 @@ async fn test_disable_machine_creation_outside_site_explorer(
 async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    const HOST1_DPU_MAC: &str = "B8:3F:D2:90:97:A6";
-    const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
+    const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
+    const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", env.underlay_segment.unwrap());
+    let mut host1_dpu_bmc = FakeMachine::new(
+        HOST1_DPU_BMC_MAC,
+        "NVIDIA/BF/BMC",
+        env.underlay_segment.unwrap(),
+    );
 
-    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", env.underlay_segment.unwrap());
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", env.underlay_segment.unwrap());
 
     // Create dhcp entries and machine_interface entries for the machines
-    for machine in [&mut host1_dpu, &mut host1] {
+    for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
         machine.discover_dhcp(&env).await?;
     }
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 
     // Create a host and dpu reports && host has no dpu_serial
+    let host1_dpu_report = DpuConfig {
+        serial: HOST1_DPU_SERIAL_NUMBER.to_string(),
+        bmc_mac_address: HOST1_DPU_BMC_MAC.parse()?,
+        ..Default::default()
+    };
+    let host1_report = ManagedHostConfig {
+        bmc_mac_address: HOST1_BMC_MAC.parse()?,
+        ..Default::default()
+    };
     endpoint_explorer.insert_endpoint_results(vec![
         (
-            host1_dpu.ip.parse().unwrap(),
-            Ok(DpuConfig::with_serial(HOST1_DPU_SERIAL_NUMBER.to_string()).into()),
+            host1_dpu_bmc.ip.parse().unwrap(),
+            Ok(host1_dpu_report.into()),
         ),
-        (
-            host1.ip.parse().unwrap(),
-            Ok(ManagedHostConfig::default().into()),
-        ),
+        (host1_bmc.ip.parse().unwrap(), Ok(host1_report.into())),
     ]);
 
     let explorer_config = SiteExplorerConfig {
@@ -1564,7 +1578,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         &mut txn,
         ExpectedMachine {
             id: None,
-            bmc_mac_address: HOST1_MAC.to_string().parse().unwrap(),
+            bmc_mac_address: HOST1_BMC_MAC.to_string().parse().unwrap(),
             data: ExpectedMachineData {
                 bmc_username: "user1".to_string(),
                 bmc_password: "pw".to_string(),
@@ -1614,7 +1628,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     // Now update expected_machine entry with fallback_dpu_serial
     let mut txn = env.pool.begin().await?;
     let mut host1_expected_machine =
-        db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), HOST1_MAC.parse().unwrap())
+        db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), HOST1_BMC_MAC.parse().unwrap())
             .await?
             .expect("Expected machine not found");
     host1_expected_machine.data = ExpectedMachineData {
@@ -1848,7 +1862,7 @@ async fn test_fetch_host_primary_interface_mac(
             .api
             .discover_dhcp(
                 DhcpDiscovery::builder(oob_mac, "192.0.1.1")
-                    .vendor_string("NVIDIA/OOB")
+                    .vendor_string("NVIDIA/BF/BMC")
                     .tonic_request(),
             )
             .await
@@ -2507,30 +2521,40 @@ async fn test_machine_creation_with_sku(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    const HOST1_DPU_MAC: &str = "B8:3F:D2:90:97:A6";
-    const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
+    const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
+    const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", env.underlay_segment.unwrap());
+    let mut host1_dpu_bmc = FakeMachine::new(
+        HOST1_DPU_BMC_MAC,
+        "NVIDIA/BF/BMC",
+        env.underlay_segment.unwrap(),
+    );
 
-    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", env.underlay_segment.unwrap());
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", env.underlay_segment.unwrap());
 
     // Create dhcp entries and machine_interface entries for the machines
-    for machine in [&mut host1_dpu, &mut host1] {
+    for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
         machine.discover_dhcp(&env).await?;
     }
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 
     // Create a host and dpu reports && host has no dpu_serial
+    let host1_dpu_report = DpuConfig {
+        serial: HOST1_DPU_SERIAL_NUMBER.to_string(),
+        bmc_mac_address: HOST1_DPU_BMC_MAC.parse()?,
+        ..Default::default()
+    };
+    let host1_report = ManagedHostConfig {
+        bmc_mac_address: HOST1_BMC_MAC.parse()?,
+        ..Default::default()
+    };
     endpoint_explorer.insert_endpoint_results(vec![
         (
-            host1_dpu.ip.parse().unwrap(),
-            Ok(DpuConfig::with_serial(HOST1_DPU_SERIAL_NUMBER.to_string()).into()),
+            host1_dpu_bmc.ip.parse().unwrap(),
+            Ok(host1_dpu_report.into()),
         ),
-        (
-            host1.ip.parse().unwrap(),
-            Ok(ManagedHostConfig::default().into()),
-        ),
+        (host1_bmc.ip.parse().unwrap(), Ok(host1_report.into())),
     ]);
 
     let explorer_config = SiteExplorerConfig {
@@ -2590,7 +2614,7 @@ async fn test_machine_creation_with_sku(
         &mut txn,
         ExpectedMachine {
             id: None,
-            bmc_mac_address: HOST1_MAC.to_string().parse().unwrap(),
+            bmc_mac_address: HOST1_BMC_MAC.to_string().parse().unwrap(),
             data: ExpectedMachineData {
                 bmc_username: "user1".to_string(),
                 bmc_password: "pw".to_string(),
@@ -5110,6 +5134,238 @@ async fn test_orphan_managed_host_alert_emitted(
     assert!(
         !alerts.iter().any(|a| a.id == "OrphanManagedHost"),
         "expected no OrphanManagedHost alert after re-adding expected_machines, got: {alerts:#?}"
+    );
+
+    Ok(())
+}
+
+async fn host_bmc_ip(
+    env: &TestEnv,
+    mh: &api_fixtures::TestManagedHost,
+) -> Result<IpAddr, Box<dyn std::error::Error>> {
+    let mut txn = env.pool.begin().await?;
+    let bmc_ip = mh.host().bmc_ip(&mut txn).await.unwrap();
+    txn.commit().await?;
+    Ok(bmc_ip)
+}
+
+async fn explored_endpoint(
+    env: &TestEnv,
+    bmc_ip: IpAddr,
+) -> Result<ExploredEndpoint, Box<dyn std::error::Error>> {
+    let mut txn = env.pool.begin().await?;
+    let endpoint = db::explored_endpoints::find_by_ips(txn.as_mut(), vec![bmc_ip])
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+    txn.commit().await?;
+    Ok(endpoint)
+}
+
+fn endpoint_explore_call_count(env: &TestEnv, bmc_ip: IpAddr) -> usize {
+    env.endpoint_explorer
+        .explore_endpoint_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|ip| **ip == bmc_ip)
+        .count()
+}
+
+#[crate::sqlx_test]
+async fn test_refresh_endpoint_report_bumps_report_version(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+    let initial_version = explored_endpoint(&env, bmc_ip).await?.report_version;
+
+    env.api
+        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await?;
+
+    let refreshed = explored_endpoint(&env, bmc_ip).await?;
+    assert!(
+        refreshed.report_version.version_nr() > initial_version.version_nr(),
+        "refresh should bump report version from {} to a newer version, got {}",
+        initial_version.version_nr(),
+        refreshed.report_version.version_nr()
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_refresh_endpoint_report_rejects_nonexistent_endpoint(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let err = env
+        .api
+        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: "99.99.99.99".to_string(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), tonic::Code::NotFound);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+    let _endpoint_lock = env
+        .api
+        .work_lock_manager_handle
+        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip))
+        .await?;
+
+    let err = env
+        .api
+        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), tonic::Code::AlreadyExists);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+
+    env.api
+        .re_explore_endpoint(Request::new(rpc::forge::ReExploreEndpointRequest {
+            ip_address: bmc_ip.to_string(),
+            if_version_match: None,
+        }))
+        .await?;
+
+    let calls_before = endpoint_explore_call_count(&env, bmc_ip);
+    let _endpoint_lock = env
+        .api
+        .work_lock_manager_handle
+        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip))
+        .await?;
+
+    env.run_site_explorer_iteration().await;
+
+    assert_eq!(
+        endpoint_explore_call_count(&env, bmc_ip),
+        calls_before,
+        "periodic site explorer probe should be skipped while refresh lock is held"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+    let initial_version = explored_endpoint(&env, bmc_ip).await?.report_version;
+    env.endpoint_explorer.insert_endpoint_result(
+        bmc_ip,
+        Err(EndpointExplorationError::Unreachable {
+            details: Some("refresh failure".to_string()),
+        }),
+    );
+    env.api
+        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await?;
+
+    let refreshed = explored_endpoint(&env, bmc_ip).await?;
+    assert!(
+        refreshed.report_version.version_nr() > initial_version.version_nr(),
+        "failed refresh should still bump report version"
+    );
+    assert!(
+        refreshed.report.last_exploration_error.is_some(),
+        "failed refresh should persist the exploration error"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_refresh_endpoint_report_clears_pending_requested_exploration(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+
+    env.api
+        .re_explore_endpoint(Request::new(rpc::forge::ReExploreEndpointRequest {
+            ip_address: bmc_ip.to_string(),
+            if_version_match: None,
+        }))
+        .await?;
+    assert!(explored_endpoint(&env, bmc_ip).await?.exploration_requested);
+
+    env.api
+        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await?;
+
+    assert!(
+        !explored_endpoint(&env, bmc_ip).await?.exploration_requested,
+        "refresh should clear the pending requested exploration so the endpoint is not immediately probed again as priority work"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_refresh_endpoint_report_lock_is_per_endpoint(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh_a = common::api_fixtures::create_managed_host(&env).await;
+    let mh_b = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip_a = host_bmc_ip(&env, &mh_a).await?;
+    let bmc_ip_b = host_bmc_ip(&env, &mh_b).await?;
+    let initial_version_b = explored_endpoint(&env, bmc_ip_b).await?.report_version;
+    let _endpoint_lock = env
+        .api
+        .work_lock_manager_handle
+        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip_a))
+        .await?;
+
+    env.api
+        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip_b.to_string(),
+        }))
+        .await?;
+
+    let refreshed_b = explored_endpoint(&env, bmc_ip_b).await?;
+    assert!(
+        refreshed_b.report_version.version_nr() > initial_version_b.version_nr(),
+        "lock for endpoint {bmc_ip_a} should not block refresh for endpoint {bmc_ip_b}"
     );
 
     Ok(())

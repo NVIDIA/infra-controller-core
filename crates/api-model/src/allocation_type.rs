@@ -17,8 +17,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::address_selection_strategy::AddressSelectionStrategy;
-
 /// Distinguishes how an IP address was allocated to a machine interface,
 /// and are generally derived from the AddressSelectionStrategy used.
 ///
@@ -75,34 +73,12 @@ pub enum AssignStaticResult {
     ReplacedDhcp,
 }
 
-impl From<AssignStaticResult> for rpc::forge::AssignStaticAddressStatus {
-    fn from(result: AssignStaticResult) -> Self {
-        match result {
-            AssignStaticResult::Assigned => rpc::forge::AssignStaticAddressStatus::Assigned,
-            AssignStaticResult::ReplacedStatic => {
-                rpc::forge::AssignStaticAddressStatus::ReplacedStatic
-            }
-            AssignStaticResult::ReplacedDhcp => rpc::forge::AssignStaticAddressStatus::ReplacedDhcp,
-        }
-    }
-}
-
-impl From<AddressSelectionStrategy> for AllocationType {
-    fn from(strategy: AddressSelectionStrategy) -> Self {
-        match strategy {
-            AddressSelectionStrategy::NextAvailableIp => AllocationType::Dhcp,
-            AddressSelectionStrategy::Automatic => AllocationType::Dhcp,
-            AddressSelectionStrategy::NextAvailablePrefix(_) => AllocationType::Dhcp,
-            AddressSelectionStrategy::StaticAddress(_) => AllocationType::Static,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use super::*;
+    use crate::address_selection_strategy::AddressSelectionStrategy;
 
     #[test]
     fn next_available_ip_is_dhcp() {

@@ -378,14 +378,24 @@ pub async fn underlay_segment_html(
         }
     };
 
-    let segment_prefix = segment
+    let segment_name = segment
+        .metadata
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or_default();
+
+    let Some(config) = segment.config else {
+        tracing::error!("underlay segment missing config");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Segment data incomplete").into_response();
+    };
+    let segment_prefix = config
         .prefixes
         .first()
         .map(|p| p.prefix.clone())
         .unwrap_or_default();
     let segment_type = format!(
         "{:?}",
-        forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+        forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
     );
 
     // Fetch machine interface addresses in this segment.
@@ -416,7 +426,7 @@ pub async fn underlay_segment_html(
 
     let tmpl = IpamUnderlaySegment {
         segment_id,
-        segment_name: segment.name,
+        segment_name,
         segment_type,
         segment_prefix,
         addresses,
@@ -833,14 +843,24 @@ pub async fn overlay_segment_html(
         }
     };
 
-    let segment_prefix = segment
+    let segment_name = segment
+        .metadata
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or_default();
+
+    let Some(config) = segment.config else {
+        tracing::error!("overlay segment missing config");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Segment data incomplete").into_response();
+    };
+    let segment_prefix = config
         .prefixes
         .first()
         .map(|p| p.prefix.clone())
         .unwrap_or_default();
 
     // Fetch VPC name if available.
-    let vpc_name = if let Some(vpc_id) = segment.vpc_id {
+    let vpc_name = if let Some(vpc_id) = config.vpc_id {
         match state
             .find_vpcs_by_ids(tonic::Request::new(forgerpc::VpcsByIdsRequest {
                 vpc_ids: vec![vpc_id],
@@ -881,7 +901,7 @@ pub async fn overlay_segment_html(
 
     let tmpl = IpamOverlaySegment {
         segment_id,
-        segment_name: segment.name,
+        segment_name,
         segment_prefix,
         vpc_name,
         addresses,

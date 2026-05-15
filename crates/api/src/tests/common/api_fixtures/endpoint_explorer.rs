@@ -39,9 +39,15 @@ pub struct MockEndpointExplorer {
     /// mode) so tests can assert the auto-correct path fired with the
     /// right arguments. Cleared on each `insert_endpoints` reset.
     pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
+    /// Records IPs that `explore_endpoint` was called for.
+    pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
 }
 
 impl MockEndpointExplorer {
+    pub fn explore_endpoint_call_count(&self) -> usize {
+        self.explore_endpoint_calls.lock().unwrap().len()
+    }
+
     pub fn insert_endpoints(&self, endpoints: Vec<(IpAddr, EndpointExplorationReport)>) {
         self.insert_endpoint_results(
             endpoints
@@ -90,6 +96,10 @@ impl EndpointExplorer for MockEndpointExplorer {
         _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {bmc_ip_address} is getting explored");
+        self.explore_endpoint_calls
+            .lock()
+            .unwrap()
+            .push(bmc_ip_address.ip());
         let guard = self.reports.lock().unwrap();
         let res = guard.get(&bmc_ip_address.ip()).unwrap();
         res.clone()
