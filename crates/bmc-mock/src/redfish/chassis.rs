@@ -19,7 +19,6 @@ use std::borrow::Cow;
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::get;
 use serde_json::json;
@@ -356,11 +355,6 @@ async fn get_chassis_network_adapter(
     let Some(chassis_state) = state.chassis_state.find(&chassis_id) else {
         return http::not_found();
     };
-    if let Some(helper) = state.injected_bugs.all_dpu_lost_on_host() {
-        return helper
-            .network_adapter(&chassis_id, &network_adapter_id)
-            .into_ok_response();
-    }
     chassis_state
         .find_network_adapter(&network_adapter_id)
         .map(|eth| eth.to_json().into_ok_response())
@@ -416,13 +410,7 @@ async fn get_pcie_device(
         .chassis_state
         .find(&chassis_id)
         .and_then(|chassis_state| chassis_state.find_pcie_device(&pcie_device_id))
-        .map(|pcie_device| {
-            if pcie_device.is_mat_dpu && state.injected_bugs.all_dpu_lost_on_host().is_some() {
-                json!("All DPU lost bug injected").into_response(StatusCode::NOT_FOUND)
-            } else {
-                pcie_device.to_json().into_ok_response()
-            }
-        })
+        .map(|pcie_device| pcie_device.to_json().into_ok_response())
         .unwrap_or_else(http::not_found)
 }
 

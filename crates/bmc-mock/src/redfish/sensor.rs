@@ -395,11 +395,11 @@ impl SensorKind {
 
     fn random_reading(self, rng: &mut impl Rng) -> SensorReading {
         match self {
-            Self::Temperature => SensorReading::Float(random_tenths(rng, 25.0..=45.0)),
-            Self::Fan => SensorReading::Unsigned(rng.random_range(0..=9400)),
-            Self::Power => SensorReading::Float(random_tenths(rng, 130.0..=780.0)),
+            Self::Temperature => SensorReading::Float(random_tenths(rng, 25.0..=37.0)),
+            Self::Fan => SensorReading::Unsigned(rng.random_range(5000..=9400)),
+            Self::Power => SensorReading::Float(random_tenths(rng, 220.0..=680.0)),
             Self::Current => SensorReading::Float(random_tenths(rng, 1.5..=42.0)),
-            Self::Voltage => SensorReading::Float(random_tenths(rng, 1.2..=1.85)),
+            Self::Voltage => SensorReading::Float(random_tenths(rng, 1.55..=1.85)),
         }
     }
 
