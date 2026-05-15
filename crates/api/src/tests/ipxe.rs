@@ -28,7 +28,6 @@ use model::machine::{DpuInitState, HostReprovisionState, MachineState, ManagedHo
 use rpc::forge::CloudInitInstructionsRequest;
 use rpc::forge::forge_server::Forge;
 
-use crate::handlers::machine_interface_address::preallocate_machine_interface;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
@@ -65,11 +64,23 @@ async fn get_pxe_instructions(
     arch: rpc::forge::MachineArchitecture,
     product: Option<String>,
 ) -> rpc::forge::PxeInstructions {
+    let mut txn = env.pool.begin().await.unwrap();
+    let iface = db::machine_interface::find_one(txn.as_mut(), interface_id)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    let client_ip = iface
+        .addresses
+        .first()
+        .expect("interface must have at least one address to PXE boot")
+        .to_string();
+
     env.api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: arch as i32,
-            interface_id: Some(interface_id),
             product,
+            client_ip: Some(client_ip),
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -479,7 +490,7 @@ async fn preallocate_external_interface(
     let ip_addr: std::net::IpAddr = ip.parse().unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    preallocate_machine_interface(&mut txn, mac_address, ip_addr)
+    db::machine_interface::preallocate_machine_interface(&mut txn, mac_address, ip_addr)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -648,4 +659,28 @@ async fn test_cloud_init_url_overrides_none_for_internal_host(pool: sqlx::PgPool
         cloud_init.pxe_url_override, None,
         "internal host should not get pxe_url_override"
     );
+}
+
+// carbide-pxe identifies the booting machine by the client IP it observed
+// and forwards it to carbide-api. An IP that doesn't map to any interface
+// in machine_interface_addresses should NotFound cleanly. (The happy path
+// -- known IP resolves to the right interface -- is exercised by every
+// other test in this module that calls get_pxe_instructions, since the
+// helper now goes through the client_ip lookup.)
+#[crate::sqlx_test]
+async fn test_pxe_instructions_unknown_client_ip_returns_not_found(pool: sqlx::PgPool) {
+    let env = create_env_with_external_urls(pool).await;
+
+    let result = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: rpc::forge::MachineArchitecture::X86 as i32,
+            product: None,
+            client_ip: Some("203.0.113.99".to_string()),
+            ..Default::default()
+        }))
+        .await;
+
+    let status = result.expect_err("expected NotFound for unknown client_ip");
+    assert_eq!(status.code(), tonic::Code::NotFound, "got: {status:?}");
 }

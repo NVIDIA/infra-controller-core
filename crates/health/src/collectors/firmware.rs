@@ -59,6 +59,10 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
     fn collector_type(&self) -> &'static str {
         "firmware_collector"
     }
+
+    async fn stop(&mut self) {
+        self.emit_event(CollectorEvent::CollectorRemoved);
+    }
 }
 
 impl<B: Bmc + 'static> FirmwareCollector<B> {

@@ -18,10 +18,10 @@ use std::collections::HashMap;
 
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use health_report::HealthReport;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
@@ -34,14 +34,14 @@ use crate::machine::network::{MachineNetworkStatusObservation, ManagedHostNetwor
 use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
-    Dpf, FailureDetails, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
-    MachineLastRebootRequested, MachineStateHistory, ManagedHostState, ReprovisionRequest,
-    UpgradeDecision,
+    Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
+    MachineLastRebootRequested, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
 use crate::rack::RackFirmwareUpgradeStatus;
 use crate::sku::SkuStatus;
+use crate::state_history::StateHistoryRecord;
 
 /// This represents the structure of a machine we get from postgres via the row_to_json or
 /// JSONB_AGG functions. Its fields need to match the column names of the machine_snapshots query
@@ -73,38 +73,37 @@ pub struct MachineSnapshotPgJson {
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
-    pub discovery_machine_validation_id: Option<uuid::Uuid>,
-    pub cleanup_machine_validation_id: Option<uuid::Uuid>,
-    pub dpu_agent_health_report: Option<HealthReport>,
+    pub discovery_machine_validation_id: Option<MachineValidationId>,
+    pub cleanup_machine_validation_id: Option<MachineValidationId>,
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
-    pub machine_validation_health_report: HealthReport,
-    pub site_explorer_health_report: Option<HealthReport>,
     pub firmware_autoupdate: Option<bool>,
-    pub health_report_overrides: Option<HealthReportSources>,
-    pub on_demand_machine_validation_id: Option<uuid::Uuid>,
+    pub health_reports: Option<HealthReportSources>,
+    pub on_demand_machine_validation_id: Option<MachineValidationId>,
     pub on_demand_machine_validation_request: Option<bool>,
     pub asn: Option<u32>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
-    pub current_machine_validation_id: Option<uuid::Uuid>,
+    pub current_machine_validation_id: Option<MachineValidationId>,
     pub machine_state_model_version: i32,
     pub instance_type_id: Option<InstanceTypeId>,
     pub interfaces: Vec<MachineInterfaceSnapshot>,
     pub topology: Vec<MachineTopology>,
+    pub bmc_info: BmcInfo,
     pub labels: HashMap<String, String>,
     pub name: String,
     pub description: String,
     #[serde(default)] // History is only brought in if the search config requested it
-    pub history: Vec<MachineStateHistory>,
+    pub history: Vec<StateHistoryRecord>,
     pub version: String,
     pub hw_sku: Option<String>,
     pub hw_sku_status: Option<SkuStatus>,
-    pub sku_validation_health_report: Option<HealthReport>,
     #[serde(default)] // Power options are valid only for host, not for DPUs.
     pub power_options: Option<PowerOptions>,
     pub hw_sku_device_type: Option<String>,
     pub update_complete: bool,
     pub nvlink_info: Option<MachineNvLinkInfo>,
     pub dpf: Dpf,
+    #[serde(default)]
+    pub host_profile: HostProfile,
     #[serde(default)]
     pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
     #[serde(default)]
@@ -117,18 +116,15 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
     type Error = sqlx::Error;
 
     fn try_from(value: MachineSnapshotPgJson) -> sqlx::Result<Self> {
-        let (hardware_info, bmc_info) = value
+        let hardware_info = value
             .topology
             .into_iter()
             .map(|t| {
                 let topology = t.into_topology();
-                (
-                    Some(topology.discovery_data.info.clone()),
-                    topology.bmc_info,
-                )
+                Some(topology.discovery_data.info)
             })
             .next()
-            .unwrap_or((None, BmcInfo::default()));
+            .unwrap_or(None);
 
         let metadata = Metadata {
             name: value.name,
@@ -148,12 +144,9 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
         let history = value
             .history
             .into_iter()
-            .sorted_by(
-                |s1: &crate::machine::MachineStateHistory,
-                 s2: &crate::machine::MachineStateHistory| {
-                    Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
-                },
-            )
+            .sorted_by(|s1: &StateHistoryRecord, s2: &StateHistoryRecord| {
+                Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
+            })
             .collect();
 
         Ok(Self {
@@ -183,7 +176,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             history,
             interfaces: value.interfaces,
             hardware_info,
-            bmc_info,
+            bmc_info: value.bmc_info,
             last_reboot_time: value.last_reboot_time,
             last_cleanup_time: value.last_cleanup_time,
             last_discovery_time: value.last_discovery_time,
@@ -193,10 +186,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             host_reprovision_requested: value.host_reprovisioning_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
             dpu_agent_upgrade_requested: value.dpu_agent_upgrade_requested,
-            dpu_agent_health_report: value.dpu_agent_health_report,
-            machine_validation_health_report: value.machine_validation_health_report,
-            site_explorer_health_report: value.site_explorer_health_report,
-            health_reports: value.health_report_overrides.unwrap_or_default(),
+            health_reports: value.health_reports.unwrap_or_default(),
             inventory: value.agent_reported_inventory,
             last_reboot_requested: value.last_reboot_requested,
             controller_state_outcome: value.controller_state_outcome,
@@ -217,12 +207,12 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             // updated: value.updated,
             hw_sku: value.hw_sku,
             hw_sku_status: value.hw_sku_status,
-            sku_validation_health_report: value.sku_validation_health_report,
             power_options: value.power_options,
             hw_sku_device_type: value.hw_sku_device_type,
             update_complete: value.update_complete,
             nvlink_info: value.nvlink_info,
             dpf: value.dpf,
+            host_profile: value.host_profile,
             rack_fw_details: value.rack_fw_details,
             slot_number: value.slot_number,
             tray_index: value.tray_index,

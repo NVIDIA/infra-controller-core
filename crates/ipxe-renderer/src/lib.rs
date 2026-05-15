@@ -1,13 +1,18 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashMap;
@@ -526,7 +531,7 @@ impl IpxeScriptRenderer for DefaultIpxeScriptRenderer {
             }
         }
 
-        format!("{:x}", hasher.finalize())
+        hex::encode(hasher.finalize())
     }
 
     fn fabricate_cached_urls(&self, ipxeos: &IpxeScript) -> IpxeScript {
@@ -552,7 +557,7 @@ impl IpxeScriptRenderer for DefaultIpxeScriptRenderer {
                 let mut hasher = Sha256::new();
                 hasher.update(artifact.name.as_bytes());
                 hasher.update(artifact.url.as_bytes());
-                format!("{:x}", hasher.finalize())
+                hex::encode(hasher.finalize())
             };
 
             artifact.cached_url = Some(format!("${{base_url}}/{}", hash));
@@ -1963,7 +1968,7 @@ mod tests {
         // Compute checksum of rendered script
         let mut hasher_rendered = Sha256::new();
         hasher_rendered.update(rendered_script.as_bytes());
-        let rendered_hash = format!("{:x}", hasher_rendered.finalize());
+        let rendered_hash = hex::encode(hasher_rendered.finalize());
 
         // Compute checksum of template text (normalized - trailing spaces removed per line)
         let normalized_template = template
@@ -1974,7 +1979,7 @@ mod tests {
             .join("\n");
         let mut hasher_template = Sha256::new();
         hasher_template.update(normalized_template.as_bytes());
-        let template_hash = format!("{:x}", hasher_template.finalize());
+        let template_hash = hex::encode(hasher_template.finalize());
 
         // Checksums should match - template rendered as-is with no alterations
         assert_eq!(

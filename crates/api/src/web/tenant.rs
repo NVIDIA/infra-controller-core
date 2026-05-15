@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -105,7 +105,7 @@ async fn fetch_tenants(api: Arc<Api>) -> Result<forgerpc::TenantList, tonic::Sta
             .await?
             .into_inner();
 
-        tenants.extend(next_vpcs.tenants.into_iter());
+        tenants.extend(next_vpcs.tenants);
         offset += page_size;
     }
 
@@ -182,3 +182,6 @@ pub async fn detail(
     let tenant_detail: TenantDetail = tenant.into();
     (StatusCode::OK, Html(tenant_detail.render().unwrap())).into_response()
 }
+
+impl super::Base for TenantShow {}
+impl super::Base for TenantDetail {}

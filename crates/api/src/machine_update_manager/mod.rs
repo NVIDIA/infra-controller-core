@@ -26,6 +26,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, ObjectFilter, Transaction};
@@ -38,7 +39,6 @@ use model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
 use sqlx::{PgConnection, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use utils::periodic_timer::PeriodicTimer;
 
 use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
@@ -286,7 +286,7 @@ impl MachineUpdateManager {
         txn: &mut PgConnection,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
-        db::machine::remove_health_report_override(
+        db::machine::remove_health_report(
             txn,
             &machine_update.host_machine_id,
             health_report::HealthReportApplyMode::Merge,

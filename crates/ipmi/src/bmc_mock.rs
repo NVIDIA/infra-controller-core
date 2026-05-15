@@ -20,10 +20,10 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_utils::HostPortPair;
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
-use forge_secrets::credentials::CredentialKey;
-use utils::HostPortPair;
+use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 
 use crate::IPMITool;
 
@@ -31,14 +31,26 @@ use crate::IPMITool;
 /// Sends JSON requests to bmc_proxy which routes to appropriate machine.
 pub struct IPMIToolHttpImpl {
     bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
+    credential_reader: Arc<dyn CredentialReader>,
 }
 
 impl IPMIToolHttpImpl {
-    pub fn new(bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>) -> Self {
-        Self { bmc_proxy }
+    pub fn new(
+        bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
+        credential_reader: Arc<dyn CredentialReader>,
+    ) -> Self {
+        Self {
+            bmc_proxy,
+            credential_reader,
+        }
     }
 
-    async fn execute_action(&self, action: &str, bmc_ip: IpAddr) -> Result<(), eyre::Report> {
+    async fn execute_action(
+        &self,
+        action: &str,
+        bmc_ip: IpAddr,
+        credential_key: &CredentialKey,
+    ) -> Result<(), eyre::Report> {
         let proxy = self.bmc_proxy.load();
 
         // Determine the target URL and headers based on whether a proxy is configured
@@ -61,6 +73,16 @@ impl IPMIToolHttpImpl {
             }
         };
 
+        let credentials = self
+            .credential_reader
+            .get_credentials(credential_key)
+            .await
+            .map_err(|e| {
+                eyre!("Secret engine getting credentials for key {credential_key:#?}: {e:#?}")
+            })?
+            .ok_or_else(|| eyre!("No credentials for key {credential_key:#?} found"))?;
+        let Credentials::UsernamePassword { username, password } = credentials;
+
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
             .build()
@@ -68,6 +90,7 @@ impl IPMIToolHttpImpl {
 
         let mut request = client
             .post(&url)
+            .basic_auth(username, Some(password))
             .json(&serde_json::json!({"action": action}));
 
         if let Some(header) = forwarded_header {
@@ -110,9 +133,10 @@ impl IPMITool for IPMIToolHttpImpl {
     async fn bmc_cold_reset(
         &self,
         bmc_ip: IpAddr,
-        _credential_key: &CredentialKey,
+        credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
-        self.execute_action("bmc_cold_reset", bmc_ip).await
+        self.execute_action("bmc_cold_reset", bmc_ip, credential_key)
+            .await
     }
 
     async fn restart(
@@ -120,12 +144,18 @@ impl IPMITool for IPMIToolHttpImpl {
         _machine_id: &MachineId,
         bmc_ip: IpAddr,
         legacy_boot: bool,
-        _credential_key: &CredentialKey,
+        credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
-        if legacy_boot && self.execute_action("dpu_legacy_boot", bmc_ip).await.is_ok() {
+        if legacy_boot
+            && self
+                .execute_action("dpu_legacy_boot", bmc_ip, credential_key)
+                .await
+                .is_ok()
+        {
             return Ok(());
         }
         // Fall through to chassis_power_reset if legacy_boot fails or is false
-        self.execute_action("chassis_power_reset", bmc_ip).await
+        self.execute_action("chassis_power_reset", bmc_ip, credential_key)
+            .await
     }
 }

@@ -27,7 +27,8 @@ use sha2::{Digest, Sha256};
 
 use crate::crds::bfbs_generated::{BFB, BfbSpec};
 use crate::crds::dpudeployments_generated::{
-    DPUDeployment, DpuDeploymentDpus, DpuDeploymentDpusDpuSets,
+    DPUDeployment, DpuDeploymentDpus, DpuDeploymentDpusDpuSetStrategy,
+    DpuDeploymentDpusDpuSetStrategyType, DpuDeploymentDpusDpuSets,
     DpuDeploymentDpusDpuSetsNodeSelector, DpuDeploymentDpusNodeEffect, DpuDeploymentServiceChains,
     DpuDeploymentServiceChainsSwitches, DpuDeploymentServiceChainsSwitchesPorts,
     DpuDeploymentServiceChainsSwitchesPortsService,
@@ -75,9 +76,10 @@ use crate::repository::{
 };
 use crate::types::{
     BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuServiceInterfaceTemplateDefinition,
-    DpuServiceInterfaceTemplateType, FMDS_SERVICE_NAME, InitDpfResourcesConfig,
-    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType,
+    DPU_AGENT_SERVICE_NAME, DpuDeviceInfo, DpuDeviceSummary, DpuNodeInfo, DpuNodeSummary, DpuPhase,
+    DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuSummary,
+    FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME,
+    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -409,9 +411,9 @@ async fn create_bfb<R: BfbRepository>(
     bfb_url: &str,
 ) -> Result<String, DpfError> {
     let bfb_name = format!(
-        "{}-{:x}",
+        "{}-{}",
         BFB_NAME_PREFIX,
-        Sha256::digest(bfb_url.as_bytes())
+        hex::encode(Sha256::digest(bfb_url.as_bytes()))
     );
 
     let bfb = BFB {
@@ -639,17 +641,28 @@ pub fn build_deployment<L: ResourceLabeler>(
             (
                 svc.name.clone(),
                 DpuDeploymentServices {
-                    depends_on: if svc.name == "carbide-dpu-agent" {
-                        Some(vec![
+                    depends_on: match svc.name.as_str() {
+                        DPU_AGENT_SERVICE_NAME => Some(vec![
                             DpuDeploymentServicesDependsOn {
                                 name: DHCP_SERVER_SERVICE_NAME.to_string(),
                             },
                             DpuDeploymentServicesDependsOn {
                                 name: FMDS_SERVICE_NAME.to_string(),
                             },
-                        ])
-                    } else {
-                        None
+                            DpuDeploymentServicesDependsOn {
+                                name: DOCA_HBN_SERVICE_NAME.to_string(),
+                            },
+                        ]),
+                        OTEL_COLLECTOR_SERVICE_NAME => Some(vec![
+                            DpuDeploymentServicesDependsOn {
+                                name: DPU_AGENT_SERVICE_NAME.to_string(),
+                            },
+                            DpuDeploymentServicesDependsOn {
+                                name: FMDS_SERVICE_NAME.to_string(),
+                            },
+                        ]),
+
+                        _ => None,
                     },
                     service_configuration: Some(svc.name.clone()),
                     service_template: Some(svc.name.clone()),
@@ -712,6 +725,10 @@ pub fn build_deployment<L: ResourceLabeler>(
         metadata: ObjectMeta {
             name: Some(deployment_name.to_string()),
             namespace: Some(namespace.to_string()),
+            annotations: Some(BTreeMap::from([(
+                "svc.dpu.nvidia.com/dpudeployment-skip-chain-requestor".to_string(),
+                "".to_string(),
+            )])),
             ..Default::default()
         },
         spec: DpuDeploymentSpec {
@@ -735,6 +752,10 @@ pub fn build_deployment<L: ResourceLabeler>(
                     hold: Some(true),
                     no_effect: None,
                     taint: None,
+                }),
+                dpu_set_strategy: Some(DpuDeploymentDpusDpuSetStrategy {
+                    rolling_update: None,
+                    r#type: Some(DpuDeploymentDpusDpuSetStrategyType::OnDelete),
                 }),
             },
             revision_history_limit: None,
@@ -762,6 +783,7 @@ pub fn build_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> 
             chained_svc_if: Some(vec![
                 (DOCA_HBN_SERVICE_NAME.into(), "pf0hpf_if".into()),
                 (DHCP_SERVER_SERVICE_NAME.into(), "d_pf0hpf_if".into()),
+                (FMDS_SERVICE_NAME.into(), "f_pf0hpf_if".into()),
             ]),
         },
         DpuServiceInterfaceTemplateDefinition {
@@ -1089,31 +1111,20 @@ impl<
         )
         .await?;
 
-        if let Some(ref bfcfg) = config.bfcfg_template {
-            let data = BTreeMap::from([("BF_CFG_TEMPLATE".to_string(), bfcfg.clone())]);
-            K8sConfigRepository::apply_configmap(
-                &*self.repo,
-                "dpf-bf-cfg-template",
-                &self.namespace,
-                data,
-            )
-            .await?;
-        } else {
-            // Use default bf.cfg. In this case, delete bfCFGTemplateConfigMap from dpfoperatorconfig
-            DpfOperatorConfigRepository::patch(
-                &*self.repo,
-                DPF_OPERATOR_CONFIG,
-                &self.namespace,
-                serde_json::json!({
-                    "spec": {
-                        "provisioningController": {
-                            "bfCFGTemplateConfigMap": null
-                        }
+        // Use default bf.cfg. In this case, delete bfCFGTemplateConfigMap from dpfoperatorconfig
+        DpfOperatorConfigRepository::patch(
+            &*self.repo,
+            DPF_OPERATOR_CONFIG,
+            &self.namespace,
+            serde_json::json!({
+                "spec": {
+                    "provisioningController": {
+                        "bfCFGTemplateConfigMap": null
                     }
-                }),
-            )
-            .await?;
-        }
+                }
+            }),
+        )
+        .await?;
         Ok(())
     }
 }
@@ -1424,9 +1435,10 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
     /// `dpu_device_names` contains raw device IDs (without the `device-` CR prefix).
     pub async fn force_delete_host(
         &self,
-        node_name: &str,
+        node_id: &str,
         dpu_device_names: &[String],
     ) -> Result<(), DpfError> {
+        let node_name = &dpu_node_cr_name(node_id);
         let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace).await?;
 
         if let Some(node) = node {
@@ -1522,6 +1534,111 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
             }
         }
         Ok(())
+    }
+}
+
+impl<R: DpuNodeRepository + DpuDeviceRepository + DpuRepository, L> DpfSdk<R, L> {
+    /// Read a curated snapshot of the DPUNode, DPUDevices, and DPUs for a
+    /// single host. `node_name` is the full `DPUNode` CR name (e.g.
+    /// `node-<bmc-mac>`).
+    ///
+    /// Returns `dpu_node = None` when the DPUNode CR does not exist.
+    /// Missing DPUDevice or DPU CRs (e.g. operator hasn't created the DPU
+    /// yet) are silently skipped — the resulting snapshot reflects what's
+    /// currently in K8s.
+    pub async fn snapshot_host(&self, node_name: &str) -> Result<HostDpfSnapshot, DpfError> {
+        let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace).await?;
+
+        let device_refs: Vec<String> = node
+            .as_ref()
+            .and_then(|n| n.spec.dpus.as_ref())
+            .map(|dpus| dpus.iter().map(|d| d.name.clone()).collect())
+            .unwrap_or_default();
+
+        let dpu_node = node.as_ref().map(|n| DpuNodeSummary {
+            name: n.metadata.name.clone().unwrap_or_default(),
+            labels: n.metadata.labels.clone().unwrap_or_default(),
+            annotations: n.metadata.annotations.clone().unwrap_or_default(),
+            dpu_device_refs: device_refs.clone(),
+        });
+
+        let dpf_id = node_id_from_dpu_node_cr_name(node_name);
+
+        let mut dpu_devices = Vec::with_capacity(device_refs.len());
+        let mut dpus = Vec::with_capacity(device_refs.len());
+        for device_ref in &device_refs {
+            if let Some(dev) =
+                DpuDeviceRepository::get(&*self.repo, device_ref, &self.namespace).await?
+            {
+                dpu_devices.push(DpuDeviceSummary {
+                    name: dev.metadata.name.clone().unwrap_or_default(),
+                    labels: dev.metadata.labels.clone().unwrap_or_default(),
+                    bmc_ip: dev.spec.bmc_ip.clone(),
+                    bmc_port: dev.spec.bmc_port,
+                    serial_number: dev.spec.serial_number.clone(),
+                });
+            }
+
+            // device_ref on DPUNode.spec.dpus has the `device-` prefix the
+            // operator uses; strip it to recover the raw device_id needed by
+            // dpu_cr_name().
+            let raw_device_id = device_ref
+                .strip_prefix("device-")
+                .unwrap_or(device_ref.as_str());
+            let dpu_cr = dpu_cr_name(raw_device_id, dpf_id);
+            if let Some(d) = DpuRepository::get(&*self.repo, &dpu_cr, &self.namespace).await? {
+                dpus.push(DpuSummary {
+                    name: d.metadata.name.clone().unwrap_or_default(),
+                    labels: d.metadata.labels.clone().unwrap_or_default(),
+                    spec_bfb: d.spec.bfb.clone(),
+                    spec_dpu_flavor: d.spec.dpu_flavor.clone(),
+                    spec_dpu_device_name: d.spec.dpu_device_name.clone(),
+                    spec_dpu_node_name: d.spec.dpu_node_name.clone(),
+                    status_phase: d.status.as_ref().map(|s| format!("{:?}", s.phase)),
+                    status_bfb_file: d.status.as_ref().and_then(|s| s.bfb_file.clone()),
+                });
+            }
+        }
+
+        Ok(HostDpfSnapshot {
+            dpu_node,
+            dpu_devices,
+            dpus,
+        })
+    }
+}
+
+impl<R: DpuServiceTemplateRepository, L> DpfSdk<R, L> {
+    /// List the helm-chart versions currently declared on each live
+    /// `DPUServiceTemplate` CR. Useful for comparing what's deployed in
+    /// the cluster against the carbide-config service versions.
+    pub async fn list_service_template_versions(
+        &self,
+    ) -> Result<Vec<ServiceTemplateVersion>, DpfError> {
+        let templates = DpuServiceTemplateRepository::list(&*self.repo, &self.namespace).await?;
+        Ok(templates
+            .into_iter()
+            .map(|t| {
+                let docker_image_tag = t
+                    .spec
+                    .helm_chart
+                    .values
+                    .as_ref()
+                    .and_then(|v| v.get("image"))
+                    .and_then(|img| img.get("tag"))
+                    .and_then(|tag| tag.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                ServiceTemplateVersion {
+                    cr_name: t.metadata.name.unwrap_or_default(),
+                    deployment_service_name: t.spec.deployment_service_name,
+                    helm_repo_url: t.spec.helm_chart.source.repo_url,
+                    helm_chart: t.spec.helm_chart.source.chart,
+                    helm_version: t.spec.helm_chart.source.version,
+                    docker_image_tag,
+                }
+            })
+            .collect())
     }
 }
 
@@ -1834,8 +1951,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.10".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             serial_number: "SN123456".to_string(),
-            host_machine_id: "host-aaa".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
+            is_primary: true,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -1859,7 +1976,6 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             device_ids: vec!["dpu-001".to_string(), "dpu-002".to_string()],
-            host_machine_id: "host-aaa".to_string(),
         };
 
         sdk.register_dpu_node(info).await.unwrap();
@@ -1885,8 +2001,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.10".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             serial_number: "SN123456".to_string(),
-            host_machine_id: "host-aaa".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
+            is_primary: true,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -1916,7 +2032,6 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             device_ids: vec!["dpu-001".to_string()],
-            host_machine_id: "host-aaa".to_string(),
         };
 
         sdk.register_dpu_node(info).await.unwrap();
@@ -1942,10 +2057,6 @@ mod tests {
                 ("test/device".to_string(), "true".to_string()),
                 ("test/host-bmc-ip".to_string(), info.host_bmc_ip.clone()),
                 (
-                    "test/host-machine-id".to_string(),
-                    info.host_machine_id.clone(),
-                ),
-                (
                     "test/dpu-machine-id".to_string(),
                     info.dpu_machine_id.clone(),
                 ),
@@ -1956,11 +2067,8 @@ mod tests {
             BTreeMap::from([("test/node".to_string(), "true".to_string())])
         }
 
-        fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {
-            BTreeMap::from([(
-                "test/host-machine-id".to_string(),
-                info.host_machine_id.clone(),
-            )])
+        fn node_context_labels(&self, _info: &DpuNodeInfo) -> BTreeMap<String, String> {
+            BTreeMap::new()
         }
     }
 
@@ -1978,8 +2086,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.10".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             serial_number: "SN123456".to_string(),
-            host_machine_id: "host-aaa".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
+            is_primary: true,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -1994,10 +2102,6 @@ mod tests {
         assert_eq!(
             labels.get("test/host-bmc-ip"),
             Some(&"10.0.0.1".to_string())
-        );
-        assert_eq!(
-            labels.get("test/host-machine-id"),
-            Some(&"host-aaa".to_string())
         );
         assert_eq!(
             labels.get("test/dpu-machine-id"),
@@ -2018,8 +2122,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.10".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             serial_number: "SN123456".to_string(),
-            host_machine_id: "host-aaa".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
+            is_primary: true,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2044,7 +2148,6 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             device_ids: vec!["dpu-001".to_string()],
-            host_machine_id: "host-aaa".to_string(),
         };
 
         sdk.register_dpu_node(info).await.unwrap();
@@ -2056,11 +2159,6 @@ mod tests {
         let labels = node.metadata.labels.as_ref().unwrap();
 
         assert_eq!(labels.get("test/node"), Some(&"true".to_string()));
-        assert_eq!(
-            labels.get("test/host-machine-id"),
-            Some(&"host-aaa".to_string()),
-            "contextual label from node_context_labels should be merged"
-        );
     }
 
     #[tokio::test]
@@ -2075,7 +2173,6 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             device_ids: vec!["dpu-001".to_string()],
-            host_machine_id: "host-aaa".to_string(),
         };
 
         sdk.register_dpu_node(info).await.unwrap();
@@ -2142,8 +2239,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.10".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             serial_number: "SN123".to_string(),
-            host_machine_id: "host-aaa".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
+            is_primary: true,
         };
         sdk.register_dpu_device(device_info).await.unwrap();
 
@@ -2220,8 +2317,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.10".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             serial_number: "SN111".to_string(),
-            host_machine_id: "host-111".to_string(),
             dpu_machine_id: "dpu-111".to_string(),
+            is_primary: true,
         };
 
         let info2 = DpuDeviceInfo {
@@ -2229,8 +2326,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.20".to_string(),
             host_bmc_ip: "10.0.0.2".to_string(),
             serial_number: "SN222".to_string(),
-            host_machine_id: "host-222".to_string(),
             dpu_machine_id: "dpu-222".to_string(),
+            is_primary: false,
         };
 
         sdk1.register_dpu_device(info1).await.unwrap();
@@ -2362,7 +2459,6 @@ mod tests {
             deployment_name: "my-deployment".to_string(),
             flavor_name: "my-flavor".to_string(),
             services: vec![],
-            bfcfg_template: None,
         };
 
         assert_eq!(config.bfb_url, "http://example.com/test.bfb");
@@ -2412,8 +2508,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.10".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             serial_number: "SN123456".to_string(),
-            host_machine_id: "host-aaa".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
+            is_primary: true,
         };
         let err = sdk.register_dpu_device(info).await.unwrap_err();
         assert!(
@@ -2457,8 +2553,8 @@ mod tests {
             dpu_bmc_ip: "10.0.0.10".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             serial_number: "SN123456".to_string(),
-            host_machine_id: "host-aaa".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
+            is_primary: true,
         };
         sdk.register_dpu_device(info).await.unwrap();
     }
@@ -2495,7 +2591,6 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             device_ids: vec!["dpu-001".to_string()],
-            host_machine_id: "host-aaa".to_string(),
         };
         let err = sdk.register_dpu_node(info).await.unwrap_err();
         assert!(
@@ -2535,7 +2630,6 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             device_ids: vec!["dpu-001".to_string()],
-            host_machine_id: "host-aaa".to_string(),
         };
         sdk.register_dpu_node(info).await.unwrap();
     }
@@ -2697,7 +2791,6 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".to_string(),
             device_ids: vec!["dpu-001".to_string()],
-            host_machine_id: "host-aaa".to_string(),
         };
         sdk.register_dpu_node(info).await.unwrap();
 

@@ -22,12 +22,13 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use carbide_rpc_utils::dhcp::DhcpConfig;
 use chrono::{DateTime, Utc};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-use utils::models::dhcp::DhcpConfig;
 
+use super::Base;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -377,14 +378,24 @@ pub async fn underlay_segment_html(
         }
     };
 
-    let segment_prefix = segment
+    let segment_name = segment
+        .metadata
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or_default();
+
+    let Some(config) = segment.config else {
+        tracing::error!("underlay segment missing config");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Segment data incomplete").into_response();
+    };
+    let segment_prefix = config
         .prefixes
         .first()
         .map(|p| p.prefix.clone())
         .unwrap_or_default();
     let segment_type = format!(
         "{:?}",
-        forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+        forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
     );
 
     // Fetch machine interface addresses in this segment.
@@ -415,7 +426,7 @@ pub async fn underlay_segment_html(
 
     let tmpl = IpamUnderlaySegment {
         segment_id,
-        segment_name: segment.name,
+        segment_name,
         segment_type,
         segment_prefix,
         addresses,
@@ -534,13 +545,6 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
             .metadata
             .as_ref()
             .map(|m| m.name.clone())
-            .or_else(|| {
-                if p.name.is_empty() {
-                    None
-                } else {
-                    Some(p.name.clone())
-                }
-            })
             .unwrap_or_default();
         prefixes_by_vpc
             .entry(vpc_id)
@@ -564,7 +568,12 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
                     .as_ref()
                     .map(|m| m.name.clone())
                     .unwrap_or_default(),
-                vni: vpc.vni.map(|v| v.to_string()).unwrap_or_default(),
+                vni: vpc
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.vni)
+                    .map(|vni| vni.to_string())
+                    .unwrap_or_default(),
                 tenant: vpc.tenant_organization_id,
                 prefixes,
             }
@@ -595,7 +604,19 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
         offset += page_size;
     }
 
-    vpcs.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    vpcs.sort_unstable_by(|a, b| {
+        let vpc1_name = a
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("<no name>");
+        let vpc2_name = b
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("<no name>");
+        vpc1_name.cmp(vpc2_name)
+    });
     Ok(vpcs)
 }
 
@@ -667,7 +688,7 @@ pub async fn overlay_prefix_html(
         .metadata
         .as_ref()
         .map(|m| m.name.clone())
-        .unwrap_or_else(|| prefix.name.clone());
+        .unwrap_or_else(|| "<no name>".to_string());
     let vpc_id = prefix.vpc_id.map(|id| id.to_string()).unwrap_or_default();
 
     // Fetch the parent VPC for name/VNI.
@@ -686,7 +707,11 @@ pub async fn overlay_prefix_html(
                         .as_ref()
                         .map(|m| m.name.clone())
                         .unwrap_or_default(),
-                    vpc.vni.map(|v| v.to_string()).unwrap_or_default(),
+                    vpc.status
+                        .as_ref()
+                        .and_then(|status| status.vni)
+                        .map(|vni| vni.to_string())
+                        .unwrap_or_default(),
                 )
             }
             _ => (String::new(), String::new()),
@@ -818,14 +843,24 @@ pub async fn overlay_segment_html(
         }
     };
 
-    let segment_prefix = segment
+    let segment_name = segment
+        .metadata
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or_default();
+
+    let Some(config) = segment.config else {
+        tracing::error!("overlay segment missing config");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Segment data incomplete").into_response();
+    };
+    let segment_prefix = config
         .prefixes
         .first()
         .map(|p| p.prefix.clone())
         .unwrap_or_default();
 
     // Fetch VPC name if available.
-    let vpc_name = if let Some(vpc_id) = segment.vpc_id {
+    let vpc_name = if let Some(vpc_id) = config.vpc_id {
         match state
             .find_vpcs_by_ids(tonic::Request::new(forgerpc::VpcsByIdsRequest {
                 vpc_ids: vec![vpc_id],
@@ -866,10 +901,18 @@ pub async fn overlay_segment_html(
 
     let tmpl = IpamOverlaySegment {
         segment_id,
-        segment_name: segment.name,
+        segment_name,
         segment_prefix,
         vpc_name,
         addresses,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for IpamDhcp {}
+impl super::Base for IpamDns {}
+impl super::Base for IpamUnderlay {}
+impl super::Base for IpamUnderlaySegment {}
+impl super::Base for IpamOverlay {}
+impl super::Base for IpamOverlayPrefix {}
+impl super::Base for IpamOverlaySegment {}

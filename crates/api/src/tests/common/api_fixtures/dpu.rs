@@ -20,16 +20,16 @@
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, PowerState,
-    Service, UefiDevicePath,
+    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NicMode,
+    PowerState, Service, UefiDevicePath,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
@@ -180,7 +180,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                         slot: None,
                         pcie_functions: None,
                     }
-                    .into(),
+                    .into_model(),
                 ],
                 base_mac: Some(value.host_mac_address.into()),
                 power_state: PowerState::On,

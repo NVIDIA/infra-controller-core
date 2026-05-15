@@ -21,7 +21,7 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcEndpointRequest, FindInstanceTypesByIdsRequest,
-    FindNetworkSecurityGroupsByIdsRequest, GetDpfStateRequest,
+    FindNetworkSecurityGroupsByIdsRequest, GetDpfHostSnapshotRequest, GetDpfStateRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
     IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
     ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
@@ -36,6 +36,7 @@ use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -287,7 +288,10 @@ impl ApiClient {
     }
 
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
-        Ok(self.0.find_rack_ids().await?)
+        Ok(self
+            .0
+            .find_rack_ids(rpc::RackSearchFilter::default())
+            .await?)
     }
 
     pub async fn get_all_switches(
@@ -403,10 +407,30 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
         let request = rpc::NetworkSegmentsByIdsRequest {
             network_segments_ids: network_segments_ids.to_vec(),
-            include_history: network_segments_ids.len() == 1, // only request it when getting data for single resource
+            // Request inline history for single-segment lookups so old servers (lacking the
+            // FindNetworkSegmentStateHistories RPC) still populate the deprecated history field.
+            include_history: network_segments_ids.len() == 1,
             include_num_free_ips: true,
         };
         Ok(self.0.find_network_segments_by_ids(request).await?)
+    }
+
+    pub async fn get_segment_state_history(
+        &self,
+        segment_id: NetworkSegmentId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_network_segment_state_histories(rpc::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![segment_id],
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&segment_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
     }
 
     pub async fn get_domains(
@@ -423,7 +447,7 @@ impl ApiClient {
         report: ::rpc::health::HealthReport,
         replace: bool,
     ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::InsertHealthReportOverrideRequest {
+        let request = ::rpc::forge::InsertMachineHealthReportRequest {
             machine_id: Some(id),
             health_report_entry: Some(rpc::HealthReportEntry {
                 report: Some(report),
@@ -434,7 +458,51 @@ impl ApiClient {
                 } as i32,
             }),
         };
-        Ok(self.0.insert_health_report_override(request).await?)
+        match self.0.insert_machine_health_report(request.clone()).await {
+            Ok(()) => Ok(()),
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                // Fall back to the deprecated alias for older API servers
+                // that don't have the renamed RPC yet.
+                #[allow(deprecated)]
+                Ok(self.0.insert_health_report_override(request).await?)
+            }
+            Err(status) => Err(status.into()),
+        }
+    }
+
+    pub async fn machine_list_health_reports(
+        &self,
+        machine_id: MachineId,
+    ) -> CarbideCliResult<rpc::ListHealthReportResponse> {
+        match self.0.list_machine_health_reports(machine_id).await {
+            Ok(response) => Ok(response),
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                // Fall back to the deprecated alias for older API servers.
+                #[allow(deprecated)]
+                Ok(self.0.list_health_report_overrides(machine_id).await?)
+            }
+            Err(status) => Err(status.into()),
+        }
+    }
+
+    pub async fn machine_remove_health_report(
+        &self,
+        machine_id: MachineId,
+        source: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::RemoveMachineHealthReportRequest {
+            machine_id: Some(machine_id),
+            source,
+        };
+        match self.0.remove_machine_health_report(request.clone()).await {
+            Ok(()) => Ok(()),
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                // Fall back to the deprecated alias for older API servers.
+                #[allow(deprecated)]
+                Ok(self.0.remove_health_report_override(request).await?)
+            }
+            Err(status) => Err(status.into()),
+        }
     }
 
     pub async fn admin_power_control(
@@ -569,6 +637,8 @@ impl ApiClient {
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
+        dpu_mode: Option<::rpc::forge::DpuMode>,
+        host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -650,9 +720,9 @@ impl ApiClient {
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
-            // Patch doesn't expose `--dpu-mode` yet; preserve the existing
-            // server-side value.
-            dpu_mode: expected_machine.dpu_mode,
+            dpu_mode: dpu_mode.map(|m| m as i32).or(expected_machine.dpu_mode),
+            host_lifecycle_profile: host_lifecycle_profile
+                .or(expected_machine.host_lifecycle_profile),
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -688,6 +758,11 @@ impl ApiClient {
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
                     dpu_mode: machine.dpu_mode.map(|m| m as i32),
+                    host_lifecycle_profile: machine.host_lifecycle_profile.map(|hlp| {
+                        ::rpc::forge::HostLifecycleProfile {
+                            disable_lockdown: hlp.disable_lockdown,
+                        }
+                    }),
                 })
                 .collect(),
         };
@@ -842,7 +917,6 @@ impl ApiClient {
         let vpc = match self
             .0
             .create_vpc(VpcCreationRequest {
-                name: name.to_string(),
                 vni: None,
                 routing_profile_type: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
@@ -1333,6 +1407,7 @@ impl ApiClient {
             os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: interface_configs,
+                auto: false,
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
@@ -1488,12 +1563,8 @@ impl ApiClient {
         &self,
         machine_id: Option<MachineId>,
         history: bool,
-        arg_validation_id: Option<String>,
+        validation_id: Option<MachineValidationId>,
     ) -> CarbideCliResult<rpc::MachineValidationResultList> {
-        let mut validation_id: Option<::rpc::common::Uuid> = None;
-        if let Some(value) = arg_validation_id {
-            validation_id = Some(::rpc::common::Uuid { value })
-        }
         let request = rpc::MachineValidationGetRequest {
             machine_id,
             include_history: history,
@@ -1548,10 +1619,12 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::RackMaintenanceOnDemandResponse> {
         let request = rpc::RackMaintenanceOnDemandRequest {
             rack_id: Some(rack_id),
-            machine_ids,
-            switch_ids,
-            power_shelf_ids,
-            activities,
+            scope: Some(rpc::RackMaintenanceScope {
+                machine_ids,
+                switch_ids,
+                power_shelf_ids,
+                activities,
+            }),
         };
         Ok(self.0.on_demand_rack_maintenance(request).await?)
     }
@@ -1614,12 +1687,10 @@ impl ApiClient {
         &self,
         vpc_id: VpcId,
         version: String,
-        name: String,
         metadata: Option<rpc::Metadata>,
         network_security_group_id: Option<String>,
     ) -> CarbideCliResult<rpc::Vpc> {
         let request = rpc::VpcUpdateRequest {
-            name,
             id: Some(vpc_id),
             if_version_match: Some(version),
             metadata,
@@ -2150,5 +2221,21 @@ impl ApiClient {
         }
 
         Ok(all_dpf_states)
+    }
+
+    pub async fn get_dpf_host_snapshot(
+        &self,
+        host_machine_id: MachineId,
+    ) -> CarbideCliResult<String> {
+        let request = GetDpfHostSnapshotRequest {
+            host_machine_id: Some(host_machine_id),
+        };
+        let response = self.0.get_dpf_host_snapshot(request).await?;
+        Ok(response.json_payload)
+    }
+
+    pub async fn get_dpf_service_versions(&self) -> CarbideCliResult<Vec<rpc::DpfServiceVersion>> {
+        let response = self.0.get_dpf_service_versions().await?;
+        Ok(response.services)
     }
 }

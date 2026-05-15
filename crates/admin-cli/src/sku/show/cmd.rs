@@ -119,7 +119,7 @@ fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
     for m in memory {
         table.add_row(Row::from(vec![
             m.memory_type,
-            ::utils::sku::capacity_string(m.capacity_mb as u64),
+            ::carbide_utils::sku::capacity_string(m.capacity_mb as u64),
             m.count.to_string(),
         ]));
     }
@@ -273,7 +273,7 @@ pub async fn show_sku_details(
                     writeln!(
                         output,
                         "Memory ({}): ",
-                        ::utils::sku::capacity_string(
+                        ::carbide_utils::sku::capacity_string(
                             components
                                 .memory
                                 .iter()

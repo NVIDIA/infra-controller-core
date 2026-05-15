@@ -24,9 +24,8 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{
-    ObjectColumnFilter, WithTransaction, expected_machine as db_expected_machine,
-    expected_power_shelf as db_expected_power_shelf, expected_switch as db_expected_switch,
-    machine as db_machine, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch,
+    ObjectColumnFilter, WithTransaction, machine as db_machine, power_shelf as db_power_shelf,
+    rack as db_rack, switch as db_switch,
 };
 use futures_util::FutureExt;
 use health_report::HealthReportApplyMode;
@@ -69,35 +68,7 @@ pub async fn get_rack(
 
     let mut result = Vec::with_capacity(racks.len());
     for r in racks {
-        let machine_ids = db_machine::find_machine_ids(
-            reader.as_mut(),
-            MachineSearchConfig {
-                rack_id: Some(r.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let switch_ids = db_switch::find_ids(
-            reader.as_mut(),
-            model::switch::SwitchSearchFilter {
-                rack_id: Some(r.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let power_shelf_ids = db_power_shelf::find_ids(
-            reader.as_mut(),
-            model::power_shelf::PowerShelfSearchFilter {
-                rack_id: Some(r.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-
-        let mut rpc_rack: rpc::Rack = r.into();
-        rpc_rack.compute_trays = machine_ids;
-        rpc_rack.switches = switch_ids;
-        rpc_rack.power_shelves = power_shelf_ids;
+        let rpc_rack: rpc::Rack = r.into();
         result.push(rpc_rack);
     }
 
@@ -147,55 +118,7 @@ pub async fn find_by_ids(
 
     let mut result = Vec::with_capacity(racks.len());
     for rack in racks {
-        let machine_ids = db_machine::find_machine_ids(
-            &mut txn,
-            MachineSearchConfig {
-                rack_id: Some(rack.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let switch_ids = db_switch::find_ids(
-            &mut txn,
-            model::switch::SwitchSearchFilter {
-                rack_id: Some(rack.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let power_shelf_ids = db_power_shelf::find_ids(
-            &mut txn,
-            model::power_shelf::PowerShelfSearchFilter {
-                rack_id: Some(rack.id.clone()),
-                ..Default::default()
-            },
-        )
-        .await?;
-
-        let expected_compute_trays =
-            db_expected_machine::find_all_by_rack_id(&mut txn, &rack.id).await?;
-        let expected_power_shelves =
-            db_expected_power_shelf::find_all_by_rack_id(&mut txn, &rack.id).await?;
-        let expected_nvlink_switches =
-            db_expected_switch::find_all_by_rack_id(&mut txn, &rack.id).await?;
-        let mut rpc_rack: rpc::Rack = rack.into();
-        rpc_rack.compute_trays = machine_ids;
-        rpc_rack.switches = switch_ids;
-        rpc_rack.power_shelves = power_shelf_ids;
-        rpc_rack.expected_compute_trays = expected_compute_trays
-            .into_iter()
-            .map(|e| e.bmc_mac_address.to_string())
-            .collect();
-        rpc_rack.expected_power_shelves = expected_power_shelves
-            .into_iter()
-            .map(|e| e.bmc_mac_address.to_string())
-            .collect();
-        rpc_rack.expected_nvlink_switches = expected_nvlink_switches
-            .into_iter()
-            .map(|e| e.bmc_mac_address.to_string())
-            .collect();
-
-        result.push(rpc_rack);
+        result.push(rack.into());
     }
 
     let _ = txn.rollback().await;
@@ -225,14 +148,18 @@ pub async fn find_rack_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::rack_state_history::find_by_rack_ids(&mut txn, &rack_ids)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Rack,
+        &rack_ids,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     let mut response = rpc::StateHistories::default();
     for (rack_id, records) in results {
         response.histories.insert(
-            rack_id.to_string(),
+            rack_id,
             ::rpc::forge::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
@@ -280,9 +207,9 @@ pub async fn delete_rack(
     Ok(Response::new(()))
 }
 
-pub async fn list_rack_health_report_overrides(
+pub async fn list_rack_health_reports(
     api: &Api,
-    request: Request<rpc::ListRackHealthReportOverridesRequest>,
+    request: Request<rpc::ListRackHealthReportsRequest>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
     log_request_data(&request);
 
@@ -315,9 +242,9 @@ pub async fn list_rack_health_report_overrides(
     }))
 }
 
-pub async fn insert_rack_health_report_override(
+pub async fn insert_rack_health_report(
     api: &Api,
-    request: Request<rpc::InsertRackHealthReportOverrideRequest>,
+    request: Request<rpc::InsertRackHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -327,7 +254,7 @@ pub async fn insert_rack_health_report_override(
         .and_then(|ctx| ctx.get_external_user_name())
         .map(String::from);
 
-    let rpc::InsertRackHealthReportOverrideRequest {
+    let rpc::InsertRackHealthReportRequest {
         rack_id,
         health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
@@ -371,7 +298,7 @@ pub async fn insert_rack_health_report_override(
         Err(e) => return Err(e.into()),
     }
 
-    db_rack::insert_health_report_override(&mut txn, &rack.id, mode, &report).await?;
+    db_rack::insert_health_report(&mut txn, &rack.id, mode, &report).await?;
 
     txn.commit().await?;
 
@@ -382,13 +309,13 @@ pub async fn insert_rack_health_report_override(
     Ok(Response::new(()))
 }
 
-pub async fn remove_rack_health_report_override(
+pub async fn remove_rack_health_report(
     api: &Api,
-    request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
+    request: Request<rpc::RemoveRackHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
-    let rpc::RemoveRackHealthReportOverrideRequest { rack_id, source } = request.into_inner();
+    let rpc::RemoveRackHealthReportRequest { rack_id, source } = request.into_inner();
     let rack_id = rack_id.ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
     let mut txn = api.txn_begin().await?;
@@ -427,7 +354,7 @@ async fn remove_rack_override_by_source(
         });
     };
 
-    db_rack::remove_health_report_override(&mut *txn, &rack.id, mode, &source).await?;
+    db_rack::remove_health_report(&mut *txn, &rack.id, mode, &source).await?;
 
     Ok(())
 }
@@ -572,7 +499,9 @@ pub(crate) async fn on_demand_rack_maintenance(
 
     use rpc::maintenance_activity_config::Activity as ProtoActivity;
 
-    let activities: Vec<MaintenanceActivity> = req
+    let proto_scope = req.scope.unwrap_or_default();
+
+    let activities: Vec<MaintenanceActivity> = proto_scope
         .activities
         .iter()
         .map(|entry| match &entry.activity {
@@ -583,6 +512,13 @@ pub(crate) async fn on_demand_rack_maintenance(
                     Some(fw.firmware_version.clone())
                 },
                 components: fw.components.clone(),
+            }),
+            Some(ProtoActivity::NvosUpdate(nvos)) => Ok(MaintenanceActivity::NvosUpdate {
+                rack_firmware_id: if nvos.rack_firmware_id.is_empty() {
+                    None
+                } else {
+                    Some(nvos.rack_firmware_id.clone())
+                },
             }),
             Some(ProtoActivity::ConfigureNmxCluster(_)) => {
                 Ok(MaintenanceActivity::ConfigureNmxCluster)
@@ -595,19 +531,19 @@ pub(crate) async fn on_demand_rack_maintenance(
         .collect::<Result<Vec<_>, _>>()?;
 
     let scope = MaintenanceScope {
-        machine_ids: req
+        machine_ids: proto_scope
             .machine_ids
             .iter()
             .map(|s| MachineId::from_str(s))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine_id: {e}")))?,
-        switch_ids: req
+        switch_ids: proto_scope
             .switch_ids
             .iter()
             .map(|s| SwitchId::from_str(s))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| CarbideError::InvalidArgument(format!("Invalid switch_id: {e}")))?,
-        power_shelf_ids: req
+        power_shelf_ids: proto_scope
             .power_shelf_ids
             .iter()
             .map(|s| PowerShelfId::from_str(s))
@@ -718,6 +654,18 @@ pub(crate) async fn on_demand_rack_maintenance(
 
     let mut txn = api.txn_begin().await?;
     db_rack::update(&mut txn, &rack_id, &updated_config).await?;
+    if updated_config
+        .maintenance_requested
+        .as_ref()
+        .is_some_and(|scope| {
+            scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            })
+        })
+    {
+        db_rack::update_firmware_upgrade_job(txn.as_mut(), &rack_id, None).await?;
+    }
     txn.commit().await?;
 
     tracing::info!("On-demand maintenance scheduled for rack {}", rack_id,);

@@ -43,6 +43,9 @@ pub enum BmsDsxExchangeError {
         point_type: String,
         field: &'static str,
     },
+
+    #[error("metadata topic `{topic}` is not a valid BMS metadata topic")]
+    InvalidMetadataTopic { topic: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -221,60 +224,86 @@ struct RawMetadata {
     #[serde(default)]
     rack_id: Option<String>,
     #[serde(default)]
-    value_topic: Option<String>,
-    #[serde(default)]
     integration: Option<String>,
 }
 
 pub fn parse_supported_metadata(
-    input: impl AsRef<str>,
-) -> Result<Option<SupportedMetadata>, BmsDsxExchangeError> {
-    parse_supported_metadata_slice(input.as_ref().as_bytes())
-}
-
-pub fn parse_supported_metadata_slice(
+    metadata_topic: impl AsRef<str>,
     input: &[u8],
 ) -> Result<Option<SupportedMetadata>, BmsDsxExchangeError> {
     let raw: RawMetadata = serde_json::from_slice(input)?;
-    required_field(&raw.point_type, "objectType", Some(raw.object_type.clone()))?;
-    required_field(&raw.point_type, "pointType", Some(raw.point_type.clone()))?;
-    SupportedMetadata::from_raw(raw)
+    let metadata_topic = metadata_topic.as_ref();
+    SupportedMetadata::from_raw(raw, metadata_topic)
 }
 
 impl SupportedMetadata {
-    fn from_raw(raw: RawMetadata) -> Result<Option<Self>, BmsDsxExchangeError> {
-        let value_topic = || required_field(&raw.point_type, "valueTopic", raw.value_topic.clone());
-        let integration =
-            || required_field(&raw.point_type, "integration", raw.integration.clone());
+    fn from_raw(
+        raw: RawMetadata,
+        metadata_topic: &str,
+    ) -> Result<Option<Self>, BmsDsxExchangeError> {
+        let integration = required_field(&raw.point_type, "integration", raw.integration.clone())?;
         let rack_name = || required_field(&raw.point_type, "rackName", raw.rack_name.clone());
         let rack_id = || required_field(&raw.point_type, "rackId", raw.rack_id.clone());
+
+        let value_topic = value_topic(metadata_topic, &integration)?;
 
         match (raw.object_type.as_str(), raw.point_type.as_str()) {
             (OBJECT_TYPE_RACK, POINT_TYPE_RACK_LIQUID_ISOLATION_REQUEST) => Ok(Some(Self::Rack(
                 RackPointMetadata::LiquidIsolationRequest {
                     rack_name: rack_name()?,
                     rack_id: rack_id()?,
-                    integration: integration()?,
-                    value_topic: value_topic()?,
+                    value_topic,
+                    integration,
                 },
             ))),
             (OBJECT_TYPE_RACK, POINT_TYPE_RACK_ELECTRICAL_ISOLATION_REQUEST) => Ok(Some(
                 Self::Rack(RackPointMetadata::ElectricalIsolationRequest {
                     rack_name: rack_name()?,
                     rack_id: rack_id()?,
-                    integration: integration()?,
-                    value_topic: value_topic()?,
+                    value_topic,
+                    integration,
                 }),
             )),
             (OBJECT_TYPE_SYSTEM, POINT_TYPE_HEARTBEAT_TIMESTAMP_INTEGRATION) => {
                 Ok(Some(Self::Heartbeat(HeartbeatMetadata {
-                    integration: integration()?,
-                    value_topic: value_topic()?,
+                    value_topic,
+                    integration,
                 })))
             }
             _ => Ok(None),
         }
     }
+}
+
+fn value_topic(metadata_topic: &str, integration: &str) -> Result<String, BmsDsxExchangeError> {
+    let Some(path) = metadata_topic.strip_prefix("BMS/v1/PUB/Metadata/") else {
+        return Err(BmsDsxExchangeError::InvalidMetadataTopic {
+            topic: metadata_topic.to_string(),
+        });
+    };
+
+    let mut segments = path.split('/');
+    let Some(object_type) = segments.next() else {
+        return Err(BmsDsxExchangeError::InvalidMetadataTopic {
+            topic: metadata_topic.to_string(),
+        });
+    };
+    let Some(point_type) = segments.next() else {
+        return Err(BmsDsxExchangeError::InvalidMetadataTopic {
+            topic: metadata_topic.to_string(),
+        });
+    };
+    let tag_path = segments.collect::<Vec<_>>().join("/");
+
+    if object_type.is_empty() || point_type.is_empty() || tag_path.is_empty() {
+        return Err(BmsDsxExchangeError::InvalidMetadataTopic {
+            topic: metadata_topic.to_string(),
+        });
+    }
+
+    Ok(format!(
+        "BMS/v1/{integration}/Value/{object_type}/{point_type}/{tag_path}"
+    ))
 }
 
 fn required_field(
@@ -304,14 +333,15 @@ mod tests {
     #[test]
     fn parses_rack_metadata() {
         let metadata = parse_supported_metadata(
+            "BMS/v1/PUB/Metadata/Rack/RackLiquidIsolationRequest/site/rack-01",
             r#"{
                 "pointType": "RackLiquidIsolationRequest",
                 "objectType": "Rack",
                 "rackName": "Rack-01",
                 "rackId": "rack-01",
-                "integration": "CM",
-                "valueTopic": "BMS/v1/CM/Value/Rack/RackLiquidIsolationRequest/site/rack-01"
-            }"#,
+                "integration": "CM"
+            }"#
+            .as_bytes(),
         )
         .unwrap()
         .unwrap();
@@ -321,6 +351,10 @@ mod tests {
             POINT_TYPE_RACK_LIQUID_ISOLATION_REQUEST
         );
         assert_eq!(metadata.integration(), "CM");
+        assert_eq!(
+            metadata.value_topic(),
+            "BMS/v1/CM/Value/Rack/RackLiquidIsolationRequest/site/rack-01"
+        );
     }
 
     #[test]
@@ -342,12 +376,13 @@ mod tests {
     #[test]
     fn parses_heartbeat_metadata() {
         let metadata = parse_supported_metadata(
+            "BMS/v1/PUB/Metadata/System/HeartbeatTimestampIntegration/site",
             r#"{
                 "pointType": "HeartbeatTimestampIntegration",
                 "objectType": "System",
-                "integration": "CM",
-                "valueTopic": "BMS/v1/CM/Value/System/HeartbeatTimestampIntegration/site"
-            }"#,
+                "integration": "CM"
+            }"#
+            .as_bytes(),
         )
         .unwrap()
         .unwrap();
@@ -366,14 +401,15 @@ mod tests {
     #[test]
     fn rejects_supported_metadata_empty_required_field() {
         let error = parse_supported_metadata(
+            "BMS/v1/PUB/Metadata/Rack/RackLiquidIsolationRequest/site/rack-01",
             r#"{
                 "pointType": "RackLiquidIsolationRequest",
                 "objectType": "Rack",
                 "rackName": "Rack-01",
                 "rackId": "rack-01",
-                "integration": "",
-                "valueTopic": "BMS/v1/CM/Value/Rack/RackLiquidIsolationRequest/site/rack-01"
-            }"#,
+                "integration": ""
+            }"#
+            .as_bytes(),
         )
         .unwrap_err();
 
@@ -384,5 +420,52 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn rejects_invalid_metadata_topic() {
+        let error = parse_supported_metadata(
+            "BMS/v1/CM/Value/Rack/RackLiquidIsolationRequest/site/rack-01",
+            r#"{
+                "pointType": "RackLiquidIsolationRequest",
+                "objectType": "Rack",
+                "rackName": "Rack-01",
+                "rackId": "rack-01",
+                "integration": "CM"
+            }"#
+            .as_bytes(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            BmsDsxExchangeError::InvalidMetadataTopic { .. }
+        ));
+    }
+
+    #[test]
+    fn uses_metadata_topic_to_derive_value_topic() {
+        let metadata = parse_supported_metadata(
+            "BMS/v1/PUB/Metadata/Rack/RackElectricalIsolationRequest/site/rack-01",
+            r#"{
+                "pointType": "RackLiquidIsolationRequest",
+                "objectType": "Rack",
+                "rackName": "Rack-01",
+                "rackId": "rack-01",
+                "integration": "CM"
+            }"#
+            .as_bytes(),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            metadata.point_type(),
+            POINT_TYPE_RACK_LIQUID_ISOLATION_REQUEST
+        );
+        assert_eq!(
+            metadata.value_topic(),
+            "BMS/v1/CM/Value/Rack/RackElectricalIsolationRequest/site/rack-01"
+        );
     }
 }

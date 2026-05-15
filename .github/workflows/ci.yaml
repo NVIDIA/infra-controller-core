@@ -693,21 +693,6 @@ jobs:
     secrets: inherit
 
   # ============================================================================
-  # BUILD STAGE - Publish Documentation
-  # ============================================================================
-
-  build-publish-documentation:
-    if: false
-    needs:
-      - prepare
-      - build-container-x86_64
-    uses: ./.github/workflows/docs.yml
-    with:
-      build_container: ${{ format('nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:{0}', (needs['build-container-x86_64'].result == 'success' && needs.prepare.outputs.version) || 'latest') }}
-      runner: linux-amd64-cpu4
-    secrets: inherit
-
-  # ============================================================================
   # SECURITY STAGE
   # ============================================================================
 
@@ -850,8 +835,10 @@ jobs:
 
       # PostgreSQL is required because sqlx proc macros (sqlx::query!) connect to
       # a local database at compile time to validate SQL queries and return types.
+      # Durability settings are disabled for speed in CI/DC.
       - name: Start PostgreSQL
         run: |
+          printf 'fsync = off\nsynchronous_commit = off\nfull_page_writes = off\n' | tee -a /etc/postgresql/*/main/postgresql.conf
           /etc/init.d/postgresql start
           sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
           createdb root
@@ -913,6 +900,43 @@ jobs:
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm
+          chart-version: ${{ needs.prepare.outputs.helm_version }}
+          app-version: ${{ needs.prepare.outputs.version }}
+          lint: 'false'
+          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-path: 0837451325059433/carbide-dev
+          ngc-duplicate: fail
+
+  build-validate-helm-prereqs-chart:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate Helm prereqs chart
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        with:
+          chart-path: helm-prereqs
+          lint: 'true'
+          template: 'true'
+
+  build-push-helm-prereqs-chart:
+    needs:
+      - prepare
+      - build-validate-helm-prereqs-chart
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-prereqs-chart.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Package and push Helm prereqs chart to NGC
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        with:
+          chart-path: helm-prereqs
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -985,11 +1009,29 @@ jobs:
       load: false
     secrets: inherit
 
+  download-mft-aarch64:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    runs-on: linux-arm64-cpu4
+    steps:
+      - name: Download and extract MFT package
+        run: |
+          wget https://www.mellanox.com/downloads/MFT/mft-4.35.0-159-aarch64-deb.tgz
+          tar -zxvf mft-4.35.0-159-aarch64-deb.tgz
+          rm mft-4.35.0-159-aarch64-deb.tgz
+      - name: Upload MFT as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mft-aarch64-deb-${{ github.run_id }}
+          path: .
+
   build-bluefield-forge-dpu-agent:
     needs:
       - prepare
       - build-bluefield-binaries
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
+      - download-mft-aarch64
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' && needs.download-mft-aarch64.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: bluefield/containers/forge-dpu-agent/Dockerfile
@@ -1066,38 +1108,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Validate carbide-otelcol chart
+      - name: Validate nico-otelcol chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-otelcol
+          chart-path: bluefield/charts/nico-otelcol
           lint: 'true'
           template: 'true'
 
-      - name: Validate carbide-dpu-agent chart
+      - name: Validate nico-dpu-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-dpu-agent
+          chart-path: bluefield/charts/nico-dpu-agent
           lint: 'true'
           template: 'true'
 
-      - name: Validate carbide-dhcp-server chart
+      - name: Validate nico-dhcp-server chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-dhcp-server
+          chart-path: bluefield/charts/nico-dhcp-server
           lint: 'true'
           template: 'true'
 
-      - name: Validate carbide-dpu-otel-agent chart
+      - name: Validate nico-dpu-otel-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-dpu-otel-agent
+          chart-path: bluefield/charts/nico-dpu-otel-agent
           lint: 'true'
           template: 'true'
 
-      - name: Validate carbide-fmds chart
+      - name: Validate nico-fmds chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-fmds
+          chart-path: bluefield/charts/nico-fmds
           lint: 'true'
           template: 'true'
 
@@ -1111,10 +1153,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Package and push carbide-otelcol chart
+      - name: Package and push nico-otelcol chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-otelcol
+          chart-path: bluefield/charts/nico-otelcol
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1122,10 +1164,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      - name: Package and push carbide-dpu-agent chart
+      - name: Package and push nico-dpu-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-dpu-agent
+          chart-path: bluefield/charts/nico-dpu-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1133,10 +1175,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      - name: Package and push carbide-dhcp-server chart
+      - name: Package and push nico-dhcp-server chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-dhcp-server
+          chart-path: bluefield/charts/nico-dhcp-server
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1144,10 +1186,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      - name: Package and push carbide-dpu-otel-agent chart
+      - name: Package and push nico-dpu-otel-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-dpu-otel-agent
+          chart-path: bluefield/charts/nico-dpu-otel-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1155,10 +1197,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      - name: Package and push carbide-fmds chart
+      - name: Package and push nico-fmds chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-fmds
+          chart-path: bluefield/charts/nico-fmds
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1210,6 +1252,8 @@ jobs:
       - build-powerdns-container
       - build-validate-helm-chart
       - build-push-helm-chart
+      - build-validate-helm-prereqs-chart
+      - build-push-helm-prereqs-chart
       - build-release-artifacts-x86-host
       - build-release-artifacts-arm-host
       - build-bluefield-binaries
@@ -1312,6 +1356,8 @@ jobs:
       - build-powerdns-container
       - build-validate-helm-chart
       - build-push-helm-chart
+      - build-validate-helm-prereqs-chart
+      - build-push-helm-prereqs-chart
       - build-release-artifacts-x86-host
       - build-release-artifacts-arm-host
       - build-bluefield-binaries

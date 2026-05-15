@@ -17,6 +17,7 @@
 
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::rack::{RackId, RackProfileId};
+use carbide_uuid::switch::SwitchId;
 use db::db_read::DbReader;
 use db::{
     ObjectColumnFilter, expected_rack as db_expected_rack, rack as db_rack, switch as db_switch,
@@ -26,9 +27,9 @@ use librms::protos::rack_manager as rms;
 use model::expected_machine::ExpectedMachineData;
 use model::expected_rack::ExpectedRack;
 use model::rack::{
-    FirmwareUpgradeDeviceStatus, FirmwareUpgradeJob, FirmwareUpgradeState, NvosUpdateState,
-    NvosUpdateSwitchStatus, Rack, RackConfig, RackFirmwareUpgradeState, RackMaintenanceState,
-    RackPowerState, RackState, RackValidationState, ResolvedNvosArtifact,
+    FirmwareUpgradeDeviceStatus, FirmwareUpgradeJob, FirmwareUpgradeState, MaintenanceActivity,
+    MaintenanceScope, NvosUpdateState, NvosUpdateSwitchStatus, Rack, RackConfig,
+    RackFirmwareUpgradeState, RackMaintenanceState, RackPowerState, RackState, RackValidationState,
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
@@ -36,11 +37,13 @@ use model::rack_type::{
 };
 use model::switch::{NewSwitch, SwitchConfig};
 use serde_json::json;
+use tonic::Request;
 
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::handler::RackStateHandler;
 use crate::state_controller::rack::maintenance::apply_nvos_job_status_response;
+use crate::state_controller::rack::metrics::RackMetrics;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerOutcome,
 };
@@ -282,7 +285,7 @@ async fn create_two_compute_rack(
 async fn attach_switch_with_nvos_credentials(
     env: &TestEnv,
     rack_id: &RackId,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<SwitchId, Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
     let expected_switch = create_expected_switches(txn.as_mut())
         .await
@@ -343,11 +346,44 @@ async fn attach_switch_with_nvos_credentials(
         .await
         .map_err(|error| eyre::eyre!("failed to set switch NVOS credentials: {}", error))?;
 
-    Ok(())
+    Ok(switch_id)
 }
 
 pub(crate) fn new_rack_id() -> RackId {
     RackId::new(uuid::Uuid::new_v4().to_string())
+}
+
+async fn create_ready_rack_with_switch(
+    env: &TestEnv,
+    pool: &sqlx::PgPool,
+) -> Result<(RackId, SwitchId), Box<dyn std::error::Error>> {
+    let rack_id = new_rack_id();
+    let mut txn = pool.acquire().await?;
+    db_rack::create(
+        &mut txn,
+        &rack_id,
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
+    drop(txn);
+
+    let switch_id = attach_switch_with_nvos_credentials(env, &rack_id).await?;
+
+    let mut txn = pool.begin().await?;
+    let rack = get_db_rack(txn.as_mut(), &rack_id).await;
+    db_rack::try_update_controller_state(
+        txn.as_mut(),
+        &rack_id,
+        rack.controller_state.version,
+        rack.controller_state.version.increment(),
+        &RackState::Ready,
+    )
+    .await?;
+    txn.commit().await?;
+
+    Ok((rack_id, switch_id))
 }
 
 async fn create_expected_rack(pool: &sqlx::PgPool, rack_id: &RackId, rack_profile_id: &str) {
@@ -400,6 +436,159 @@ pub(crate) fn new_machine_id(seed: u8) -> MachineId {
     )
 }
 
+#[crate::sqlx_test]
+async fn test_on_demand_rack_maintenance_schedules_nvos_only_scope(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let (rack_id, switch_id) = create_ready_rack_with_switch(&env, &pool).await?;
+
+    crate::handlers::rack::on_demand_rack_maintenance(
+        env.api.as_ref(),
+        Request::new(rpc::forge::RackMaintenanceOnDemandRequest {
+            rack_id: Some(rack_id.clone()),
+            scope: Some(rpc::forge::RackMaintenanceScope {
+                machine_ids: vec![],
+                switch_ids: vec![switch_id.to_string()],
+                power_shelf_ids: vec![],
+                activities: vec![rpc::forge::MaintenanceActivityConfig {
+                    activity: Some(
+                        rpc::forge::maintenance_activity_config::Activity::NvosUpdate(
+                            rpc::forge::NvosUpdateActivity {
+                                rack_firmware_id: "fw-nvos".to_string(),
+                            },
+                        ),
+                    ),
+                }],
+            }),
+        }),
+    )
+    .await?;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let scope = rack
+        .config
+        .maintenance_requested
+        .expect("maintenance should be scheduled");
+    assert_eq!(scope.switch_ids, vec![switch_id]);
+    assert_eq!(scope.activities.len(), 1);
+    assert!(matches!(
+        &scope.activities[0],
+        MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: Some(id)
+        } if id == "fw-nvos"
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_on_demand_rack_maintenance_schedules_configure_nmx_cluster_only_scope(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let (rack_id, switch_id) = create_ready_rack_with_switch(&env, &pool).await?;
+
+    crate::handlers::rack::on_demand_rack_maintenance(
+        env.api.as_ref(),
+        Request::new(rpc::forge::RackMaintenanceOnDemandRequest {
+            rack_id: Some(rack_id.clone()),
+            scope: Some(rpc::forge::RackMaintenanceScope {
+                machine_ids: vec![],
+                switch_ids: vec![switch_id.to_string()],
+                power_shelf_ids: vec![],
+                activities: vec![rpc::forge::MaintenanceActivityConfig {
+                    activity: Some(
+                        rpc::forge::maintenance_activity_config::Activity::ConfigureNmxCluster(
+                            rpc::forge::ConfigureNmxClusterActivity {},
+                        ),
+                    ),
+                }],
+            }),
+        }),
+    )
+    .await?;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let scope = rack
+        .config
+        .maintenance_requested
+        .expect("maintenance should be scheduled");
+    assert_eq!(scope.switch_ids, vec![switch_id]);
+    assert_eq!(scope.activities.len(), 1);
+    assert!(matches!(
+        &scope.activities[0],
+        MaintenanceActivity::ConfigureNmxCluster
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_on_demand_rack_maintenance_schedules_firmware_and_nvos_scope(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let (rack_id, switch_id) = create_ready_rack_with_switch(&env, &pool).await?;
+
+    crate::handlers::rack::on_demand_rack_maintenance(
+        env.api.as_ref(),
+        Request::new(rpc::forge::RackMaintenanceOnDemandRequest {
+            rack_id: Some(rack_id.clone()),
+            scope: Some(rpc::forge::RackMaintenanceScope {
+                machine_ids: vec![],
+                switch_ids: vec![switch_id.to_string()],
+                power_shelf_ids: vec![],
+                activities: vec![
+                    rpc::forge::MaintenanceActivityConfig {
+                        activity: Some(
+                            rpc::forge::maintenance_activity_config::Activity::FirmwareUpgrade(
+                                rpc::forge::FirmwareUpgradeActivity {
+                                    firmware_version: "fw-mixed".to_string(),
+                                    components: vec!["BMC".to_string()],
+                                },
+                            ),
+                        ),
+                    },
+                    rpc::forge::MaintenanceActivityConfig {
+                        activity: Some(
+                            rpc::forge::maintenance_activity_config::Activity::NvosUpdate(
+                                rpc::forge::NvosUpdateActivity {
+                                    rack_firmware_id: "fw-mixed".to_string(),
+                                },
+                            ),
+                        ),
+                    },
+                ],
+            }),
+        }),
+    )
+    .await?;
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let scope = rack
+        .config
+        .maintenance_requested
+        .expect("maintenance should be scheduled");
+    assert_eq!(scope.switch_ids, vec![switch_id]);
+    assert_eq!(scope.activities.len(), 2);
+    assert!(matches!(
+        &scope.activities[0],
+        MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: Some(id),
+            components,
+        } if id == "fw-mixed" && components == &vec!["BMC".to_string()]
+    ));
+    assert!(matches!(
+        &scope.activities[1],
+        MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: Some(id)
+        } if id == "fw-mixed"
+    ));
+
+    Ok(())
+}
+
 /// test_expected_no_definition_stays_parked verifies that a rack without an
 /// expected_rack record stays in Created and does not advance.
 #[crate::sqlx_test]
@@ -432,7 +621,7 @@ async fn test_expected_no_definition_stays_parked(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -572,7 +761,7 @@ async fn test_expected_incomplete_device_counts_stays(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -630,7 +819,7 @@ async fn test_expected_counts_match_but_not_linked_stays(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -699,7 +888,7 @@ async fn test_expected_zero_topology_transitions_to_discovering(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -768,7 +957,7 @@ async fn test_expected_more_discovered_than_expected_transitions(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -832,7 +1021,7 @@ async fn test_discovering_waits_for_compute_ready(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -887,7 +1076,7 @@ async fn test_discovering_empty_rack_transitions_to_maintenance(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -938,7 +1127,7 @@ async fn test_error_state_does_nothing(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -984,7 +1173,7 @@ async fn test_maintenance_completed_transitions_to_validation(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1044,7 +1233,7 @@ async fn test_ready_with_no_labels_stays_ready(
 
     let handler = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1069,11 +1258,12 @@ async fn test_ready_with_no_labels_stays_ready(
     Ok(())
 }
 
-/// test_firmware_upgrade_start_without_default_skips_to_configure_nmx_cluster
+/// test_firmware_upgrade_start_without_default_advances_to_nvos_update
 /// verifies that maintenance skips firmware flashing when no default firmware
-/// exists for the rack hardware type.
+/// exists for the rack hardware type and continues through NVOS update before
+/// ConfigureNmxCluster.
 #[crate::sqlx_test]
-async fn test_firmware_upgrade_start_without_default_skips_to_configure_nmx_cluster(
+async fn test_firmware_upgrade_start_without_default_advances_to_nvos_update(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_with_overrides(
@@ -1089,7 +1279,7 @@ async fn test_firmware_upgrade_start_without_default_skips_to_configure_nmx_clus
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1115,10 +1305,14 @@ async fn test_firmware_upgrade_start_without_default_skips_to_configure_nmx_clus
                 matches!(
                     next_state,
                     RackState::Maintenance {
-                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
+                        maintenance_state: RackMaintenanceState::NVOSUpdate {
+                            nvos_update: NvosUpdateState::Start {
+                                rack_firmware_id: None,
+                            },
+                        },
                     }
                 ),
-                "FirmwareUpgrade(Start) should skip to ConfigureNmxCluster, got {:?}",
+                "FirmwareUpgrade(Start) should skip firmware and advance to NVOSUpdate, got {:?}",
                 next_state
             );
         }
@@ -1141,11 +1335,12 @@ async fn test_firmware_upgrade_start_without_default_skips_to_configure_nmx_clus
     Ok(())
 }
 
-/// test_firmware_upgrade_start_with_unavailable_default_skips_to_configure_nmx_cluster
+/// test_firmware_upgrade_start_with_unavailable_default_advances_to_nvos_update
 /// verifies that maintenance skips firmware flashing when a default firmware
-/// exists for the hardware type but is not yet available.
+/// exists for the hardware type but is not yet available, then continues
+/// through NVOS update before ConfigureNmxCluster.
 #[crate::sqlx_test]
-async fn test_firmware_upgrade_start_with_unavailable_default_skips_to_configure_nmx_cluster(
+async fn test_firmware_upgrade_start_with_unavailable_default_advances_to_nvos_update(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_with_overrides(
@@ -1168,7 +1363,7 @@ async fn test_firmware_upgrade_start_with_unavailable_default_skips_to_configure
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1194,10 +1389,14 @@ async fn test_firmware_upgrade_start_with_unavailable_default_skips_to_configure
                 matches!(
                     next_state,
                     RackState::Maintenance {
-                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
+                        maintenance_state: RackMaintenanceState::NVOSUpdate {
+                            nvos_update: NvosUpdateState::Start {
+                                rack_firmware_id: None,
+                            },
+                        },
                     }
                 ),
-                "FirmwareUpgrade(Start) should skip to ConfigureNmxCluster when default firmware is unavailable, got {:?}",
+                "FirmwareUpgrade(Start) should skip unavailable firmware and advance to NVOSUpdate, got {:?}",
                 next_state
             );
         }
@@ -1254,17 +1453,19 @@ async fn test_firmware_upgrade_start_transitions_to_wait_for_complete(
     env.rms_sim
         .queue_update_firmware_response(
             librms::protos::rack_manager::UpdateFirmwareByDeviceListResponse {
-                status: librms::protos::rack_manager::ReturnCode::Success as i32,
-                message: "queued".to_string(),
-                total_nodes: 1,
-                successful_updates: 1,
-                failed_updates: 0,
-                job_id: "batch-job-1".to_string(),
+                response: Some(librms::protos::rack_manager::NodeBatchResponse {
+                    status: librms::protos::rack_manager::ReturnCode::Success as i32,
+                    message: "queued".to_string(),
+                    total_nodes: 1,
+                    successful_nodes: 1,
+                    failed_nodes: 0,
+                    job_id: "batch-job-1".to_string(),
+                    ..Default::default()
+                }),
                 node_jobs: vec![librms::protos::rack_manager::NodeFirmwareJobInfo {
                     node_id: host.host_snapshot.id.to_string(),
                     job_id: "child-job-1".to_string(),
                 }],
-                ..Default::default()
             },
         )
         .await;
@@ -1273,7 +1474,7 @@ async fn test_firmware_upgrade_start_transitions_to_wait_for_complete(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1405,7 +1606,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_while_jobs_running(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1494,7 +1695,7 @@ async fn test_firmware_upgrade_wait_for_complete_transitions_to_error_on_job_fai
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1618,7 +1819,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_for_all_nodes_to_be_termi
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1772,7 +1973,7 @@ async fn test_firmware_upgrade_wait_for_complete_retries_when_job_lookup_fails(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1851,7 +2052,7 @@ async fn test_firmware_upgrade_wait_for_complete_retries_on_transient_poll_error
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1912,14 +2113,30 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     )
     .await?;
     drop(txn);
-    attach_switch_with_nvos_credentials(&env, &rack_id).await?;
+    let switch_id = attach_switch_with_nvos_credentials(&env, &rack_id).await?;
+    let config = RackConfig {
+        maintenance_requested: Some(MaintenanceScope {
+            switch_ids: vec![switch_id],
+            activities: vec![MaintenanceActivity::NvosUpdate {
+                rack_firmware_id: Some("fw-nvos-default".to_string()),
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut txn = pool.acquire().await?;
+    db_rack::update(&mut txn, &rack_id, &config).await?;
+    drop(txn);
 
     create_default_nvos_rack_firmware(&pool, "fw-nvos-default").await;
     env.rms_sim
         .queue_update_switch_system_image_response(
             librms::protos::rack_manager::UpdateSwitchSystemImageResponse {
-                status: librms::protos::rack_manager::ReturnCode::Success as i32,
-                job_id: "nvos-job-1".to_string(),
+                response: Some(librms::protos::rack_manager::NodeBatchResponse {
+                    status: librms::protos::rack_manager::ReturnCode::Success as i32,
+                    job_id: "nvos-job-1".to_string(),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
         )
@@ -1929,7 +2146,7 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -1940,12 +2157,7 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     let nvos_state = RackState::Maintenance {
         maintenance_state: RackMaintenanceState::NVOSUpdate {
             nvos_update: NvosUpdateState::Start {
-                artifact: ResolvedNvosArtifact {
-                    firmware_id: "fw-nvos-default".to_string(),
-                    image_filename: "nvos-amd64-25.02.2553.bin".to_string(),
-                    local_file_path: "/forge-boot-artifacts/blobs/internal/fw/rack_firmware/fw-nvos-default/nvos-amd64-25.02.2553.bin".to_string(),
-                    version: Some("25.02.2553".to_string()),
-                },
+                rack_firmware_id: Some("fw-nvos-default".to_string()),
             },
         },
     };
@@ -1964,6 +2176,11 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
             .is_empty(),
         "NVOSUpdate(Start) should submit a switch system image request to RMS"
     );
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(switch.switch_reprovisioning_requested.is_none());
 
     match outcome {
         StateHandlerOutcome::Transition { next_state, .. } => {
@@ -2012,7 +2229,7 @@ async fn test_configure_nmx_cluster_transitions_to_completed(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2080,7 +2297,7 @@ async fn test_ready_topology_changed_transitions_to_discovering(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2138,7 +2355,7 @@ async fn test_ready_reprovision_requested_transitions_to_maintenance(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,
@@ -2190,7 +2407,7 @@ async fn test_validation_failed_transitions_to_error(
 
     let handler_instance = RackStateHandler::default();
     let mut services = env.state_handler_services();
-    let mut metrics = ();
+    let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
     let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
         services: &mut services,

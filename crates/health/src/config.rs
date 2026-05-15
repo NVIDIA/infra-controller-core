@@ -92,6 +92,7 @@ impl Default for EndpointSourcesConfig {
 
 /// A single static BMC endpoint configuration.
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct StaticBmcEndpoint {
     pub ip: String,
     #[serde(default)]
@@ -99,9 +100,36 @@ pub struct StaticBmcEndpoint {
     pub mac: String,
     pub username: String,
     pub password: Option<String>,
-    pub switch_serial: Option<String>,
-    pub machine_id: Option<String>,
+    pub machine: Option<StaticMachineEndpoint>,
+    pub power_shelf: Option<StaticPowerShelfEndpoint>,
+    pub switch: Option<StaticSwitchEndpoint>,
     pub rack_id: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticMachineEndpoint {
+    pub id: String,
+    pub serial: Option<String>,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
+    pub nvlink_domain_uuid: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticPowerShelfEndpoint {
+    pub id: Option<String>,
+    pub serial: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticSwitchEndpoint {
+    pub id: Option<String>,
+    pub serial: Option<String>,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
 }
 
 impl Debug for StaticBmcEndpoint {
@@ -110,10 +138,47 @@ impl Debug for StaticBmcEndpoint {
             .field("ip", &self.ip)
             .field("port", &self.port)
             .field("mac", &self.mac)
-            .field("switch_serial", &self.switch_serial)
-            .field("machine_id", &self.machine_id)
+            .field("machine", &self.machine)
+            .field("power_shelf", &self.power_shelf)
+            .field("switch", &self.switch)
             .field("rack_id", &self.rack_id)
             .finish()
+    }
+}
+
+impl StaticBmcEndpoint {
+    fn identity_count(&self) -> usize {
+        usize::from(self.machine.is_some())
+            + usize::from(self.power_shelf.is_some())
+            + usize::from(self.switch.is_some())
+    }
+
+    fn validate(&self, index: usize) -> Result<(), String> {
+        if self.identity_count() > 1 {
+            return Err(format!(
+                "endpoint_sources.static_bmc_endpoints[{index}] must specify at most one of machine, power_shelf, or switch"
+            ));
+        }
+
+        if let Some(power_shelf) = &self.power_shelf
+            && power_shelf.id.is_none()
+            && power_shelf.serial.is_none()
+        {
+            return Err(format!(
+                "endpoint_sources.static_bmc_endpoints[{index}].power_shelf requires id or serial"
+            ));
+        }
+
+        if let Some(switch) = &self.switch
+            && switch.id.is_none()
+            && switch.serial.is_none()
+        {
+            return Err(format!(
+                "endpoint_sources.static_bmc_endpoints[{index}].switch requires id or serial"
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -127,12 +192,21 @@ pub struct SinksConfig {
     /// Prometheus sink: stores metric events in Prometheus exporter format.
     pub prometheus: Configurable<PrometheusSinkConfig>,
 
-    /// Health override sink: sends health override events to Carbide API.
-    #[serde(alias = "carbide_override")]
-    pub health_override: Configurable<HealthOverrideSinkConfig>,
+    /// Health report sink: sends health report events to Carbide API.
+    #[serde(alias = "carbide_override", alias = "health_override")]
+    pub health_report: Configurable<HealthReportSinkConfig>,
 
-    /// Rack health override sink: sends rack-level health overrides to Carbide API.
-    pub rack_health_override: Configurable<RackHealthOverrideSinkConfig>,
+    /// Rack health report sink: sends rack-level health reports to Carbide API.
+    #[serde(alias = "rack_health_override")]
+    pub rack_health_report: Configurable<RackHealthReportSinkConfig>,
+
+    /// Switch health report sink: sends switch-level health reports to Carbide API.
+    #[serde(alias = "switch_health_override")]
+    pub switch_health_report: Configurable<SwitchHealthReportSinkConfig>,
+
+    /// Power shelf health report sink: sends power-shelf-level health reports to Carbide API.
+    #[serde(alias = "power_shelf_health_override")]
+    pub power_shelf_health_report: Configurable<PowerShelfHealthReportSinkConfig>,
 
     /// Log file sink: writes log events as JSONL to rotating files on disk.
     pub log_file: Configurable<LogFileSinkConfig>,
@@ -146,8 +220,12 @@ impl Default for SinksConfig {
         Self {
             tracing: Configurable::Disabled,
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
-            health_override: Configurable::Enabled(HealthOverrideSinkConfig::default()),
-            rack_health_override: Configurable::Enabled(RackHealthOverrideSinkConfig::default()),
+            health_report: Configurable::Enabled(HealthReportSinkConfig::default()),
+            rack_health_report: Configurable::Enabled(RackHealthReportSinkConfig::default()),
+            switch_health_report: Configurable::Enabled(SwitchHealthReportSinkConfig::default()),
+            power_shelf_health_report: Configurable::Enabled(
+                PowerShelfHealthReportSinkConfig::default(),
+            ),
             log_file: Configurable::Disabled,
             otlp: Configurable::Disabled,
         }
@@ -229,7 +307,7 @@ impl Default for CarbideApiConnectionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct HealthOverrideSinkConfig {
+pub struct HealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
@@ -237,7 +315,7 @@ pub struct HealthOverrideSinkConfig {
     pub workers: usize,
 }
 
-impl Default for HealthOverrideSinkConfig {
+impl Default for HealthReportSinkConfig {
     fn default() -> Self {
         Self {
             connection: CarbideApiConnectionConfig::default(),
@@ -248,7 +326,7 @@ impl Default for HealthOverrideSinkConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct RackHealthOverrideSinkConfig {
+pub struct RackHealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
@@ -256,7 +334,45 @@ pub struct RackHealthOverrideSinkConfig {
     pub workers: usize,
 }
 
-impl Default for RackHealthOverrideSinkConfig {
+impl Default for RackHealthReportSinkConfig {
+    fn default() -> Self {
+        Self {
+            connection: CarbideApiConnectionConfig::default(),
+            workers: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SwitchHealthReportSinkConfig {
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
+
+    /// Number of concurrent workers submitting switch-level reports to Carbide API.
+    pub workers: usize,
+}
+
+impl Default for SwitchHealthReportSinkConfig {
+    fn default() -> Self {
+        Self {
+            connection: CarbideApiConnectionConfig::default(),
+            workers: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PowerShelfHealthReportSinkConfig {
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
+
+    /// Number of concurrent workers submitting power-shelf-level reports to Carbide API.
+    pub workers: usize,
+}
+
+impl Default for PowerShelfHealthReportSinkConfig {
     fn default() -> Self {
         Self {
             connection: CarbideApiConnectionConfig::default(),
@@ -291,6 +407,9 @@ pub struct CollectorsConfig {
     /// Firmware collector configuration (if present, firmware collector is enabled)
     pub firmware: Configurable<FirmwareCollectorConfig>,
 
+    /// Leak detector collector configuration (if present, leak detector collector is enabled)
+    pub leak_detector: Configurable<LeakDetectorCollectorConfig>,
+
     /// Logs collector configuration (if present, logs collector is enabled)
     pub logs: Configurable<LogsCollectorConfig>,
 
@@ -306,6 +425,7 @@ impl Default for CollectorsConfig {
         Self {
             sensors: Configurable::Enabled(SensorCollectorConfig::default()),
             firmware: Configurable::Disabled,
+            leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
             nvue: Configurable::Disabled,
@@ -413,19 +533,35 @@ impl Default for FirmwareCollectorConfig {
     }
 }
 
-/// SSE is the preferred mode for real-time log streaming.
-/// Periodic polling is retained as a fallback for BMCs that lack SSE support.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LogCollectionMode {
-    Sse,
-    Periodic,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeakDetectorCollectorConfig {
+    /// Interval between thermal subsystem leak detector polls.
+    #[serde(with = "humantime_serde")]
+    pub poll_interval: Duration,
+
+    /// Interval between thermal subsystem leak detector discovery refreshes.
+    #[serde(with = "humantime_serde")]
+    pub state_refresh_interval: Duration,
 }
 
-impl Default for LogCollectionMode {
+impl Default for LeakDetectorCollectorConfig {
     fn default() -> Self {
-        Self::Sse
+        Self {
+            poll_interval: Duration::from_secs(60),
+            state_refresh_interval: Duration::from_secs(60 * 30),
+        }
     }
+}
+
+/// SSE is the preferred mode for real-time log streaming.
+/// Periodic polling is retained as a fallback for BMCs that lack SSE support.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogCollectionMode {
+    #[default]
+    Sse,
+    Periodic,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -643,10 +779,40 @@ impl Config {
             );
         }
 
-        if let Configurable::Enabled(health_override) = &self.sinks.health_override
-            && health_override.workers == 0
+        for (index, endpoint) in self
+            .endpoint_sources
+            .static_bmc_endpoints
+            .iter()
+            .enumerate()
         {
-            return Err("sinks.health_override.workers must be greater than 0".to_string());
+            endpoint.validate(index)?;
+        }
+
+        if let Configurable::Enabled(health_report) = &self.sinks.health_report
+            && health_report.workers == 0
+        {
+            return Err("sinks.health_report.workers must be greater than 0".to_string());
+        }
+
+        if let Configurable::Enabled(rack_health_report) = &self.sinks.rack_health_report
+            && rack_health_report.workers == 0
+        {
+            return Err("sinks.rack_health_report.workers must be greater than 0".to_string());
+        }
+
+        if let Configurable::Enabled(switch_health_report) = &self.sinks.switch_health_report
+            && switch_health_report.workers == 0
+        {
+            return Err("sinks.switch_health_report.workers must be greater than 0".to_string());
+        }
+
+        if let Configurable::Enabled(power_shelf_health_report) =
+            &self.sinks.power_shelf_health_report
+            && power_shelf_health_report.workers == 0
+        {
+            return Err(
+                "sinks.power_shelf_health_report.workers must be greater than 0".to_string(),
+            );
         }
 
         if let Configurable::Enabled(logs) = &self.collectors.logs {
@@ -750,14 +916,14 @@ mod tests {
             panic!("carbide api empty for sources")
         }
 
-        if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
+        if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
             assert_eq!(
-                health_override.connection.root_ca,
+                health_report.connection.root_ca,
                 "/var/run/secrets/spiffe.io/ca.crt"
             );
-            assert_eq!(health_override.workers, 8);
+            assert_eq!(health_report.workers, 8);
         } else {
-            panic!("health override sink is disabled")
+            panic!("health report sink is disabled")
         }
 
         if let Configurable::Enabled(ref rate_limit) = config.rate_limit {
@@ -770,6 +936,7 @@ mod tests {
 
         assert!(config.collectors.sensors.is_enabled());
         assert!(config.collectors.firmware.is_enabled());
+        assert!(config.collectors.leak_detector.is_enabled());
         assert!(config.collectors.logs.is_enabled());
         assert!(config.collectors.nvue.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
@@ -791,6 +958,16 @@ mod tests {
             assert!(logs.validate().is_ok());
         } else {
             panic!("logs empty")
+        }
+
+        if let Configurable::Enabled(ref leak_detector) = config.collectors.leak_detector {
+            assert_eq!(leak_detector.poll_interval, Duration::from_secs(60));
+            assert_eq!(
+                leak_detector.state_refresh_interval,
+                Duration::from_secs(1800)
+            );
+        } else {
+            panic!("leak detector collector is disabled")
         }
 
         if let Configurable::Enabled(ref leak_detection) = config.processors.leak_detection {
@@ -830,7 +1007,7 @@ password = "pass"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.sensors]
@@ -855,7 +1032,7 @@ cache_size = 50
             .expect("failed to parse");
 
         assert!(!config.endpoint_sources.carbide_api.is_enabled());
-        assert!(!config.sinks.health_override.is_enabled());
+        assert!(!config.sinks.health_report.is_enabled());
 
         assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
         assert_eq!(
@@ -887,6 +1064,7 @@ cache_size = 50
         }
 
         assert!(!config.collectors.firmware.is_enabled());
+        assert!(config.collectors.leak_detector.is_enabled());
         assert!(!config.collectors.logs.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
 
@@ -922,13 +1100,13 @@ cache_size = 50
 
         config.processors.leak_detection =
             Configurable::Enabled(LeakDetectionProcessorConfig::default());
-        config.sinks.health_override = Configurable::Enabled(HealthOverrideSinkConfig {
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig {
             workers: 0,
-            ..HealthOverrideSinkConfig::default()
+            ..HealthReportSinkConfig::default()
         });
         assert!(config.validate().is_err());
 
-        config.sinks.health_override = Configurable::Enabled(HealthOverrideSinkConfig::default());
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig::default());
 
         config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
             mode: LogCollectionMode::Periodic,
@@ -970,6 +1148,7 @@ cache_size = 50
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(config.rate_limit.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
+        assert!(config.collectors.leak_detector.is_enabled());
         assert!(!config.collectors.nvue.is_enabled());
     }
 
@@ -994,7 +1173,7 @@ cache_size = 50
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -1035,7 +1214,7 @@ request_timeout = "45s"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue]
@@ -1057,7 +1236,7 @@ enabled = false
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -1082,7 +1261,7 @@ poll_interval = "1m"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -1121,7 +1300,7 @@ interfaces_enabled = false
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [[endpoint_sources.static_bmc_endpoints]]
@@ -1131,11 +1310,25 @@ username = "admin"
 password = "pass"
 
 [[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "cumulus"
+password = "pass"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001" }
+
+[[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.1.1"
 mac = "11:22:33:44:55:66"
 username = "cumulus"
 password = "pass"
-switch_serial = "SN-SW-001"
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-001", slot_number = 7, tray_index = 3 }
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.2.1"
+mac = "22:33:44:55:66:77"
+username = "admin"
+password = "pass"
+power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-PS-001" }
 "#;
 
         let config: Config = Figment::new()
@@ -1144,18 +1337,134 @@ switch_serial = "SN-SW-001"
             .extract()
             .expect("failed to parse static switch endpoint config");
 
-        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 4);
         assert!(
             config.endpoint_sources.static_bmc_endpoints[0]
-                .switch_serial
+                .machine
                 .is_none()
+                && config.endpoint_sources.static_bmc_endpoints[0]
+                    .switch
+                    .is_none()
+                && config.endpoint_sources.static_bmc_endpoints[0]
+                    .power_shelf
+                    .is_none()
         );
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[1]
-                .switch_serial
-                .as_deref(),
+                .machine
+                .as_ref()
+                .map(|machine| machine.id.as_ref()),
+            Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .machine
+                .as_ref()
+                .and_then(|machine| machine.serial.as_deref()),
+            Some("MN-001")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.id.as_deref()),
+            Some("fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.serial.as_deref()),
             Some("SN-SW-001")
         );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.slot_number),
+            Some(7)
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.tray_index),
+            Some(3)
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[3]
+                .power_shelf
+                .as_ref()
+                .and_then(|power_shelf| power_shelf.id.as_deref()),
+            Some("fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[3]
+                .power_shelf
+                .as_ref()
+                .and_then(|power_shelf| power_shelf.serial.as_deref()),
+            Some("SN-PS-001")
+        );
+    }
+
+    #[test]
+    fn test_static_machine_endpoint_accepts_placement_and_nvlink_metadata() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "admin"
+password = "pass"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse static machine endpoint config");
+
+        let machine = config.endpoint_sources.static_bmc_endpoints[0]
+            .machine
+            .as_ref()
+            .expect("machine metadata");
+
+        assert_eq!(machine.slot_number, Some(15));
+        assert_eq!(machine.tray_index, Some(5));
+        assert_eq!(
+            machine.nvlink_domain_uuid.as_deref(),
+            Some("00000000-0000-0000-0000-000000000000")
+        );
+    }
+
+    #[test]
+    fn test_static_endpoint_rejects_multiple_identity_types() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.0.1"
+mac = "aa:bb:cc:dd:ee:ff"
+username = "admin"
+password = "pass"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0" }
+switch = { serial = "SN-SW-001" }
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("config should parse before validation");
+
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -1166,22 +1475,55 @@ switch_serial = "SN-SW-001"
             .extract()
             .expect("could not parse config toml file");
 
-        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 3);
         assert!(
             config.endpoint_sources.static_bmc_endpoints[0]
-                .switch_serial
+                .switch
                 .is_none()
+        );
+        let machine = config.endpoint_sources.static_bmc_endpoints[0]
+            .machine
+            .as_ref()
+            .expect("machine metadata");
+        assert_eq!(machine.serial.as_deref(), Some("MN-001"));
+        assert_eq!(machine.slot_number, Some(15));
+        assert_eq!(machine.tray_index, Some(5));
+        assert_eq!(
+            machine.nvlink_domain_uuid.as_deref(),
+            Some("00000000-0000-0000-0000-000000000000")
         );
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[1]
-                .switch_serial
-                .as_deref(),
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.id.as_deref()),
+            Some("fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .switch
+                .as_ref()
+                .and_then(|switch| switch.serial.as_deref()),
             Some("SN-SWITCH-001")
         );
-        if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
-            assert_eq!(health_override.workers, 8);
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .power_shelf
+                .as_ref()
+                .and_then(|power_shelf| power_shelf.id.as_deref()),
+            Some("fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .power_shelf
+                .as_ref()
+                .and_then(|power_shelf| power_shelf.serial.as_deref()),
+            Some("SN-POWER-SHELF-001")
+        );
+        if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
+            assert_eq!(health_report.workers, 8);
         } else {
-            panic!("health override sink is disabled");
+            panic!("health report sink is disabled");
         }
     }
 

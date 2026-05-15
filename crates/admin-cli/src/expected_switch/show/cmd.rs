@@ -61,8 +61,8 @@ pub async fn show(
         }));
 
     let bmc_ips = expected_mi
-        .iter()
-        .filter_map(|(_mac, interface)| {
+        .values()
+        .filter_map(|interface| {
             let ip = interface.address.first()?;
             Some(ip.clone())
         })
@@ -124,20 +124,7 @@ fn convert_and_print_into_nice_table(
             )
             .map(String::as_str);
 
-        let labels = expected_switch
-            .metadata
-            .as_ref()
-            .map(|m| {
-                m.labels
-                    .iter()
-                    .map(|label| {
-                        let key = &label.key;
-                        let value = label.value.as_deref().unwrap_or_default();
-                        format!("\"{}:{}\"", key, value)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(expected_switch.metadata.as_ref());
 
         table.add_row(row![
             expected_switch.switch_serial_number,

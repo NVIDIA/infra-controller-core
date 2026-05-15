@@ -32,21 +32,19 @@ pub async fn create_vpc(
     let tenant_config = default_tenant_config();
 
     let vpc_id = VpcId::new();
-    let request = VpcCreationRequest::builder(
-        "",
-        tenant_org_id.unwrap_or(tenant_config.tenant_organization_id),
-    )
-    .id(vpc_id)
-    .metadata(rpc::Metadata {
-        name,
-        description: vpc_metadata
-            .as_ref()
-            .map_or("".to_string(), |s| s.description.clone()),
-        labels: vpc_metadata
-            .as_ref()
-            .map_or(Vec::new(), |s| s.labels.clone()),
-    })
-    .tonic_request();
+    let request =
+        VpcCreationRequest::builder(tenant_org_id.unwrap_or(tenant_config.tenant_organization_id))
+            .id(vpc_id)
+            .metadata(rpc::Metadata {
+                name,
+                description: vpc_metadata
+                    .as_ref()
+                    .map_or("".to_string(), |s| s.description.clone()),
+                labels: vpc_metadata
+                    .as_ref()
+                    .map_or(Vec::new(), |s| s.labels.clone()),
+            })
+            .tonic_request();
 
     let response = env.api.create_vpc(request).await;
     let vpc = response.unwrap().into_inner();

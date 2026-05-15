@@ -40,7 +40,8 @@ use model::instance::config::tenant_config::TenantConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+    HostHealthConfig, InstanceState, LoadSnapshotOptions, ManagedHostState,
+    ManagedHostStateSnapshot,
 };
 use model::metadata::Metadata;
 use model::os::OperatingSystem;
@@ -54,6 +55,36 @@ use crate::instance::{
     validate_ib_partition_ownership, validate_os_definition_usable,
 };
 use crate::{CarbideError, CarbideResult};
+
+/// Refuses `ReleaseInstance` when aggregate host health includes [`HealthAlertClassification::prevent_instance_deletion`].
+/// Admin `force_delete_instance` is not subject to this check.
+async fn ensure_instance_release_not_blocked_by_prevent_instance_deletion(
+    txn: &mut db::Transaction<'_>,
+    machine_id: &MachineId,
+    host_health: HostHealthConfig,
+) -> Result<(), CarbideError> {
+    let Some(snapshot) = db::managed_host::load_snapshot(
+        txn,
+        machine_id,
+        LoadSnapshotOptions::default().with_host_health(host_health),
+    )
+    .await?
+    else {
+        return Err(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        });
+    };
+
+    if snapshot
+        .aggregate_health
+        .has_classification(&HealthAlertClassification::prevent_instance_deletion())
+    {
+        return Err(ConfigValidationError::InstanceReleaseBlockedByPreventInstanceDeletion.into());
+    }
+
+    Ok(())
+}
 
 /// Represents the repair status label value set by RepairSystem
 ///
@@ -330,7 +361,7 @@ async fn apply_health_override(
     override_report: &HealthReport,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::insert_health_report_override(
+    db::machine::insert_health_report(
         txn,
         machine_id,
         HealthReportApplyMode::Merge,
@@ -363,22 +394,17 @@ async fn remove_health_override(
     source: &str,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::remove_health_report_override(
-        txn,
-        machine_id,
-        HealthReportApplyMode::Merge,
-        source,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!(
-            machine_id = %machine_id,
-            error = ?e,
-            operation = %operation_desc,
-            "Failed to remove health override"
-        );
-        CarbideError::from(e)
-    })?;
+    db::machine::remove_health_report(txn, machine_id, HealthReportApplyMode::Merge, source)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                machine_id = %machine_id,
+                error = ?e,
+                operation = %operation_desc,
+                "Failed to remove health override"
+            );
+            CarbideError::from(e)
+        })?;
 
     tracing::info!(
         machine_id = %machine_id,
@@ -610,7 +636,16 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
 /// Handles instance release requests with support for the Forge-RepairSystem integration.
 ///
 /// This function processes instance deletion requests and applies appropriate health overrides
-/// based on the requesting tenant type and reported issues. It supports two main workflows:
+/// based on the requesting tenant type and reported issues. It supports two main workflows
+/// (repair tenant and regular tenant) described below.
+///
+/// **PreventInstanceDeletion:** If aggregate host health includes a [`HealthAlertClassification::prevent_instance_deletion`]
+/// alert, `ReleaseInstance` is rejected until the alert is cleared (only when the instance is not already
+/// marked deleted). Admin machine force-delete does not use this check.
+///
+/// **Already deleted:** If the instance row is already marked deleted, this handler still runs repair-tenant
+/// (and regular-tenant issue) health logic so the repair system can clear or update overrides, then returns
+/// success without calling `mark_as_deleted` again.
 ///
 /// ## Repair Tenant Workflow
 /// When `is_repair_tenant=true`, this indicates the RepairSystem is releasing an instance after
@@ -647,6 +682,17 @@ pub(crate) async fn release(
 
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
+
+    // Only enforce PreventInstanceDeletion for a real release (instance not yet marked deleted). Repair-tenant
+    // follow-up calls after deletion may still need to adjust health overrides below.
+    if instance.deleted.is_none() {
+        ensure_instance_release_not_blocked_by_prevent_instance_deletion(
+            &mut txn,
+            &instance.machine_id,
+            api.runtime_config.host_health,
+        )
+        .await?;
+    }
 
     // Instance Release called from the Repair tenant.
     if delete_instance.is_repair_tenant == Some(true) {
@@ -706,6 +752,7 @@ pub(crate) async fn release(
             instance_id = %delete_instance.instance_id,
             "Instance is already marked for deletion.",
         );
+        txn.commit().await?;
         return Ok(Response::new(rpc::InstanceReleaseResult {}));
     }
 
@@ -1531,7 +1578,7 @@ pub async fn force_delete_instance(
 
     let network_segments_set: std::collections::HashSet<::carbide_uuid::network::NetworkSegmentId> =
         network_segment_ids_with_vpc.drain(..).collect();
-    network_segment_ids_with_vpc.extend(network_segments_set.into_iter());
+    network_segment_ids_with_vpc.extend(network_segments_set);
 
     // Mark all network ready for delete which were created for vpc_prefixes.
     if !network_segment_ids_with_vpc.is_empty() {

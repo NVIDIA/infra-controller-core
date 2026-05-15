@@ -13,7 +13,7 @@
 		<th>ID</th>
 		<th>State</th>
 		<th>Health Alerts</th>
-		<th>Health Overrides #</th>
+		<th>Health Reports #</th>
 		<th>Associated DPU/Host</th>
 		<th>Labels</th>
 		<th>Instance Type</th>
@@ -35,30 +35,7 @@
 		<tr>
 			<td>{{ loop.index }}</td> 
 			<td>{{ m.id|machine_id_link|safe }}</td>
-			<td>
-				{% if m.state.to_lowercase().contains("failed") %}
-					<span class="bubble error">
-						{{ m.state }}
-						{% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}
-						{% if m.time_in_state_above_sla %}⏱️{% endif %}
-					</span>
-				{% else if m.time_in_state_above_sla %}
-					<span class="bubble warning">
-						{{ m.state }}
-						{% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}
-						⏱️
-					</span>
-				{% else if m.state == "Ready" || m.state == "Assigned/Ready" %}
-					<span class="bubble success">
-						{{ m.state }}
-					</span>
-				{% else %}
-					<span class="bubble">
-						{{ m.state }}
-						{% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}
-					</span>
-				{% endif %}
-			</td>
+			<td>{{ m.state_display|safe }}</td>
 			<td>
 				<a href="/admin/machine/{{ m.id }}/health">
 					{{ m.health_probe_alerts|health_alerts_fmt(false, false)|safe }}

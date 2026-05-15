@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 
 use ::rpc::protos::mlx_device as mlx_device_pb;
-use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
+use carbide_host_support::dpa_cmds::{DpaCommand, DpaDeviceCommand, OpCode};
 use carbide_uuid::machine::MachineId;
 use db::dpa_interface;
 use eyre::eyre;
@@ -28,8 +28,8 @@ use model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
     DpaLockMode, NewDpaInterface,
 };
-use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
-use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use rpc::forge_agent_control_response as fac;
+use rpc::forge_agent_control_response::MlxDeviceAction;
 use rpc::protos::mlx_device::MlxDeviceInfo;
 use tonic::{Request, Response, Status};
 
@@ -224,16 +224,14 @@ pub(crate) async fn set_dpa_network_observation_status(
 }
 
 // Scout is asking us what it should do. We found the machine in DpaProvisioning state.
-// So look at each DPA interface and make it progress through the statemachine.
-// If there is work to be done, we return Action::MlxReport, and ExtraInfo.
-// The ExtraInfo is an array of key value pairs. The key will be the pci_name of the
-// mlx device to act on. And the value is a DpaCommand structure.
+// So look at each DPA interface and make it progress through the state machine.
+// If there is work to be done, return an MLX action with per-device commands.
 pub(crate) async fn process_scout_req(
     api: &Api,
     machine_id: MachineId,
-) -> CarbideResult<(Action, Option<ForgeAgentControlExtraInfo>)> {
+) -> CarbideResult<fac::Action> {
     if !api.runtime_config.is_dpa_enabled() {
-        return Ok((Action::Noop, None));
+        return Ok(fac::Action::noop());
     }
     let dpa_snapshots =
         db::dpa_interface::find_by_machine_id(&api.database_connection, machine_id).await?;
@@ -243,13 +241,13 @@ pub(crate) async fn process_scout_req(
             "process_scout_req no dpa_snapshots for machine: {:#?}",
             machine_id
         );
-        return Ok((Action::Noop, None));
+        return Ok(fac::Action::noop());
     }
 
-    let mut pair: Vec<KeyValuePair> = Vec::new();
+    let mut device_actions = Vec::new();
 
     for sn in &dpa_snapshots {
-        let cstate = sn.controller_state.value.clone();
+        let cstate = &sn.controller_state.value;
         let pci_name = &sn.pci_name;
 
         let dpa_cmd = match cstate {
@@ -273,23 +271,19 @@ pub(crate) async fn process_scout_req(
             }
         };
 
-        match serde_json::to_string(&dpa_cmd) {
-            Ok(cmdstr) => pair.push(KeyValuePair {
-                key: pci_name.clone(),
-                value: cmdstr,
-            }),
+        match MlxDeviceAction::try_from(DpaDeviceCommand {
+            pci_name: pci_name.clone(),
+            command: dpa_cmd,
+        }) {
+            Ok(action) => device_actions.push(action),
             Err(e) => {
-                tracing::info!(
-                    "process_scout_req Error encoding DpaCommand {e} for dpa: {:#?}",
-                    sn
-                );
+                // Would only happen if the op is an ApplyProfile command with invalid YAML
+                tracing::info!("process_scout_req Error encoding DpaCommand for dpa: {e}");
             }
         }
     }
 
-    let facr = ForgeAgentControlExtraInfo { pair };
-
-    Ok((Action::MlxAction, Some(facr)))
+    Ok(fac::Action::MlxAction(fac::MlxAction { device_actions }))
 }
 
 async fn build_unlock_command(

@@ -23,7 +23,6 @@ use axum::Extension;
 use axum::extract::{Query, State as AxumState};
 use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum_extra::extract::Host;
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
@@ -57,13 +56,11 @@ pub struct AuthRequest {
 
 pub async fn callback(
     AxumState(_state): AxumState<Arc<Api>>,
-    Host(hostname): Host,
     request_headers: HeaderMap,
     Query(query): Query<AuthRequest>,
     Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
 ) -> AuthCallbackResponse {
     use AuthCallbackError::*;
-
     let Some(oauth2_layer) = oauth2_layer else {
         return EmptyOauth2Layer.into();
     };
@@ -72,30 +69,6 @@ pub async fn callback(
         &request_headers,
         oauth2_layer.private_cookiejar_key.clone(),
     );
-
-    // Cookies with domain `localhost:1079` might not be attached to browser requests
-    // to the hostname `localhost:1079` (tested on Firefox).
-    //
-    // This isn't a problem when going through Kubernetes, which strips the port before
-    // a request reaches carbide-api. It is a problem for local development outside of
-    // Kubernetes.
-    //
-    // https://stackoverflow.com/a/16328399 references https://www.rfc-editor.org/rfc/rfc6265#section-8.5
-    // which states that cookies are not necessarily isolated by port.
-    #[cfg(not(feature = "linux-build"))]
-    let Some(stripped_hostname) = http::Uri::try_from(hostname.clone())
-        .ok()
-        .and_then(|uri| uri.host().map(|host| host.to_owned()))
-    else {
-        return MissingHost.into();
-    };
-    // Extra gating of the override.
-    #[cfg(not(feature = "linux-build"))]
-    let hostname = if hostname.starts_with("localhost") {
-        stripped_hostname
-    } else {
-        hostname
-    };
 
     // See if the caller is really some other app/script
     // calling in with a secret we assigned to it.
@@ -138,7 +111,6 @@ pub async fn callback(
                 now_seconds + CLIENT_CREDENTIALS_FLOW_SESSION_EXPIRATION_SECONDS as u64
             ),
         ))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -344,21 +316,18 @@ pub async fn callback(
     //
     // TODO: figure out what to do if no identity provider (e.g. when using admin + local dev password)
     let sid_cookie = Cookie::build(("sid", format!("{}", now_seconds + exp_secs)))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
         .max_age(Duration::seconds(secs))
         .build();
     let name_cookie = Cookie::build(("name", user.name))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
         .max_age(Duration::seconds(secs))
         .build();
     let group_cookie = Cookie::build(("group_name", group_name.to_string()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -373,7 +342,6 @@ pub async fn callback(
             .unwrap_or(&user.unique_name)
             .to_owned(),
     ))
-    .domain(hostname.clone())
     .path("/")
     .secure(true)
     .http_only(true)
@@ -414,9 +382,6 @@ pub enum AuthCallbackResponse {
 pub enum AuthCallbackError {
     #[error("expected oauth2 extension layer is empty")]
     EmptyOauth2Layer,
-    #[cfg(not(feature = "linux-build"))]
-    #[error("invalid hostname missing host")]
-    MissingHost,
     #[error(
         "bad token response from external auth service when exchanging client credentials: {0}"
     )]

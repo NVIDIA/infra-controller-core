@@ -88,6 +88,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: Default::default(),
+                host_lifecycle_profile: Default::default(),
             },
         },
     )
@@ -728,6 +729,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         bmc_ip_address: None,
         bmc_retain_credentials: None,
         dpu_mode: None,
+        host_lifecycle_profile: None,
         #[allow(deprecated)]
         dpf_enabled: true,
     };
@@ -2175,6 +2177,232 @@ async fn test_dhcp_discover_uses_fixed_ip_from_host_nics(
     Ok(())
 }
 
+/// Verify `db::machine_interface::preallocate_machine_interface` is idempotent.
+/// AddExpectedMachine, expected_machines.json, and the DHCP discover() flow can
+/// all fire against the same (ip, mac) pair, including after state has already
+/// converged, which is both on purpose and to help flexibly adjust where we
+/// find these calls fit best.
+///
+/// A repeat call must be Ok without changing rows.
+#[crate::sqlx_test]
+async fn test_preallocate_machine_interface_is_idempotent(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mac: MacAddress = "7A:7B:7C:7D:7E:31".parse().unwrap();
+    let ip: std::net::IpAddr = "192.0.2.241".parse().unwrap();
+
+    let mut txn = env.db_txn().await;
+    db::machine_interface::preallocate_machine_interface(txn.as_mut(), mac, ip).await?;
+    txn.commit().await?;
+
+    let mut txn = env.db_txn().await;
+    db::machine_interface::preallocate_machine_interface(txn.as_mut(), mac, ip).await?;
+    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), mac).await?;
+    txn.commit().await?;
+
+    assert_eq!(
+        interfaces.len(),
+        1,
+        "second preallocate should be a no-op, not create a duplicate row"
+    );
+    assert!(
+        interfaces[0].addresses.contains(&ip),
+        "interface should still carry the static IP"
+    );
+
+    Ok(())
+}
+
+/// Pre-allocating a different IP for an existing MAC must error, rather than
+/// silently reassigning. If an `expected_machine.bmc_ip_address` (or a host_nic
+/// fixed_ip) drifts from its `machine_interface` row, operators should see the
+/// conflict instead of an automatic rewrite.
+#[crate::sqlx_test]
+async fn test_preallocate_machine_interface_rejects_conflicting_ip(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mac: MacAddress = "7A:7B:7C:7D:7E:32".parse().unwrap();
+    let ip1: std::net::IpAddr = "192.0.2.242".parse().unwrap();
+    let ip2: std::net::IpAddr = "192.0.2.243".parse().unwrap();
+
+    let mut txn = env.db_txn().await;
+    db::machine_interface::preallocate_machine_interface(txn.as_mut(), mac, ip1).await?;
+    txn.commit().await?;
+
+    let mut txn = env.db_txn().await;
+    let result = db::machine_interface::preallocate_machine_interface(txn.as_mut(), mac, ip2).await;
+    assert!(
+        matches!(result, Err(DatabaseError::InvalidArgument(_))),
+        "preallocating a different IP for the same MAC should be rejected, got {result:?}"
+    );
+
+    Ok(())
+}
+
+/// After a `machine_interface` row gets deleted (e.g. force-delete
+/// --delete-interfaces), a subsequent `preallocate_machine_interface` call
+/// must successfully recreate it with the same static IP. This is the
+/// lazy-allocation flow that we rely on with DHCP discover(...).
+#[crate::sqlx_test]
+async fn test_preallocate_machine_interface_recreates_after_deletion(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mac: MacAddress = "7A:7B:7C:7D:7E:33".parse().unwrap();
+    let ip: std::net::IpAddr = "192.0.2.244".parse().unwrap();
+
+    let mut txn = env.db_txn().await;
+    db::machine_interface::preallocate_machine_interface(txn.as_mut(), mac, ip).await?;
+    let interfaces_before = db::machine_interface::find_by_mac_address(txn.as_mut(), mac).await?;
+    let interface_id = interfaces_before[0].id;
+    db::machine_interface::delete(&interface_id, txn.as_mut()).await?;
+    txn.commit().await?;
+
+    let mut txn = env.db_txn().await;
+    db::machine_interface::preallocate_machine_interface(txn.as_mut(), mac, ip).await?;
+    let interfaces_after = db::machine_interface::find_by_mac_address(txn.as_mut(), mac).await?;
+    txn.commit().await?;
+
+    assert_eq!(
+        interfaces_after.len(),
+        1,
+        "interface should be re-created after deletion"
+    );
+    assert!(
+        interfaces_after[0].addresses.contains(&ip),
+        "re-created interface should carry the same static IP"
+    );
+
+    Ok(())
+}
+
+/// Recovery scenario for the BMC: operator force-deleted a managed machine
+/// and its interfaces, then the BMC re-DHCPs. With DHCP in the allocation
+/// path, discover(...) consults `find_by_bmc_mac_address`, re-preallocates,
+/// and the existing find_or_create path serves the static IP.
+#[crate::sqlx_test]
+async fn test_dhcp_discover_recovers_bmc_after_interface_deletion(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:41".parse().unwrap();
+    let bmc_ip = "192.0.2.245";
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-RECOVERY-001".into(),
+            bmc_ip_address: Some(bmc_ip.into()),
+            ..Default::default()
+        }))
+        .await?;
+
+    // Baseline -- pre-allocation happened during add.
+    let mut txn = env.db_txn().await;
+    let before = db::machine_interface::find_by_mac_address(txn.as_mut(), bmc_mac).await?;
+    assert_eq!(before.len(), 1, "expected_machine add should pre-allocate");
+    assert!(before[0].addresses.contains(&bmc_ip.parse().unwrap()));
+    let interface_id = before[0].id;
+
+    // Simulate `force-delete --delete-interfaces`: the machine_interface row
+    // goes away while the expected_machines entry stays.
+    db::machine_interface::delete(&interface_id, txn.as_mut()).await?;
+    txn.commit().await?;
+
+    let bmc_mac_str = bmc_mac.to_string();
+    let response = env
+        .api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(
+                &bmc_mac_str,
+                common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS,
+            )
+            .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        response.address, bmc_ip,
+        "BMC re-DHCP should serve the configured bmc_ip_address, not a dynamic-pool allocation"
+    );
+
+    let mut txn = env.db_txn().await;
+    let after = db::machine_interface::find_by_mac_address(txn.as_mut(), bmc_mac).await?;
+    assert_eq!(after.len(), 1, "interface should be re-created");
+    assert!(
+        after[0].addresses.contains(&bmc_ip.parse().unwrap()),
+        "re-created interface should carry the configured static IP"
+    );
+
+    Ok(())
+}
+
+/// Same recovery scenario for a host NIC with `fixed_ip`. discover() passes
+/// the matched `ExpectedHostNic` through to `validate_existing_mac_and_create`,
+/// which honors `fixed_ip` via `AddressSelectionStrategy::StaticAddress`.
+/// This test pins that the DHCP discover allocation flow works.
+#[crate::sqlx_test]
+async fn test_dhcp_discover_recovers_host_nic_after_interface_deletion(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:51".parse().unwrap();
+    let nic_mac: MacAddress = "7A:7B:7C:7D:7E:52".parse().unwrap();
+    let fixed_ip = "192.0.2.246";
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-RECOVERY-002".into(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: nic_mac.to_string(),
+                nic_type: Some("onboard".into()),
+                fixed_ip: Some(fixed_ip.into()),
+                fixed_mask: None,
+                fixed_gateway: None,
+                primary: None,
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    let mut txn = env.db_txn().await;
+    let before = db::machine_interface::find_by_mac_address(txn.as_mut(), nic_mac).await?;
+    assert_eq!(before.len(), 1);
+    let interface_id = before[0].id;
+    db::machine_interface::delete(&interface_id, txn.as_mut()).await?;
+    txn.commit().await?;
+
+    let nic_mac_str = nic_mac.to_string();
+    let response = env
+        .api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(
+                &nic_mac_str,
+                common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS,
+            )
+            .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        response.address, fixed_ip,
+        "host NIC re-DHCP should serve the configured fixed_ip"
+    );
+
+    Ok(())
+}
+
 /// When `bmc_retain_credentials` is set to true, the value should persist through
 /// add -> get round-trip via the RPC API.
 #[crate::sqlx_test()]
@@ -2537,6 +2765,134 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
         retrieved.dpu_mode, None,
         "default DpuMode should not be emitted on the wire for stable round-trips"
     );
+
+    Ok(())
+}
+
+/// Verify the update RPC (for update/patch flows) actually flips
+/// `dpu_mode` as expected.
+#[crate::sqlx_test]
+async fn test_update_changes_dpu_mode(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let mac = "5A:5B:5C:5D:5E:80";
+    let base = rpc::forge::ExpectedMachine {
+        bmc_mac_address: mac.into(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "EM-DPU-UPDATE".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(base.clone()))
+        .await?;
+
+    for mode in [
+        rpc::forge::DpuMode::NicMode,
+        rpc::forge::DpuMode::NoDpu,
+        rpc::forge::DpuMode::DpuMode,
+    ] {
+        env.api
+            .update_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                dpu_mode: Some(mode as i32),
+                ..base.clone()
+            }))
+            .await?;
+
+        let retrieved = env
+            .api
+            .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: mac.into(),
+                id: None,
+            }))
+            .await?
+            .into_inner();
+
+        // DpuMode is the column default and the wire-default; the model
+        // collapses it to `None` on the way out (see `From<ExpectedMachine>
+        // for rpc::forge::ExpectedMachine`), so compare accordingly.
+        let expected_wire = match mode {
+            rpc::forge::DpuMode::DpuMode | rpc::forge::DpuMode::Unspecified => None,
+            other => Some(other as i32),
+        };
+        assert_eq!(
+            retrieved.dpu_mode, expected_wire,
+            "update to {mode:?} should persist and round-trip on the wire"
+        );
+    }
+
+    Ok(())
+}
+
+/// Make sure expected_machines.json, which uses create_missing_from,
+/// follows the shared codepath for handling interface allocation.
+#[crate::sqlx_test]
+async fn test_create_missing_from_preallocates_interfaces(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:01".parse().unwrap();
+    let nic_mac: MacAddress = "AA:BB:CC:DD:EE:02".parse().unwrap();
+    let bmc_ip: std::net::IpAddr = "192.0.2.240".parse().unwrap();
+    let host_ip: std::net::IpAddr = "192.0.2.241".parse().unwrap();
+
+    let machine = ExpectedMachine {
+        id: None,
+        bmc_mac_address: bmc_mac,
+        data: ExpectedMachineData {
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            serial_number: "EM-JSON-SEED-001".into(),
+            bmc_ip_address: Some(bmc_ip),
+            host_nics: vec![model::expected_machine::ExpectedHostNic {
+                mac_address: nic_mac,
+                nic_type: Some("onboard".into()),
+                fixed_ip: Some(host_ip.to_string()),
+                fixed_mask: None,
+                fixed_gateway: None,
+                primary: Some(true),
+            }],
+            ..Default::default()
+        },
+    };
+
+    let mut txn = env.pool.begin().await?;
+    crate::handlers::expected_machine::create_missing_from(
+        &mut txn,
+        std::slice::from_ref(&machine),
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Both the BMC interface and the host NIC interface should now exist
+    // with their static IPs assigned.
+    let mut txn = env.pool.begin().await?;
+    for (mac, expected_ip) in [(bmc_mac, bmc_ip), (nic_mac, host_ip)] {
+        let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, mac).await?;
+        assert_eq!(
+            interfaces.len(),
+            1,
+            "expected one machine_interface for MAC {mac}"
+        );
+        assert!(
+            interfaces[0].addresses.contains(&expected_ip),
+            "machine_interface for MAC {mac} should carry static IP {expected_ip}, got {:?}",
+            interfaces[0].addresses,
+        );
+    }
+
+    // Re-running with the same input must be a no-op (i.e. idempotent).
+    let mut txn = env.pool.begin().await?;
+    crate::handlers::expected_machine::create_missing_from(
+        &mut txn,
+        std::slice::from_ref(&machine),
+    )
+    .await?;
+    txn.commit().await?;
 
     Ok(())
 }

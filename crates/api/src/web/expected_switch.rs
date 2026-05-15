@@ -24,6 +24,7 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -94,3 +95,5 @@ async fn fetch_expected_switches(
 
     Ok(switches)
 }
+
+impl super::Base for ExpectedSwitches {}

@@ -24,8 +24,6 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 use tracing::Instrument;
 
-use crate::logging::sqlx_query_tracing;
-
 /// A tower Layer which creates a `LogService` for every request
 #[derive(Debug, Clone)]
 pub struct LogLayer {
@@ -249,7 +247,7 @@ where
                             .unwrap_or_else(String::new);
 
                         request_span.record(
-                            opentelemetry_semantic_conventions::trace::RPC_GRPC_STATUS_CODE,
+                            opentelemetry_semantic_conventions::attribute::RPC_GRPC_STATUS_CODE,
                             code as u64,
                         );
                         request_span.record(

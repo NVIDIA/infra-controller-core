@@ -25,6 +25,7 @@ use axum::response::{Html, IntoResponse, Response};
 use carbide_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 
+use super::Base;
 use super::health::{HealthHistoryRecord, HealthHistoryTable, fetch_health_history};
 use crate::api::Api;
 
@@ -71,12 +72,6 @@ pub async fn fetch_health_records(
     let Ok(machine_id) = MachineId::from_str(machine_id) else {
         return Err((StatusCode::BAD_REQUEST, "invalid machine id".to_string()));
     };
-    if machine_id.machine_type().is_dpu() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "no health for dpu. see host machine instead".to_string(),
-        ));
-    }
 
     let health_records = match fetch_health_history(api, &machine_id).await {
         Ok(records) => records,
@@ -88,3 +83,5 @@ pub async fn fetch_health_records(
 
     Ok((machine_id, health_records))
 }
+
+impl super::Base for MachineHealth {}

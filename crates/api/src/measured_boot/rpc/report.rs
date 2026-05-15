@@ -281,7 +281,7 @@ pub async fn handle_match_measurement_report(
             message: format!("failure during report matching: {e}"),
         })?;
 
-    reports.sort_by(|a, b| a.ts.cmp(&b.ts));
+    reports.sort_by_key(|a| a.ts);
 
     let report_pbs: Vec<MeasurementReportRecordPb> =
         reports.iter().map(|report| report.clone().into()).collect();

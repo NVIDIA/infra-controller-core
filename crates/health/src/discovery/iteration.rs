@@ -30,7 +30,10 @@ use crate::sharding::ShardManager;
 use crate::sink::DataSink;
 
 fn active_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow<'static, str>> {
-    sharded_endpoints.iter().map(|e| e.hash_key()).collect()
+    sharded_endpoints
+        .iter()
+        .map(|endpoint| Cow::Owned(endpoint.key()))
+        .collect()
 }
 
 pub async fn run_discovery_iteration(
@@ -93,6 +96,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_uuid::rack::RackId;
     use mac_address::MacAddress;
 
     use super::*;
@@ -111,7 +115,10 @@ mod tests {
             },
             if switch {
                 Some(EndpointMetadata::Switch(SwitchData {
+                    id: None,
                     serial: format!("serial-{mac}"),
+                    slot_number: None,
+                    tray_index: None,
                 }))
             } else {
                 None
@@ -122,11 +129,16 @@ mod tests {
 
     #[test]
     fn test_active_keys_includes_all_endpoints() {
-        let ep1 = endpoint(MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(), false);
+        let mut ep1 = endpoint(MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(), false);
+        Arc::get_mut(&mut ep1).unwrap().rack_id = Some(RackId::new("rack-a"));
         let ep2 = endpoint(MacAddress::from_str("11:22:33:44:55:66").unwrap(), true);
 
         let keys = active_keys(&[ep1.clone(), ep2.clone()]);
 
-        assert_eq!(keys, HashSet::from([ep1.hash_key(), ep2.hash_key()]));
+        assert_eq!(
+            keys,
+            HashSet::from([Cow::Owned(ep1.key()), Cow::Owned(ep2.key())])
+        );
+        assert_ne!(ep1.hash_key(), Cow::<str>::Owned(ep1.key()));
     }
 }

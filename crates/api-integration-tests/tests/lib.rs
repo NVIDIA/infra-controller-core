@@ -21,8 +21,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{self, Duration};
 
+use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
-use ::utils::HostPortPair;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,
@@ -36,7 +36,7 @@ use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup() {
     api_test_helper::setup_logging()
 }
@@ -259,7 +259,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
 
 pub(crate) const METRIC_DOC_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../book/src/manuals/metrics/core_metrics.md"
+    "/../../docs/manuals/metrics/core_metrics.md"
 );
 
 /// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own
@@ -502,7 +502,7 @@ async fn test_machine_a_tron_multidpu(
                 .await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
                     .await?;
 
                 let instance_json = instance::get_instance_json_by_machine_id(
@@ -537,7 +537,7 @@ async fn test_machine_a_tron_multidpu(
                 instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
@@ -587,7 +587,7 @@ async fn test_machine_a_tron_zerodpu(
                 .await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
@@ -596,7 +596,7 @@ async fn test_machine_a_tron_zerodpu(
                 instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
@@ -624,7 +624,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 let machine_id = machine_handle
                     .observed_machine_id()
@@ -646,7 +646,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                 .await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
@@ -655,7 +655,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                 instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
@@ -705,7 +705,7 @@ async fn test_machine_a_tron_dual_stack(
                 machine_handle
                     .wait_until_machine_up_with_api_state(
                         "Assigned/Ready",
-                        Duration::from_secs(60),
+                        Duration::from_secs(90),
                     )
                     .await?;
 
@@ -758,7 +758,7 @@ async fn test_machine_a_tron_dual_stack(
                     .await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!(
                     "Machine {machine_id} back to Ready after dual-stack release"
@@ -827,7 +827,7 @@ async fn test_machine_a_tron_dual_stack_l2(
                     .await?;
 
                 machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!(
                     "Machine {machine_id} back to Ready after dual-stack L2 release"
@@ -904,6 +904,9 @@ where
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
+        register_expected_machines: true,
+        host_bmc_password: None,
+        dpu_bmc_password: None,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         mock_bmc_ssh_port: None,

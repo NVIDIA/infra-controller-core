@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
+use carbide_utils::HostPortPair;
 use eyre::Report;
 use forge_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
 use forge_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
@@ -30,14 +31,13 @@ use sqlx::{Pool, Postgres};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
-use utils::HostPortPair;
 
 use crate::api_server::StartArgs;
 use crate::vault::Vault;
 use crate::{api_server, vault};
 
 lazy_static::lazy_static! {
-    pub static ref REPO_ROOT: PathBuf = PathBuf::from(env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")).expect("REPO_ROOT must be set in integration tests"));
+    pub static ref REPO_ROOT: PathBuf = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
     pub static ref LOCALHOST_CERTS: CertPaths = {
         let certs = REPO_ROOT.join("dev/certs/localhost");
 

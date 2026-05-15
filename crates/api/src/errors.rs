@@ -17,10 +17,12 @@
 use std::backtrace::{Backtrace, BacktraceStatus};
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_ib_fabric::errors::IbError;
 use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
 use db::ip_allocator::DhcpError;
+use db::machine_interface_address::AddressAlreadyInUseError;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::{AnnotatedSqlxError, DatabaseError};
 use librms::RackManagerError;
@@ -79,6 +81,9 @@ pub enum CarbideError {
 
     #[error("Argument is invalid: {0}")]
     InvalidArgument(String),
+
+    #[error(transparent)]
+    AddressAlreadyInUse(#[from] AddressAlreadyInUseError),
 
     #[error("{0}")]
     DBError(#[from] AnnotatedSqlxError),
@@ -232,6 +237,9 @@ pub enum CarbideError {
 
     #[error("Permission denied: {0}")]
     PermissionDeniedError(String),
+
+    #[error("Attestation Error: {0}")]
+    AttestationError(String),
 }
 
 impl From<ModelError> for CarbideError {
@@ -251,6 +259,7 @@ impl From<DatabaseError> for CarbideError {
     fn from(e: DatabaseError) -> Self {
         use CarbideError::*;
         match e {
+            DatabaseError::AddressAlreadyInUse(e) => AddressAlreadyInUse(e),
             DatabaseError::AddressParseError(e) => AddressParseError(e),
             DatabaseError::AdminNetworkNotConfigured => AdminNetworkNotConfigured,
             DatabaseError::AlreadyFoundError { kind, id } => AlreadyFoundError { kind, id },
@@ -287,6 +296,20 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::TryAgain => Internal {
                 message: DatabaseError::TryAgain.to_string(),
             },
+        }
+    }
+}
+
+impl From<IbError> for CarbideError {
+    fn from(e: IbError) -> Self {
+        match e {
+            IbError::DatabaseError(e) => e.into(),
+            IbError::ModelError(e) => e.into(),
+            IbError::IBFabricError(msg) => Self::IBFabricError(msg),
+            IbError::NotFoundError { kind, id } => Self::NotFoundError { kind, id },
+            IbError::InvalidArgument(e) => Self::InvalidArgument(e),
+            IbError::NotImplemented => Self::NotImplemented,
+            IbError::Internal { message } => Self::Internal { message },
         }
     }
 }
@@ -369,6 +392,9 @@ impl From<CarbideError> for tonic::Status {
             error @ CarbideError::FailedPrecondition(_) => {
                 Status::failed_precondition(error.to_string())
             }
+            error @ CarbideError::AddressAlreadyInUse(_) => {
+                Status::failed_precondition(error.to_string())
+            }
             error @ CarbideError::ClientCertificateMissingInformation(_) => {
                 Status::unauthenticated(error.to_string())
             }
@@ -415,4 +441,17 @@ fn test_permission_denied_error_maps_to_permission_denied_status() {
     let err = CarbideError::PermissionDeniedError("not allowed".into());
     let status: tonic::Status = err.into();
     assert_eq!(status.code(), tonic::Code::PermissionDenied);
+}
+
+#[test]
+fn test_address_already_in_use_maps_to_failed_precondition_status() {
+    use std::str::FromStr;
+    let err = CarbideError::AddressAlreadyInUse(AddressAlreadyInUseError(
+        "10.0.0.1".parse().unwrap(),
+        MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
+        uuid::Uuid::new_v4().into(),
+        uuid::Uuid::new_v4().into(),
+    ));
+    let status: tonic::Status = err.into();
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
 }

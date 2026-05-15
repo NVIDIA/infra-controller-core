@@ -200,7 +200,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap();
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some(segment.vpc_id.unwrap().into()),
+        uuid: Some(segment.config.vpc_id.unwrap().into()),
     };
     let res = env
         .api
@@ -395,15 +395,13 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 async fn test_static_bmc_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     use std::net::IpAddr;
 
-    use crate::handlers::machine_interface_address::preallocate_machine_interface;
-
     let env = create_test_env(db_pool.clone()).await;
 
     let static_ip: IpAddr = "10.178.160.100".parse().unwrap();
     let bmc_mac = "AA:BB:CC:DD:EE:99".parse().unwrap();
 
     let mut txn = db_pool.begin().await.unwrap();
-    preallocate_machine_interface(txn.as_mut(), bmc_mac, static_ip)
+    db::machine_interface::preallocate_machine_interface(txn.as_mut(), bmc_mac, static_ip)
         .await
         .expect("preallocate static BMC interface");
     txn.commit().await.unwrap();

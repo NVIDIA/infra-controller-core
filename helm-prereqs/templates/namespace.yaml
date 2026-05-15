@@ -1,0 +1,10 @@
+## =============================================================================
+## nico-system namespace — created with managed label
+## =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    nico.nvidia.com/managed: "true"

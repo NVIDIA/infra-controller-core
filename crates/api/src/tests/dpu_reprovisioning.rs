@@ -26,9 +26,11 @@ use model::machine::{
     DpuInitState, FailureDetails, InstallDpuOsState, InstanceState, MachineLastRebootRequestedMode,
     MachineState, ManagedHostState, ReprovisionState,
 };
+use model::rpc_conv::instance::snapshot::instance_snapshot_derive_status;
 use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
+use rpc::forge_agent_control_response::Action;
 
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
@@ -195,9 +197,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     ));
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
 
     mh.network_configured(&env).await;
@@ -317,9 +320,10 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -330,9 +334,10 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     );
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
 
     for state in [
@@ -425,12 +430,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -465,12 +476,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -478,9 +495,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -498,12 +516,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -532,12 +556,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -554,12 +584,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let db_instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -576,12 +612,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let db_instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
     txn.commit().await.unwrap();
@@ -590,9 +632,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     assert!(pxe.pxe_script.contains("exit"));
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -609,12 +652,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -631,12 +680,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Updating
     );
 
@@ -655,12 +710,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     ));
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
-        db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
-            .unwrap()
-            .tenant
-            .unwrap()
-            .state,
+        instance_snapshot_derive_status(
+            &db_instance,
+            device_id_maps.1,
+            host.state.clone().value,
+            None,
+            None,
+            None
+        )
+        .unwrap()
+        .tenant
+        .unwrap()
+        .state,
         TenantState::Configuring
     );
 }
@@ -764,9 +825,10 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     );
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -808,9 +870,10 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     ));
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -1163,9 +1226,13 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     let mh = create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
 
     let agent_control_response = mh.dpu().forge_agent_control().await;
-    assert_eq!(
+    assert!(matches!(
         agent_control_response.action,
-        rpc::forge_agent_control_response::Action::Noop as i32
+        Some(Action::Noop(_))
+    ));
+    assert_eq!(
+        agent_control_response.legacy_action,
+        rpc::forge_agent_control_response::LegacyAction::Noop as i32
     );
 
     env.run_machine_state_controller_iteration_until_state_matches(
@@ -1378,9 +1445,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     ));
 
     let response = mh.dpu_n(0).forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -1532,9 +1600,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     ));
 
     let response = mh.dpu_n(0).forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -1664,9 +1733,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     );
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -1709,9 +1779,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     ));
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -1781,9 +1852,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     assert!(pxe.pxe_script.contains("internal/aarch64/carbide.efi"));
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Discovery(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -1824,9 +1896,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     ));
 
     let response = mh.dpu().forge_agent_control().await;
+    assert!(matches!(response.action, Some(Action::Noop(_))));
     assert_eq!(
-        response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        response.legacy_action,
+        rpc::forge::forge_agent_control_response::LegacyAction::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -1887,8 +1960,8 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
 impl TestManagedHost {
     pub async fn mark_machine_for_updates(&self) {
         self.api
-            .insert_health_report_override(tonic::Request::new(
-                rpc::forge::InsertHealthReportOverrideRequest {
+            .insert_machine_health_report(tonic::Request::new(
+                rpc::forge::InsertMachineHealthReportRequest {
                     machine_id: self.id.into(),
                     health_report_entry: Some(rpc::forge::HealthReportEntry {
                         report: Some(

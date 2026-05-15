@@ -1,3 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "callouts.h"
 #include "carbide_rust.h"
 
@@ -303,7 +320,7 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   machine_free_client_type(machine_client_type);
 }
 
-void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
+void set_vendor_options(Pkt4Ptr response4_ptr) {
   OptionPtr option_vendor(
       new Option(Option::V4, DHO_VENDOR_ENCAPSULATED_OPTIONS));
   LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_vendor->toText());
@@ -317,19 +334,7 @@ void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
   vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
   option_vendor->addOption(vendor_option_6);
 
-  // Option 70 we're using to set the UUID of the machine
-  OptionPtr vendor_option_70 = option_vendor->getOption(70);
-  if (vendor_option_70) {
-    option_vendor->delOption(70);
-  }
-  char *machine_uuid = machine_get_uuid(machine);
-  if (strlen(machine_uuid) > 0) {
-    vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
-    option_vendor->addOption(vendor_option_70);
-  }
-
   response4_ptr->addOption(option_vendor);
-  machine_free_uuid(machine_uuid);
 }
 
 extern "C" {
@@ -514,7 +519,7 @@ int pkt4_send(CalloutHandle &handle) {
   /*
    * Encapsulate some PXE options in the vendor encapsulated
    */
-  set_vendor_options(response4_ptr, machine.get());
+  set_vendor_options(response4_ptr);
 
   LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND)
       .arg(response4_ptr->toText());
@@ -533,9 +538,16 @@ int lease4_expire(CalloutHandle &handle) {
   }
 
   std::string ip_str = lease4->addr_.toText();
+  // Pass the MAC alongside the IP so NICo can scope the delete to
+  // exactly this (ip, mac) lease.
+  std::string mac_str;
+  if (lease4->hwaddr_ && !lease4->hwaddr_->hwaddr_.empty()) {
+    mac_str = lease4->hwaddr_->toText(false);
+  }
   LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
 
-  auto result = carbide_expire_lease(ip_str.c_str());
+  auto result = carbide_expire_lease(
+      ip_str.c_str(), mac_str.empty() ? nullptr : mac_str.c_str());
   if (result != LeaseExpirationResult::Success) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
   }
@@ -554,9 +566,16 @@ int lease6_expire(CalloutHandle &handle) {
   }
 
   std::string ip_str = lease6->addr_.toText();
+  // DHCPv6 identifies clients by DUID, but Kea still records the
+  // client's hardware address on the lease when available.
+  std::string mac_str;
+  if (lease6->hwaddr_ && !lease6->hwaddr_->hwaddr_.empty()) {
+    mac_str = lease6->hwaddr_->toText(false);
+  }
   LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
 
-  auto result = carbide_expire_lease(ip_str.c_str());
+  auto result = carbide_expire_lease(
+      ip_str.c_str(), mac_str.empty() ? nullptr : mac_str.c_str());
   if (result != LeaseExpirationResult::Success) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
   }

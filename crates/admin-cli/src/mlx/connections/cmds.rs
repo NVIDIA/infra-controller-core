@@ -46,7 +46,7 @@ async fn handle_show(
     let response = ctxt.grpc_conn.0.scout_stream_show_connections().await?;
 
     let mut connections = response.scout_stream_connections;
-    connections.sort_by(|a, b| a.machine_id.cmp(&b.machine_id));
+    connections.sort_by_key(|connection| connection.machine_id);
     match ctxt.format {
         OutputFormat::AsciiTable => {
             print_connections_table(&connections);

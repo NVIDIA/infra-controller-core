@@ -260,7 +260,26 @@ Extends `StateControllerConfig` with:
 | `admin_vpc` | `Option<AdminFnnConfig>` | — | FNN configuration for the admin network VPC. |
 | `common_internal_route_target` | `Option<RouteTargetConfig>` | — | Double-tag for internal tenant routes (consumed by the network infrastructure). |
 | `additional_route_target_imports` | `Vec<RouteTargetConfig>` | `[]` | Extra route targets imported on DPU VRFs. |
-| `routing_profiles` | `HashMap<String, FnnRoutingProfileConfig>` | `{}` | Named per-VPC routing profiles. |
+| `routing_profiles` | `HashMap<String, FnnRoutingProfileConfig>` | `{}` | Named per-VPC routing profiles (see [FnnRoutingProfileConfig](#fnnroutingprofileconfig)). |
+
+### `FnnRoutingProfileConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `route_target_imports` | `Vec<RouteTargetConfig>` | `[]` | Route targets imported into DPU VRFs for VPC routes. |
+| `route_targets_on_exports` | `Vec<RouteTargetConfig>` | `[]` | Route targets added to routes exported by the DPU. |
+| `internal` | `bool` | `false` | Whether the profile uses internal VNI allocation. |
+| `leak_default_route_from_underlay` | `bool` | `false` | Leak the default route from the underlay/default VRF into tenant VRFs. |
+| `leak_tenant_host_routes_to_underlay` | `bool` | `false` | Leak tenant host routes into the underlay/default VRF. |
+| `tenant_leak_communities_accepted` | `bool` | `false` | Honor route-leak communities sent by the tenant host OS. |
+| `accepted_leaks_from_underlay` | `Vec<PrefixFilterPolicyEntry>` | `[]` | Specific underlay/default VRF prefixes allowed to leak into tenant VRFs. Routing only; does not affect ACLs. |
+| `access_tier` | `u32` | `0` | Routing profile access tier. Lower values grant broader access. |
+
+### `PrefixFilterPolicyEntry`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prefix` | `IpNetwork` | **required** | IPv4 or IPv6 CIDR prefix accepted by a prefix-list policy. |
 
 ### `DpaConfig`
 

@@ -24,8 +24,9 @@ use db::machine_interface::find_by_ip;
 use libredfish::RoleId;
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
-use model::machine::machine_id::try_parse_machine_id;
+use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
+use model::rpc_conv::machine::machine_id::try_parse_machine_id;
 use model::site_explorer::PreingestionState;
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
@@ -849,15 +850,18 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 ) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), CarbideError> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
-            let interface = db::machine_interface::find_by_ip(
-                txn,
-                bmc_endpoint_request.ip_address.parse().unwrap(),
-            )
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine_interface",
-                id: bmc_endpoint_request.ip_address.clone(),
+            let parsed_ip = bmc_endpoint_request.ip_address.parse().map_err(|e| {
+                CarbideError::InvalidArgument(format!(
+                    "invalid ip_address {:?}: {e}",
+                    bmc_endpoint_request.ip_address
+                ))
             })?;
+            let interface = db::machine_interface::find_by_ip(txn, parsed_ip)
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "machine_interface",
+                    id: bmc_endpoint_request.ip_address.clone(),
+                })?;
 
             let bmc_mac = match bmc_endpoint_request.mac_address {
                 // No MAC in the request, use the interface MAC
@@ -893,24 +897,20 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
         (_, Some(machine_id)) => {
             log_machine_id(&machine_id);
 
-            let mut topologies =
-                db::machine_topology::find_latest_by_machine_ids(txn, &[machine_id]).await?;
+            let machine = db::machine::find_one(txn, &machine_id, MachineSearchConfig::default())
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: machine_id.to_string(),
+                })?;
 
-            let topology =
-                topologies
-                    .remove(&machine_id)
-                    .ok_or_else(|| CarbideError::NotFoundError {
-                        kind: "machine",
-                        id: machine_id.to_string(),
-                    })?;
-
-            let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
+            let bmc_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
                 CarbideError::internal(format!(
                     "Machine found for {machine_id} but BMC IP is missing"
                 ))
             })?;
 
-            let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
+            let bmc_mac_address = machine.bmc_info.mac.ok_or_else(|| {
                 CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
             })?;
 

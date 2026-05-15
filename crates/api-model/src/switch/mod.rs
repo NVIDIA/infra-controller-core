@@ -17,8 +17,6 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, LifecycleStatus};
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
@@ -47,47 +45,6 @@ pub struct NewSwitch {
     pub tray_index: Option<i32>,
 }
 
-impl TryFrom<rpc::SwitchCreationRequest> for NewSwitch {
-    type Error = RpcDataConversionError;
-    fn try_from(value: rpc::SwitchCreationRequest) -> Result<Self, Self::Error> {
-        let conf = match value.config {
-            Some(c) => c,
-            None => {
-                return Err(RpcDataConversionError::InvalidArgument(
-                    "Switch configuration is empty".to_string(),
-                ));
-            }
-        };
-
-        let switch_uuid: Option<uuid::Uuid> = value
-            .id
-            .as_ref()
-            .map(|rpc_uuid| {
-                rpc_uuid
-                    .try_into()
-                    .map_err(|_| RpcDataConversionError::InvalidSwitchId(rpc_uuid.to_string()))
-            })
-            .transpose()?;
-
-        let id = match switch_uuid {
-            Some(v) => SwitchId::from(v),
-            None => uuid::Uuid::new_v4().into(),
-        };
-
-        let config = SwitchConfig::try_from(conf)?;
-
-        Ok(NewSwitch {
-            id,
-            config,
-            bmc_mac_address: None,
-            metadata: None,
-            rack_id: None,
-            slot_number: value.placement_in_rack.as_ref().and_then(|p| p.slot_number),
-            tray_index: value.placement_in_rack.as_ref().and_then(|p| p.tray_index),
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SwitchConfig {
     pub name: String,
@@ -107,18 +64,53 @@ pub struct SwitchStatus {
     pub health_status: String, // "ok", "warning", "critical"
 }
 
+fn default_continue_after_firmware_upgrade() -> bool {
+    true
+}
+
 /// Set by an external entity to request switch reprovisioning. When the switch is in Ready state,
 /// the state controller checks this flag and transitions to ReProvisioning::Start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SwitchReprovisionRequest {
     pub requested_at: DateTime<Utc>,
     pub initiator: String,
+    /// Continue through rack-managed post-firmware phases such as NVOS/NMXC.
+    #[serde(default = "default_continue_after_firmware_upgrade")]
+    pub continue_after_firmware_upgrade: bool,
 }
 
 pub use crate::rack::{
     RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, SwitchNvosUpdateState,
     SwitchNvosUpdateStatus,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FabricManagerState {
+    Ok,
+    NotOk,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricManagerStatus {
+    pub fabric_manager_state: FabricManagerState,
+    pub addition_info: Option<String>,
+    pub reason: Option<String>,
+    pub error_message: Option<String>,
+}
+
+impl FabricManagerStatus {
+    pub fn display_status(&self) -> &'static str {
+        if self.fabric_manager_state == FabricManagerState::Ok
+            && self.addition_info.as_deref() == Some("CONTROL_PLANE_STATE_CONFIGURED")
+        {
+            "running"
+        } else {
+            "not_running"
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Switch {
@@ -145,6 +137,9 @@ pub struct Switch {
     /// NVOS update status set by the rack state machine.
     pub nvos_update_status: Option<SwitchNvosUpdateStatus>,
 
+    /// FabricManager / NMX-C status set by the rack state machine.
+    pub fabric_manager_status: Option<FabricManagerStatus>,
+
     /// The rack that this switch is associated with.
     pub rack_id: Option<RackId>,
     // Columns for these exist, but are unused in rust code
@@ -152,6 +147,7 @@ pub struct Switch {
     // pub updated: DateTime<Utc>,
     pub metadata: Metadata,
     pub version: ConfigVersion,
+    pub is_primary: bool,
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
     pub health_reports: HealthReportSources,
@@ -171,10 +167,11 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             row.try_get("firmware_upgrade_status").ok();
         let nvos_update_status: Option<sqlx::types::Json<SwitchNvosUpdateStatus>> =
             row.try_get("nvos_update_status").ok();
+        let fabric_manager_status: Option<sqlx::types::Json<FabricManagerStatus>> =
+            row.try_get("fabric_manager_status").ok().flatten();
 
-        // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
-            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
+            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_reports")
             .map(|j| j.0)
             .unwrap_or_default();
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
@@ -197,8 +194,10 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             switch_reprovisioning_requested: switch_reprovisioning_requested.map(|j| j.0),
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
             nvos_update_status: nvos_update_status.map(|j| j.0),
+            fabric_manager_status: fabric_manager_status.map(|j| j.0),
             metadata,
             version: row.try_get("version")?,
+            is_primary: row.try_get("is_primary").unwrap_or(false),
             rack_id: row.try_get("rack_id").ok().flatten(),
             slot_number: row.try_get("slot_number").ok().flatten(),
             tray_index: row.try_get("tray_index").ok().flatten(),
@@ -207,21 +206,9 @@ impl<'r> FromRow<'r, PgRow> for Switch {
     }
 }
 
-impl TryFrom<rpc::SwitchConfig> for SwitchConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(conf: rpc::SwitchConfig) -> Result<Self, Self::Error> {
-        Ok(SwitchConfig {
-            name: conf.name,
-            enable_nmxc: conf.enable_nmxc,
-            fabric_manager_config: Some(FabricManagerConfig {
-                config_map: conf.fabric_manager_config.unwrap_or_default().config_map,
-            }),
-        })
-    }
-}
-
-fn derive_switch_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
+pub fn derive_switch_aggregate_health(
+    sources: &HealthReportSources,
+) -> health_report::HealthReport {
     if let Some(replace) = &sources.replace {
         return replace.clone();
     }
@@ -231,92 +218,6 @@ fn derive_switch_aggregate_health(sources: &HealthReportSources) -> health_repor
     }
     output.observed_at = Some(chrono::Utc::now());
     output
-}
-
-impl TryFrom<Switch> for rpc::Switch {
-    type Error = RpcDataConversionError;
-
-    fn try_from(src: Switch) -> Result<Self, Self::Error> {
-        let health = derive_switch_aggregate_health(&src.health_reports);
-        let health_sources = src
-            .health_reports
-            .iter()
-            .map(|(hr, m)| rpc::HealthSourceOrigin {
-                mode: m as i32,
-                source: hr.source.clone(),
-            })
-            .collect();
-
-        let sla = state_sla(&src.controller_state.value, &src.controller_state.version);
-        let lifecycle = LifecycleStatus {
-            state: serde_json::to_string(&src.controller_state.value).unwrap_or_default(),
-            version: src.controller_state.version.version_string(),
-            state_reason: src.controller_state_outcome.map(Into::into),
-            sla: Some(sla.clone().into()),
-        };
-        let controller_state = lifecycle.state.clone();
-
-        let status = Some(match src.status {
-            Some(s) => rpc::SwitchStatus {
-                state_reason: lifecycle.state_reason.clone(),
-                state_sla: Some(sla.into()),
-                switch_name: Some(s.switch_name),
-                power_state: Some(s.power_state),
-                health_status: Some(s.health_status),
-                controller_state: Some(lifecycle.state.clone()),
-                health: Some(health.into()),
-                health_sources,
-                lifecycle: Some(lifecycle),
-            },
-            None => rpc::SwitchStatus {
-                state_reason: lifecycle.state_reason.clone(),
-                state_sla: Some(sla.into()),
-                switch_name: None,
-                power_state: None,
-                health_status: None,
-                controller_state: Some(lifecycle.state.clone()),
-                health: Some(health.into()),
-                health_sources,
-                lifecycle: Some(lifecycle),
-            },
-        });
-
-        let placement_in_rack = Some(rpc::PlacementInRack {
-            slot_number: src.slot_number,
-            tray_index: src.tray_index,
-        });
-        let config = rpc::SwitchConfig {
-            name: src.config.name,
-            fabric_manager_config: Some(rpc::FabricManagerConfig {
-                config_map: src
-                    .config
-                    .fabric_manager_config
-                    .unwrap_or_default()
-                    .config_map,
-            }),
-            enable_nmxc: src.config.enable_nmxc,
-        };
-
-        let deleted = if src.deleted.is_some() {
-            Some(src.deleted.unwrap().into())
-        } else {
-            None
-        };
-        let state_version = src.controller_state.version.to_string();
-        Ok(rpc::Switch {
-            id: Some(src.id),
-            config: Some(config),
-            status,
-            deleted,
-            controller_state,
-            bmc_info: None,
-            state_version,
-            metadata: Some(src.metadata.into()),
-            version: src.version.version_string(),
-            rack_id: src.rack_id,
-            placement_in_rack,
-        })
-    }
 }
 
 /// Sub-state for SwitchControllerState::Initializing
@@ -346,10 +247,15 @@ pub enum BomValidatingState {
 
 /// Sub-state for SwitchControllerState::ReProvisioning
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::enum_variant_names)]
 pub enum ReProvisioningState {
     /// Rack-level firmware upgrade in progress; the rack state machine manages the
     /// upgrade and clears `switch_reprovisioning_requested` when done.
     WaitingForRackFirmwareUpgrade,
+    /// Rack-level NVOS upgrade in progress.
+    WaitingForNVOSUpgrade,
+    /// Rack-level NMX-C configuration in progress.
+    WaitingForNMXCConfigure,
 }
 
 /// State of a Switch as tracked by the controller
@@ -435,111 +341,12 @@ pub struct SwitchSearchFilter {
     pub deleted: crate::DeletedFilter,
     pub controller_state: Option<String>,
     pub bmc_mac: Option<MacAddress>,
-}
-
-impl From<rpc::SwitchSearchFilter> for SwitchSearchFilter {
-    fn from(filter: rpc::SwitchSearchFilter) -> Self {
-        SwitchSearchFilter {
-            rack_id: filter.rack_id,
-            deleted: crate::DeletedFilter::from(filter.deleted),
-            controller_state: filter.controller_state,
-            bmc_mac: filter.bmc_mac.and_then(|m| m.parse::<MacAddress>().ok()),
-        }
-    }
+    pub nvos_mac: Option<MacAddress>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller_outcome::PersistentStateHandlerOutcome;
-
-    #[test]
-    fn try_from_switch_populates_state_reason() {
-        let switch = Switch {
-            id: SwitchId::from(uuid::Uuid::new_v4()),
-            config: SwitchConfig {
-                name: "test-switch".to_string(),
-                enable_nmxc: false,
-                fabric_manager_config: None,
-            },
-            status: Some(SwitchStatus {
-                switch_name: "test-switch".to_string(),
-                power_state: "on".to_string(),
-                health_status: "ok".to_string(),
-            }),
-            deleted: None,
-            bmc_mac_address: None,
-            controller_state: Versioned::new(
-                SwitchControllerState::Ready,
-                config_version::ConfigVersion::initial(),
-            ),
-            controller_state_outcome: Some(PersistentStateHandlerOutcome::Transition {
-                source_ref: None,
-            }),
-            switch_reprovisioning_requested: None,
-            firmware_upgrade_status: None,
-            nvos_update_status: None,
-            metadata: Metadata::default(),
-            version: ConfigVersion::initial(),
-            rack_id: None,
-            slot_number: Some(1),
-            tray_index: Some(2),
-            health_reports: Default::default(),
-        };
-
-        let rpc_switch: rpc::Switch = switch.try_into().unwrap();
-        let status = rpc_switch.status.expect("status should be Some");
-        assert!(
-            status.state_reason.is_some(),
-            "state_reason should be populated from controller_state_outcome"
-        );
-        assert!(status.state_sla.is_some(), "state_sla should be populated");
-        assert_eq!(status.power_state, Some("on".to_string()));
-        assert_eq!(status.health_status, Some("ok".to_string()));
-    }
-
-    #[test]
-    fn try_from_switch_without_status_still_has_state_reason() {
-        let switch = Switch {
-            id: SwitchId::from(uuid::Uuid::new_v4()),
-            config: SwitchConfig {
-                name: "test-switch".to_string(),
-                enable_nmxc: false,
-                fabric_manager_config: None,
-            },
-            status: None,
-            deleted: None,
-            bmc_mac_address: None,
-            controller_state: Versioned::new(
-                SwitchControllerState::Created,
-                config_version::ConfigVersion::initial(),
-            ),
-            controller_state_outcome: Some(PersistentStateHandlerOutcome::Wait {
-                reason: "waiting for something".to_string(),
-                source_ref: None,
-            }),
-            switch_reprovisioning_requested: None,
-            firmware_upgrade_status: None,
-            nvos_update_status: None,
-            metadata: Metadata::default(),
-            version: ConfigVersion::initial(),
-            rack_id: None,
-            slot_number: None,
-            tray_index: None,
-            health_reports: Default::default(),
-        };
-
-        let rpc_switch: rpc::Switch = switch.try_into().unwrap();
-        let status = rpc_switch
-            .status
-            .expect("status should be Some even when switch.status is None");
-        assert!(
-            status.state_reason.is_some(),
-            "state_reason should be populated even without switch status"
-        );
-        assert_eq!(status.power_state, None);
-        assert_eq!(status.health_status, None);
-    }
 
     #[test]
     fn serialize_controller_state() {

@@ -184,7 +184,7 @@ async fn run_worker<P: MqttPublisher>(
                 };
 
                 let publications = match command {
-                    Command::Metadata { topic, payload } => match bms_dsx_exchange::parse_supported_metadata_slice(&payload) {
+                    Command::Metadata { topic, payload } => match bms_dsx_exchange::parse_supported_metadata(&topic, &payload) {
                         Ok(Some(metadata)) => {
                             tracing::debug!(topic = %topic, point_type = metadata.point_type(), "Received supported BMS metadata");
                             exchange.upsert_metadata(metadata, Utc::now())
@@ -331,8 +331,7 @@ mod tests {
             "objectType": "Rack",
             "rackName": "Rack-01",
             "rackId": "rack-01",
-            "integration": "CM",
-            "valueTopic": "BMS/v1/CM/Value/Rack/RackLeakDetect/site/rack-01"
+            "integration": "CM"
         })
         .to_string()
         .into_bytes()
@@ -344,8 +343,7 @@ mod tests {
             "objectType": "Rack",
             "rackName": "Rack-01",
             "rackId": "rack-01",
-            "integration": "CM",
-            "valueTopic": "BMS/v1/CM/Value/Rack/RackLiquidIsolationRequest/site/rack-01"
+            "integration": "CM"
         })
         .to_string()
         .into_bytes()
@@ -357,8 +355,7 @@ mod tests {
             "objectType": "Rack",
             "rackName": "Rack-01",
             "rackId": "rack-01",
-            "integration": "CM",
-            "valueTopic": "BMS/v1/CM/Value/Rack/RackElectricalIsolationRequest/site/rack-01"
+            "integration": "CM"
         })
         .to_string()
         .into_bytes()

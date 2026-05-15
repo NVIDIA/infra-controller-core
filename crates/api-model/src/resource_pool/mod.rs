@@ -108,18 +108,6 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolSnapshot {
     }
 }
 
-impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
-    fn from(rp: ResourcePoolSnapshot) -> Self {
-        rpc::forge::ResourcePool {
-            name: rp.name,
-            min: rp.min,
-            max: rp.max,
-            total: (rp.stats.free + rp.stats.used) as u64,
-            allocated: rp.stats.used as u64,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ResourcePoolEntry {
     pub pool_name: String,

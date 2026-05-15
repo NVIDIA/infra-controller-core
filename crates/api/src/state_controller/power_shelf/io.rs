@@ -28,8 +28,8 @@ use model::{DeletedFilter, StateSla};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
-use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContextObjects;
+use crate::state_controller::power_shelf::metrics::PowerShelfMetricsEmitter;
 
 /// State Controller IO implementation for PowerShelves
 #[derive(Default, Debug)]
@@ -40,7 +40,7 @@ impl StateControllerIO for PowerShelfStateControllerIO {
     type ObjectId = PowerShelfId;
     type State = PowerShelf;
     type ControllerState = PowerShelfControllerState;
-    type MetricsEmitter = NoopMetricsEmitter;
+    type MetricsEmitter = PowerShelfMetricsEmitter;
     type ContextObjects = PowerShelfStateHandlerContextObjects;
 
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "power_shelf_controller_iteration_ids";
@@ -127,7 +127,14 @@ impl StateControllerIO for PowerShelfStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::power_shelf_state_history::persist(txn, object_id, new_state, new_version).await?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::PowerShelf,
+            object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 
@@ -146,6 +153,13 @@ impl StateControllerIO for PowerShelfStateControllerIO {
             PowerShelfControllerState::FetchingData => ("fetching_data", ""),
             PowerShelfControllerState::Configuring => ("configuring", ""),
             PowerShelfControllerState::Ready => ("ready", ""),
+            PowerShelfControllerState::Maintenance { operation } => {
+                let op = match operation {
+                    model::power_shelf::PowerShelfMaintenanceOperation::PowerOn => "power_on",
+                    model::power_shelf::PowerShelfMaintenanceOperation::PowerOff => "power_off",
+                };
+                ("maintenance", op)
+            }
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }

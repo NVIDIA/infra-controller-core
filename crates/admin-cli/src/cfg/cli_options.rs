@@ -17,27 +17,26 @@
 use clap::{Parser, ValueEnum, ValueHint};
 use rpc::admin_cli::OutputFormat;
 
-use crate::cfg::measurement;
 use crate::{
-    bmc_machine, boot_override, compute_allocation, credential, devenv, domain, dpa, dpu,
-    dpu_remediation, expected_machines, expected_power_shelf, expected_rack, expected_switch,
-    extension_service, firmware, generate_shell_complete, host, ib_partition, instance,
-    instance_type, inventory, ip, ipxe_template, jump, machine, machine_interfaces,
-    machine_validation, managed_host, managed_switch, mlx, network_devices, network_security_group,
-    network_segment, nvl_logical_partition, nvl_partition, operating_system, os_image, ping,
-    power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
-    site_explorer, sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
-    vpc_peering, vpc_prefix,
+    attestation, bmc_machine, boot_override, component_manager, compute_allocation, credential,
+    devenv, domain, dpa, dpu, dpu_remediation, expected_machines, expected_power_shelf,
+    expected_rack, expected_switch, extension_service, firmware, generate_shell_complete, host,
+    ib_partition, instance, instance_type, inventory, ip, ipxe_template, jump, machine,
+    machine_interfaces, machine_validation, managed_host, managed_switch, mlx, network_devices,
+    network_security_group, network_segment, nvl_logical_partition, nvl_partition,
+    operating_system, os_image, ping, power_shelf, rack, rack_firmware, redfish, resource_pool,
+    rms, route_server, scout_stream, set, site_explorer, sku, ssh, switch, tenant, tenant_keyset,
+    tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
-#[clap(name = "forge-admin-cli")]
-#[clap(author = "Slack channel #swngc-forge-dev")]
+#[clap(name = "carbide-admin-cli")]
+#[clap(author = "https://github.com/NVIDIA/ncx-infra-controller-core")]
 pub struct CliOptions {
     #[clap(
         long,
         default_value = "false",
-        help = "Print version number of forge-admin-cli and exit. For API server version see 'version' command."
+        help = "Print version number of carbide-admin-cli and exit. For API server version see 'version' command."
     )]
     pub version: bool,
 
@@ -161,12 +160,6 @@ pub enum CliCommand {
         visible_alias = "ms"
     )]
     ManagedSwitch(managed_switch::Cmd),
-    #[clap(
-        subcommand,
-        about = "Work with measured boot data.",
-        visible_alias = "mb"
-    )]
-    Measurement(measurement::Cmd),
     #[clap(about = "Resource pool handling", subcommand, visible_alias = "rp")]
     ResourcePool(resource_pool::Cmd),
     #[clap(about = "Redfish BMC actions", visible_alias = "rf")]
@@ -202,7 +195,7 @@ pub enum CliCommand {
     )]
     MachineInterfaces(machine_interfaces::Cmd),
     #[clap(
-        about = "Generate shell autocomplete. Source the output of this command: `source <(forge-admin-cli generate-shell-complete bash)`"
+        about = "Generate shell autocomplete. Source the output of this command: `source <(carbide-admin-cli generate-shell-complete bash)`"
     )]
     GenerateShellComplete(generate_shell_complete::Cmd),
     #[clap(
@@ -294,6 +287,9 @@ pub enum CliCommand {
     )]
     ComputeAllocation(compute_allocation::Cmd),
 
+    #[clap(about = "Component manager actions", visible_alias = "cm", subcommand)]
+    ComponentManager(component_manager::Cmd),
+
     #[clap(about = "SSH Util functions", subcommand)]
     Ssh(ssh::Cmd),
 
@@ -359,6 +355,13 @@ pub enum CliCommand {
 
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
     Tenant(tenant::Cmd),
+
+    #[clap(
+        about = "MeasuredBoot or SPDM attestations",
+        subcommand,
+        visible_alias = "att"
+    )]
+    Attestation(attestation::Cmd),
 }
 
 impl CliOptions {

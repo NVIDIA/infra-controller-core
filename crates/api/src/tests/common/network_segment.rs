@@ -70,8 +70,7 @@ pub async fn create_network_segment_with_api(
     let vpc_id = if use_vpc {
         env.api
             .create_vpc(
-                VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
-                    .tonic_request(),
+                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93").tonic_request(),
             )
             .await
             .unwrap()
@@ -105,6 +104,36 @@ pub async fn create_network_segment_with_api(
         .into_inner()
 }
 
+#[derive(serde::Deserialize)]
+struct LifecycleStateJson {
+    state: String,
+}
+
+/// Derive the deprecated `TenantState` enum from a `NetworkSegment` response.
+///
+/// Reads `status.lifecycle.state` (a JSON string) and maps it to the corresponding variant.
+/// A segment with a deletion timestamp is immediately `Terminating`, mirroring the
+/// api-model `TryFrom` override applied before the controller processes the deletion.
+pub fn tenant_state_from_segment(segment: &rpc::forge::NetworkSegment) -> rpc::forge::TenantState {
+    // A deletion timestamp means the API accepted the delete request; map to Terminating
+    // immediately, even before the controller processes it. Mirrors the api-model TryFrom logic.
+    if segment.deleted.is_some() {
+        return rpc::forge::TenantState::Terminating;
+    }
+    let lifecycle = segment.status.as_ref().and_then(|s| s.lifecycle.as_ref());
+    let state_str = lifecycle.map(|lc| lc.state.as_str()).unwrap_or("{}");
+    let json: LifecycleStateJson =
+        serde_json::from_str(state_str).unwrap_or_else(|_| LifecycleStateJson {
+            state: String::new(),
+        });
+    match json.state.as_str() {
+        "provisioning" => rpc::forge::TenantState::Provisioning,
+        "ready" => rpc::forge::TenantState::Ready,
+        "deleting" => rpc::forge::TenantState::Terminating,
+        _ => rpc::forge::TenantState::default(),
+    }
+}
+
 pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::forge::TenantState {
     let segment = api
         .find_network_segments_by_ids(Request::new(rpc::forge::NetworkSegmentsByIdsRequest {
@@ -117,7 +146,7 @@ pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::
         .into_inner()
         .network_segments
         .remove(0);
-    segment.state()
+    tenant_state_from_segment(&segment)
 }
 
 pub async fn get_segments(
@@ -132,16 +161,19 @@ pub async fn get_segments(
 
 #[cfg(test)]
 pub async fn text_history(txn: &mut PgConnection, segment_id: NetworkSegmentId) -> Vec<String> {
-    let entries = db::network_segment_state_history::for_segment(txn, &segment_id)
-        .await
-        .unwrap();
+    let entries = db::state_history::for_object(
+        txn,
+        db::state_history::StateHistoryTableId::NetworkSegment,
+        &segment_id,
+    )
+    .await
+    .unwrap();
 
     // // Check that version numbers are always incrementing by 1
     if !entries.is_empty() {
-        let mut version = entries[0].state_version.version_nr();
-        for entry in &entries[1..] {
-            assert_eq!(entry.state_version.version_nr(), version + 1);
-            version += 1;
+        let first_version = entries[0].state_version.version_nr();
+        for (expected_version, entry) in ((first_version + 1)..).zip(&entries[1..]) {
+            assert_eq!(entry.state_version.version_nr(), expected_version);
         }
     }
 

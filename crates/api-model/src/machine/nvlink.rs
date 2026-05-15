@@ -48,31 +48,6 @@ pub struct MachineNvLinkGpuStatusObservation {
     pub guid: u64,
 }
 
-impl From<MachineNvLinkStatusObservation> for rpc::forge::MachineNvLinkStatusObservation {
-    fn from(value: MachineNvLinkStatusObservation) -> Self {
-        rpc::forge::MachineNvLinkStatusObservation {
-            gpu_status: value
-                .nvlink_gpus
-                .into_iter()
-                .map(rpc::forge::MachineNvLinkGpuStatusObservation::from)
-                .collect(),
-        }
-    }
-}
-
-impl From<MachineNvLinkGpuStatusObservation> for rpc::forge::MachineNvLinkGpuStatusObservation {
-    fn from(value: MachineNvLinkGpuStatusObservation) -> Self {
-        rpc::forge::MachineNvLinkGpuStatusObservation {
-            gpu_id: value.gpu_id,
-            partition_id: value.partition_id,
-            logical_partition_id: value.logical_partition_id,
-            device_instance: value.device_instance,
-            domain_id: Some(value.domain_id),
-            guid: value.guid,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct NvLinkConfigNotSyncedReason(pub String);
 
@@ -90,11 +65,6 @@ pub fn nvlink_config_synced(
     let Some(observation) = observation.as_ref() else {
         return Err(NvLinkConfigNotSyncedReason("Due to missing NvLink status observation, it can't be verified whether the NvLink config is applied to NMX-M".to_string()));
     };
-    if config.gpu_configs.len() != observation.nvlink_gpus.len() {
-        return Err(NvLinkConfigNotSyncedReason(
-            "the number of configured GPUs does not match the number of observed GPUs".to_string(),
-        ));
-    }
 
     for gpu_config in config.gpu_configs.iter() {
         let Some(gpu_observation) = observation

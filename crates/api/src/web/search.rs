@@ -31,6 +31,7 @@ use rpc::forge::IdentifySerialResponse;
 use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
+use super::Base;
 use crate::api::Api;
 
 pub async fn find(
@@ -272,3 +273,5 @@ async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
     };
     (StatusCode::OK, Html(tmpl.render().unwrap()))
 }
+
+impl super::Base for IpFinder {}

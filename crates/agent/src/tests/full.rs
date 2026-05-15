@@ -38,7 +38,9 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
 use ipnetwork::IpNetwork;
-use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig, InterfaceAssociationType};
+use rpc::forge::{
+    DpuInfo, FlatInterfaceNetworkSecurityGroupConfig, InterfaceAssociationType, InterfaceType,
+};
 use rpc::{Timestamp, common as rpc_common};
 use tokio::sync::Mutex;
 
@@ -774,6 +776,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     ip_address: None,
                     ipv6_interface_config: None,
                 }],
+                auto: false,
             }),
             infiniband: None,
             network_security_group_id: None,
@@ -838,6 +841,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
+            accepted_leaks_from_underlay: vec![],
             route_target_imports: vec![rpc_common::RouteTarget {
                 asn: 44444,
                 vni: 55555,
@@ -958,6 +962,7 @@ fn timestamp_from_secs_nanos(secs: i64, nanos: i32) -> Timestamp {
     Timestamp::from(system_time)
 }
 
+#[allow(deprecated)]
 async fn handle_find_interfaces() -> impl axum::response::IntoResponse {
     let interface = rpc::forge::MachineInterface {
         id: Some(
@@ -986,7 +991,8 @@ async fn handle_find_interfaces() -> impl axum::response::IntoResponse {
         vendor: None,
         created: Some(timestamp_from_secs_nanos(1773084037, 3824000)),
         last_dhcp: Some(timestamp_from_secs_nanos(1773097243, 70533000)),
-        is_bmc: None,
+        is_bmc: Some(false),
+        interface_type: Some(InterfaceType::Data.into()),
         power_shelf_id: None,
         switch_id: None,
         association_type: Some(InterfaceAssociationType::Machine.into()),

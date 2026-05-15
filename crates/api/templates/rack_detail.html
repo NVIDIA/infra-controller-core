@@ -15,37 +15,17 @@
 		<td>{{ id }}</td>
 	</tr>
 	<tr>
-		<th>State</th>
-		<td>
-			{% if rack_state == "Ready" %}
-				<span class="bubble success">{{ rack_state }}</span>
-			{% else if rack_state.to_lowercase().contains("error") || rack_state.to_lowercase().contains("failed") %}
-				<span class="bubble error">{{ rack_state }}</span>
-			{% else %}
-				<span class="bubble">{{ rack_state }}</span>
-			{% endif %}
-		</td>
-	</tr>
-	<tr>
-		<th>State Handler Outcome</th>
-		<td>{{ state_reason|controller_state_reason_fmt|safe }}</td>
-	</tr>
-	<tr>
-		<th>State Version</th>
-		<td>{{ state_version|config_version|safe }}</td>
-	</tr>
-	<tr>
-		<th>Time in State</th>
-		<td>{{ time_in_state }}</td>
-	</tr>
-	<tr>
 		<th>Version</th>
 		<td>{{ version }}</td>
 	</tr>
 </table>
 
+{{ lifecycle_detail|safe }}
+
 <h2>Metadata</h2>
 {{ metadata_detail|safe }}
+
+{{ health_detail|safe }}
 
 <h2>Managed Rack Components</h2>
 
@@ -98,29 +78,7 @@
 </table>
 
 <h2>History</h2>
-{% if !history.is_empty() %}
-<div class="table-responsive">
-	<table class="table table-striped">
-		<thead>
-		<tr>
-			<th>State</th>
-			<th>Version</th>
-			<th>Time</th>
-		</tr>
-		</thead>
-		<tbody>
-		{% for record in history %}
-		<tr>
-			<td>{{ record.state }}</td>
-			<td>{{ record.version }}</td>
-			<td>{{ record.time }}</td>
-		</tr>
-		{% endfor %}
-		</tbody>
-	</table>
-</div>
-{% else %}
-<p class="text-muted">No state history available.</p>
-{% endif %}
+<a href="/admin/rack/{{ id }}/state-history">Open State History on separate page</a>
+{{ history|safe }}
 
 {% endblock %}

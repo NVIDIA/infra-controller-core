@@ -30,6 +30,7 @@ use model::hardware_info::MachineNvLinkInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
+use model::rpc_conv::machine::ManagedHostStateSnapshotRpc;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -147,12 +148,17 @@ pub(crate) async fn find_machine_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::machine_state_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Machine,
+        &machine_ids,
+    )
+    .await?;
 
     let mut response = rpc::MachineStateHistories::default();
     for (machine_id, records) in results {
         response.histories.insert(
-            machine_id.to_string(),
+            machine_id,
             ::rpc::forge::MachineStateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
@@ -544,7 +550,6 @@ pub(crate) async fn admin_force_delete_machine(
             let host_dpf_id = machine
                 .dpf_id()
                 .ok_or_else(|| CarbideError::internal("BMC MAC not set for host".to_string()))?;
-            let node_name = carbide_dpf::dpu_node_cr_name(&host_dpf_id);
             let dpu_device_names: Vec<String> = dpu_machines
                 .iter()
                 .map(|d| {
@@ -553,7 +558,7 @@ pub(crate) async fn admin_force_delete_machine(
                     })
                 })
                 .collect::<Result<_, _>>()?;
-            ops.force_delete_host(&node_name, &dpu_device_names)
+            ops.force_delete_host(&host_dpf_id, &dpu_device_names)
                 .await
                 .map_err(CarbideError::DpfError)?;
         }
@@ -767,7 +772,7 @@ pub async fn get_machine_position_info(
     let mut txn = api.txn_begin().await?;
 
     // Translate the machine IDs to BMC IPs.
-    // Note: Machines without topology records will be silently omitted from the result,
+    // Note: Machines without linked BMC interfaces will be silently omitted from the result,
     // consistent with how find_machines_by_ids handles missing machines.
     let pairs =
         db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, request.machine_ids)

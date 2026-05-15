@@ -85,6 +85,7 @@ pub async fn find_switch(
                         version: None,
                         firmware_version: None,
                         port: None,
+                        machine_interface_id: None,
                     },
                 )
             })
@@ -174,6 +175,7 @@ pub async fn find_by_ids(
                         version: None,
                         firmware_version: None,
                         port: None,
+                        machine_interface_id: None,
                     },
                 )
             })
@@ -223,14 +225,18 @@ pub async fn find_switch_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::switch_state_history::find_by_switch_ids(&mut txn, &switch_ids)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Switch,
+        &switch_ids,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     let mut response = rpc::StateHistories::default();
     for (switch_id, records) in results {
         response.histories.insert(
-            switch_id.to_string(),
+            switch_id,
             ::rpc::forge::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
@@ -342,9 +348,13 @@ pub async fn admin_force_delete_switch(
     }
 
     // Delete state history.
-    db::switch_state_history::delete_by_switch_id(&mut txn, &switch_id)
-        .await
-        .map_err(CarbideError::from)?;
+    db::state_history::delete_by_object_id(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Switch,
+        &switch_id,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     // Hard-delete the switch.
     db_switch::final_delete(switch_id, &mut txn)

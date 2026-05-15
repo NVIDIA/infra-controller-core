@@ -22,7 +22,6 @@ use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use itertools::Itertools;
 use rpc::TenantState;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -33,7 +32,7 @@ use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::errors::ModelError;
 use crate::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::network_segment_state_history::NetworkSegmentStateHistory;
+use crate::state_history::StateHistoryRecord;
 
 mod slas;
 
@@ -322,36 +321,45 @@ impl From<rpc::forge::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig
     }
 }
 
+/// User-controlled configuration for a network segment.
+#[derive(Debug, Clone)]
+pub struct NetworkSegmentConfig {
+    pub name: String,
+    pub subdomain_id: Option<DomainId>,
+    pub mtu: i32,
+    pub segment_type: NetworkSegmentType,
+    pub allocation_strategy: AllocationStrategy,
+    pub vpc_id: Option<VpcId>,
+}
+
+/// System-observed status for a network segment.
+#[derive(Debug, Clone)]
+pub struct NetworkSegmentStatus {
+    pub controller_state: Versioned<NetworkSegmentControllerState>,
+    /// The result of the last attempt to change state
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    /// History of state changes.
+    pub history: Vec<StateHistoryRecord>,
+    pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
+    pub vni: Option<i32>,
+    pub can_stretch: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
     pub id: NetworkSegmentId,
     pub version: ConfigVersion,
-    pub name: String,
-    pub subdomain_id: Option<DomainId>,
-    pub vpc_id: Option<VpcId>,
-    pub mtu: i32,
+    pub config: NetworkSegmentConfig,
+    pub status: NetworkSegmentStatus,
 
-    pub controller_state: Versioned<NetworkSegmentControllerState>,
-
-    /// The result of the last attempt to change state
-    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    /// Prefixes are kept top-level because each NetworkPrefix contains both
+    /// user-specified fields (CIDR, gateway, reserve_first) and system-populated
+    /// fields (id, svi_ip, free_ip_count).
+    pub prefixes: Vec<NetworkPrefix>,
 
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
-
-    pub prefixes: Vec<NetworkPrefix>,
-    /// History of state changes.
-    pub history: Vec<NetworkSegmentStateHistory>,
-
-    pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
-    pub vni: Option<i32>,
-
-    pub segment_type: NetworkSegmentType,
-
-    pub can_stretch: Option<bool>,
-
-    pub allocation_strategy: AllocationStrategy,
 }
 
 impl NetworkSegment {
@@ -476,7 +484,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
         let prefixes = prefixes_json.0.into_iter().flatten().collect();
 
         let history = if let Some(column) = row.columns().iter().find(|c| c.name() == "history") {
-            let value: sqlx::types::Json<Vec<Option<NetworkSegmentStateHistory>>> =
+            let value: sqlx::types::Json<Vec<Option<StateHistoryRecord>>> =
                 row.try_get(column.ordinal())?;
             value.0.into_iter().flatten().collect()
         } else {
@@ -486,25 +494,29 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
         Ok(NetworkSegment {
             id: row.try_get("id")?,
             version: row.try_get("version")?,
-            name: row.try_get("name")?,
-            subdomain_id: row.try_get("subdomain_id")?,
-            vpc_id: row.try_get("vpc_id")?,
-            controller_state: Versioned::new(
-                controller_state.0,
-                row.try_get("controller_state_version")?,
-            ),
-            controller_state_outcome: state_outcome.map(|x| x.0),
+            config: NetworkSegmentConfig {
+                name: row.try_get("name")?,
+                subdomain_id: row.try_get("subdomain_id")?,
+                mtu: row.try_get("mtu")?,
+                segment_type: row.try_get("network_segment_type")?,
+                allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
+                vpc_id: row.try_get("vpc_id")?,
+            },
+            status: NetworkSegmentStatus {
+                controller_state: Versioned::new(
+                    controller_state.0,
+                    row.try_get("controller_state_version")?,
+                ),
+                controller_state_outcome: state_outcome.map(|x| x.0),
+                history,
+                vlan_id: row.try_get("vlan_id").unwrap_or_default(),
+                vni: row.try_get("vni_id").unwrap_or_default(),
+                can_stretch: row.try_get("can_stretch")?,
+            },
+            prefixes,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
-            mtu: row.try_get("mtu")?,
-            prefixes,
-            history,
-            vlan_id: row.try_get("vlan_id").unwrap_or_default(),
-            vni: row.try_get("vni_id").unwrap_or_default(),
-            segment_type: row.try_get("network_segment_type")?,
-            can_stretch: row.try_get("can_stretch")?,
-            allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
         })
     }
 }
@@ -572,43 +584,58 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
 /// Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
 ///
 /// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
+#[allow(deprecated)]
 impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
     type Error = RpcDataConversionError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
-        // Note that even thought the segment might already be ready,
-        // we only return `Ready` after
-        // the state machine also noticed that. Otherwise we would need to also
-        // allow address allocation before the controller state is ready, which
-        // spreads out the state mismatch to a lot more places.
-        let mut state = match &src.controller_state.value {
+        // Deprecated TenantState mapping - kept to populate the backward-compat flat field.
+        // Note that even though the segment might already be ready,
+        // we only return `Ready` after the state machine also noticed that.
+        // Otherwise we would need to allow address allocation before the
+        // controller state is ready, which spreads out the state mismatch.
+        let tenant_state = match &src.status.controller_state.value {
             NetworkSegmentControllerState::Provisioning => TenantState::Provisioning,
             NetworkSegmentControllerState::Ready => TenantState::Ready,
             NetworkSegmentControllerState::Deleting { .. } => TenantState::Terminating,
         };
-        // If deletion is requested, we immediately overwrite the state to terminating.
-        // Even though the state controller hasn't caught up - it eventually will
-        if src.is_marked_as_deleted() {
-            state = TenantState::Terminating;
-        }
+        // If deletion is requested, immediately overwrite to terminating.
+        // The state controller will eventually catch up.
+        let tenant_state = if src.is_marked_as_deleted() {
+            TenantState::Terminating
+        } else {
+            tenant_state
+        };
 
-        let mut history = Vec::with_capacity(src.history.len());
+        // lifecycle.state: full JSON serialization of the internal controller state.
+        // Consistent with how Switch and PowerShelf populate LifecycleStatus.
+        let lifecycle_state =
+            serde_json::to_string(&src.status.controller_state.value).unwrap_or_default();
 
-        for state in src.history {
-            history.push(rpc::forge::NetworkSegmentStateHistory::try_from(state)?);
-        }
+        let sla: rpc::forge::StateSla = state_sla(
+            &src.status.controller_state.value,
+            &src.status.controller_state.version,
+        )
+        .into();
+
+        let state_reason: Option<rpc::forge::ControllerStateReason> =
+            src.status.controller_state_outcome.map(Into::into);
+
+        let history: Vec<rpc::forge::NetworkSegmentStateHistory> =
+            src.status.history.into_iter().map(Into::into).collect();
 
         let flags: Vec<i32> = {
             use rpc::forge::NetworkSegmentFlag::*;
 
             let mut flags = vec![];
 
-            let can_stretch = src.can_stretch.unwrap_or_else(|| {
+            let can_stretch = src.status.can_stretch.unwrap_or_else(|| {
                 // If the segment's can_stretch flag is NULL in the database,
                 // we're going to have to go off of what an FNN-created
                 // segment's prefixes would look like, and then assume any such
                 // FNN segment is _not_ stretchable.
                 src.prefixes.iter().all(|p| !p.smells_like_fnn())
             });
+
             if can_stretch {
                 flags.push(CanStretch);
             }
@@ -622,29 +649,59 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             flags.into_iter().map(|flag| flag as i32).collect()
         };
 
+        let prefixes: Vec<rpc::forge::NetworkPrefix> =
+            src.prefixes.into_iter().map(Into::into).collect();
+
+        let version = src.version.version_string();
+
         Ok(rpc::NetworkSegment {
             id: Some(src.id),
-            version: src.version.version_string(),
-            name: src.name,
-            subdomain_id: src.subdomain_id,
-            mtu: Some(src.mtu),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
-            prefixes: src
-                .prefixes
-                .into_iter()
-                .map(rpc::forge::NetworkPrefix::from)
-                .collect_vec(),
-            vpc_id: src.vpc_id,
-            state: state as i32,
-            state_reason: src.controller_state_outcome.map(|r| r.into()),
-            state_sla: Some(
-                state_sla(&src.controller_state.value, &src.controller_state.version).into(),
-            ),
-            history,
-            segment_type: src.segment_type as i32,
+
+            // New structured fields - internal clients use these.
+            // Note: prefixes are placed under config in the proto even though they are top-level
+            // in the Rust model. The Rust model keeps them top-level because each NetworkPrefix
+            // contains mixed config fields (CIDR, gateway) and status fields (free_ip_count,
+            // svi_ip). The proto puts them under config as the closest semantic fit for now.
+            config: Some(rpc::forge::NetworkSegmentConfig {
+                vpc_id: src.config.vpc_id,
+                subdomain_id: src.config.subdomain_id,
+                mtu: Some(src.config.mtu),
+                prefixes: prefixes.clone(),
+                segment_type: src.config.segment_type as i32,
+            }),
+            status: Some(rpc::forge::NetworkSegmentStatus {
+                flags: flags.clone(),
+                lifecycle: Some(rpc::forge::LifecycleStatus {
+                    state: lifecycle_state,
+                    version: version.clone(),
+                    state_reason: state_reason.clone(),
+                    sla: Some(sla),
+                }),
+                tenant_state: tenant_state as i32,
+            }),
+            metadata: Some(rpc::forge::Metadata {
+                name: src.config.name.clone(),
+                description: String::new(),
+                labels: vec![],
+            }),
+
+            // Deprecated flat fields - populated for external client compatibility.
+            // Remove after nico-rest migrates to config/status/metadata (Phase 3).
+            vpc_id: src.config.vpc_id,
+            name: src.config.name,
+            subdomain_id: src.config.subdomain_id,
+            mtu: Some(src.config.mtu),
+            prefixes,
+            segment_type: src.config.segment_type as i32,
             flags,
+            version,
+            state: tenant_state as i32,
+            history,
+            state_reason,
+            state_sla: Some(sla),
         })
     }
 }

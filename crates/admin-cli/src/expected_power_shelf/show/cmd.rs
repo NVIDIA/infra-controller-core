@@ -63,8 +63,8 @@ pub async fn show(
         }));
 
     let bmc_ips = expected_mi
-        .iter()
-        .filter_map(|(_, iface)| iface.address.first())
+        .values()
+        .filter_map(|iface| iface.address.first())
         .cloned()
         .collect::<Vec<_>>();
 
@@ -124,20 +124,8 @@ fn convert_and_print_into_nice_table(
             )
             .map(String::as_str);
 
-        let labels = expected_power_shelf
-            .metadata
-            .as_ref()
-            .map(|m| {
-                m.labels
-                    .iter()
-                    .map(|label| {
-                        let key = label.key.as_str();
-                        let value = label.value.as_deref().unwrap_or_default();
-                        format!("\"{}:{}\"", key, value)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let labels =
+            crate::metadata::fmt_labels_as_kv_pairs(expected_power_shelf.metadata.as_ref());
 
         table.add_row(row![
             expected_power_shelf.shelf_serial_number,

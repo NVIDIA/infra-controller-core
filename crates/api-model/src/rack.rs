@@ -23,8 +23,6 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use rpc::Timestamp;
-use rpc::forge::LifecycleStatus;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -34,6 +32,35 @@ use crate::component_manager::PowerAction;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
+
+// Well-known label keys!
+//
+// For rack chassis and location, there are currently a few labels that we
+// are passing through from the NICo REST API into NICo. These labels get
+// used by orchestration systems and tooling who want to work on, and have
+// awareness of, racks based on their physical location.
+//
+// At the time of this writing, these are all new and optional, but it made
+// the most sense to put them in as labels due to their optional and flexible
+// nature as we smooth things out. In the interim, it seemed to make sense
+// to at least have some "well known" defs for now, which may very well
+// change over time.
+//
+// These labels apply to both ExpectedRack AND Rack metadata labels, which
+// are applied from Expected -> Managed at promition time.
+//
+// First, rack chassis info labels, which physically identifies the rack
+// hardware itself.
+pub const LABEL_CHASSIS_MANUFACTURER: &str = "chassis.manufacturer";
+pub const LABEL_CHASSIS_SERIAL_NUMBER: &str = "chassis.serial-number";
+pub const LABEL_CHASSIS_MODEL: &str = "chassis.model";
+
+// Next, rack location info labels, which identifies where the rack
+// physically lives.
+pub const LABEL_LOCATION_REGION: &str = "location.region";
+pub const LABEL_LOCATION_DATACENTER: &str = "location.datacenter";
+pub const LABEL_LOCATION_ROOM: &str = "location.room";
+pub const LABEL_LOCATION_POSITION: &str = "location.position";
 
 #[derive(Debug, Clone)]
 pub struct Rack {
@@ -55,6 +82,8 @@ pub struct Rack {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FirmwareUpgradeJob {
     pub job_id: Option<String>,
+    #[serde(default)]
+    pub firmware_id: Option<String>,
     pub status: Option<String>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
@@ -216,6 +245,18 @@ impl SwitchNvosUpdateStatus {
     pub fn is_in_progress(&self) -> bool {
         self.ended_at.is_none()
     }
+
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self.status,
+            SwitchNvosUpdateState::Completed | SwitchNvosUpdateState::Failed { .. }
+        )
+    }
+
+    pub fn is_current_for(&self, requested_at: DateTime<Utc>) -> bool {
+        self.ended_at.is_some_and(|ts| ts >= requested_at)
+            || self.started_at.is_some_and(|ts| ts >= requested_at)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,62 +268,12 @@ pub enum SwitchNvosUpdateState {
     Failed { cause: String },
 }
 
-impl From<Rack> for rpc::forge::Rack {
-    fn from(value: Rack) -> Self {
-        let health = derive_rack_aggregate_health(&value.health_reports);
-        let health_sources = value
-            .health_reports
-            .iter()
-            .map(|(hr, m)| rpc::forge::HealthSourceOrigin {
-                mode: m as i32,
-                source: hr.source.clone(),
-            })
-            .collect();
-
-        let lifecycle = LifecycleStatus {
-            state: serde_json::to_string(&value.controller_state.value).unwrap_or_default(),
-            version: value.controller_state.version.version_string(),
-            state_reason: value.controller_state_outcome.map(Into::into),
-            sla: Some(rpc::forge::StateSla {
-                sla: None, // TODO: Calculate SLA properly
-                time_in_state_above_sla: false,
-            }),
-        };
-
-        rpc::forge::Rack {
-            id: Some(value.id),
-            rack_state: value.controller_state.value.to_string(),
-            expected_compute_trays: vec![],
-            expected_power_shelves: vec![],
-            expected_nvlink_switches: vec![],
-            compute_trays: vec![],
-            power_shelves: vec![],
-            switches: vec![],
-            created: Some(Timestamp::from(value.created)),
-            updated: Some(Timestamp::from(value.updated)),
-            deleted: value.deleted.map(Timestamp::from),
-            metadata: Some(value.metadata.into()),
-            version: value.version.version_string(),
-            config: Some(rpc::forge::RackConfig {}),
-            status: Some(rpc::forge::RackStatus {
-                health: Some(health.into()),
-                health_sources,
-                lifecycle: Some(lifecycle),
-            }),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default)]
-pub struct RackSearchFilter {}
-
-impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
-    fn from(_filter: rpc::forge::RackSearchFilter) -> Self {
-        RackSearchFilter {}
-    }
+pub struct RackSearchFilter {
+    pub label: Option<crate::metadata::LabelFilter>,
 }
 
-fn derive_rack_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
+pub fn derive_rack_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
     if let Some(replace) = &sources.replace {
         return replace.clone();
     }
@@ -300,9 +291,8 @@ impl<'r> FromRow<'r, PgRow> for Rack {
         let controller_state: sqlx::types::Json<RackState> = row.try_get("controller_state")?;
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
-        // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
-            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
+            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_reports")
             .map(|j| j.0)
             .unwrap_or_default();
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
@@ -431,7 +421,9 @@ pub enum RackMaintenanceState {
     NVOSUpdate {
         nvos_update: NvosUpdateState,
     },
-    ConfigureNmxCluster,
+    ConfigureNmxCluster {
+        configure_nmx_cluster: ConfigureNmxClusterState,
+    },
     PowerSequence {
         rack_power: RackPowerState,
     },
@@ -449,11 +441,36 @@ impl Display for RackMaintenanceState {
             RackMaintenanceState::NVOSUpdate { nvos_update } => {
                 write!(f, "NVOSUpdate({})", nvos_update)
             }
-            RackMaintenanceState::ConfigureNmxCluster => write!(f, "ConfigureNmxCluster"),
+            RackMaintenanceState::ConfigureNmxCluster {
+                configure_nmx_cluster,
+            } => {
+                write!(f, "ConfigureNmxCluster({})", configure_nmx_cluster)
+            }
             RackMaintenanceState::PowerSequence { rack_power } => {
                 write!(f, "PowerSequence({})", rack_power)
             }
             RackMaintenanceState::Completed => write!(f, "Completed"),
+        }
+    }
+}
+
+/// Sub-states of `RackMaintenanceState::ConfigureNmxCluster`.
+///
+/// `Start` selects a primary switch and asks RMS to configure the
+/// NMX cluster. `WaitForFabricStatus` polls
+/// `GetScaleUpFabricServicesStatus` and persists the per-switch
+/// `fabric_manager_status` before advancing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConfigureNmxClusterState {
+    Start,
+    WaitForFabricStatus,
+}
+
+impl Display for ConfigureNmxClusterState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigureNmxClusterState::Start => write!(f, "Start"),
+            ConfigureNmxClusterState::WaitForFabricStatus => write!(f, "WaitForFabricStatus"),
         }
     }
 }
@@ -475,7 +492,7 @@ impl Display for FirmwareUpgradeState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NvosUpdateState {
-    Start { artifact: ResolvedNvosArtifact },
+    Start { rack_firmware_id: Option<String> },
     WaitForComplete,
 }
 
@@ -637,6 +654,11 @@ pub enum MaintenanceActivity {
         #[serde(default)]
         components: Vec<String>,
     },
+    NvosUpdate {
+        /// Rack firmware entry containing the switch system image to install.
+        /// `None` means the default rack firmware for the rack is used.
+        rack_firmware_id: Option<String>,
+    },
     ConfigureNmxCluster,
     PowerSequence,
     /// Per-device power control, dispatched by the rack state controller to
@@ -659,6 +681,7 @@ impl std::fmt::Display for MaintenanceActivity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MaintenanceActivity::FirmwareUpgrade { .. } => write!(f, "FirmwareUpgrade"),
+            MaintenanceActivity::NvosUpdate { .. } => write!(f, "NvosUpdate"),
             MaintenanceActivity::ConfigureNmxCluster => write!(f, "ConfigureNmxCluster"),
             MaintenanceActivity::PowerSequence => write!(f, "PowerSequence"),
             MaintenanceActivity::PowerControl { .. } => write!(f, "PowerControl"),
@@ -845,6 +868,9 @@ mod tests {
             firmware_version: None,
             components: vec![],
         }));
+        assert!(scope.should_run(&MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: None,
+        }));
         assert!(scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
         assert!(scope.should_run(&MaintenanceActivity::PowerSequence));
     }
@@ -862,6 +888,9 @@ mod tests {
             firmware_version: None,
             components: vec![],
         }));
+        assert!(!scope.should_run(&MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: None,
+        }));
         assert!(!scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
         assert!(!scope.should_run(&MaintenanceActivity::PowerSequence));
     }
@@ -874,6 +903,9 @@ mod tests {
                     firmware_version: None,
                     components: vec![],
                 },
+                MaintenanceActivity::NvosUpdate {
+                    rack_firmware_id: Some("fw-nvos".into()),
+                },
                 MaintenanceActivity::PowerSequence,
             ],
             ..Default::default()
@@ -883,6 +915,9 @@ mod tests {
             components: vec![],
         }));
         assert!(!scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
+        assert!(scope.should_run(&MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: None,
+        }));
         assert!(scope.should_run(&MaintenanceActivity::PowerSequence));
     }
 
@@ -897,6 +932,14 @@ mod tests {
         let b = MaintenanceActivity::FirmwareUpgrade {
             firmware_version: None,
             components: vec![],
+        };
+        assert!(a.same_kind(&b));
+
+        let a = MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: Some("fw-a".into()),
+        };
+        let b = MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: None,
         };
         assert!(a.same_kind(&b));
     }
@@ -924,6 +967,13 @@ mod tests {
         assert_eq!(
             MaintenanceActivity::ConfigureNmxCluster.to_string(),
             "ConfigureNmxCluster"
+        );
+        assert_eq!(
+            MaintenanceActivity::NvosUpdate {
+                rack_firmware_id: None,
+            }
+            .to_string(),
+            "NvosUpdate"
         );
         assert_eq!(
             MaintenanceActivity::PowerSequence.to_string(),
@@ -1018,5 +1068,40 @@ mod tests {
         let rejection = RackMaintenanceRejection::AlreadyPending;
         let msg = rejection.to_string();
         assert!(msg.contains("already has a pending maintenance request"));
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_with_label_key_and_value() {
+        let rpc_filter = rpc::forge::RackSearchFilter {
+            label: Some(rpc::forge::Label {
+                key: LABEL_LOCATION_DATACENTER.to_string(),
+                value: Some("az01".to_string()),
+            }),
+        };
+        let filter = RackSearchFilter::from(rpc_filter);
+        let label = filter.label.unwrap();
+        assert_eq!(label.key, LABEL_LOCATION_DATACENTER);
+        assert_eq!(label.value, Some("az01".to_string()));
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_with_label_key_only() {
+        let rpc_filter = rpc::forge::RackSearchFilter {
+            label: Some(rpc::forge::Label {
+                key: LABEL_CHASSIS_MANUFACTURER.to_string(),
+                value: None,
+            }),
+        };
+        let filter = RackSearchFilter::from(rpc_filter);
+        let label = filter.label.unwrap();
+        assert_eq!(label.key, LABEL_CHASSIS_MANUFACTURER);
+        assert!(label.value.is_none());
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_no_label() {
+        let rpc_filter = rpc::forge::RackSearchFilter { label: None };
+        let filter = RackSearchFilter::from(rpc_filter);
+        assert!(filter.label.is_none());
     }
 }

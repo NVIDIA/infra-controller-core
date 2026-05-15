@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
@@ -27,35 +28,35 @@ use std::time::Instant;
 
 use carbide_firmware::FirmwareConfig;
 use carbide_network::sanitized_mac;
+use carbide_redfish::libredfish::conv::IntoModel;
+use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config::SiteExplorerConfig;
-use config_version::ConfigVersion;
 use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
 use forge_secrets::credentials::CredentialManager;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, PowerState,
-    PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
+    ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
+    PowerState, PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use utils::periodic_timer::PeriodicTimer;
 use version_compare::Cmp;
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
@@ -84,11 +85,35 @@ use model::rack::Rack;
 pub use switch_creator::SwitchCreator;
 pub mod config;
 pub mod errors;
+use std::sync::atomic::AtomicBool;
 
+use carbide_ipmi::IPMITool;
+use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
+use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
+
+pub fn new_bmc_explorer(
+    redfish_client_pool: Arc<dyn RedfishClientPool>,
+    nv_redfish_client_pool: Arc<NvRedfishClientPool>,
+    ipmi_tool: Arc<dyn IPMITool>,
+    credential_manager: Arc<dyn CredentialManager>,
+    rotate_switch_nvos_credentials: Arc<AtomicBool>,
+    mode: SiteExplorerExploreMode,
+) -> Arc<BmcEndpointExplorer> {
+    BmcEndpointExplorer::new(
+        redfish_client_pool,
+        nv_redfish_client_pool,
+        ipmi_tool,
+        credential_manager,
+        rotate_switch_nvos_credentials,
+        mode,
+    )
+    .into()
+}
 
 /// Ensures a rack row exists for the given `rack_id`.
 ///
@@ -157,18 +182,23 @@ pub async fn fetch_slot_and_tray(
 pub struct Endpoint<'a> {
     address: IpAddr,
     iface: &'a MachineInterfaceSnapshot,
-    last_redfish_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
-    last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
-    last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
-    old_report: Option<(ConfigVersion, &'a EndpointExplorationReport)>,
+    last_explored: Option<&'a ExploredEndpoint>,
     pub(crate) expected: Option<&'a ExpectedEntity>,
-    pause_remediation: bool,
-    boot_interface_mac: Option<MacAddress>,
+    pause_ingestion_and_poweron: bool,
 }
 
 impl Display for Endpoint<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.address)
+    }
+}
+
+impl<'a> Endpoint<'a> {
+    fn preingestion_state(&self) -> Cow<'a, PreingestionState> {
+        self.last_explored
+            .map_or(Cow::Owned(PreingestionState::Initial), |e| {
+                Cow::Borrowed(&e.preingestion_state)
+            })
     }
 }
 
@@ -431,9 +461,11 @@ impl SiteExplorer {
 
             let previous_health_report = machine
                 .as_ref()
-                .and_then(|machine| machine.site_explorer_health_report.as_ref());
+                .and_then(|machine| machine.site_explorer_health_report());
             let mut new_health_report: health_report::HealthReport =
-                health_report::HealthReport::empty("site-explorer".to_string());
+                health_report::HealthReport::empty(
+                    health_report::HealthReport::SITE_EXPLORER_SOURCE.to_string(),
+                );
 
             if let Some(ref e) = ep.report.last_exploration_error {
                 metrics.increment_endpoint_explorations_failures_overall_count(
@@ -460,10 +492,11 @@ impl SiteExplorer {
             }
 
             for system in ep.report.systems.iter() {
-                if system.power_state != PowerState::On {
+                if should_alert_power_state(system.power_state) {
                     new_health_report
                         .alerts
                         .push(health_report::HealthProbeAlert {
+                            // PoweredOff alert ID covers Off/Paused/Unknown states
                             id: "PoweredOff".parse().unwrap(),
                             target: Some(ep.address.to_string()),
                             in_alert_since: None,
@@ -598,7 +631,7 @@ impl SiteExplorer {
         // the generation of both reports is not necessarily atomic.
         // This is improvable
         // However since host information rarely changes (we never reassign MachineInterfaces),
-        // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
+        // this should be ok. The most noticeable effect is that ManagedHost population might be delayed a bit.
         let mut identified_hosts = self
             .identify_managed_hosts(
                 metrics,
@@ -706,6 +739,27 @@ impl SiteExplorer {
             explored_endpoint.address
         );
 
+        // Defense against the duplicate-power-shelves bug: if a power shelf
+        // already exists in the database for this BMC MAC, don't make another
+        // one. This mirrors the dedup check on the switch creation path and
+        // catches the case where the input we hash to mint the
+        // `PowerShelfId` drifts between exploration cycles.
+        if let Some(existing) =
+            db_power_shelf::find_by_bmc_mac_address(&mut txn, expected_shelf.bmc_mac_address)
+                .await?
+        {
+            tracing::warn!(
+                bmc_mac = %expected_shelf.bmc_mac_address,
+                existing_power_shelf_id = %existing.id,
+                endpoint = %explored_endpoint.address,
+                "Power shelf already exists for this BMC MAC; skipping discovery",
+            );
+            txn.rollback()
+                .await
+                .map_err(|e| DatabaseError::new("rollback create_power_shelf", e))?;
+            return Ok(false);
+        }
+
         // Check if a power shelf with the same name already exists
         if !expected_shelf.metadata.name.is_empty() {
             let existing_power_shelves = db_power_shelf::find_by(
@@ -762,6 +816,7 @@ impl SiteExplorer {
         let new_power_shelf = NewPowerShelf {
             id: power_shelf_id,
             config,
+            bmc_mac_address: Some(expected_shelf.bmc_mac_address),
             metadata: Some(expected_shelf.metadata.clone()),
             rack_id: expected_shelf.rack_id.clone(),
         };
@@ -915,6 +970,26 @@ impl SiteExplorer {
             // a bare managed host regardless of what matched).
             let host_dpu_mode = effective_mode(&ep.address);
 
+            // If an operator has declared this host `dpu_mode::NoDpu`,
+            // treat it as zero-DPU, regardless of what BMC hardware
+            // enumeration says about attached DPUs. Without this check,
+            // we can't ingest hosts which may have >= DPUs, but aren't
+            // actively using them. For instance, a machine may have DPUs
+            // that aren't actually cabled up, and we're instead using a
+            // basic NIC. Since they aren't cabled, we'll never be able to
+            // discover + link them; just ignore them entirely.
+            if matches!(host_dpu_mode, DpuMode::NoDpu) {
+                managed_hosts.push((
+                    ExploredManagedHost {
+                        host_bmc_ip: ep.address,
+                        dpus: Vec::new(),
+                    },
+                    ep.report,
+                ));
+                metrics.exploration_identified_managed_hosts += 1;
+                continue;
+            }
+
             // the list of DPUs that the site-explorer has explored for this host
             let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
             // the number of DPUs that the host reports are attached to it
@@ -1022,7 +1097,7 @@ impl SiteExplorer {
                                 continue;
                             }
 
-                            // TODO: we can use dpu_ep_entry.remove() insted of clone here but we need to
+                            // TODO: we can use dpu_ep_entry.remove() instead of clone here but we need to
                             // make sure that it will not affect fallback_dpu_serial_numbers logic.
                             let dpu_ep = dpu_ep_entry.get().clone();
                             dpus_explored_for_host.push(ExploredDpu {
@@ -1182,14 +1257,23 @@ impl SiteExplorer {
                 });
             }
 
-            // For NicMode / NoDpu hosts, don't attach DPUs even if matching
+            // For NicMode hosts, don't attach DPUs even if matching
             // discovered some: the operator has declared "treat this host
             // as zero-DPU". Any DPU hardware has already had `set_nic_mode`
             // issued by the check-and-configure step above if it was in
             // DPU mode; this cycle we just emit a bare host.
+            // For NoDpu hosts, we should have already returned/continued
+            // earlier on after detecting the host_dpu_mode as such, so
+            // this shouldn't fire.
             let dpus = match host_dpu_mode {
-                DpuMode::NicMode | DpuMode::NoDpu => Vec::new(),
+                DpuMode::NicMode => Vec::new(),
                 DpuMode::DpuMode => dpus_explored_for_host,
+                // Now that we continue/return early for NoDpu hosts,
+                // we shouldn't actually get here. Probably could be
+                // lazy and just leave it as Vec::new(), but I think
+                // this firing would also surface a bug, which we
+                // probably want.
+                DpuMode::NoDpu => unreachable!("NoDpu hosts should have already returned early"),
             };
 
             managed_hosts.push((
@@ -1358,7 +1442,8 @@ impl SiteExplorer {
         let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
-                underlay_segments.contains(&iface.segment_id) && iface.machine_id.is_none()
+                underlay_segments.contains(&iface.segment_id)
+                    && (iface.machine_id.is_none() || iface.interface_type == InterfaceType::Bmc)
             })
             .collect();
 
@@ -1422,12 +1507,8 @@ impl SiteExplorer {
             explore_endpoint_data.push(Endpoint {
                 address,
                 iface,
-                last_redfish_bmc_reset: endpoint.last_redfish_bmc_reset,
-                last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
-                last_redfish_reboot: endpoint.last_redfish_reboot,
-                old_report: Some((endpoint.report_version, &endpoint.report)),
-                pause_remediation: endpoint.pause_remediation,
-                boot_interface_mac: endpoint.boot_interface_mac,
+                last_explored: Some(endpoint),
+                pause_ingestion_and_poweron: endpoint.pause_ingestion_and_poweron,
                 expected: index.matched_expected(&address),
             });
         }
@@ -1438,15 +1519,13 @@ impl SiteExplorer {
             .iter()
             .take(remaining_explore_endpoints)
         {
+            let pause_ingestion_and_poweron =
+                pause_ingestion_and_poweron(index.expected(), &iface.mac_address);
             explore_endpoint_data.push(Endpoint {
                 address: *address,
                 iface,
-                last_redfish_bmc_reset: None,
-                last_ipmitool_bmc_reset: None,
-                last_redfish_reboot: None,
-                old_report: None,
-                pause_remediation: false, // New endpoints haven't been explored yet, so pause_remediation defaults to false
-                boot_interface_mac: None, // boot_interface_mac not yet discovered for new endpoints
+                last_explored: None,
+                pause_ingestion_and_poweron,
                 expected: index.matched_expected(address),
             });
         }
@@ -1465,12 +1544,8 @@ impl SiteExplorer {
                 explore_endpoint_data.push(Endpoint {
                     address,
                     iface,
-                    last_redfish_bmc_reset: endpoint.last_redfish_bmc_reset,
-                    last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
-                    last_redfish_reboot: endpoint.last_redfish_reboot,
-                    old_report: Some((endpoint.report_version, &endpoint.report)),
-                    pause_remediation: endpoint.pause_remediation,
-                    boot_interface_mac: endpoint.boot_interface_mac,
+                    last_explored: Some(endpoint),
+                    pause_ingestion_and_poweron: endpoint.pause_ingestion_and_poweron,
                     expected: index.matched_expected(&address),
                 });
             }
@@ -1515,8 +1590,8 @@ impl SiteExplorer {
                             bmc_target_addr,
                             endpoint.iface,
                             endpoint.expected,
-                            endpoint.old_report.map(|report| report.1),
-                            endpoint.boot_interface_mac,
+                            endpoint.last_explored.and_then(|e| e.report.last_exploration_error.as_ref()),
+                            endpoint.last_explored.and_then(|e| e.boot_interface_mac),
                         )
                         .await;
 
@@ -1551,7 +1626,7 @@ impl SiteExplorer {
                                 // It's possible that we knew about this host type before but do not now, so make sure we
                                 // do not keep stale data.
                                 report.versions = HashMap::default();
-                                tracing::debug!("Can not find fimware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
+                                tracing::debug!("Can not find firmware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
                             }
 
                             // Go through the chassis entries and get what at least one of them says
@@ -1584,7 +1659,7 @@ impl SiteExplorer {
 
         let mut redfish_errors = Vec::new();
 
-        for (mut endpoint, result, exploration_duration) in exploration_results.into_iter() {
+        for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
             let address = endpoint.address;
             let mut redfish_error = None;
 
@@ -1611,17 +1686,26 @@ impl SiteExplorer {
                 && let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc)
                 && let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi)
             {
-                db::machine_topology::update_firmware_version_by_bmc_address(
-                    &mut txn,
-                    &address,
-                    bmc_version,
-                    uefi_version,
-                )
-                .await?;
+                let machine_id = match report.machine_id.as_ref().copied() {
+                    Some(machine_id) => Some(machine_id),
+                    None => db::machine::find_id_by_bmc_ip(&mut txn, &address).await?,
+                };
+
+                if let Some(machine_id) = machine_id {
+                    db::machine_topology::update_firmware_version_by_machine_id(
+                        &mut txn,
+                        &machine_id,
+                        bmc_version,
+                        uefi_version,
+                    )
+                    .await?;
+                }
             }
 
-            match endpoint.old_report {
-                Some((old_version, ref mut old_report)) => {
+            match endpoint.last_explored {
+                Some(explored) => {
+                    let old_version = explored.report_version;
+                    let old_report = &explored.report;
                     match result {
                         Ok(mut report) => {
                             report.last_exploration_latency = Some(exploration_duration);
@@ -1644,14 +1728,11 @@ impl SiteExplorer {
                         Err(e) => {
                             // If an endpoint can not be explored we don't delete the known information, since it's
                             // still helpful. The failure might just be intermittent.
-                            let mut old_report = old_report.clone();
-                            old_report.last_exploration_error = Some(e);
-                            old_report.last_exploration_latency = Some(exploration_duration);
-                            db::explored_endpoints::try_update(
+                            db::explored_endpoints::try_update_last_exploration_error(
                                 address,
                                 old_version,
-                                &old_report,
-                                true,
+                                &e,
+                                exploration_duration,
                                 &mut txn,
                             )
                             .await?;
@@ -1729,20 +1810,32 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
         error: &EndpointExplorationError,
     ) {
-        // Check if remediation is paused for this endpoint first
-        if endpoint.pause_remediation {
+        // Check if remediation is paused for this endpoint first.
+        // New endpoints haven't been explored yet, so pause_remediation defaults to false
+        if endpoint.last_explored.is_some_and(|e| e.pause_remediation) {
             tracing::info!(
                 "Site explorer will not remediate error for {endpoint} because remediation is paused for this endpoint: {error}"
             );
             return;
         }
 
-        // If site explorer cant log in, theres nothing we can do.
+        // If site explorer can't log in, there's nothing we can do.
         if !self
             .endpoint_explorer
             .have_credentials(endpoint.iface)
             .await
         {
+            return;
+        }
+
+        if !matches!(
+            *endpoint.preingestion_state(),
+            PreingestionState::Initial | PreingestionState::Complete
+        ) {
+            tracing::info!(
+                "Site explorer will not remediate error for {endpoint} because endpoint is in preingestion state {:?}: {error}",
+                endpoint.preingestion_state(),
+            );
             return;
         }
 
@@ -1764,16 +1857,51 @@ impl SiteExplorer {
             }
         };
 
+        // Power on machine endpoints in the initial preingestion state automatically unless ingestion was explicitly paused.
+        if matches!(*endpoint.preingestion_state(), PreingestionState::Initial)
+            && matches!(endpoint.expected, Some(ExpectedEntity::Machine(_)))
+            && !endpoint.pause_ingestion_and_poweron
+            && let Ok(power_state) = self.redfish_get_power_state(endpoint).await
+            && !matches!(power_state, PowerState::On)
+        {
+            tracing::warn!(
+                "Site Explorer found a host (bmc_ip_address: {}) that isnt on. Turning it on now.",
+                endpoint.address,
+            );
+
+            match self
+                .redfish_power(endpoint, libredfish::SystemPowerControl::On)
+                .await
+            {
+                Ok(()) => return,
+                Err(err) => {
+                    tracing::error!(%err, "Site Explorer failed to power on host through Redfish");
+                }
+            }
+        }
+
         // Dont let site explorer issue either a force-restart or bmc-reset more than the rate limit.
         let reset_rate_limit = self.config.reset_rate_limit;
         let min_time_since_last_action_mins = 20;
         let start = Utc::now();
-        let time_since_redfish_reboot =
-            start.signed_duration_since(endpoint.last_redfish_reboot.unwrap_or_default());
-        let time_since_redfish_bmc_reset =
-            start.signed_duration_since(endpoint.last_redfish_bmc_reset.unwrap_or_default());
-        let time_since_ipmitool_bmc_reset =
-            start.signed_duration_since(endpoint.last_ipmitool_bmc_reset.unwrap_or_default());
+        let time_since_redfish_reboot = start.signed_duration_since(
+            endpoint
+                .last_explored
+                .and_then(|e| e.last_redfish_reboot)
+                .unwrap_or_default(),
+        );
+        let time_since_redfish_bmc_reset = start.signed_duration_since(
+            endpoint
+                .last_explored
+                .and_then(|e| e.last_redfish_bmc_reset)
+                .unwrap_or_default(),
+        );
+        let time_since_ipmitool_bmc_reset = start.signed_duration_since(
+            endpoint
+                .last_explored
+                .and_then(|e| e.last_ipmitool_bmc_reset)
+                .unwrap_or_default(),
+        );
 
         if time_since_redfish_reboot.num_minutes() < min_time_since_last_action_mins
             || time_since_redfish_bmc_reset.num_minutes() < min_time_since_last_action_mins
@@ -1799,7 +1927,7 @@ impl SiteExplorer {
         if (error.is_dpu_redfish_bios_response_invalid())
             && time_since_redfish_reboot > reset_rate_limit
             && self
-                .force_restart(endpoint)
+                .redfish_power(endpoint, libredfish::SystemPowerControl::ForceRestart)
                 .await
                 .map_err(|err| {
                     tracing::error!(
@@ -1921,6 +2049,49 @@ impl SiteExplorer {
         }
     }
 
+    async fn redfish_get_power_state(
+        &self,
+        endpoint: &Endpoint<'_>,
+    ) -> SiteExplorerResult<PowerState> {
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+
+        self.endpoint_explorer
+            .redfish_get_power_state(bmc_target_addr, endpoint.iface)
+            .await
+            .map(IntoModel::into_model)
+            .map_err(|err| SiteExplorerError::EndpointExplorationError {
+                action: "redfish_get_power_state",
+                err,
+            })
+    }
+
+    async fn redfish_power(
+        &self,
+        endpoint: &Endpoint<'_>,
+        action: libredfish::SystemPowerControl,
+    ) -> SiteExplorerResult<()> {
+        let is_reboot = matches!(&action, libredfish::SystemPowerControl::ForceRestart);
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+
+        self.endpoint_explorer
+            .redfish_power_control(bmc_target_addr, endpoint.iface, action)
+            .await
+            .map_err(|err| SiteExplorerError::EndpointExplorationError {
+                action: "redfish_power",
+                err,
+            })?;
+
+        if is_reboot {
+            let mut txn = self.txn_begin().await?;
+            db::explored_endpoints::set_last_redfish_reboot(endpoint.address, &mut txn).await?;
+            txn.commit().await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn is_viking_bmc(&self, endpoint: &Endpoint<'_>) -> bool {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
@@ -1954,39 +2125,8 @@ impl SiteExplorer {
                 ))
             })?;
 
-        self.force_restart(endpoint).await
-    }
-
-    pub async fn force_restart(&self, endpoint: &Endpoint<'_>) -> SiteExplorerResult<()> {
-        tracing::info!(
-            "SiteExplorer is initiating a reboot through Redfish to IP {}",
-            endpoint.address
-        );
-        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
-        let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
-        match self
-            .endpoint_explorer
-            .redfish_power_control(
-                bmc_target_addr,
-                endpoint.iface,
-                libredfish::SystemPowerControl::ForceRestart,
-            )
+        self.redfish_power(endpoint, libredfish::SystemPowerControl::ForceRestart)
             .await
-        {
-            Ok(()) => {
-                let mut txn = self.txn_begin().await?;
-
-                db::explored_endpoints::set_last_redfish_reboot(endpoint.address, &mut txn).await?;
-
-                txn.commit().await?;
-
-                Ok(())
-            }
-            Err(e) => Err(SiteExplorerError::internal(format!(
-                "site-explorer failed to reboot {}: {:#?}",
-                endpoint.address, e
-            ))),
-        }
     }
 
     async fn is_managed_host_created_for_endpoint(
@@ -2181,41 +2321,81 @@ impl SiteExplorer {
         }
 
         let mut ingest_host = true;
+        let interface = match self
+            .find_machine_interface_for_ip(host_endpoint.address)
+            .await
+        {
+            Ok(interface) => Some(interface),
+            Err(e) => {
+                tracing::warn!(
+                    bmc_ip_address = %host_endpoint.address,
+                    error = %e,
+                    "Site Explorer could not find machine interface for host endpoint",
+                );
+                None
+            }
+        };
 
-        if !matches!(system.power_state, PowerState::On) {
+        // The cached `systems[].power_state` may be stale when this endpoint was
+        // not refreshed in the current iteration, so prefer a live Redfish power
+        // state check for uningested hosts. The exceptions are auth/lockout and
+        // unreachable failures, where another live read is either unsafe or very
+        // unlikely to help. `None` means we have no trustworthy reading; we fall
+        // back to the cached state for remediation decisions only and defer
+        // ingestion to a later run.
+        let fresh_power_state: Option<PowerState> =
+            match host_endpoint.report.last_exploration_error.as_ref() {
+                Some(err) if err.is_unauthorized() || err.is_unreachable() => None,
+                _ => match interface.as_ref() {
+                    Some(interface) => self
+                        .endpoint_explorer
+                        .redfish_get_power_state(bmc_target_addr, interface)
+                        .await
+                        .ok()
+                        .map(IntoModel::into_model),
+                    None => None,
+                },
+            };
+
+        let effective_power_state = fresh_power_state.unwrap_or(system.power_state);
+
+        if fresh_power_state.is_none() {
+            ingest_host = false;
+        }
+
+        if !matches!(effective_power_state, PowerState::On) {
+            ingest_host = false;
+
             if host_endpoint.pause_remediation {
                 tracing::info!(
                     "Site Explorer found an uningested host (bmc_ip_address: {}) that is off, but remediation is paused — skipping power-on",
                     host_endpoint.address,
                 );
-            } else {
+            } else if fresh_power_state.is_some() {
                 tracing::warn!(
-                    "Site Explorer found an uningested host (bmc_ip_address: {}) that isnt on: {:#?}",
+                    "Site Explorer found an uningested host (bmc_ip_address: {}) that isn't on: {:#?}",
                     host_endpoint.address,
-                    system.power_state
+                    effective_power_state
                 );
 
-                let interface = self
-                    .find_machine_interface_for_ip(host_endpoint.address)
-                    .await?;
-
-                self.endpoint_explorer
-                    .redfish_power_control(
-                        bmc_target_addr,
-                        &interface,
-                        libredfish::SystemPowerControl::On,
-                    )
-                    .await
-                    .map_err(|err| {
-                        tracing::error!(
-                            "Site Explorer failed to turn on host (bmc_ip_address: {}) through redfish: {}",
-                            host_endpoint.address,
-                            err
+                if let Some(interface) = interface.as_ref() {
+                    self.endpoint_explorer
+                        .redfish_power_control(
+                            bmc_target_addr,
+                            interface,
+                            libredfish::SystemPowerControl::On,
                         )
-                    }).ok();
+                        .await
+                        .map_err(|err| {
+                            tracing::error!(
+                                "Site Explorer failed to turn on host (bmc_ip_address: {}) through redfish: {}",
+                                host_endpoint.address,
+                                err
+                            )
+                        })
+                        .ok();
+                }
             }
-
-            ingest_host = false;
         }
 
         if host_endpoint.report.vendor.unwrap_or_default().is_nvidia() {
@@ -2561,8 +2741,21 @@ fn pause_ingestion_and_poweron(
     false
 }
 
+/// Returns true if the power state should trigger a PoweredOff health alert.
+///
+/// We alert on `Off`, `Paused`, and `Unknown` states, but NOT on transitional
+/// states (`PoweringOn`, `PoweringOff`) because the BMC is still responding
+/// during graceful power reset (warm reboot)
+fn should_alert_power_state(power_state: PowerState) -> bool {
+    !matches!(
+        power_state,
+        PowerState::On | PowerState::PoweringOn | PowerState::PoweringOff
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
 
     use super::*;
@@ -2684,5 +2877,19 @@ mod tests {
             find_host_pf_mac_address(&ep1),
             Err("Missing FirmwareInventory".to_string())
         );
+    }
+
+    #[test]
+    fn test_should_alert_power_state() {
+        // Should NOT alert on On or transitional states (PoweringOn/PoweringOff)
+        // because the BMC is still responding during graceful power reset
+        assert!(!should_alert_power_state(PowerState::On));
+        assert!(!should_alert_power_state(PowerState::PoweringOn));
+        assert!(!should_alert_power_state(PowerState::PoweringOff));
+
+        // Should alert on Off, Paused, and Unknown states
+        assert!(should_alert_power_state(PowerState::Off));
+        assert!(should_alert_power_state(PowerState::Paused));
+        assert!(should_alert_power_state(PowerState::Unknown));
     }
 }

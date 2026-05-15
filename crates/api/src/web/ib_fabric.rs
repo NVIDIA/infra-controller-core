@@ -25,16 +25,13 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::Base;
 use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "ib_fabric_show.html")]
 struct IbFabricShow {
-    fabrics: Vec<IbFabricRowDisplay>,
-}
-
-struct IbFabricRowDisplay {
-    id: String,
+    fabrics: Vec<String>,
 }
 
 /// List fabrics
@@ -51,12 +48,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let tmpl = IbFabricShow {
-        fabrics: fabrics
-            .into_iter()
-            .map(|id| IbFabricRowDisplay { id })
-            .collect(),
-    };
+    let tmpl = IbFabricShow { fabrics };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
@@ -86,3 +78,5 @@ pub async fn fetch_ib_fabric_ids(api: Arc<Api>) -> Result<Vec<String>, tonic::St
 
     Ok(ib_fabric_ids)
 }
+
+impl super::Base for IbFabricShow {}
