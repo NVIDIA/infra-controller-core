@@ -454,7 +454,7 @@ fn from_component_integrity(
     let ca_certificate_link = integrity
         .spdm
         .map(|x| x.identity_authentication)
-        .map(|x| x.component_certificate)
+        .map(|x| x.responder_authentication.component_certificate)
         .map(|x| x.odata_id);
 
     let evidence_target =
