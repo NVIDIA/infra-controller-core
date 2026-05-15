@@ -3,7 +3,7 @@
 {% block title %}Paired Explored Endpoints{% endblock %}
 
 {% block content %}
-<h1>Explored Managed Hosts</h1>
+<h1>Explored Managed Hosts ({{ page.total_items() }})</h1>
 <table class="sortable overview">
 	<thead>
 		<tr>
@@ -57,5 +57,7 @@
 		</tr>
 	</tfoot>
 </table>
+
+{% include "pages_footer.html" %}
 
 {% endblock %}

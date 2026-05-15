@@ -16,8 +16,6 @@
  */
 
 use std::cmp::min;
-use std::fmt;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
@@ -27,8 +25,9 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
-use serde::{Deserialize, Deserializer, de};
+use serde::Deserialize;
 
+use super::pagination::{PageContext, empty_string_as_none};
 use super::{Base, filters};
 use crate::api::Api;
 
@@ -38,15 +37,8 @@ const UNUSED_CAPABILITY_PROPERTY: &str = "(ignored)";
 #[derive(Template)]
 #[template(path = "instance_type_show.html")]
 struct InstanceTypeShow {
-    path: String,
     instance_types: Vec<InstanceTypeRowDisplay>,
-    current_page: usize,
-    previous: usize,
-    next: usize,
-    pages: usize,
-    page_range_start: usize,
-    page_range_end: usize,
-    limit: usize,
+    page: PageContext,
 }
 
 #[derive(PartialEq, Eq)]
@@ -165,20 +157,6 @@ impl From<forgerpc::InstanceTypeMachineCapabilityFilterAttributes>
     }
 }
 
-/// Serde deserialization decorator to map empty Strings to None,
-fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: FromStr,
-    T::Err: fmt::Display,
-{
-    let opt = Option::<String>::deserialize(de)?;
-    match opt.as_deref() {
-        None | Some("") => Ok(None),
-        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
-    }
-}
-
 /// Struct for deserializing a request to view
 /// existing instance types
 #[derive(Deserialize, Debug)]
@@ -214,15 +192,8 @@ pub async fn show(
     };
 
     let tmpl = InstanceTypeShow {
-        path: path.path().to_string(),
         instance_types,
-        current_page,
-        previous: current_page.saturating_sub(1),
-        next: current_page.saturating_add(1),
-        pages,
-        page_range_start: current_page.saturating_sub(3),
-        page_range_end: min(current_page.saturating_add(4), pages),
-        limit,
+        page: PageContext::from_page_count(current_page, limit, pages, path.path()),
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }

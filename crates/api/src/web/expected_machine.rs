@@ -26,18 +26,15 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
 use super::Base;
+use super::pagination::{self, PageContext, PaginationParams};
 use crate::api::Api;
 use crate::web::filters;
 
 #[derive(Template)]
 #[template(path = "expected_machine_show.html")]
 struct ExpectedMachines {
-    all_machines: Vec<ExpectedMachineRow>,
-    completed_machines: Vec<ExpectedMachineRow>,
-    unseen_machines: Vec<ExpectedMachineRow>,
-    unexplored_machines: Vec<ExpectedMachineRow>,
-    unlinked_machines: Vec<ExpectedMachineRow>,
-    unexpected_machines: Vec<UnexpectedMachineRow>,
+    expected_rows: Vec<ExpectedMachineRow>,
+    unexpected_rows: Vec<UnexpectedMachineRow>,
     all_count: usize,
     completed_count: usize,
     unseen_count: usize,
@@ -45,6 +42,7 @@ struct ExpectedMachines {
     unlinked_count: usize,
     unexpected_count: usize,
     active_tab: String,
+    page: PageContext,
 }
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize)]
@@ -152,15 +150,17 @@ impl ExpectedMachineTabs {
 
 pub async fn show_all_html(
     AxumState(api): AxumState<Arc<Api>>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
-    let active_tab = params
-        .get("tab")
-        .cloned()
-        .unwrap_or_else(|| "all".to_string());
+    let active_tab = params.remove("tab").unwrap_or_else(|| "all".to_string());
     if !TABS.contains(&active_tab.as_str()) {
         return (StatusCode::BAD_REQUEST, "Unknown tab").into_response();
     }
+
+    let pagination_params = PaginationParams {
+        current_page: params.remove("current_page").and_then(|s| s.parse().ok()),
+        limit: params.remove("limit").and_then(|s| s.parse().ok()),
+    };
 
     let result = match api
         .get_all_expected_machines_linked(tonic::Request::new(()))
@@ -208,13 +208,48 @@ pub async fn show_all_html(
     unexpected_machines.sort_unstable();
     let unexpected_count = unexpected_machines.len();
 
+    let (expected_rows, unexpected_rows, info) = match active_tab.as_str() {
+        "all" => {
+            let (info, rows) =
+                pagination::paginate_vec(expected_tabs.all_machines, &pagination_params);
+            (rows, Vec::new(), info)
+        }
+        "completed" => {
+            let (info, rows) =
+                pagination::paginate_vec(expected_tabs.completed_machines, &pagination_params);
+            (rows, Vec::new(), info)
+        }
+        "unseen" => {
+            let (info, rows) =
+                pagination::paginate_vec(expected_tabs.unseen_machines, &pagination_params);
+            (rows, Vec::new(), info)
+        }
+        "unexplored" => {
+            let (info, rows) =
+                pagination::paginate_vec(expected_tabs.unexplored_machines, &pagination_params);
+            (rows, Vec::new(), info)
+        }
+        "unlinked" => {
+            let (info, rows) =
+                pagination::paginate_vec(expected_tabs.unlinked_machines, &pagination_params);
+            (rows, Vec::new(), info)
+        }
+        "unexpected" => {
+            let (info, rows) = pagination::paginate_vec(unexpected_machines, &pagination_params);
+            (Vec::new(), rows, info)
+        }
+        _ => unreachable!(),
+    };
+
+    let extra_query_params = if active_tab != "all" {
+        format!("&tab={active_tab}")
+    } else {
+        String::new()
+    };
+
     let tmpl = ExpectedMachines {
-        all_machines: expected_tabs.all_machines,
-        completed_machines: expected_tabs.completed_machines,
-        unseen_machines: expected_tabs.unseen_machines,
-        unexplored_machines: expected_tabs.unexplored_machines,
-        unlinked_machines: expected_tabs.unlinked_machines,
-        unexpected_machines,
+        expected_rows,
+        unexpected_rows,
         all_count,
         completed_count,
         unseen_count,
@@ -222,6 +257,8 @@ pub async fn show_all_html(
         unlinked_count,
         unexpected_count,
         active_tab,
+        page: PageContext::new(info, "/admin/expected-machine")
+            .with_extra_params(extra_query_params),
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }

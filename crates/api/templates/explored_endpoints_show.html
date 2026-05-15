@@ -7,7 +7,7 @@
 <div id="json"><a href="/admin/explored-endpoint.json">JSON</a></div>
 {% endif %}
 
-<h1>{{ filter_name }} Explored Endpoints{% if is_errors_only %} - Errors{% endif %}</h1>
+<h1>{{ filter_name }} Explored Endpoints{% if is_errors_only %} - Errors{% endif %} ({{ page.total_items() }})</h1>
 
 <details {% if active_vendor_filter != "all" || is_errors_only %}open{% endif %}>
 	<summary>Show filters</summary>
@@ -95,5 +95,7 @@
 		</tr>
 	</tfoot>
 </table>
+
+{% include "pages_footer.html" %}
 
 {% endblock %}

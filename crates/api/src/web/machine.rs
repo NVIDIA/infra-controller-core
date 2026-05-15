@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Path as AxumPath, Query, State as AxumState};
+use axum::extract::{OriginalUri, Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use carbide_rpc_utils::managed_host_display::to_time;
@@ -31,6 +31,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
 
+use super::pagination::{self, PageContext, PaginationParams};
 use super::state_history::StateHistoryTable;
 use super::{Base, filters};
 use crate::api::Api;
@@ -41,6 +42,7 @@ use crate::web::action_status::{self, ActionStatus};
 struct MachineShow {
     title: &'static str,
     machines: Vec<MachineRowDisplay>,
+    page: PageContext,
 }
 
 #[derive(PartialEq, Eq)]
@@ -175,13 +177,17 @@ impl MachineRowDisplay {
     }
 }
 
-pub async fn show_hosts_html(state: AxumState<Arc<Api>>) -> impl IntoResponse {
-    show(state, true, false).await
+pub async fn show_hosts_html(
+    state: AxumState<Arc<Api>>,
+    query: Query<PaginationParams>,
+    path: OriginalUri,
+) -> impl IntoResponse {
+    show(state, true, false, query, path).await
 }
 
 pub async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, false, true).await {
-        Ok(m) => m,
+        Ok(r) => r,
         Err(err) => {
             tracing::error!(%err, "fetch_machines");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();
@@ -190,13 +196,17 @@ pub async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response 
     (StatusCode::OK, Json(machines)).into_response()
 }
 
-pub async fn show_dpus_html(state: AxumState<Arc<Api>>) -> impl IntoResponse {
-    show(state, false, true).await
+pub async fn show_dpus_html(
+    state: AxumState<Arc<Api>>,
+    query: Query<PaginationParams>,
+    path: OriginalUri,
+) -> impl IntoResponse {
+    show(state, false, true, query, path).await
 }
 
 pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut machines = match fetch_machines(state, true, true).await {
-        Ok(m) => m,
+        Ok(r) => r,
         Err(err) => {
             tracing::error!(%err, "fetch_machines");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();
@@ -209,13 +219,17 @@ pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 /// List machines
-pub async fn show_all_html(state: AxumState<Arc<Api>>) -> impl IntoResponse {
-    show(state, true, true).await
+pub async fn show_all_html(
+    state: AxumState<Arc<Api>>,
+    query: Query<PaginationParams>,
+    path: OriginalUri,
+) -> impl IntoResponse {
+    show(state, true, true, query, path).await
 }
 
 pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, true, true).await {
-        Ok(m) => m,
+        Ok(r) => r,
         Err(err) => {
             tracing::error!(%err, "fetch_machines");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();
@@ -228,6 +242,8 @@ async fn show(
     AxumState(state): AxumState<Arc<Api>>,
     include_hosts: bool,
     include_dpus: bool,
+    Query(params): Query<PaginationParams>,
+    uri: OriginalUri,
 ) -> Response {
     let all_machines = match fetch_machines(state.clone(), include_dpus, false).await {
         Ok(m) => m,
@@ -237,16 +253,6 @@ async fn show(
         }
     };
 
-    // Should we show this machine? Since we need to use this
-    // twice, make a closure out of it. Previously, we created
-    // looped over `all_machines` to create `machines` as mut,
-    // and then iter_mut'd over `machines` again to set the
-    // instance_type (name). We no longer use mut, but we still
-    // need to loop twice -- once to collect all of the instance
-    // type IDs the included list of machines, and then again to
-    // actually build `machines`. Maybe it was better to just
-    // leave `machines` as mut in this case, but hey this is
-    // where we are.
     let should_show_machine =
         |m: &forgerpc::Machine| match forgerpc::MachineType::try_from(m.machine_type) {
             Ok(forgerpc::MachineType::Host) => include_hosts,
@@ -254,9 +260,6 @@ async fn show(
             _ => false,
         };
 
-    // Populate all of the included instance_type_ids by going
-    // over all machines. If it's a machine we should show, and
-    // the ID isn't empty, include it.
     let instance_type_ids: Vec<String> = all_machines
         .machines
         .iter()
@@ -271,19 +274,12 @@ async fn show(
         .into_iter()
         .collect();
 
-    // And now pass all of the instance_type_ids to our name
-    // fetcher, which takes all of the IDs we care about.
     let instance_types = match fetch_instance_type_names(&state, instance_type_ids).await {
         Ok(instance_types) => instance_types,
         Err(e) => return e,
     };
 
-    // And NOW go over all of the machines we should show,
-    // setting the correct instance type on the machine.
-    // I added support for constructing a new MachineRowDisplay
-    // with an instance_type here so we didn't need to deal
-    // with it being mut (and retroactively populating it).
-    let machines: Vec<MachineRowDisplay> = all_machines
+    let all_display: Vec<MachineRowDisplay> = all_machines
         .machines
         .into_iter()
         .filter(should_show_machine)
@@ -299,6 +295,8 @@ async fn show(
         .sorted()
         .collect();
 
+    let (info, machines) = pagination::paginate_vec(all_display, &params);
+
     let tmpl = MachineShow {
         machines,
         title: if include_hosts && include_dpus {
@@ -308,6 +306,7 @@ async fn show(
         } else {
             "DPUs"
         },
+        page: PageContext::new(info, uri.path()),
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }

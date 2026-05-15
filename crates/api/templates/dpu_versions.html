@@ -4,7 +4,7 @@
 
 {% block content %}
 <div id="json"><a id="json-link" href="">JSON</a></div>
-<h1>DPU Versions</h1>
+<h1>DPU Versions ({{ page.total_items() }})</h1>
 
 <table class="sortable overview">
 	<thead>
@@ -44,5 +44,7 @@
 	{% endfor %}
 	</tbody>
 </table>
+
+{% include "pages_footer.html" %}
 
 {% endblock %}
