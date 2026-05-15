@@ -17,8 +17,6 @@
 
 use std::sync::Arc;
 
-use super::{Base, filters};
-use crate::api::Api;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
@@ -28,6 +26,9 @@ use carbide_uuid::network::NetworkSegmentId;
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
+
+use super::{Base, filters};
+use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "network_segment_show.html")]
