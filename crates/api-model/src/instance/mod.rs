@@ -53,9 +53,3 @@ pub struct NewInstance<'a> {
     pub extension_services_config_version: ConfigVersion,
     pub nvlink_config_version: ConfigVersion,
 }
-
-pub struct DeleteInstance {
-    pub instance_id: InstanceId,
-    pub issue: Option<rpc::forge::Issue>,
-    pub is_repair_tenant: Option<bool>,
-}
